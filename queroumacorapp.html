@@ -749,7 +749,7 @@ function doLogin(){
 async function doRegisterSupabase(name, email, password, type, tag) {
   const sb = getSupabase();
   if (!sb) { showScreen('feed'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name: name, user_type: type || 'client', tag: tag } } });
+  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { name: name, user_type: type || 'client', tag: tag } } });
   if (error) { alert('Erro: ' + error.message); } else { showScreen('feed'); }
 }
 
@@ -787,8 +787,8 @@ function searchPeople(query){
     const cleanQuery=query.replace('@','').trim();
     const {data,error}=await sb
       .from('profiles')
-      .select('id, full_name, avatar_url, tag, role, city')
-      .or('tag.ilike.%'+cleanQuery+'%,full_name.ilike.%'+cleanQuery+'%')
+      .select('id, name, avatar_url, tag, user_type, city')
+      .or('tag.ilike.%'+cleanQuery+'%,name.ilike.%'+cleanQuery+'%')
       .limit(20);
     if(error||!data||data.length===0){
       container.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--muted);">
@@ -807,12 +807,12 @@ function searchPeople(query){
       const isFollowing=followingIds.includes(p.id);
       const isSelf=currentUser&&currentUser.id===p.id;
       const roleBadge=p.role==='pintor'?'<span style="background:var(--ink);color:var(--p1);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.3px;margin-left:5px;">PINTOR</span>':'';
-      const avatarUrl=p.avatar_url||'https://ui-avatars.com/api/?name='+encodeURIComponent(p.full_name||'?')+'&background=e8e2d9&color=1a1a2e&size=96';
-      return `<div class="search-result-item" onclick="toast('Perfil de ${(p.full_name||p.tag||'').replace(/'/g,"\\'")}')">
+      const avatarUrl=p.avatar_url||'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'?')+'&background=e8e2d9&color=1a1a2e&size=96';
+      return `<div class="search-result-item" onclick="toast('Perfil de ${(p.name||p.tag||'').replace(/'/g,"\\'")}')">
         <div class="search-result-avatar"><img src="${avatarUrl}" alt=""></div>
         <div class="search-result-info">
-          <div class="search-result-tag">${p.tag?'@'+p.tag:p.full_name||'Sem tag'}${roleBadge}</div>
-          <div class="search-result-name">${p.full_name||''}${p.city?' · '+p.city:''}</div>
+          <div class="search-result-tag">${p.tag?'@'+p.tag:p.name||'Sem tag'}${roleBadge}</div>
+          <div class="search-result-name">${p.name||''}${p.city?' · '+p.city:''}</div>
         </div>
         ${isSelf?'':`<button class="search-result-follow ${isFollowing?'following':'follow'}" onclick="event.stopPropagation();toggleFollow('${p.id}',this)">${isFollowing?'Seguindo':'Seguir'}</button>`}
       </div>`;
@@ -3552,7 +3552,7 @@ async function loadFeed(){
     const sb = getSupabase();
     if(!sb){ return; }
     const { data: posts, error } = await sb.from('posts')
-      .select('*, profiles:user_id(full_name, avatar_url, city, state, role)')
+      .select('*, profiles:user_id(name, avatar_url, city, state, user_type)')
       .order('created_at', { ascending: false })
       .limit(30);
     if(error) throw error;
@@ -3564,7 +3564,7 @@ async function loadFeed(){
     let html = '';
     posts.forEach((post, idx) => {
       const p = post.profiles || {};
-      const uname = p.full_name || 'Pintor';
+      const uname = p.name || 'Pintor';
       const city = [p.city, p.state].filter(Boolean).join(', ') || '';
       const avatar = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
       const timeAgo = getTimeAgo(post.created_at);
@@ -3642,7 +3642,7 @@ async function loadStories(){
     const sb = getSupabase();
     if(!sb) return;
     const { data: stories, error } = await sb.from('posts')
-      .select('*, profiles:user_id(full_name, avatar_url)')
+      .select('*, profiles:user_id(name, avatar_url)')
       .eq('type', 'story')
       .order('created_at', { ascending: false })
       .limit(20);
@@ -3652,7 +3652,7 @@ async function loadStories(){
     let html = row.children[0].outerHTML; // keep add-story button
     stories.forEach(s => {
       const p = s.profiles || {};
-      const name = (p.full_name || 'User').split(' ')[0];
+      const name = (p.name || 'User').split(' ')[0];
       const avatar = p.avatar_url || s.image_url || 'https://i.pravatar.cc/150?img=68';
       html += `<div class="story" onclick="toast('Story de ${name}')">
         <div class="story-ring"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
@@ -3826,7 +3826,7 @@ function initLeafletMap(){
 
 function createPinIcon(painter){
   const avatar = painter.avatar_url || painter.img || 'https://i.pravatar.cc/150?img=68';
-  const name = (painter.full_name || painter.name || '').split(' ')[0];
+  const name = (painter.name || painter.name || '').split(' ')[0];
   const rating = painter.rating_avg || painter.rating || 0;
   const featured = rating >= 4.9;
   const html = `<div class="pin-bubble ${featured?'featured':''}">
@@ -3850,7 +3850,7 @@ async function loadMapPainters(){
     const sb = getSupabase();
     if(!sb) return;
     const { data: profiles, error } = await sb.from('profiles')
-      .select('id, full_name, avatar_url, city, state, role, specialties, rating_avg, lat, lng')
+      .select('id, name, avatar_url, city, state, user_type, specialties, rating_avg, lat, lng')
       .eq('role', 'pintor')
       .limit(50);
     if(error) throw error;
@@ -3871,7 +3871,7 @@ async function loadMapPainters(){
         marker._painterId = p.id;
         marker.on('click', () => {
           document.getElementById('pp-img').src = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
-          document.getElementById('pp-name').textContent = p.full_name || 'Pintor';
+          document.getElementById('pp-name').textContent = p.name || 'Pintor';
           document.getElementById('pp-sub').textContent = [p.city, p.state].filter(Boolean).join(', ') + (p.specialties ? ' - ' + p.specialties : '');
           document.getElementById('pp-stars').textContent = '* '.repeat(Math.floor(p.rating_avg||0)) + ' ' + Number(p.rating_avg||0).toFixed(1);
           document.getElementById('painter-popup').classList.add('show');
@@ -3880,9 +3880,9 @@ async function loadMapPainters(){
       }
 
       const stars = '* '.repeat(Math.floor(p.rating_avg||0));
-      listHtml += `<div onclick="toast('Perfil: ${p.full_name}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
+      listHtml += `<div onclick="toast('Perfil: ${p.name}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
         <img src="${p.avatar_url || 'https://i.pravatar.cc/150?img=68'}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.full_name || 'Pintor'}</div><div style="font-size:12px;color:var(--muted);">${[p.city, p.state].filter(Boolean).join(', ')} ${p.specialties ? '- ' + p.specialties : ''}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${Number(p.rating_avg||0).toFixed(1)}</div></div>
+        <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.name || 'Pintor'}</div><div style="font-size:12px;color:var(--muted);">${[p.city, p.state].filter(Boolean).join(', ')} ${p.specialties ? '- ' + p.specialties : ''}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${Number(p.rating_avg||0).toFixed(1)}</div></div>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>`;
     });
