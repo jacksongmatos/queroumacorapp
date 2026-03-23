@@ -557,6 +557,7 @@ const Leads = () => {
             <option value="name">Ordenar: Nome A-Z</option>
           </select>
           <button onClick={exportCSV} style={{ padding:'10px 16px', borderRadius:10, border:'1px solid '+C.border, background:C.bg, color:C.ink, fontSize:12, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>⬇ CSV</button>
+          <button onClick={()=>{ const q = prompt('🤖 Busca AI — Descreva o tipo de lead que procura:\n\nEx: "pintores residenciais com rating acima de 4.5 em SP"'); if(!q) return; setBusca(''); const terms = q.toLowerCase(); const aiFiltered = leads.filter(l => { const text = [l.name,l.segment,l.category,l.neighborhood,l.city,l.phone,l.priority].join(' ').toLowerCase(); return terms.split(' ').filter(t=>t.length>2).some(t=>text.includes(t)); }); if(aiFiltered.length>0){ alert('🤖 AI encontrou ' + aiFiltered.length + ' leads!'); setBusca(terms.split(' ').filter(t=>t.length>2).join(' ')); } else { alert('🤖 Nenhum lead encontrado. Tente termos diferentes.'); } }} style={{ padding:'10px 16px', borderRadius:10, border:'none', background:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(131,56,236,0.35)' }}>✨ Busca AI</button>
         </div>
 
         {/* SEGMENT CHIPS */}
@@ -585,14 +586,14 @@ const Leads = () => {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, color:C.ink }}>
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['#','NOME ↕','SEGMENTO ↕','CATEGORIA ↕','RATING ↕','TELEFONE','PRIO.','STATUS','AÇÃO'].map(h => (
+              {['NOME ↕','SEGMENTO ↕','CATEGORIA ↕','RATING ↕','TELEFONE','PRIO.','STATUS','AÇÃO'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'12px 10px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={9} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
+              <tr><td colSpan={8} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
             )}
             {filtered.map((l, i) => {
               const sc = statusColor(l.status);
@@ -601,7 +602,6 @@ const Leads = () => {
               const stars = l.rating ? '★'.repeat(Math.min(5,Math.round(Number(l.rating)))) : '';
               return (
                 <tr key={l.id || i} style={{ borderBottom:'1px solid '+C.border, transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(0,0,0,0.02)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <td style={{ padding:'12px 10px', color:C.muted, fontSize:12 }}>{String(l.id||i+1).padStart(3,'0')}</td>
                   <td style={{ padding:'12px 10px' }}>
                     <div style={{ fontWeight:600, color:C.ink }}>{l.name || '—'}</div>
                     <div style={{ fontSize:11, color:C.muted }}>{l.neighborhood || l.city || '—'}</div>
