@@ -1622,10 +1622,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="screen" id="screen-myprofile">
   <div style="background:var(--ink);padding:16px 16px 0;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-      <div style="width:56px;height:56px;border-radius:14px;overflow:hidden;border:2px solid rgba(255,255,255,.15);flex-shrink:0;"><img src="https://i.pravatar.cc/150?img=68" style="width:100%;height:100%;object-fit:cover" alt=""></div>
-      <div><div style="color:#fff;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;">Seu Nome</div><div style="color:rgba(255,255,255,.5);font-size:12px;">Configure seu perfil</div></div>
-      <button onclick="toast('Editando...')" style="margin-left:auto;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 13px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Editar</button>
-      <button onclick="doLogout()" style="background:rgba(230,57,70,.15);border:1px solid rgba(230,57,70,.3);border-radius:10px;padding:7px 13px;color:var(--p4);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Sair</button>
+      <div style="width:56px;height:56px;border-radius:14px;overflow:hidden;border:2px solid rgba(255,255,255,.15);flex-shrink:0;"><img id="myprofile-avatar" src="https://i.pravatar.cc/150?img=68" style="width:100%;height:100%;object-fit:cover" alt=""></div>
+      <div style="flex:1"><div id="myprofile-name" style="color:#fff;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;">Seu Nome</div><div id="myprofile-sub" style="color:rgba(255,255,255,.5);font-size:12px;">Configure seu perfil</div></div>
+      <button onclick="doLogout()" style="background:rgba(230,57,70,.15);border:1px solid rgba(230,57,70,.3);border-radius:10px;padding:7px 13px;color:#e63946;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Sair</button>
     </div>
     <div class="mode-toggle">
       <button class="mode-btn active" id="mode-pintor" onclick="setMode('pintor')">🖌️ Sou Pintor</button>
@@ -1637,32 +1636,72 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <div id="view-pintor">
     <div class="pro-banner" onclick="showModal('pro-modal')">
       <div class="pro-banner-icon">⚡</div>
-      <div class="pro-banner-text"><div class="pro-banner-title">Ative o Plano PRO</div><div class="pro-banner-sub">Receba pedidos de orçamento · R$39/mês</div></div>
+      <div class="pro-banner-text"><div class="pro-banner-title">Ative o Plano PRO</div><div class="pro-banner-sub">Destaque-se e receba mais clientes · R$39/mês</div></div>
       <div class="pro-banner-arrow">›</div>
     </div>
-    <div class="requests-section">
-      <div class="sec-title">📥 Pedidos de Orçamento</div>
-      <div class="req-card">
-        <div class="req-head">
-          <div class="req-av"><img src="https://i.pravatar.cc/150?img=20" alt=""></div>
-          <div><div class="req-name">Fernanda Costa</div><div class="req-sub">Pintura residencial · 80m² · Moema, SP</div></div>
-          <span class="req-tag new">Novo</span>
+
+    <!-- PINTOR MENU GRID -->
+    <div style="padding:14px;">
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Meu Negócio</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;">
+        <div onclick="showScreen('feed')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">📸</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Meu Portfolio</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Postar trabalhos</div>
         </div>
-        <div class="req-preview">"Preciso pintar sala e quartos, gosto de tons neutros..."</div>
-        <div class="req-btns">
-          <button class="req-btn accept" onclick="showScreen('chat-conv')">💬 Responder</button>
-          <button class="req-btn decline" onclick="toast('Pedido recusado')">Recusar</button>
+        <div onclick="toast('Em breve: Meus Cursos')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🎓</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Meus Cursos</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Criar e vender</div>
+        </div>
+        <div onclick="showScreen('calc')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🧮</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Calculadora</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Tinta e orçamento</div>
+        </div>
+        <div onclick="showScreen('chat')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">💬</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Mensagens</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Clientes e loja</div>
+        </div>
+        <div onclick="showScreen('mkt')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🛒</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Loja</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Cali Colors</div>
+        </div>
+        <div onclick="toast('Em breve: Certificados')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🏆</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Certificados</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Formação</div>
         </div>
       </div>
-      <div class="req-card">
-        <div class="req-head">
-          <div class="req-av"><img src="https://i.pravatar.cc/150?img=33" alt=""></div>
-          <div><div class="req-name">Ricardo Alves</div><div class="req-sub">Textura · 45m² · Santo André, SP</div></div>
-          <span class="req-tag seen">Visto</span>
+
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Pedidos de Orçamento</div>
+      <div id="pintor-requests" style="margin-bottom:14px;">
+        <div style="background:var(--white);border-radius:14px;padding:20px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+          <div style="font-size:32px;margin-bottom:8px;">📥</div>
+          <div style="font-size:14px;font-weight:700;color:var(--ink);">Nenhum pedido ainda</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">Ative o PRO para receber pedidos de clientes</div>
         </div>
-        <div class="req-preview">"Quero textura na sala, tenho fotos para mostrar..."</div>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Configurações</div>
+      <div style="background:var(--white);border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+        <div onclick="toast('Editando perfil...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <span style="font-size:18px;">✏️</span><div style="flex:1;font-size:14px;font-weight:600;">Editar Perfil</div><span style="color:var(--muted);">›</span>
+        </div>
+        <div onclick="toast('Especialidades...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <span style="font-size:18px;">🎨</span><div style="flex:1;font-size:14px;font-weight:600;">Especialidades</div><span style="color:var(--muted);">›</span>
+        </div>
+        <div onclick="toast('Raio de atendimento...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <span style="font-size:18px;">📍</span><div style="flex:1;font-size:14px;font-weight:600;">Raio de Atendimento</div><span style="color:var(--muted);">›</span>
+        </div>
+        <div onclick="toast('Notificações...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+          <span style="font-size:18px;">🔔</span><div style="flex:1;font-size:14px;font-weight:600;">Notificações</div><span style="color:var(--muted);">›</span>
+        </div>
       </div>
     </div>
+
     <button id="post-fab" onclick="showModal('post-modal')" style="position:fixed;right:20px;bottom:78px;width:52px;height:52px;border-radius:50%;background:var(--p1);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(255,107,53,.45);z-index:200;">
       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
@@ -1670,77 +1709,63 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 
   <!-- CLIENTE VIEW -->
   <div id="view-cliente" style="display:none">
-    <div class="client-hero">
-      <div class="client-hero-top">
-        <div class="client-av"><img src="https://i.pravatar.cc/150?img=47" alt=""></div>
-        <div><div class="client-name">Ana Beatriz</div><div class="client-sub">São Paulo, SP · Cliente desde 2024</div></div>
-        <button class="client-edit" onclick="toast('Editando perfil...')">Editar</button>
-      </div>
-    </div>
-    <div class="client-stats-row">
-      <div class="client-stat-card"><div class="csc-num">3</div><div class="csc-label">Pedidos</div></div>
-      <div class="client-stat-card"><div class="csc-num" style="color:var(--p3)">1</div><div class="csc-label">Em andamento</div></div>
-      <div class="client-stat-card"><div class="csc-num" style="color:var(--p5)">4</div><div class="csc-label">Favoritos</div></div>
-      <div class="client-stat-card"><div class="csc-num" style="color:var(--p6)">2</div><div class="csc-label">Avaliações</div></div>
-    </div>
-    <div class="client-section" style="margin-top:4px;">
-      <div class="client-sec-head"><div class="client-sec-title">📋 Meus Pedidos</div><div class="client-sec-link" onclick="showScreen('pedidos')">Ver todos</div></div>
-      <div class="pedido-card" onclick="showScreen('chat-conv')">
-        <div class="pedido-head">
-          <div class="pedido-pav"><img src="https://i.pravatar.cc/150?img=11" alt=""></div>
-          <div><div class="pedido-painter">Carlos Silva</div><div class="pedido-tipo">Pintura residencial · 80m²</div></div>
-          <div class="pedido-status status-aguardando">Aguardando</div>
+    <div style="padding:14px;">
+      <!-- CLIENTE MENU GRID -->
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">O que você precisa?</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;">
+        <div onclick="showScreen('explore')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🔍</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Achar Pintor</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Buscar no mapa</div>
         </div>
-        <div class="pedido-steps">
-          <div class="pstep done"><div class="pstep-dot">✓</div><div class="pstep-label">Enviado</div></div>
-          <div class="pstep active"><div class="pstep-dot">2</div><div class="pstep-label">Resposta</div></div>
-          <div class="pstep"><div class="pstep-dot">3</div><div class="pstep-label">Aceitar</div></div>
-          <div class="pstep"><div class="pstep-dot">4</div><div class="pstep-label">Concluído</div></div>
+        <div onclick="showScreen('pedidos')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">📋</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Meus Pedidos</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Orçamentos</div>
         </div>
-        <div class="pedido-meta"><span>📅 28/03/2026</span><span>📍 Moema, SP</span></div>
-        <div class="pedido-action-row">
-          <button class="pedido-action primary" onclick="event.stopPropagation();showScreen('chat-conv')">💬 Mensagem</button>
-          <button class="pedido-action secondary" onclick="event.stopPropagation();toast('Pedido cancelado')">Cancelar</button>
+        <div onclick="showScreen('avaliar')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">⭐</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Avaliar</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Dar nota</div>
         </div>
-      </div>
-      <div class="pedido-card" onclick="showModal('orc-detail-modal')">
-        <div class="pedido-head">
-          <div class="pedido-pav"><img src="https://i.pravatar.cc/150?img=12" alt=""></div>
-          <div><div class="pedido-painter">João Rodrigues</div><div class="pedido-tipo">Textura Venetian · 45m²</div></div>
-          <div class="pedido-status status-respondido">Respondido</div>
+        <div onclick="showScreen('chat')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">💬</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Mensagens</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Pintores e loja</div>
         </div>
-        <div class="pedido-steps">
-          <div class="pstep done"><div class="pstep-dot">✓</div><div class="pstep-label">Enviado</div></div>
-          <div class="pstep done"><div class="pstep-dot">✓</div><div class="pstep-label">Resposta</div></div>
-          <div class="pstep active"><div class="pstep-dot">3</div><div class="pstep-label">Aceitar</div></div>
-          <div class="pstep"><div class="pstep-dot">4</div><div class="pstep-label">Concluído</div></div>
+        <div onclick="showScreen('mkt')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🛒</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Loja</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Cali Colors</div>
         </div>
-        <div class="pedido-meta"><span>💰 R$3.200</span><span>📅 05/04/2026</span></div>
-        <div class="pedido-action-row">
-          <button class="pedido-action success" onclick="event.stopPropagation();showModal('orc-detail-modal')">✓ Ver orçamento</button>
-          <button class="pedido-action secondary" onclick="event.stopPropagation();showScreen('chat-conv')">💬 Chat</button>
+        <div onclick="showScreen('calc')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🧮</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Calculadora</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Quanto de tinta?</div>
         </div>
       </div>
-    </div>
-    <div class="client-section">
-      <div class="client-sec-head"><div class="client-sec-title">❤️ Pintores Favoritos</div><div class="client-sec-link" onclick="showScreen('explore')">Explorar</div></div>
-      <div class="favoritos-row">
-        <div class="fav-card" onclick="openProfile('carlos')"><img class="fav-card-img" src="https://images.unsplash.com/photo-1562663474-6cbb3eaa4d14?w=300" alt=""><div class="fav-card-body"><div class="fav-card-name">Carlos Silva</div><div class="fav-card-stars">★★★★★ 4.9</div></div></div>
-        <div class="fav-card" onclick="openProfile('joao')"><img class="fav-card-img" src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300" alt=""><div class="fav-card-body"><div class="fav-card-name">João R.</div><div class="fav-card-stars">★★★★★ 5.0</div></div></div>
-        <div class="fav-card" onclick="openProfile('marcia')"><img class="fav-card-img" src="https://images.unsplash.com/photo-1600585152220-90363fe7e115?w=300" alt=""><div class="fav-card-body"><div class="fav-card-name">Márcia P.</div><div class="fav-card-stars">★★★★★ 4.8</div></div></div>
-        <div class="fav-card" onclick="openProfile('fabio')"><img class="fav-card-img" src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300" alt=""><div class="fav-card-body"><div class="fav-card-name">Fábio T.</div><div class="fav-card-stars">★★★★★ 4.9</div></div></div>
-      </div>
-    </div>
-    <div class="client-section">
-      <div class="client-sec-head"><div class="client-sec-title">⭐ Obra Concluída — Avalie</div></div>
-      <div class="pedido-card" onclick="showScreen('avaliar')">
-        <div class="pedido-head">
-          <div class="pedido-pav"><img src="https://i.pravatar.cc/150?img=65" alt=""></div>
-          <div><div class="pedido-painter">Fábio Teixeira</div><div class="pedido-tipo">Epóxi industrial · Garagem · 30m²</div></div>
-          <div class="pedido-status status-concluido">Concluído</div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Favoritos</div>
+      <div id="cliente-favoritos" style="margin-bottom:20px;">
+        <div style="background:var(--white);border-radius:14px;padding:20px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+          <div style="font-size:32px;margin-bottom:8px;">❤️</div>
+          <div style="font-size:14px;font-weight:700;color:var(--ink);">Nenhum favorito ainda</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">Explore pintores e salve seus favoritos</div>
+          <button onclick="showScreen('explore')" style="margin-top:12px;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">🔍 Explorar Pintores</button>
         </div>
-        <div style="font-size:13px;color:var(--muted);margin-top:4px;">Concluído em 15/03/2026 · Avalie para ajudar outros clientes!</div>
-        <div class="pedido-action-row"><button class="pedido-action primary" onclick="event.stopPropagation();showScreen('avaliar')">⭐ Avaliar agora</button></div>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Configurações</div>
+      <div style="background:var(--white);border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+        <div onclick="toast('Editando perfil...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <span style="font-size:18px;">✏️</span><div style="flex:1;font-size:14px;font-weight:600;">Editar Perfil</div><span style="color:var(--muted);">›</span>
+        </div>
+        <div onclick="toast('Endereço...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <span style="font-size:18px;">📍</span><div style="flex:1;font-size:14px;font-weight:600;">Meu Endereço</div><span style="color:var(--muted);">›</span>
+        </div>
+        <div onclick="toast('Notificações...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+          <span style="font-size:18px;">🔔</span><div style="flex:1;font-size:14px;font-weight:600;">Notificações</div><span style="color:var(--muted);">›</span>
+        </div>
       </div>
     </div>
   </div>
