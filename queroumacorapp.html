@@ -635,6 +635,39 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);o
 .invite-3way svg{width:20px;height:20px;stroke:var(--muted);fill:none;stroke-width:1.8;flex-shrink:0;}
 .invite-3way span{font-size:13px;color:var(--muted);}
 
+/* ══════════════════════════════
+   MARKETPLACE
+══════════════════════════════ */
+.mkt-header{background:var(--ink);padding:14px 16px 0;position:sticky;top:0;z-index:10;}
+.mkt-logo-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.mkt-logo{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--ink);}
+.mkt-logo span{color:var(--p1);}
+.mkt-cart-btn{position:relative;width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.1);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.mkt-cart-btn svg{width:22px;height:22px;stroke:#fff;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+.mkt-cart-badge{position:absolute;top:-4px;right:-4px;width:20px;height:20px;background:var(--p1);border-radius:50%;font-size:11px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center;border:2px solid var(--ink);}
+.mkt-tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:14px;}
+.mkt-tabs::-webkit-scrollbar{display:none;}
+.mkt-tab{padding:8px 16px;border-radius:24px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:.15s;color:rgba(255,255,255,.55);border:1.5px solid rgba(255,255,255,.12);background:transparent;}
+.mkt-tab.active{background:var(--p1);color:#fff;border-color:var(--p1);}
+.mkt-body{padding:16px;}
+.mkt-section-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;color:var(--ink);margin-bottom:14px;}
+.mkt-products{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+.mkt-card{background:var(--white);border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.07);cursor:pointer;transition:.15s;}
+.mkt-card:active{transform:scale(.98);}
+.mkt-swatch{height:110px;display:flex;align-items:center;justify-content:center;font-size:42px;position:relative;}
+.mkt-badge-promo{position:absolute;top:10px;left:10px;background:var(--p1);color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;}
+.mkt-badge-new{position:absolute;top:10px;left:10px;background:var(--p1);color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;}
+.mkt-card-body{padding:12px;}
+.mkt-card-name{font-size:14px;font-weight:700;color:var(--ink);}
+.mkt-card-code{font-size:11px;color:var(--muted);margin-top:1px;}
+.mkt-card-vol{font-size:11px;color:var(--muted);margin-top:1px;}
+.mkt-card-price{font-size:16px;font-weight:800;color:var(--p1);margin-top:6px;}
+.mkt-card-stock{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;margin-top:4px;}
+.mkt-card-stock.ok{color:#2e7d32;}
+.mkt-card-stock.low{color:#e65100;}
+.mkt-card-add{width:100%;padding:10px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:10px;transition:.15s;}
+.mkt-card-add:active{opacity:.85;}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -2139,27 +2172,63 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <div class="mkt-products">
         <div class="mkt-card" onclick="showModal('product-detail-modal')">
           <div class="mkt-swatch" style="background:linear-gradient(135deg,#c4956a,#d4a870)"><span class="mkt-badge-promo">-10%</span>🪣</div>
-          <div class="mkt-card-body"><div class="mkt-card-name">Terracota Toscana</div><div class="mkt-card-vol">18L · 3,6L</div><div class="mkt-card-price">R$170,90<span style="font-size:10px;text-decoration:line-through;color:var(--muted);margin-left:5px;font-weight:400">R$189,90</span></div><button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button></div>
+          <div class="mkt-card-body">
+            <div class="mkt-card-name">Terracota Toscana</div>
+            <div class="mkt-card-code">CC-TT-001</div>
+            <div class="mkt-card-price">R$170,90</div>
+            <div class="mkt-card-stock low">⚠️ 3 unid</div>
+            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
+          </div>
         </div>
         <div class="mkt-card" onclick="showModal('product-detail-modal')">
           <div class="mkt-swatch" style="background:linear-gradient(135deg,#f5f0eb,#e8e0d5)"><span class="mkt-badge-new">NOVO</span>🪣</div>
-          <div class="mkt-card-body"><div class="mkt-card-name">Off-White Premium</div><div class="mkt-card-vol">18L · 3,6L</div><div class="mkt-card-price">R$148,40</div><button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button></div>
+          <div class="mkt-card-body">
+            <div class="mkt-card-name">Off-White Premium</div>
+            <div class="mkt-card-code">CC-OW-004</div>
+            <div class="mkt-card-price">R$164,90</div>
+            <div class="mkt-card-stock ok">✅ 47 unid</div>
+            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
+          </div>
         </div>
         <div class="mkt-card" onclick="showModal('product-detail-modal')">
           <div class="mkt-swatch" style="background:linear-gradient(135deg,#7a9e7e,#5a8060)">🪣</div>
-          <div class="mkt-card-body"><div class="mkt-card-name">Sage Green</div><div class="mkt-card-vol">18L · 3,6L</div><div class="mkt-card-price">R$157,40</div><button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button></div>
+          <div class="mkt-card-body">
+            <div class="mkt-card-name">Sage Green</div>
+            <div class="mkt-card-code">CC-SG-012</div>
+            <div class="mkt-card-price">R$174,90</div>
+            <div class="mkt-card-stock ok">✅ 22 unid</div>
+            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
+          </div>
         </div>
         <div class="mkt-card" onclick="showModal('product-detail-modal')">
           <div class="mkt-swatch" style="background:linear-gradient(135deg,#2c2c2c,#1a1a1a)">🪣</div>
-          <div class="mkt-card-body"><div class="mkt-card-name">Grafite Urbano</div><div class="mkt-card-vol">18L · 3,6L</div><div class="mkt-card-price">R$175,40</div><button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button></div>
+          <div class="mkt-card-body">
+            <div class="mkt-card-name">Grafite Urbano</div>
+            <div class="mkt-card-code">CC-GU-008</div>
+            <div class="mkt-card-price">R$194,90</div>
+            <div class="mkt-card-stock ok">✅ 15 unid</div>
+            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
+          </div>
         </div>
         <div class="mkt-card" onclick="showModal('product-detail-modal')">
           <div class="mkt-swatch" style="background:linear-gradient(135deg,#4a6fa5,#2a4f85)">🪣</div>
-          <div class="mkt-card-body"><div class="mkt-card-name">Azul Sereno</div><div class="mkt-card-vol">18L · 3,6L</div><div class="mkt-card-price">R$161,90</div><button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button></div>
+          <div class="mkt-card-body">
+            <div class="mkt-card-name">Azul Sereno</div>
+            <div class="mkt-card-code">CC-AS-019</div>
+            <div class="mkt-card-price">R$179,90</div>
+            <div class="mkt-card-stock ok">✅ 8 unid</div>
+            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
+          </div>
         </div>
         <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#e8d5c4,#d4b89a)">🎨</div>
-          <div class="mkt-card-body"><div class="mkt-card-name">Champagne Rosé</div><div class="mkt-card-vol">18L · 3,6L</div><div class="mkt-card-price">R$165,00</div><button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button></div>
+          <div class="mkt-swatch" style="background:linear-gradient(135deg,#e8d5c4,#d4b89a)">🪣</div>
+          <div class="mkt-card-body">
+            <div class="mkt-card-name">Champagne Rosé</div>
+            <div class="mkt-card-code">CC-VN-006</div>
+            <div class="mkt-card-price">R$165,00</div>
+            <div class="mkt-card-stock ok">✅ 6 unid</div>
+            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
+          </div>
         </div>
       </div>
     </div>
