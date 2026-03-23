@@ -1,4 +1,5 @@
 # queroumacor
+Portal conectado ao Supabase - dados reais
 
 
 
