@@ -3643,7 +3643,7 @@ async function loadStories(){
     if(!sb) return;
     const { data: stories, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url)')
-      .eq('type', 'story')
+      .eq('media_type', 'story')
       .order('created_at', { ascending: false })
       .limit(20);
     if(error) throw error;
