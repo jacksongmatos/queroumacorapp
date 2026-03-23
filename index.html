@@ -1575,16 +1575,17 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <div class="opc-sub">São Paulo, SP</div>
       </div>
     </div>
+    <input type="hidden" id="orc-painter-id" value="">
     <div class="fg"><label class="fl">Tipo de serviço</label>
-      <select class="fs"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></select>
+      <select id="orc-tipo" class="fs"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></select>
     </div>
     <div class="frow">
-      <div class="fg"><label class="fl">Metragem (m²)</label><input type="number" class="fi" placeholder="Ex: 80"></div>
+      <div class="fg"><label class="fl">Metragem (m²)</label><input id="orc-m2" type="number" class="fi" placeholder="Ex: 80"></div>
       <div class="fg"><label class="fl">Cômodos</label><input type="number" class="fi" placeholder="Ex: 4"></div>
     </div>
-    <div class="fg"><label class="fl">Endereço</label><input type="text" class="fi" placeholder="Bairro, cidade"></div>
-    <div class="fg"><label class="fl">Data desejada</label><input type="date" class="fi"></div>
-    <div class="fg"><label class="fl">Descrição</label><textarea class="fta" placeholder="Cores desejadas, estado das paredes, detalhes importantes..."></textarea></div>
+    <div class="fg"><label class="fl">Endereço</label><input id="orc-endereco" type="text" class="fi" placeholder="Bairro, cidade"></div>
+    <div class="fg"><label class="fl">Data desejada</label><input id="orc-data" type="date" class="fi"></div>
+    <div class="fg"><label class="fl">Descrição</label><textarea id="orc-desc" class="fta" placeholder="Cores desejadas, estado das paredes, detalhes importantes..."></textarea></div>
     <div class="photo-drop" onclick="toast('Câmera aberta!')">
       <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
       <span>Adicionar fotos do local</span>
@@ -2716,6 +2717,8 @@ const painters={
 let currentPainter='carlos';
 function openProfile(id){
   currentPainter=id;
+  const orcPainterInput=document.getElementById('orc-painter-id');
+  if(orcPainterInput) orcPainterInput.value=id;
   const p=painters[id];
 
   // Hero
@@ -3080,7 +3083,35 @@ function submitAvaliacao(){
 }
 
 // ══ ORCAMENTO ══
-function sendOrc(){toast('✅ Enviado! Carlos responderá em breve.');setTimeout(()=>showScreen('profile'),1600);}
+async function sendOrc(){
+  const sb=getSupabase();
+  const {data:{user}}=await sb.auth.getUser();
+  if(!user){toast('⚠️ Faça login primeiro.');return;}
+  const tipo=document.getElementById('orc-tipo')?.value||'';
+  const m2=parseFloat(document.getElementById('orc-m2')?.value)||null;
+  const endereco=document.getElementById('orc-endereco')?.value||'';
+  const data=document.getElementById('orc-data')?.value||null;
+  const desc=document.getElementById('orc-desc')?.value||'';
+  const painterId=document.getElementById('orc-painter-id')?.value||null;
+  if(!tipo){toast('⚠️ Selecione o tipo de serviço.');return;}
+  const btn=document.querySelector('.orc-submit');
+  if(btn){btn.disabled=true;btn.querySelector('span').textContent='Enviando...';}
+  const {error}=await sb.from('quotes').insert({
+    client_id:user.id,
+    painter_id:painterId||null,
+    title:tipo,
+    service_type:tipo,
+    area_m2:m2,
+    address:endereco,
+    description:desc,
+    proposed_date:data||null,
+    status:'pending'
+  });
+  if(btn){btn.disabled=false;btn.querySelector('span').textContent='📩 Enviar Solicitação';}
+  if(error){console.error('sendOrc error:',error);toast('❌ Erro ao enviar. Tente novamente.');return;}
+  toast('✅ Solicitação enviada! O pintor responderá em breve.');
+  setTimeout(()=>showScreen('profile'),1800);
+}
 let chatStoreAdded = false;
 
 function openChat(id) {
