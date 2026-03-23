@@ -749,8 +749,33 @@ function doLogin(){
 async function doRegisterSupabase(name, email, password, type, tag) {
   const sb = getSupabase();
   if (!sb) { showScreen('feed'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { name: name, user_type: type || 'client', tag: tag } } });
-  if (error) { alert('Erro: ' + error.message); } else { showScreen('feed'); }
+  const city = document.getElementById('s-city') ? document.getElementById('s-city').value.trim() : '';
+  const phone = document.getElementById('s-phone') ? document.getElementById('s-phone').value.trim() : '';
+  const cityParts = city.split(',').map(s=>s.trim());
+  const cityName = cityParts[0] || '';
+  const stateName = cityParts[1] || '';
+  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { name: name, user_type: type || 'cliente', tag: tag } } });
+  if (error) { alert('Erro: ' + error.message); return; }
+  // Create profile record
+  if(data && data.user){
+    try {
+      await sb.from('profiles').upsert({
+        id: data.user.id,
+        name: name,
+        tag: (tag || '').toLowerCase(),
+        user_type: type || 'cliente',
+        role: type || 'cliente',
+        city: cityName,
+        state: stateName,
+        phone: phone,
+        created_at: new Date().toISOString()
+      }, { onConflict: 'id' });
+    } catch(e){ console.warn('Profile create error:', e); }
+  }
+  currentUser = data.user;
+  autoDetectRole();
+  showScreen('feed');
+  toast('Conta criada com sucesso!');
 }
 
 async function doLogoutSupabase() {
@@ -1006,8 +1031,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
           <label class="auth-label">Sua tag única</label>
           <div style="position:relative;">
             <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:15px;font-weight:600;pointer-events:none;">@</span>
-            <input class="auth-input" type="text" id="s-tag" placeholder="seunomedeusuario" style="padding-left:30px;" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_.]/g,'')">
+            <input class="auth-input" type="text" id="s-tag" placeholder="seunomedeusuario" style="padding-left:30px;" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_.]/g,'')" onblur="checkTagAvailability()">
           </div>
+          <div id="tag-status" style="font-size:12px;margin-top:4px;display:none;"></div>
         </div>
         <div class="auth-field">
           <label class="auth-label">Email</label>
@@ -1030,8 +1056,8 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
             </button>
           </div>
         </div>
-        <button class="auth-btn" onclick="signupNext(3)">Continuar →</button>
-        <button class="auth-btn secondary" onclick="signupNext(1)">← Voltar</button>
+        <button class="auth-btn" onclick="validateAndGoStep3()">Continuar</button>
+        <button class="auth-btn secondary" onclick="signupNext(1)">Voltar</button>
       </div>
 
       <!-- STEP 3: pintor extras OR cliente prefs -->
@@ -1133,6 +1159,10 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <div style="font-size:13px;">Siga pintores para ver posts aqui!</div>
     </div>
   </div>
+  <!-- FAB on feed -->
+  <button onclick="showModal('post-modal')" style="position:fixed;right:20px;bottom:78px;width:52px;height:52px;border-radius:50%;background:var(--p1);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(255,107,53,.45);z-index:200;">
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
 </div>
 
 <!-- ══ EXPLORE / MAP SCREEN ══ -->
@@ -1627,7 +1657,27 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         </div>
       </div>
 
-      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Configurações</div>
+      <!-- INVITE CODE GENERATION -->
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Convidar Amigos</div>
+      <div id="invite-section-pintor" style="background:var(--white);border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.05);margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--p1),var(--p4));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:14px;font-weight:700;color:var(--ink);">Convide pintores e clientes</div>
+            <div style="font-size:12px;color:var(--muted);">Gere um codigo e compartilhe</div>
+          </div>
+        </div>
+        <div id="my-invite-code-pintor" style="display:none;background:var(--cream);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Seu codigo de convite</div>
+          <div id="my-invite-code-value-pintor" style="font-size:22px;font-weight:800;letter-spacing:3px;color:var(--ink);font-family:'Syne',sans-serif;"></div>
+        </div>
+        <button id="gen-invite-btn-pintor" onclick="generateInviteCode('pintor')" style="width:100%;padding:11px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Gerar Codigo de Convite</button>
+        <button id="share-invite-btn-pintor" onclick="shareInviteCode('pintor')" style="display:none;width:100%;padding:11px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:6px;">Compartilhar Codigo</button>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Configuracoes</div>
       <div style="background:var(--white);border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.05);">
         <div onclick="toast('Editando perfil...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
           <span style="font-size:18px;">✏️</span><div style="flex:1;font-size:14px;font-weight:600;">Editar Perfil</div><span style="color:var(--muted);">›</span>
@@ -1638,8 +1688,8 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <div onclick="toast('Raio de atendimento...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
           <span style="font-size:18px;">📍</span><div style="flex:1;font-size:14px;font-weight:600;">Raio de Atendimento</div><span style="color:var(--muted);">›</span>
         </div>
-        <div onclick="toast('Notificações...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;">
-          <span style="font-size:18px;">🔔</span><div style="flex:1;font-size:14px;font-weight:600;">Notificações</div><span style="color:var(--muted);">›</span>
+        <div onclick="toast('Notificacoes...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+          <span style="font-size:18px;">🔔</span><div style="flex:1;font-size:14px;font-weight:600;">Notificacoes</div><span style="color:var(--muted);">›</span>
         </div>
       </div>
     </div>
@@ -1697,16 +1747,36 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         </div>
       </div>
 
-      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Configurações</div>
+      <!-- INVITE CODE GENERATION (CLIENTE) -->
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Convidar Amigos</div>
+      <div id="invite-section-cliente" style="background:var(--white);border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.05);margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--p1),var(--p4));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:14px;font-weight:700;color:var(--ink);">Convide pintores e clientes</div>
+            <div style="font-size:12px;color:var(--muted);">Gere um codigo e compartilhe</div>
+          </div>
+        </div>
+        <div id="my-invite-code-cliente" style="display:none;background:var(--cream);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Seu codigo de convite</div>
+          <div id="my-invite-code-value-cliente" style="font-size:22px;font-weight:800;letter-spacing:3px;color:var(--ink);font-family:'Syne',sans-serif;"></div>
+        </div>
+        <button id="gen-invite-btn-cliente" onclick="generateInviteCode('cliente')" style="width:100%;padding:11px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Gerar Codigo de Convite</button>
+        <button id="share-invite-btn-cliente" onclick="shareInviteCode('cliente')" style="display:none;width:100%;padding:11px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:6px;">Compartilhar Codigo</button>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Configuracoes</div>
       <div style="background:var(--white);border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.05);">
         <div onclick="toast('Editando perfil...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
           <span style="font-size:18px;">✏️</span><div style="flex:1;font-size:14px;font-weight:600;">Editar Perfil</div><span style="color:var(--muted);">›</span>
         </div>
-        <div onclick="toast('Endereço...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
-          <span style="font-size:18px;">📍</span><div style="flex:1;font-size:14px;font-weight:600;">Meu Endereço</div><span style="color:var(--muted);">›</span>
+        <div onclick="toast('Endereco...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <span style="font-size:18px;">📍</span><div style="flex:1;font-size:14px;font-weight:600;">Meu Endereco</div><span style="color:var(--muted);">›</span>
         </div>
-        <div onclick="toast('Notificações...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;">
-          <span style="font-size:18px;">🔔</span><div style="flex:1;font-size:14px;font-weight:600;">Notificações</div><span style="color:var(--muted);">›</span>
+        <div onclick="toast('Notificacoes...')" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+          <span style="font-size:18px;">🔔</span><div style="flex:1;font-size:14px;font-weight:600;">Notificacoes</div><span style="color:var(--muted);">›</span>
         </div>
       </div>
     </div>
@@ -3553,6 +3623,7 @@ async function loadFeed(){
     if(!sb){ return; }
     const { data: posts, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url, city, state, user_type)')
+      .neq('type', 'story')
       .order('created_at', { ascending: false })
       .limit(30);
     if(error) throw error;
@@ -3587,6 +3658,14 @@ async function loadFeed(){
             <div class="ba-label a" id="${baId}-la">ANTES</div>
             <div class="ba-label d" id="${baId}-ld">DEPOIS</div>
             <div class="ba-hint">Toque para ver o resultado</div>
+          </div>
+          <div class="mpost-featured-actions">
+            <button class="act-btn" id="${likeId}" onclick="paintLike(event,'${likeId}','${likeCountId}','#8338ec')">
+              <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+            <div class="like-count" id="${likeCountId}">${likes['d-'+idx]}</div>
+            <button class="act-btn" onclick="toast('Comentarios')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+            <button class="act-btn" onclick="toast('Salvo!')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
           </div>
           <div class="mpost-featured-cap">
             <div class="post-cap">${post.content || ''}</div>
@@ -4029,6 +4108,142 @@ showScreen = function(n){
     setTimeout(initArchiveButtons, 100);
   }
 };
+
+// ══════════════════════════════
+//  TAG UNIQUENESS CHECK
+// ══════════════════════════════
+let tagAvailable = false;
+let tagCheckTimeout;
+
+async function validateAndGoStep3(){
+  const name = document.getElementById('s-name').value.trim();
+  const tag = document.getElementById('s-tag').value.trim();
+  const email = document.getElementById('s-email').value.trim();
+  const pw = document.getElementById('s-pw').value;
+  if(!name){ toast('Preencha seu nome'); return; }
+  if(!tag || tag.length < 3){ toast('Escolha uma tag com pelo menos 3 caracteres'); return; }
+  if(!email){ toast('Preencha seu email'); return; }
+  if(!pw || pw.length < 8){ toast('Senha deve ter no minimo 8 caracteres'); return; }
+  // Check tag availability before proceeding
+  const statusEl = document.getElementById('tag-status');
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Verificando tag...';
+  try {
+    const sb = getSupabase();
+    if(sb){
+      const { data } = await sb.from('profiles').select('id').eq('tag', tag.toLowerCase()).limit(1);
+      if(data && data.length > 0){
+        statusEl.style.color = 'var(--p4)';
+        statusEl.textContent = '@' + tag + ' ja esta em uso. Escolha outra tag.';
+        tagAvailable = false;
+        return;
+      }
+    }
+  } catch(e){ console.warn('Tag check error:', e); }
+  tagAvailable = true;
+  statusEl.style.display = 'none';
+  signupNext(3);
+}
+
+async function checkTagAvailability(){
+  const tag = document.getElementById('s-tag').value.trim().toLowerCase();
+  const statusEl = document.getElementById('tag-status');
+  if(!tag || tag.length < 3){
+    statusEl.style.display = 'none';
+    tagAvailable = false;
+    return;
+  }
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Verificando disponibilidade...';
+  try {
+    const sb = getSupabase();
+    if(!sb){ tagAvailable = true; statusEl.style.display = 'none'; return; }
+    const { data, error } = await sb.from('profiles')
+      .select('id')
+      .eq('tag', tag)
+      .limit(1);
+    if(error) throw error;
+    if(data && data.length > 0){
+      statusEl.style.color = 'var(--p4)';
+      statusEl.textContent = '@' + tag + ' ja esta em uso. Escolha outra tag.';
+      tagAvailable = false;
+    } else {
+      statusEl.style.color = 'var(--p6)';
+      statusEl.textContent = '@' + tag + ' esta disponivel!';
+      tagAvailable = true;
+    }
+  } catch(e){
+    console.warn('Tag check error:', e);
+    tagAvailable = true;
+    statusEl.style.display = 'none';
+  }
+}
+
+// ══════════════════════════════
+//  INVITE CODE GENERATION
+// ══════════════════════════════
+let generatedInviteCode = {};
+async function generateInviteCode(view){
+  const sb = getSupabase();
+  if(!sb){ toast('Erro: Supabase nao disponivel'); return; }
+  const btn = document.getElementById('gen-invite-btn-' + view);
+  btn.textContent = 'Gerando...';
+  btn.disabled = true;
+  try {
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session){ toast('Faca login primeiro'); btn.textContent = 'Gerar Codigo de Convite'; btn.disabled = false; return; }
+    // Generate a unique code QUC-XXXXX
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = 'QUC-';
+    for(let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    // Insert into invites table
+    const { error } = await sb.from('invites').insert({
+      code: code,
+      created_by: session.user.id,
+      used: false,
+      uses: 0,
+      max_uses: 5
+    });
+    if(error){
+      console.error('Invite insert error:', error);
+      // If table doesn't exist, still show the code
+      if(error.code === '42P01'){
+        toast('Tabela de convites nao existe ainda');
+      } else {
+        toast('Erro: ' + error.message);
+      }
+      btn.textContent = 'Gerar Codigo de Convite'; btn.disabled = false;
+      return;
+    }
+    generatedInviteCode[view] = code;
+    // Show code
+    document.getElementById('my-invite-code-' + view).style.display = 'block';
+    document.getElementById('my-invite-code-value-' + view).textContent = code;
+    document.getElementById('share-invite-btn-' + view).style.display = 'block';
+    btn.textContent = 'Gerar Novo Codigo';
+    btn.disabled = false;
+    toast('Codigo gerado: ' + code);
+  } catch(e){
+    console.error('generateInviteCode error:', e);
+    toast('Erro ao gerar codigo');
+    btn.textContent = 'Gerar Codigo de Convite'; btn.disabled = false;
+  }
+}
+
+function shareInviteCode(view){
+  const code = generatedInviteCode[view];
+  if(!code){ toast('Gere um codigo primeiro'); return; }
+  const text = 'Oi! Use meu codigo ' + code + ' para se cadastrar no QueroUmaCor - o app para pintores e clientes!';
+  if(navigator.share){
+    navigator.share({ title: 'Convite QueroUmaCor', text: text }).catch(()=>{});
+  } else if(navigator.clipboard){
+    navigator.clipboard.writeText(code).then(()=>toast('Codigo copiado!')).catch(()=>toast('Codigo: '+code));
+  } else {
+    toast('Codigo: ' + code);
+  }
+}
 
 // Load feed on startup (deferred)
 window.addEventListener('DOMContentLoaded', () => {
