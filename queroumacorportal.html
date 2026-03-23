@@ -307,6 +307,106 @@ const Chats = () => (
   </div>
 );
 
+const Leads = () => {
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filtro, setFiltro] = useState('Todos');
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await window._sb
+        .from('leads')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data) setLeads(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  const statusColor = (s) => {
+    const map = { novo: C.p3, contactado: C.p7, qualificado: C.p6, convertido: C.p1, perdido: C.p4 };
+    return map[s] || C.muted;
+  };
+
+  const origemIcon = (o) => {
+    const map = { site: '🌐', indicacao: '🤝', instagram: '📸', whatsapp: '📱', evento: '🎪' };
+    return map[o] || '📋';
+  };
+
+  const filtered = filtro === 'Todos' ? leads : leads.filter(l => l.status === filtro.toLowerCase());
+
+  const counts = { total: leads.length };
+  ['novo','contactado','qualificado','convertido','perdido'].forEach(s => {
+    counts[s] = leads.filter(l => l.status === s).length;
+  });
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando leads...</div>;
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 16, marginBottom: 24 }}>
+        <KPICard title="Total de Leads" value={counts.total} sub="cadastrados" trend="" color={C.muted} />
+        <KPICard title="Novos" value={counts.novo} sub="aguardando contato" trend="" color={C.p3} />
+        <KPICard title="Qualificados" value={counts.qualificado} sub="prontos p/ proposta" trend="" color={C.p6} />
+        <KPICard title="Convertidos" value={counts.convertido} sub="viraram clientes" trend="" color={C.p1} />
+        <KPICard title="Perdidos" value={counts.perdido} sub="não converteram" trend="" color={C.p4} />
+      </div>
+
+      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, color: C.ink }}>📋 Leads</div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {['Todos','Novo','Contactado','Qualificado','Convertido','Perdido'].map(f => (
+            <button key={f} onClick={() => setFiltro(f)} style={{
+              padding: '6px 14px', borderRadius: 20, border: '1px solid ' + (filtro === f ? C.p1 : C.border),
+              background: filtro === f ? C.p1 : 'transparent', color: filtro === f ? '#fff' : C.ink,
+              cursor: 'pointer', fontSize: 12, fontWeight: filtro === f ? 600 : 400
+            }}>{f}</button>
+          ))}
+        </div>
+
+        {filtered.length === 0 && (
+          <div style={{ padding: '20px 0', color: C.muted, textAlign: 'center', fontSize: 13 }}>Nenhum lead encontrado.</div>
+        )}
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          {filtered.length > 0 && (
+            <thead>
+              <tr style={{ borderBottom: '2px solid ' + C.border }}>
+                {['Nome','Email','Telefone','Origem','Status','Data'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: C.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {filtered.map((l, i) => {
+              const data = l.created_at ? new Date(l.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
+              const sc = statusColor(l.status);
+              return (
+                <tr key={l.id || i} style={{ borderBottom: '1px solid ' + C.border }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 600 }}>{l.name || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: C.muted }}>{l.email || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: C.muted }}>{l.phone || '—'}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span>{origemIcon(l.source)} {l.source || '—'}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={{ background: sc + '22', color: sc, borderRadius: 8, padding: '3px 10px', fontSize: 11 }}>{l.status || '—'}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: C.muted }}>{data}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 const STATUS_MAP = { pending: 'pendente', accepted: 'aceito', completed: 'concluido', rejected: 'rejeitado' };
 
 const Orcamentos = () => {
@@ -368,6 +468,7 @@ const PAGES = [
   { id:'chats', icon:'💬', label:'Chats 3-Way', section:'PRINCIPAL', badge:7, component:<Chats /> },
   { id:'orcamentos', icon:'📋', label:'Orçamentos', section:'PRINCIPAL', badge:12, component:<Orcamentos /> },
   { id:'pintores', icon:'🖌️', label:'Pintores', section:'PESSOAS', badge:3, component:<PintoresList /> },
+  { id:'leads', icon:'🧲', label:'Leads', section:'PESSOAS', component:<Leads /> },
   { id:'clientes', icon:'👥', label:'Clientes', section:'PESSOAS', component:<div style={{padding:20,color:C.muted}}>Lista de clientes em desenvolvimento...</div> },
   { id:'produtos', icon:'🎨', label:'Produtos / Tintas', section:'LOJA', component:<ProdutosList /> },
   { id:'camisetas', icon:'👕', label:'Camisetas Personalizadas', section:'LOJA', component:<Camisetas /> },
