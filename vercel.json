@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/queroumacorapp.html" },
+    { "source": "/portal", "destination": "/queroumacorportal.html" }
+  ]
+}
