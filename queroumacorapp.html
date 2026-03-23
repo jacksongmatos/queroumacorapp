@@ -904,7 +904,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <label class="auth-label">Senha</label>
         <div class="auth-pw-wrap">
           <input class="auth-input" type="password" id="login-pw" placeholder="••••••••">
-          <button class="auth-pw-eye" onclick="togglePw('login-pw',this)">
+          <button type="button" class="auth-pw-eye" onclick="togglePw('login-pw',this)">
             <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
@@ -913,8 +913,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <span style="font-size:13px;color:var(--p1);font-weight:600;cursor:pointer;" onclick="toast('Email de recuperação enviado!')">Esqueceu a senha?</span>
       </div>
 
-      <div class="cf-turnstile" data-sitekey="0x4AAAAAACuvRk1s3afKe8Wq" data-theme="light" style="margin-bottom:12px;display:flex;justify-content:center;"></div>
-      <button class="auth-btn" onclick="doLogin()">Entrar</button>
+      <button class="auth-btn" type="button" onclick="doLogin()">Entrar</button>
 
       <div class="auth-divider">
         <div class="auth-divider-line"></div>
@@ -1026,7 +1025,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
           <label class="auth-label">Senha</label>
           <div class="auth-pw-wrap">
             <input class="auth-input" type="password" id="s-pw" placeholder="Mínimo 8 caracteres">
-            <button class="auth-pw-eye" onclick="togglePw('s-pw',this)">
+            <button type="button" class="auth-pw-eye" onclick="togglePw('s-pw',this)">
               <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
