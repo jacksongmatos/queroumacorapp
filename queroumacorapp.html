@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>QueroUmaCor v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root {
   --ink: #1a1a2e;
@@ -668,6 +670,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);o
 .mkt-card-add{width:100%;padding:10px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:10px;transition:.15s;}
 .mkt-card-add:active{opacity:.85;}
 
+/* Archive button on conv-items */
+.conv-archive-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.05);border:none;border-radius:8px;padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;z-index:5;}
+.conv-item:hover .conv-archive-btn,.conv-item:active .conv-archive-btn{opacity:1;}
+.conv-archive-btn svg{width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+/* Leaflet overrides */
+#leaflet-map{z-index:1;}
+.map-filters{z-index:10;}
+.painter-popup{z-index:10;}
+.leaflet-marker-icon{background:none!important;border:none!important;}
+/* Post preview images */
+.post-preview-img{width:80px;height:80px;border-radius:10px;object-fit:cover;flex-shrink:0;}
+/* Feed empty state */
+#feed-empty{display:block;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -687,10 +702,18 @@ async function initAuth() {
   const sb = getSupabase();
   if (!sb) return;
   const { data: { session } } = await sb.auth.getSession();
-  if (session) { currentUser = session.user; showScreen('feed'); }
+  if (session) { currentUser = session.user; showScreen('feed'); autoDetectRole(); }
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = session ? session.user : null;
+    if(currentUser) autoDetectRole();
   });
+}
+function autoDetectRole(){
+  if(!currentUser) return;
+  const meta = currentUser.user_metadata || {};
+  const userType = meta.user_type || meta.role || 'cliente';
+  if(userType === 'pintor') setMode('pintor');
+  else setMode('cliente');
 }
 
 async function doLoginSupabase(email, password) {
@@ -744,9 +767,6 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="top-nav">
   <div class="logo">Quero<span>Uma</span>Cor</div>
   <div class="nav-right">
-    <button class="nav-btn" onclick="showScreen('mkt')">
-      <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-    </button>
     <button class="nav-btn" onclick="showScreen('notif')">
       <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <div class="badge-dot"></div>
@@ -973,119 +993,23 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <!-- ══ FEED SCREEN ══ -->
 <div class="screen" id="screen-feed">
   <!-- Stories -->
-  <div class="stories-row">
-    <div class="story" style="cursor:pointer">
+  <div class="stories-row" id="stories-row">
+    <div class="story" style="cursor:pointer" onclick="showModal('post-modal')">
       <div class="add-story story-ring">
         <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </div>
       <span class="story-name">Seu story</span>
     </div>
+    <!-- Dynamic stories loaded here -->
   </div>
 
-  <!-- MOSAIC FEED -->
-  <div class="mosaic-feed">
-
-    <!-- FEATURED POST (tall, overlay) -->
-    <div class="mpost mpost-featured">
-      <div class="mpost-head" style="cursor:pointer" onclick="openProfile('carlos')">
-        <div class="av-ring"><div class="av-inner"><img src="https://i.pravatar.cc/150?img=11" alt=""></div></div>
-        <div class="post-meta">
-          <div class="post-uname">carlos_silva_pintor <span class="pro-badge">PRO</span></div>
-          <div class="post-city">São Paulo, SP</div>
-        </div>
-        <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">···</div>
-      </div>
-      <div class="ba-wrap" style="aspect-ratio:4/5" id="ba-f" onclick="toggleBA('ba-f')">
-        <img id="ba-f-a" src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600" style="width:100%;height:100%;object-fit:cover;display:block;transition:opacity .4s">
-        <img id="ba-f-b" src="https://images.unsplash.com/photo-1562663474-6cbb3eaa4d14?w=600" style="width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0;opacity:0;transition:opacity .4s">
-        <div class="ba-label a" id="ba-f-la">ANTES</div>
-        <div class="ba-label d" id="ba-f-ld">DEPOIS</div>
-        <div class="ba-hint">👆 Toque para ver o resultado</div>
-      </div>
-      <div class="mpost-featured-actions">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
-          <button class="act-btn" id="lk-f" onclick="paintLike(event,'lk-f','lkc-f','#e63946')">
-            <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          </button>
-          <div class="like-count" id="lkc-f" style="font-size:11px;color:#fff;font-weight:600;padding:0">1.284</div>
-        </div>
-        <button class="act-btn" onclick="toast('Comentários')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-        <button class="act-btn" onclick="toast('Compartilhado!')"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
-      </div>
-      <div class="mpost-featured-cap">
-        <div class="post-cap">Sala de 30m² — degradê premium. Toque para ver o antes 🎨</div>
-        <div class="post-time">HÁ 2 HORAS</div>
-      </div>
+  <!-- MOSAIC FEED (dynamic) -->
+  <div class="mosaic-feed" id="mosaic-feed">
+    <div id="feed-empty" style="text-align:center;padding:40px 20px;color:var(--muted);">
+      <div style="font-size:48px;margin-bottom:12px;">🎨</div>
+      <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhuma publicacao ainda.</div>
+      <div style="font-size:13px;">Siga pintores para ver posts aqui!</div>
     </div>
-
-    <!-- REGULAR POST -->
-    <div class="mpost">
-      <div class="mpost-head" style="cursor:pointer" onclick="openProfile('marcia')">
-        <div class="av-ring"><div class="av-inner"><img src="https://i.pravatar.cc/150?img=5" alt=""></div></div>
-        <div class="post-meta">
-          <div class="post-uname">marcia_pintura_sp</div>
-          <div class="post-city">Campinas, SP</div>
-        </div>
-        <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">···</div>
-      </div>
-      <!-- Mosaic double -->
-      <div class="mpost-double">
-        <img src="https://images.unsplash.com/photo-1600585152220-90363fe7e115?w=400" alt="">
-        <img src="https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=400" alt="">
-      </div>
-      <div class="mpost-actions">
-        <button class="act-btn" id="lk-1" onclick="paintLike(event,'lk-1','lkc-1','#8338ec')">
-          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-        </button>
-        <button class="act-btn" onclick="toast('Comentários')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-        <button class="act-btn save-btn" onclick="toast('Salvo!')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
-      </div>
-      <div class="like-count" id="lkc-1">836 curtidas</div>
-      <div class="post-cap"><b>marcia_pintura_sp</b> Cozinha gourmet com textura Venetian. Cliente amou! <span class="tag">#textura</span> <span class="tag">#CaliColors</span></div>
-      <div class="post-time">HÁ 5 HORAS</div>
-    </div>
-
-    <!-- SPONSORED -->
-    <div class="mpost" style="border:2px solid var(--p1)">
-      <div class="mpost-head">
-        <div class="av-ring" style="background:conic-gradient(var(--p1),var(--p4))"><div class="av-inner" style="background:var(--ink);display:flex;align-items:center;justify-content:center"><span style="color:var(--p1);font-weight:800;font-family:'Syne',sans-serif;font-size:11px">CC</span></div></div>
-        <div class="post-meta">
-          <div class="post-uname">calicolorstintas ✓</div>
-          <div class="post-city" style="color:var(--p1);font-weight:600">Patrocinado</div>
-        </div>
-      </div>
-      <img src="https://images.unsplash.com/photo-1560185007-cde436f6a4d0?w=600" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block">
-      <div style="padding:12px 14px;">
-        <div style="font-size:14px;font-weight:700">Cali Colors — Tintometria sob medida</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px">Mais de 30.000 cores disponíveis</div>
-        <button onclick="toast('Abrindo Cali Colors...')" style="margin-top:10px;width:100%;padding:9px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Conhecer a loja →</button>
-      </div>
-    </div>
-
-    <!-- REGULAR POST 2 -->
-    <div class="mpost">
-      <div class="mpost-head" style="cursor:pointer" onclick="openProfile('joao')">
-        <div class="av-ring"><div class="av-inner"><img src="https://i.pravatar.cc/150?img=12" alt=""></div></div>
-        <div class="post-meta">
-          <div class="post-uname">joao_r_pintor <span class="pro-badge">PRO</span></div>
-          <div class="post-city">Rio de Janeiro, RJ</div>
-        </div>
-        <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">···</div>
-      </div>
-      <img src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=600" style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block">
-      <div class="mpost-actions">
-        <button class="act-btn" id="lk-2" onclick="paintLike(event,'lk-2','lkc-2','#2ec4b6')">
-          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-        </button>
-        <button class="act-btn" onclick="toast('Comentários')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-        <button class="act-btn" onclick="toast('Compartilhado!')"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
-        <button class="act-btn save-btn" onclick="toast('Salvo!')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
-      </div>
-      <div class="like-count" id="lkc-2">2.107 curtidas</div>
-      <div class="post-cap"><b>joao_r_pintor</b> Apartamento completo em 3 dias. 120m² de acabamento premium. <span class="tag">#pintorRJ</span></div>
-      <div class="post-time">HÁ 1 DIA</div>
-    </div>
-
   </div>
 </div>
 
@@ -1097,108 +1021,16 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <button class="exp-filter-btn" onclick="toast('Filtros')">Filtrar</button>
     </div>
     <div class="map-container" id="map-container">
-      <!-- Brazil SVG Map (simplified) -->
-      <svg class="map-svg" viewBox="0 0 500 550" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="mapGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#b8d4e8"/>
-            <stop offset="100%" stop-color="#8fb8d4"/>
-          </linearGradient>
-        </defs>
-        <!-- Ocean background -->
-        <rect width="500" height="550" fill="url(#mapGrad)"/>
-        <!-- Brazil shape (simplified polygon) -->
-        <path d="M 230 30 L 280 20 L 330 35 L 380 50 L 420 80 L 450 120 L 460 160 L 455 200 L 440 240 L 430 280 L 420 310 L 400 340 L 380 370 L 360 400 L 340 430 L 310 460 L 280 480 L 250 490 L 220 480 L 190 460 L 160 440 L 130 420 L 100 390 L 80 360 L 65 330 L 60 300 L 70 270 L 80 240 L 90 210 L 110 180 L 130 155 L 145 130 L 155 100 L 175 75 L 195 50 Z" 
-              fill="#c8e6c9" stroke="#a5d6a7" stroke-width="2"/>
-        <!-- Interior regions light -->
-        <path d="M 160 150 L 360 150 L 380 250 L 350 300 L 200 300 L 150 250 Z" fill="rgba(255,255,255,.15)"/>
-        <!-- Rivers (decorative) -->
-        <path d="M 120 200 Q 200 220 280 200 Q 340 185 380 210" fill="none" stroke="rgba(100,160,220,.6)" stroke-width="2"/>
-        <path d="M 150 280 Q 220 300 290 280" fill="none" stroke="rgba(100,160,220,.5)" stroke-width="1.5"/>
-        <!-- State borders (very light) -->
-        <path d="M 200 100 L 220 200 M 280 80 L 310 200 M 350 150 L 360 280 M 150 220 L 380 220 M 140 300 L 400 300" 
-              fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1" stroke-dasharray="4,4"/>
-        <!-- Grid overlay -->
-        <path d="M 0 100 L 500 100 M 0 200 L 500 200 M 0 300 L 500 300 M 0 400 L 500 400 M 100 0 L 100 550 M 200 0 L 200 550 M 300 0 L 300 550 M 400 0 L 400 550" 
-              fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1"/>
-      </svg>
-
-      <div class="map-overlay-top"></div>
-
-      <!-- Painter Pins -->
-      <div class="painter-pin" style="left:58%;top:38%" id="pin-carlos" onclick="showPainterCard('carlos')">
-        <div class="pin-bubble featured">
-          <div class="pin-avatar"><img src="https://i.pravatar.cc/150?img=11" alt=""></div>
-          <div class="pin-info">
-            <div class="pin-name">Carlos S.</div>
-            <div class="pin-rating">★ 4.9</div>
-          </div>
-        </div>
-        <div class="pin-tail featured"></div>
-      </div>
-
-      <div class="painter-pin" style="left:45%;top:30%" id="pin-joao" onclick="showPainterCard('joao')">
-        <div class="pin-bubble">
-          <div class="pin-avatar"><img src="https://i.pravatar.cc/150?img=12" alt=""></div>
-          <div class="pin-info">
-            <div class="pin-name">João R.</div>
-            <div class="pin-rating">★ 5.0</div>
-          </div>
-        </div>
-        <div class="pin-tail"></div>
-      </div>
-
-      <div class="painter-pin" style="left:52%;top:24%" id="pin-marcia" onclick="showPainterCard('marcia')">
-        <div class="pin-bubble">
-          <div class="pin-avatar"><img src="https://i.pravatar.cc/150?img=5" alt=""></div>
-          <div class="pin-info">
-            <div class="pin-name">Márcia P.</div>
-            <div class="pin-rating">★ 4.8</div>
-          </div>
-        </div>
-        <div class="pin-tail"></div>
-      </div>
-
-      <div class="painter-pin" style="left:38%;top:45%" id="pin-ana" onclick="showPainterCard('ana')">
-        <div class="pin-bubble">
-          <div class="pin-avatar"><img src="https://i.pravatar.cc/150?img=9" alt=""></div>
-          <div class="pin-info">
-            <div class="pin-name">Ana Lima</div>
-            <div class="pin-rating">★ 4.7</div>
-          </div>
-        </div>
-        <div class="pin-tail"></div>
-      </div>
-
-      <div class="painter-pin" style="left:30%;top:55%" id="pin-pedro" onclick="showPainterCard('pedro')">
-        <div class="pin-bubble">
-          <div class="pin-avatar"><img src="https://i.pravatar.cc/150?img=7" alt=""></div>
-          <div class="pin-info">
-            <div class="pin-name">Pedro M.</div>
-            <div class="pin-rating">★ 4.6</div>
-          </div>
-        </div>
-        <div class="pin-tail"></div>
-      </div>
-
-      <div class="painter-pin" style="left:62%;top:20%" id="pin-fabio" onclick="showPainterCard('fabio')">
-        <div class="pin-bubble">
-          <div class="pin-avatar"><img src="https://i.pravatar.cc/150?img=65" alt=""></div>
-          <div class="pin-info">
-            <div class="pin-name">Fábio T.</div>
-            <div class="pin-rating">★ 4.9</div>
-          </div>
-        </div>
-        <div class="pin-tail"></div>
-      </div>
+      <!-- Leaflet map -->
+      <div id="leaflet-map" style="width:100%;height:100%;z-index:1;"></div>
 
       <!-- Painter popup card -->
       <div class="painter-popup" id="painter-popup">
         <div class="pp-avatar"><img id="pp-img" src="" alt=""></div>
         <div class="pp-info">
-          <div class="pp-name" id="pp-name">—</div>
-          <div class="pp-sub" id="pp-sub">—</div>
-          <div class="pp-stars" id="pp-stars">★★★★★</div>
+          <div class="pp-name" id="pp-name">--</div>
+          <div class="pp-sub" id="pp-sub">--</div>
+          <div class="pp-stars" id="pp-stars">-----</div>
         </div>
         <button class="pp-btn" onclick="showScreen('profile');toast('Perfil aberto')">Ver perfil</button>
       </div>
@@ -1210,46 +1042,17 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
           <div class="map-chip" onclick="mapChip(this)">Residencial</div>
           <div class="map-chip" onclick="mapChip(this)">Textura</div>
           <div class="map-chip" onclick="mapChip(this)">Grafiato</div>
-          <div class="map-chip" onclick="mapChip(this)">Epóxi</div>
+          <div class="map-chip" onclick="mapChip(this)">Epoxi</div>
           <div class="map-chip" onclick="mapChip(this)">Fachada</div>
         </div>
       </div>
     </div>
   </div>
-  <!-- PAINTER LIST -->
+  <!-- PAINTER LIST (dynamic) -->
   <div style="padding:14px;">
-    <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Toque para ver o perfil completo ↓</div>
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      <div onclick="openProfile('carlos')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="https://i.pravatar.cc/150?img=11" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">Carlos Silva <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PRO</span></div><div style="font-size:12px;color:var(--muted);">São Paulo · Textura · Epóxi</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">★★★★★ 4.9 · 187 avaliações</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div onclick="openProfile('joao')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="https://i.pravatar.cc/150?img=12" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">João Rodrigues <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PRO</span></div><div style="font-size:12px;color:var(--muted);">Rio de Janeiro · Alto padrão</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">★★★★★ 5.0 · 248 avaliações</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div onclick="openProfile('marcia')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="https://i.pravatar.cc/150?img=5" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">Márcia Pereira</div><div style="font-size:12px;color:var(--muted);">Campinas · Textura Venetian</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">★★★★★ 4.8 · 92 avaliações</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div onclick="openProfile('fabio')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="https://i.pravatar.cc/150?img=65" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">Fábio Teixeira <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PRO</span></div><div style="font-size:12px;color:var(--muted);">Porto Alegre · Epóxi Industrial</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">★★★★★ 4.9 · 156 avaliações</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div onclick="openProfile('ana')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="https://i.pravatar.cc/150?img=9" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">Ana Lima</div><div style="font-size:12px;color:var(--muted);">Belo Horizonte · Fachadas</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">★★★★☆ 4.7 · 54 avaliações</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-      <div onclick="openProfile('pedro')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="https://i.pravatar.cc/150?img=7" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">Pedro Martins</div><div style="font-size:12px;color:var(--muted);">Curitiba · Residencial</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">★★★★☆ 4.6 · 28 avaliações</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Pintores perto de voce</div>
+    <div id="painter-list" style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Loaded dynamically -->
     </div>
   </div>
 </div>
@@ -1626,10 +1429,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <div style="flex:1"><div id="myprofile-name" style="color:#fff;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;">Seu Nome</div><div id="myprofile-sub" style="color:rgba(255,255,255,.5);font-size:12px;">Configure seu perfil</div></div>
       <button onclick="doLogout()" style="background:rgba(230,57,70,.15);border:1px solid rgba(230,57,70,.3);border-radius:10px;padding:7px 13px;color:#e63946;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Sair</button>
     </div>
-    <div class="mode-toggle">
-      <button class="mode-btn active" id="mode-pintor" onclick="setMode('pintor')">🖌️ Sou Pintor</button>
-      <button class="mode-btn" id="mode-cliente" onclick="setMode('cliente')">🏠 Sou Cliente</button>
-    </div>
+    <!-- Role is auto-detected from user_metadata -->
   </div>
 
   <!-- PINTOR VIEW -->
@@ -1848,7 +1648,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 
   <!-- 3-WAY CONV -->
-  <div class="conv-item" onclick="openChat('3way-carlos')">
+  <div class="conv-item" data-conv-id="3way-carlos" onclick="openChat('3way-carlos')">
     <div class="conv-avatars" style="width:58px;height:42px;">
       <div class="conv-av-main"><img src="https://i.pravatar.cc/150?img=20" alt="Fernanda"></div>
       <div class="conv-av-sub"><img src="https://i.pravatar.cc/150?img=11" alt="Carlos"></div>
@@ -1865,7 +1665,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 
   <!-- PINTOR-CLIENTE CONV -->
-  <div class="conv-item" onclick="openChat('direct-joao')">
+  <div class="conv-item" data-conv-id="direct-joao" onclick="openChat('direct-joao')">
     <div class="conv-avatars">
       <div class="conv-av-main"><img src="https://i.pravatar.cc/150?img=12" alt="João"></div>
       <div class="conv-av-sub"><img src="https://i.pravatar.cc/150?img=68" alt="Eu"></div>
@@ -1880,7 +1680,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 
   <!-- LOJA CONV -->
-  <div class="conv-item" onclick="openChat('store')">
+  <div class="conv-item" data-conv-id="store" onclick="openChat('store')">
     <div class="conv-avatars">
       <div class="conv-av-main" style="background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:14px;font-weight:800;color:var(--p1);font-family:'Syne',sans-serif;">CC</span></div>
       <div class="conv-av-sub"><img src="https://i.pravatar.cc/150?img=68" alt="Eu"></div>
@@ -1896,7 +1696,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 
   <!-- 3-WAY CONV 2 -->
-  <div class="conv-item" onclick="openChat('3way-marcia')">
+  <div class="conv-item" data-conv-id="3way-marcia" onclick="openChat('3way-marcia')">
     <div class="conv-avatars" style="width:58px;height:42px;">
       <div class="conv-av-main"><img src="https://i.pravatar.cc/150?img=68" alt="Eu"></div>
       <div class="conv-av-sub"><img src="https://i.pravatar.cc/150?img=5" alt="Márcia"></div>
@@ -1912,7 +1712,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 
   <!-- DIRECT CONV -->
-  <div class="conv-item" onclick="openChat('direct-pedro')">
+  <div class="conv-item" data-conv-id="direct-pedro" onclick="openChat('direct-pedro')">
     <div class="conv-avatars">
       <div class="conv-av-main"><img src="https://i.pravatar.cc/150?img=7" alt="Pedro"></div>
       <div class="conv-av-sub"><img src="https://i.pravatar.cc/150?img=68" alt="Eu"></div>
@@ -1930,6 +1730,17 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <div class="invite-3way" onclick="toast('Escolha uma conversa para convidar a loja')">
     <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     <span>Convidar a Cali Colors para uma conversa existente</span>
+  </div>
+
+  <!-- Archived conversations section -->
+  <div id="archived-section" style="display:none;">
+    <div style="padding:12px 16px 8px;display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleArchivedSection()">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+      <span style="font-size:13px;font-weight:700;color:var(--muted);">Arquivadas</span>
+      <span id="archived-count" style="font-size:11px;color:var(--muted);"></span>
+      <svg id="archived-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" style="margin-left:auto;transition:transform .2s;"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="archived-list" style="display:none;"></div>
   </div>
 </div>
 
@@ -2400,9 +2211,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
     <div class="bn-dot"></div>
   </div>
-  <div class="bn" id="bn-chat" onclick="showScreen('chat')">
-    <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    <div class="bn-dot" style="background:var(--p4)"></div>
+  <div class="bn" id="bn-mkt" onclick="showScreen('mkt')">
+    <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+    <div class="bn-dot"></div>
   </div>
   <div class="bn" id="bn-notif" onclick="showScreen('notif')">
     <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -2459,16 +2270,31 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 </div>
 
 <div class="overlay" id="post-modal" onclick="closeModals()">
-  <div class="sheet" onclick="event.stopPropagation()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:85vh;overflow-y:auto;">
     <div class="sheet-handle"></div>
     <div class="sheet-title">Novo Post</div>
-    <div style="border:2px dashed var(--border);border-radius:14px;padding:28px;text-align:center;cursor:pointer;background:var(--cream);margin-bottom:12px" onclick="toast('Galeria aberta!')">
-      <div style="font-size:36px;margin-bottom:8px">📸</div>
-      <div style="font-size:14px;font-weight:600">Escolher fotos ou vídeo</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px">Antes/depois, trabalho concluído, processo</div>
+    <!-- Hidden file input -->
+    <input type="file" id="post-file-input" accept="image/*,video/*" multiple style="display:none" onchange="handlePostFiles(this)">
+    <input type="file" id="post-file-camera" accept="image/*" capture="environment" style="display:none" onchange="handlePostFiles(this)">
+    <!-- Post type selector -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button id="post-type-post" onclick="setPostType('post')" style="flex:1;padding:8px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid var(--p1);background:var(--p1);color:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;">Post</button>
+      <button id="post-type-ba" onclick="setPostType('ba')" style="flex:1;padding:8px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid var(--border);background:transparent;color:var(--ink);cursor:pointer;font-family:'DM Sans',sans-serif;">Antes/Depois</button>
+      <button id="post-type-story" onclick="setPostType('story')" style="flex:1;padding:8px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid var(--border);background:transparent;color:var(--ink);cursor:pointer;font-family:'DM Sans',sans-serif;">Story</button>
     </div>
-    <textarea placeholder="Descreva o trabalho, técnica, localização..." style="width:100%;border:1.5px solid var(--border);border-radius:12px;padding:12px;font-size:14px;font-family:'DM Sans',sans-serif;height:80px;resize:none;outline:none;margin-bottom:12px"></textarea>
-    <button onclick="toast('Post publicado! 🎉');closeModals()" style="width:100%;padding:13px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Publicar</button>
+    <!-- Image picker area -->
+    <div id="post-picker-area" style="border:2px dashed var(--border);border-radius:14px;padding:28px;text-align:center;cursor:pointer;background:var(--cream);margin-bottom:12px" onclick="document.getElementById('post-file-input').click()">
+      <div style="font-size:36px;margin-bottom:8px">📸</div>
+      <div style="font-size:14px;font-weight:600">Escolher fotos</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px" id="post-picker-hint">Toque para abrir a galeria ou camera</div>
+    </div>
+    <!-- Preview area -->
+    <div id="post-preview-area" style="display:none;margin-bottom:12px;">
+      <div id="post-preview-images" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;"></div>
+      <button onclick="clearPostImages()" style="margin-top:6px;background:none;border:none;color:var(--p4);font-size:12px;font-weight:600;cursor:pointer;">Remover imagens</button>
+    </div>
+    <textarea id="post-text-input" placeholder="Descreva o trabalho, tecnica, localizacao..." style="width:100%;border:1.5px solid var(--border);border-radius:12px;padding:12px;font-size:14px;font-family:'DM Sans',sans-serif;height:80px;resize:none;outline:none;margin-bottom:12px"></textarea>
+    <button id="post-publish-btn" onclick="publishPost()" style="width:100%;padding:13px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Publicar</button>
   </div>
 </div>
 
@@ -2547,7 +2373,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <script>
 // ══ SCREENS ══
 const screens=['login','signup','feed','explore','profile','orcamento','myprofile','calc','notif','chat','chatconv','pedidos','chat-conv','avaliar','mkt'];
-const bnMap={feed:'bn-feed',explore:'bn-explore',chat:'bn-chat',notif:'bn-notif',myprofile:'bn-myprofile',mkt:'bn-mkt'};
+const bnMap={feed:'bn-feed',explore:'bn-explore',mkt:'bn-mkt',notif:'bn-notif',myprofile:'bn-myprofile'};
 const noNav=['login','signup'];
 function showScreen(n){
   screens.forEach(s=>{
@@ -2557,7 +2383,7 @@ function showScreen(n){
   Object.values(bnMap).forEach(id=>{document.getElementById(id)?.classList.remove('active');});
   if(bnMap[n])document.getElementById(bnMap[n]).classList.add('active');
   if(['pedidos','chat-conv','avaliar'].includes(n)){document.getElementById('bn-myprofile')?.classList.add('active');}
-  if(['chatconv'].includes(n)){document.getElementById('bn-chat')?.classList.add('active');}
+  if(['chatconv'].includes(n)){/* chat is in top nav, no bottom nav highlight */}
   const topNav=document.querySelector('.top-nav');
   const botNav=document.querySelector('.bot-nav');
   if(topNav)topNav.style.display=noNav.includes(n)?'none':'flex';
@@ -3110,8 +2936,10 @@ function toggleSpec(el){el.classList.toggle('sel');}
 
 function setMode(mode){
   currentMode=mode;
-  document.getElementById('mode-pintor').classList.toggle('active',mode==='pintor');
-  document.getElementById('mode-cliente').classList.toggle('active',mode==='cliente');
+  const modePintor=document.getElementById('mode-pintor');
+  const modeCliente=document.getElementById('mode-cliente');
+  if(modePintor) modePintor.classList.toggle('active',mode==='pintor');
+  if(modeCliente) modeCliente.classList.toggle('active',mode==='cliente');
   document.getElementById('view-pintor').style.display=mode==='pintor'?'block':'none';
   document.getElementById('view-cliente').style.display=mode==='cliente'?'block':'none';
   const fab=document.getElementById('post-fab');
@@ -3534,6 +3362,494 @@ let currentMode='pintor';
 const styleTag=document.createElement('style');
 styleTag.textContent='@keyframes typing{0%,80%,100%{transform:scale(0.6);opacity:.4;}40%{transform:scale(1);opacity:1;}}';
 document.head.appendChild(styleTag);
+
+// ══════════════════════════════
+//  CHANGE 1: DYNAMIC FEED
+// ══════════════════════════════
+async function loadFeed(){
+  const feedEl = document.getElementById('mosaic-feed');
+  const emptyEl = document.getElementById('feed-empty');
+  try {
+    const sb = getSupabase();
+    if(!sb){ return; }
+    const { data: posts, error } = await sb.from('posts')
+      .select('*, profiles:user_id(full_name, avatar_url, city, state, role)')
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if(error) throw error;
+    if(!posts || posts.length === 0){
+      emptyEl.style.display = 'block';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    let html = '';
+    posts.forEach((post, idx) => {
+      const p = post.profiles || {};
+      const uname = p.full_name || 'Pintor';
+      const city = [p.city, p.state].filter(Boolean).join(', ') || '';
+      const avatar = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
+      const timeAgo = getTimeAgo(post.created_at);
+      const likeId = 'lk-d-'+idx;
+      const likeCountId = 'lkc-d-'+idx;
+      likes['d-'+idx] = Math.floor(Math.random()*200)+10;
+
+      if(post.image_url_after && post.image_url){
+        // Before/After post
+        const baId = 'ba-d-'+idx;
+        html += `<div class="mpost mpost-featured">
+          <div class="mpost-head" style="cursor:pointer">
+            <div class="av-ring"><div class="av-inner"><img src="${avatar}" alt=""></div></div>
+            <div class="post-meta"><div class="post-uname">${uname}</div><div class="post-city">${city}</div></div>
+            <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">...</div>
+          </div>
+          <div class="ba-wrap" style="aspect-ratio:4/5" id="${baId}" onclick="toggleBA('${baId}')">
+            <img id="${baId}-a" src="${post.image_url}" style="width:100%;height:100%;object-fit:cover;display:block;transition:opacity .4s">
+            <img id="${baId}-b" src="${post.image_url_after}" style="width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0;opacity:0;transition:opacity .4s">
+            <div class="ba-label a" id="${baId}-la">ANTES</div>
+            <div class="ba-label d" id="${baId}-ld">DEPOIS</div>
+            <div class="ba-hint">Toque para ver o resultado</div>
+          </div>
+          <div class="mpost-featured-cap">
+            <div class="post-cap">${post.content || ''}</div>
+            <div class="post-time">${timeAgo}</div>
+          </div>
+        </div>`;
+      } else {
+        // Regular post
+        html += `<div class="mpost">
+          <div class="mpost-head" style="cursor:pointer">
+            <div class="av-ring"><div class="av-inner"><img src="${avatar}" alt=""></div></div>
+            <div class="post-meta"><div class="post-uname">${uname}</div><div class="post-city">${city}</div></div>
+            <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">...</div>
+          </div>
+          ${post.image_url ? `<img src="${post.image_url}" style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block">` : ''}
+          <div class="mpost-actions">
+            <button class="act-btn" id="${likeId}" onclick="paintLike(event,'${likeId}','${likeCountId}','#8338ec')">
+              <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+            <button class="act-btn" onclick="toast('Comentarios')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+            <button class="act-btn save-btn" onclick="toast('Salvo!')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
+          </div>
+          <div class="like-count" id="${likeCountId}">${likes['d-'+idx]} curtidas</div>
+          ${post.content ? `<div class="post-cap"><b>${uname}</b> ${post.content}</div>` : ''}
+          <div class="post-time">${timeAgo}</div>
+        </div>`;
+      }
+    });
+    feedEl.innerHTML = html + emptyEl.outerHTML;
+    document.getElementById('feed-empty').style.display = 'none';
+  } catch(e) {
+    console.error('loadFeed error:', e);
+    // Keep empty state visible
+  }
+}
+
+function getTimeAgo(dateStr){
+  if(!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff/60000);
+  if(mins < 1) return 'AGORA';
+  if(mins < 60) return 'HA '+mins+' MIN';
+  const hrs = Math.floor(mins/60);
+  if(hrs < 24) return 'HA '+hrs+' HORA'+(hrs>1?'S':'');
+  const days = Math.floor(hrs/24);
+  if(days < 7) return 'HA '+days+' DIA'+(days>1?'S':'');
+  return new Date(dateStr).toLocaleDateString('pt-BR');
+}
+
+async function loadStories(){
+  // For now, just show the add button (stories loaded from supabase later)
+  try {
+    const sb = getSupabase();
+    if(!sb) return;
+    const { data: stories, error } = await sb.from('posts')
+      .select('*, profiles:user_id(full_name, avatar_url)')
+      .eq('type', 'story')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if(error) throw error;
+    if(!stories || stories.length === 0) return;
+    const row = document.getElementById('stories-row');
+    let html = row.children[0].outerHTML; // keep add-story button
+    stories.forEach(s => {
+      const p = s.profiles || {};
+      const name = (p.full_name || 'User').split(' ')[0];
+      const avatar = p.avatar_url || s.image_url || 'https://i.pravatar.cc/150?img=68';
+      html += `<div class="story" onclick="toast('Story de ${name}')">
+        <div class="story-ring"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
+        <span class="story-name">${name}</span>
+      </div>`;
+    });
+    row.innerHTML = html;
+  } catch(e) {
+    console.error('loadStories error:', e);
+  }
+}
+
+// ══════════════════════════════
+//  CHANGE 2: POSTING SYSTEM
+// ══════════════════════════════
+let postSelectedFiles = [];
+let postType = 'post'; // 'post', 'ba', 'story'
+
+function setPostType(type){
+  postType = type;
+  const btns = { post: 'post-type-post', ba: 'post-type-ba', story: 'post-type-story' };
+  Object.entries(btns).forEach(([k,id])=>{
+    const el = document.getElementById(id);
+    if(k===type){ el.style.background='var(--p1)'; el.style.color='#fff'; el.style.borderColor='var(--p1)'; }
+    else { el.style.background='transparent'; el.style.color='var(--ink)'; el.style.borderColor='var(--border)'; }
+  });
+  const hint = document.getElementById('post-picker-hint');
+  if(type==='ba') hint.textContent = 'Selecione 2 imagens: antes e depois';
+  else if(type==='story') hint.textContent = 'Selecione 1 imagem para o story';
+  else hint.textContent = 'Toque para abrir a galeria ou camera';
+}
+
+function handlePostFiles(input){
+  const files = Array.from(input.files);
+  if(!files.length) return;
+  postSelectedFiles = files;
+  const previewArea = document.getElementById('post-preview-area');
+  const previewImages = document.getElementById('post-preview-images');
+  previewArea.style.display = 'block';
+  document.getElementById('post-picker-area').style.display = 'none';
+  previewImages.innerHTML = '';
+  files.forEach(f => {
+    const url = URL.createObjectURL(f);
+    previewImages.innerHTML += `<img src="${url}" class="post-preview-img">`;
+  });
+  if(postType === 'ba' && files.length >= 2){
+    previewImages.innerHTML += `<div style="display:flex;flex-direction:column;justify-content:center;gap:4px;padding:0 8px;flex-shrink:0;">
+      <span style="font-size:11px;font-weight:700;color:var(--p3);">ANTES</span>
+      <span style="font-size:11px;font-weight:700;color:var(--p1);">DEPOIS</span>
+    </div>`;
+  }
+}
+
+function clearPostImages(){
+  postSelectedFiles = [];
+  document.getElementById('post-preview-area').style.display = 'none';
+  document.getElementById('post-picker-area').style.display = 'block';
+  document.getElementById('post-file-input').value = '';
+}
+
+async function publishPost(){
+  const sb = getSupabase();
+  if(!sb){ toast('Erro: Supabase nao disponivel'); return; }
+  try {
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session){ toast('Faca login para publicar'); return; }
+    const btn = document.getElementById('post-publish-btn');
+    btn.textContent = 'Publicando...';
+    btn.disabled = true;
+    const content = document.getElementById('post-text-input').value.trim();
+    let imageUrl = null;
+    let imageUrlAfter = null;
+
+    // Upload images to Supabase Storage
+    if(postSelectedFiles.length > 0){
+      const file = postSelectedFiles[0];
+      const ext = file.name.split('.').pop();
+      const path = `${session.user.id}/${Date.now()}.${ext}`;
+      const { data: upData, error: upError } = await sb.storage.from('posts').upload(path, file);
+      if(upError) { console.error('Upload error:', upError); }
+      else {
+        const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
+        imageUrl = urlData.publicUrl;
+      }
+    }
+    if(postType === 'ba' && postSelectedFiles.length >= 2){
+      const file2 = postSelectedFiles[1];
+      const ext2 = file2.name.split('.').pop();
+      const path2 = `${session.user.id}/${Date.now()}_after.${ext2}`;
+      const { data: upData2, error: upError2 } = await sb.storage.from('posts').upload(path2, file2);
+      if(upError2) { console.error('Upload after error:', upError2); }
+      else {
+        const { data: urlData2 } = sb.storage.from('posts').getPublicUrl(path2);
+        imageUrlAfter = urlData2.publicUrl;
+      }
+    }
+
+    // Insert post
+    const { error: insertErr } = await sb.from('posts').insert({
+      user_id: session.user.id,
+      content: content || null,
+      image_url: imageUrl,
+      image_url_after: imageUrlAfter,
+      type: postType,
+      created_at: new Date().toISOString()
+    });
+
+    btn.textContent = 'Publicar';
+    btn.disabled = false;
+
+    if(insertErr){
+      console.error('Post insert error:', insertErr);
+      toast('Erro ao publicar: ' + insertErr.message);
+    } else {
+      toast('Post publicado!');
+      closeModals();
+      // Reset form
+      document.getElementById('post-text-input').value = '';
+      clearPostImages();
+      setPostType('post');
+      // Reload feed
+      loadFeed();
+      if(postType === 'story') loadStories();
+    }
+  } catch(e) {
+    console.error('publishPost error:', e);
+    toast('Erro ao publicar');
+    document.getElementById('post-publish-btn').textContent = 'Publicar';
+    document.getElementById('post-publish-btn').disabled = false;
+  }
+}
+
+// ══════════════════════════════
+//  CHANGE 3: LEAFLET MAP
+// ══════════════════════════════
+let leafletMap = null;
+let mapMarkers = [];
+
+function initLeafletMap(){
+  if(leafletMap) return;
+  const container = document.getElementById('leaflet-map');
+  if(!container) return;
+  try {
+    leafletMap = L.map('leaflet-map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([-14.235, -51.925], 4);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(leafletMap);
+
+    L.control.zoom({ position: 'topright' }).addTo(leafletMap);
+
+    // Load painters from Supabase
+    loadMapPainters();
+    // Also load from local painters data as fallback
+    loadLocalPaintersOnMap();
+  } catch(e) {
+    console.error('Leaflet init error:', e);
+  }
+}
+
+function createPinIcon(painter){
+  const avatar = painter.avatar_url || painter.img || 'https://i.pravatar.cc/150?img=68';
+  const name = (painter.full_name || painter.name || '').split(' ')[0];
+  const rating = painter.rating_avg || painter.rating || 0;
+  const featured = rating >= 4.9;
+  const html = `<div class="pin-bubble ${featured?'featured':''}">
+    <div class="pin-avatar"><img src="${avatar}" alt=""></div>
+    <div class="pin-info">
+      <div class="pin-name">${name}</div>
+      <div class="pin-rating">* ${Number(rating).toFixed(1)}</div>
+    </div>
+  </div>
+  <div class="pin-tail ${featured?'featured':''}"></div>`;
+  return L.divIcon({
+    html: html,
+    className: 'painter-pin-marker',
+    iconSize: [120, 56],
+    iconAnchor: [60, 56]
+  });
+}
+
+async function loadMapPainters(){
+  try {
+    const sb = getSupabase();
+    if(!sb) return;
+    const { data: profiles, error } = await sb.from('profiles')
+      .select('id, full_name, avatar_url, city, state, role, specialties, rating_avg, lat, lng')
+      .eq('role', 'pintor')
+      .limit(50);
+    if(error) throw error;
+    if(!profiles || profiles.length === 0) return;
+
+    // Clear existing markers loaded from DB
+    mapMarkers.forEach(m => { if(m._fromDB) leafletMap.removeLayer(m); });
+    mapMarkers = mapMarkers.filter(m => !m._fromDB);
+
+    const painterListEl = document.getElementById('painter-list');
+    let listHtml = '';
+
+    profiles.forEach(p => {
+      if(p.lat && p.lng){
+        const icon = createPinIcon(p);
+        const marker = L.marker([p.lat, p.lng], { icon }).addTo(leafletMap);
+        marker._fromDB = true;
+        marker._painterId = p.id;
+        marker.on('click', () => {
+          document.getElementById('pp-img').src = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
+          document.getElementById('pp-name').textContent = p.full_name || 'Pintor';
+          document.getElementById('pp-sub').textContent = [p.city, p.state].filter(Boolean).join(', ') + (p.specialties ? ' - ' + p.specialties : '');
+          document.getElementById('pp-stars').textContent = '* '.repeat(Math.floor(p.rating_avg||0)) + ' ' + Number(p.rating_avg||0).toFixed(1);
+          document.getElementById('painter-popup').classList.add('show');
+        });
+        mapMarkers.push(marker);
+      }
+
+      const stars = '* '.repeat(Math.floor(p.rating_avg||0));
+      listHtml += `<div onclick="toast('Perfil: ${p.full_name}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
+        <img src="${p.avatar_url || 'https://i.pravatar.cc/150?img=68'}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
+        <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.full_name || 'Pintor'}</div><div style="font-size:12px;color:var(--muted);">${[p.city, p.state].filter(Boolean).join(', ')} ${p.specialties ? '- ' + p.specialties : ''}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${Number(p.rating_avg||0).toFixed(1)}</div></div>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>`;
+    });
+
+    if(listHtml) painterListEl.innerHTML = listHtml;
+  } catch(e) {
+    console.error('loadMapPainters error:', e);
+  }
+}
+
+function loadLocalPaintersOnMap(){
+  // Fallback: show local painter data on map
+  const coords = {
+    carlos: [-23.56, -46.63],
+    joao: [-22.91, -43.17],
+    marcia: [-22.91, -47.06],
+    ana: [-19.92, -43.94],
+    pedro: [-25.43, -49.27],
+    fabio: [-30.03, -51.23]
+  };
+  const painterListEl = document.getElementById('painter-list');
+  let listHtml = '';
+
+  Object.entries(painters).forEach(([id, p]) => {
+    const c = coords[id];
+    if(c && leafletMap){
+      const icon = createPinIcon(p);
+      const marker = L.marker(c, { icon }).addTo(leafletMap);
+      marker._local = true;
+      marker.on('click', () => {
+        showPainterCard(id);
+      });
+      mapMarkers.push(marker);
+    }
+    const stars = '*'.repeat(Math.floor(p.rating));
+    listHtml += `<div onclick="openProfile('${id}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
+      <img src="${p.img}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
+      <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.name} ${p.pro?'<span style=\"background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;\">PRO</span>':''}</div><div style="font-size:12px;color:var(--muted);">${p.city} - ${p.specs.slice(0,2).join(', ')}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${p.rating.toFixed(1)} - ${p.total} avaliacoes</div></div>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>`;
+  });
+  if(painterListEl && !painterListEl.innerHTML.trim()) painterListEl.innerHTML = listHtml;
+}
+
+// ══════════════════════════════
+//  CHANGE 4: ARCHIVE CONVERSATIONS
+// ══════════════════════════════
+let archivedConvs = JSON.parse(localStorage.getItem('quc_archived_convs') || '[]');
+let archivedExpanded = false;
+
+function initArchiveButtons(){
+  document.querySelectorAll('.conv-item[data-conv-id]').forEach(item => {
+    const convId = item.dataset.convId;
+    // Add archive button
+    const btn = document.createElement('button');
+    btn.className = 'conv-archive-btn';
+    btn.title = 'Arquivar';
+    btn.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>';
+    btn.onclick = function(e){
+      e.stopPropagation();
+      archiveConversation(convId);
+    };
+    item.style.position = 'relative';
+    item.appendChild(btn);
+  });
+  applyArchivedState();
+}
+
+function archiveConversation(convId){
+  if(!archivedConvs.includes(convId)){
+    archivedConvs.push(convId);
+    localStorage.setItem('quc_archived_convs', JSON.stringify(archivedConvs));
+    toast('Conversa arquivada');
+    applyArchivedState();
+  }
+}
+
+function unarchiveConversation(convId){
+  archivedConvs = archivedConvs.filter(id => id !== convId);
+  localStorage.setItem('quc_archived_convs', JSON.stringify(archivedConvs));
+  toast('Conversa desarquivada');
+  applyArchivedState();
+}
+
+function applyArchivedState(){
+  const archivedSection = document.getElementById('archived-section');
+  const archivedList = document.getElementById('archived-list');
+  const archivedCount = document.getElementById('archived-count');
+
+  // Hide archived from main list, show non-archived
+  document.querySelectorAll('.conv-item[data-conv-id]').forEach(item => {
+    const convId = item.dataset.convId;
+    item.style.display = archivedConvs.includes(convId) ? 'none' : 'flex';
+  });
+
+  if(archivedConvs.length > 0){
+    archivedSection.style.display = 'block';
+    archivedCount.textContent = '(' + archivedConvs.length + ')';
+
+    // Build archived list
+    let html = '';
+    archivedConvs.forEach(convId => {
+      const item = document.querySelector(`.conv-item[data-conv-id="${convId}"]`);
+      if(item){
+        html += `<div style="display:flex;align-items:center;padding:10px 16px;background:var(--cream);border-bottom:1px solid var(--border);gap:10px;cursor:pointer;" onclick="openChat('${convId}')">
+          <div style="flex:1;font-size:13px;color:var(--ink);font-weight:600;">${chatData[convId]?.name || convId}</div>
+          <button onclick="event.stopPropagation();unarchiveConversation('${convId}')" style="background:none;border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;">Desarquivar</button>
+        </div>`;
+      }
+    });
+    archivedList.innerHTML = html;
+  } else {
+    archivedSection.style.display = 'none';
+  }
+}
+
+function toggleArchivedSection(){
+  archivedExpanded = !archivedExpanded;
+  document.getElementById('archived-list').style.display = archivedExpanded ? 'block' : 'none';
+  document.getElementById('archived-chevron').style.transform = archivedExpanded ? 'rotate(180deg)' : '';
+}
+
+// ══════════════════════════════
+//  SCREEN HOOKS
+// ══════════════════════════════
+// Wrap showScreen to add hooks for dynamic loading
+const _origShowScreen = showScreen;
+showScreen = function(n){
+  _origShowScreen(n);
+  if(n === 'myprofile'){
+    autoDetectRole();
+  }
+  if(n === 'feed'){
+    loadFeed();
+    loadStories();
+  }
+  if(n === 'explore'){
+    setTimeout(() => {
+      initLeafletMap();
+      if(leafletMap) leafletMap.invalidateSize();
+    }, 200);
+  }
+  if(n === 'chat'){
+    setTimeout(initArchiveButtons, 100);
+  }
+};
+
+// Load feed on startup (deferred)
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    loadFeed();
+    loadStories();
+  }, 1000);
+});
 
 </script>
 
