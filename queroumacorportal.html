@@ -64,61 +64,126 @@ const KPICard = ({ title, value, sub, trend, color }) => (
   </div>
 );
 
-const Dashboard = () => (
-  <div>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
-      <KPICard title="Pintores Ativos" value="1.284" sub="vs mês passado" trend="↑ 12%" color={C.p6} />
-      <KPICard title="Clientes Cadastrados" value="3.847" sub="vs mês passado" trend="↑ 24%" color={C.p6} />
-      <KPICard title="Chats 3-Way Ativos" value="247" sub="vs mês passado" trend="↑ 38%" color={C.p6} />
-      <KPICard title="Receita App" value="R$ 48.9K" sub="vs mês passado" trend="↑ 18%" color={C.p6} />
-    </div>
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>📊 Orçamentos por Semana</div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 80 }}>
-          {[48,63,71,58,89,104,97].map((h,i) => (
-            <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
-              <div style={{ background: i===5 ? C.p1 : C.p2, borderRadius: 4, width: '100%', height: Math.max(8, h * 0.7) + 'px' }}></div>
-              <div style={{ fontSize:10, color:C.muted }}>S{i+1}</div>
+const Dashboard = () => {
+  const [stats, setStats] = useState({ pintores: 0, clientes: 0, leads: 0, orcamentos: 0 });
+  const [recentQuotes, setRecentQuotes] = useState([]);
+  const [weeklyQuotes, setWeeklyQuotes] = useState([0,0,0,0,0,0,0]);
+  const [regionData, setRegionData] = useState([]);
+  const [recentMessages, setRecentMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const sb = window._sb;
+      const [profilesRes, leadsRes, quotesRes, msgsRes] = await Promise.all([
+        sb.from('profiles').select('id, role, state, created_at'),
+        sb.from('leads').select('id'),
+        sb.from('quotes').select('id, status, created_at, client:profiles!client_id(name), painter:profiles!painter_id(name)').order('created_at', { ascending: false }).limit(20),
+        sb.from('messages').select('id, content, created_at, sender_id').order('created_at', { ascending: false }).limit(5),
+      ]);
+
+      const profiles = profilesRes.data || [];
+      const leads = leadsRes.data || [];
+      const quotes = quotesRes.data || [];
+      const msgs = msgsRes.data || [];
+
+      const pintores = profiles.filter(p => p.role === 'pintor' || !p.role).length;
+      const clientes = profiles.filter(p => p.role === 'cliente').length;
+
+      setStats({ pintores: profiles.length, clientes, leads: leads.length, orcamentos: quotes.length });
+
+      // Weekly quotes from last 7 weeks
+      const now = new Date();
+      const weekly = [0,0,0,0,0,0,0];
+      quotes.forEach(q => {
+        if (!q.created_at) return;
+        const diff = Math.floor((now - new Date(q.created_at)) / (7 * 86400000));
+        if (diff >= 0 && diff < 7) weekly[6 - diff]++;
+      });
+      setWeeklyQuotes(weekly);
+
+      // Region distribution from profiles
+      const regions = {};
+      profiles.forEach(p => {
+        const st = (p.state || '').toUpperCase();
+        if (st === 'SP') regions['São Paulo'] = (regions['São Paulo'] || 0) + 1;
+        else if (st === 'RJ') regions['Rio de Janeiro'] = (regions['Rio de Janeiro'] || 0) + 1;
+        else if (['MG','PR','RS'].includes(st)) regions['MG/PR/RS'] = (regions['MG/PR/RS'] || 0) + 1;
+        else regions['Outros'] = (regions['Outros'] || 0) + 1;
+      });
+      const total = profiles.length || 1;
+      const colors = { 'São Paulo': C.p1, 'Rio de Janeiro': C.p3, 'MG/PR/RS': C.p7, 'Outros': C.muted };
+      setRegionData(['São Paulo','Rio de Janeiro','MG/PR/RS','Outros'].map(r => ({
+        name: r, pct: Math.round((regions[r] || 0) / total * 100) + '%', color: colors[r]
+      })));
+
+      setRecentQuotes(quotes.slice(0, 5));
+      setRecentMessages(msgs);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando dashboard...</div>;
+
+  const maxW = Math.max(...weeklyQuotes, 1);
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
+        <KPICard title="Perfis Cadastrados" value={stats.pintores.toLocaleString('pt-BR')} sub="no sistema" trend="" color={C.p6} />
+        <KPICard title="Clientes" value={stats.clientes.toLocaleString('pt-BR')} sub="cadastrados" trend="" color={C.p3} />
+        <KPICard title="Leads" value={stats.leads.toLocaleString('pt-BR')} sub="captados" trend="" color={C.p5} />
+        <KPICard title="Orçamentos" value={stats.orcamentos.toLocaleString('pt-BR')} sub="solicitados" trend="" color={C.p1} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+        <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>📊 Orçamentos por Semana</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 80 }}>
+            {weeklyQuotes.map((h,i) => (
+              <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                <div style={{ background: i===6 ? C.p1 : C.p2, borderRadius: 4, width: '100%', height: Math.max(8, (h / maxW) * 70) + 'px' }}></div>
+                <div style={{ fontSize:10, color:C.muted }}>S{i+1}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>🗺️ Perfis por Região</div>
+          {regionData.map(r => (
+            <div key={r.name} style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+              <span style={{ fontSize:13 }}>{r.name}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:r.color }}>{r.pct}</span>
             </div>
           ))}
         </div>
       </div>
       <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>🗺️ Pintores por Região</div>
-        {[['São Paulo','40%',C.p1],['Rio de Janeiro','28%',C.p3],['MG/PR/RS','22%',C.p7],['Outros','10%',C.muted]].map(([r,p,c]) => (
-          <div key={r} style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-            <span style={{ fontSize:13 }}>{r}</span>
-            <span style={{ fontSize:13, fontWeight:700, color:c }}>{p}</span>
-          </div>
-        ))}
+        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>📋 Orçamentos Recentes</div>
+        {recentQuotes.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum orçamento encontrado.</div>}
+        {recentQuotes.map((q,i) => {
+          const st = STATUS_MAP[q.status] || q.status || '—';
+          const data = q.created_at ? new Date(q.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) : '—';
+          return (
+            <div key={q.id || i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom: i < recentQuotes.length - 1 ? '1px solid ' + C.border : 'none' }}>
+              <div style={{ width:36, height:36, borderRadius:'50%', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700 }}>
+                {(q.client?.name || '?')[0]}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <span style={{ fontWeight:600, fontSize:13 }}>{q.client?.name || '—'}</span>
+                  <span style={{ color:C.muted, fontSize:12 }}>→</span>
+                  <span style={{ fontSize:13 }}>{q.painter?.name || '—'}</span>
+                  <span style={{ background: st==='aceito'?C.p6+'22':st==='pendente'?C.p7+'44':C.border, color: st==='aceito'?C.p6:st==='pendente'?'#b8860b':C.muted, borderRadius:6, fontSize:10, padding:'1px 8px' }}>{st}</span>
+                </div>
+              </div>
+              <div style={{ fontSize:11, color:C.muted }}>{data}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
-    <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-      <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>💬 Chats 3-Way Recentes</div>
-      {[
-        { names: 'Fernanda + Carlos', tag: '3-WAY', msg: 'Terracota Premium em estoque! 🎨', time: '14:32', online: true },
-        { names: 'Ricardo + Márcia', tag: '3-WAY', msg: '12L da linha Venetian disponíveis', time: '11:08', online: true },
-        { names: 'Marina + João', tag: '3-WAY', msg: 'João: Preciso do Grafite Urbano', time: 'Ontem', online: false },
-      ].map((c,i) => (
-        <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom: i < 2 ? '1px solid ' + C.border : 'none' }}>
-          <div style={{ width:36, height:36, borderRadius:'50%', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>
-            {c.names[0]}
-          </div>
-          <div style={{ flex:1 }}>
-            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-              <span style={{ fontWeight:600, fontSize:13 }}>{c.names}</span>
-              <span style={{ background:C.p3, color:'#fff', borderRadius:6, fontSize:10, padding:'1px 6px' }}>{c.tag}</span>
-              {c.online && <span style={{ width:6, height:6, borderRadius:'50%', background:C.p6, display:'inline-block' }}></span>}
-            </div>
-            <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>{c.msg}</div>
-          </div>
-          <div style={{ fontSize:11, color:C.muted }}>{c.time}</div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
+  );
+};
 
 const PintoresList = () => {
   const [pintores, setPintores] = useState([]);
@@ -235,77 +300,353 @@ const Camisetas = () => {
   );
 };
 
-const Analytics = () => (
-  <div>
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
-      <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)', gridColumn:'span 2' }}>
-        <div style={{ fontWeight:700, marginBottom:16 }}>📈 Funil de Conversão</div>
-        {[
-          { label:'Visualizaram perfil de pintor', n:12847, pct:100 },
-          { label:'Solicitaram orçamento', n:4231, pct:33 },
-          { label:'Chat iniciado com loja', n:1847, pct:14 },
-          { label:'Produto comprado', n:923, pct:7 },
-        ].map((s,i) => (
-          <div key={i} style={{ marginBottom:12 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-              <span style={{ fontSize:13 }}>{s.label}</span>
-              <span style={{ fontSize:13, fontWeight:700 }}>{s.n.toLocaleString('pt-BR')}</span>
-            </div>
-            <div style={{ background:C.border, borderRadius:4, height:8 }}>
-              <div style={{ background:C.p1, height:8, borderRadius:4, width:s.pct+'%' }}></div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-        <div style={{ fontWeight:700, marginBottom:16 }}>🏆 Top Produtos</div>
-        {[
-          { name:'Terracota Prem.', sales:247, cor:'#c0622d' },
-          { name:'Branco Absoluto', sales:189, cor:'#aaa' },
-          { name:'Azul Veneziano', sales:156, cor:'#1a6b8a' },
-          { name:'Grafite Urbano', sales:134, cor:'#4a4a4a' },
-        ].map((p,i) => (
-          <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-            <div style={{ width:12, height:12, borderRadius:3, background:p.cor }}></div>
-            <div style={{ flex:1, fontSize:12 }}>{p.name}</div>
-            <div style={{ fontSize:13, fontWeight:700 }}>{p.sales}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  </div>
-);
+const Analytics = () => {
+  const [data, setData] = useState({ profiles: 0, leads: 0, quotes: 0, messages: 0, quotesAccepted: 0, quotesData: [] });
+  const [loading, setLoading] = useState(true);
 
-const Chats = () => (
-  <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-    <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>💬 Chats 3-Way — Cali Colors + Pintor + Cliente</div>
-    <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-      {['Todos','Ativos','Aguardando','Concluídos'].map(f => (
-        <button key={f} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+C.border, background:'transparent', cursor:'pointer', fontSize:12 }}>{f}</button>
-      ))}
-    </div>
-    {[
-      { pintor:'Carlos Silva', cliente:'Ana Lima', msg:'Preciso de 12L Terracota para sala 40m²', time:'14:32', status:'ativo' },
-      { pintor:'Pedro Costa', cliente:'Marcos Dias', msg:'Qual a diferença do látex para o acrílico?', time:'11:15', status:'aguardando' },
-      { pintor:'Fernanda Rocha', cliente:'Julia Santos', msg:'Cali Colors: Produto enviado! ✅', time:'09:40', status:'concluido' },
-      { pintor:'Roberto Lima', cliente:'Carla Mendes', msg:'Gostei do Azul Veneziano, qual o prazo?', time:'Ontem', status:'ativo' },
-    ].map((c,i) => (
-      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom: i < 3 ? '1px solid '+C.border : 'none' }}>
-        <div style={{ width:40, height:40, borderRadius:'50%', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}>{c.pintor[0]}</div>
-        <div style={{ flex:1 }}>
-          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:2 }}>
-            <span style={{ fontWeight:600, fontSize:13 }}>{c.pintor}</span>
-            <span style={{ color:C.muted, fontSize:12 }}>+</span>
-            <span style={{ fontSize:13 }}>{c.cliente}</span>
-            <span style={{ background:c.status==='ativo'?C.p6+'22':c.status==='aguardando'?C.p7+'44':C.border, color:c.status==='ativo'?C.p6:c.status==='aguardando'?'#b8860b':C.muted, borderRadius:6, fontSize:10, padding:'1px 8px' }}>{c.status}</span>
-          </div>
-          <div style={{ fontSize:12, color:C.muted }}>{c.msg}</div>
-        </div>
-        <div style={{ fontSize:11, color:C.muted }}>{c.time}</div>
+  useEffect(() => {
+    (async () => {
+      const sb = window._sb;
+      const [pRes, lRes, qRes, mRes] = await Promise.all([
+        sb.from('profiles').select('id, created_at'),
+        sb.from('leads').select('id, status'),
+        sb.from('quotes').select('id, status, service_type, price, created_at'),
+        sb.from('messages').select('id'),
+      ]);
+      const profiles = pRes.data || [];
+      const leads = lRes.data || [];
+      const quotes = qRes.data || [];
+      const messages = mRes.data || [];
+      const accepted = quotes.filter(q => q.status === 'accepted' || q.status === 'completed').length;
+
+      setData({ profiles: profiles.length, leads: leads.length, quotes: quotes.length, messages: messages.length, quotesAccepted: accepted, quotesData: quotes });
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando analytics...</div>;
+
+  const funnelTotal = data.profiles || 1;
+  const funnel = [
+    { label: 'Perfis cadastrados', n: data.profiles, pct: 100 },
+    { label: 'Leads captados', n: data.leads, pct: Math.round(data.leads / funnelTotal * 100) },
+    { label: 'Orçamentos solicitados', n: data.quotes, pct: Math.round(data.quotes / funnelTotal * 100) },
+    { label: 'Orçamentos aceitos/concluídos', n: data.quotesAccepted, pct: Math.round(data.quotesAccepted / funnelTotal * 100) },
+  ];
+
+  // Top services from quotes
+  const serviceCounts = {};
+  data.quotesData.forEach(q => {
+    const s = q.service_type || q.title || 'Outros';
+    serviceCounts[s] = (serviceCounts[s] || 0) + 1;
+  });
+  const topServices = Object.entries(serviceCounts).sort((a,b) => b[1] - a[1]).slice(0, 5);
+  const serviceColors = [C.p1, C.p3, C.p7, C.p5, C.p6];
+
+  return (
+    <div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
+        <KPICard title="Perfis" value={data.profiles} sub="cadastrados" trend="" color={C.p3} />
+        <KPICard title="Leads" value={data.leads} sub="captados" trend="" color={C.p5} />
+        <KPICard title="Orçamentos" value={data.quotes} sub="total" trend="" color={C.p1} />
+        <KPICard title="Mensagens" value={data.messages} sub="enviadas" trend="" color={C.p6} />
       </div>
-    ))}
-  </div>
-);
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
+        <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)', gridColumn:'span 2' }}>
+          <div style={{ fontWeight:700, marginBottom:16 }}>📈 Funil de Conversão</div>
+          {funnel.map((s,i) => (
+            <div key={i} style={{ marginBottom:12 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span style={{ fontSize:13 }}>{s.label}</span>
+                <span style={{ fontSize:13, fontWeight:700 }}>{s.n.toLocaleString('pt-BR')}</span>
+              </div>
+              <div style={{ background:C.border, borderRadius:4, height:8 }}>
+                <div style={{ background:C.p1, height:8, borderRadius:4, width: Math.max(s.pct, 2)+'%' }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontWeight:700, marginBottom:16 }}>🏆 Top Serviços</div>
+          {topServices.length === 0 && <div style={{ color:C.muted, fontSize:13 }}>Nenhum orçamento ainda.</div>}
+          {topServices.map(([name, count], i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+              <div style={{ width:12, height:12, borderRadius:3, background:serviceColors[i % serviceColors.length] }}></div>
+              <div style={{ flex:1, fontSize:12 }}>{name}</div>
+              <div style={{ fontSize:13, fontWeight:700 }}>{count}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Chats = () => {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await window._sb
+        .from('messages')
+        .select('id, sender_id, content, type, created_at')
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (!error && data) setMessages(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando mensagens...</div>;
+
+  return (
+    <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+      <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>💬 Mensagens Recentes</div>
+      {messages.length === 0 && <div style={{ color:C.muted, fontSize:13 }}>Nenhuma mensagem encontrada.</div>}
+      {messages.map((m, i) => {
+        const data = m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+        return (
+          <div key={m.id || i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom: i < messages.length - 1 ? '1px solid '+C.border : 'none' }}>
+            <div style={{ width:40, height:40, borderRadius:'50%', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 }}>
+              💬
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:2 }}>
+                <span style={{ fontWeight:600, fontSize:13 }}>{m.sender_id ? m.sender_id.slice(0,8) + '...' : '—'}</span>
+                <span style={{ background:C.p3+'22', color:C.p3, borderRadius:6, fontSize:10, padding:'1px 8px' }}>{m.type || 'text'}</span>
+              </div>
+              <div style={{ fontSize:12, color:C.muted }}>{m.content || '—'}</div>
+            </div>
+            <div style={{ fontSize:11, color:C.muted }}>{data}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const Leads = () => {
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busca, setBusca] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState('Todos');
+  const [filtroSegmento, setFiltroSegmento] = useState('TODOS');
+  const [filtroCategoria, setFiltroCategoria] = useState('Todas');
+  const [ordenar, setOrdenar] = useState('rating');
+
+  const fetchLeads = async () => {
+    // Fix source: indicacao → captacao (leads were gathered by AI, not referral)
+    await window._sb.from('leads').update({ source: 'captacao' }).eq('source', 'indicacao');
+
+    const { data, error } = await window._sb
+      .from('leads')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && data) setLeads(data);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchLeads(); }, []);
+
+  const updateStatus = async (id, newStatus) => {
+    await window._sb.from('leads').update({ status: newStatus }).eq('id', id);
+    fetchLeads();
+  };
+
+  const statusColor = (s) => {
+    const map = { novo: C.p3, contactado: C.p7, qualificado: C.p6, convertido: C.p1, perdido: C.p4 };
+    return map[s] || C.muted;
+  };
+
+  const prioColor = (p) => {
+    const map = { alta: C.p6, media: C.p7, baixa: C.muted };
+    return map[p] || C.muted;
+  };
+
+  const segColors = { AUTOMOTIVO: '#e63946', GRAFFITI: '#8338ec', RESIDENCIAL: '#ff6b35', COMERCIAL: '#2ec4b6' };
+
+  // Filters
+  let filtered = leads;
+  if (busca) {
+    const q = busca.toLowerCase();
+    filtered = filtered.filter(l => (l.name||'').toLowerCase().includes(q) || (l.segment||'').toLowerCase().includes(q) || (l.category||'').toLowerCase().includes(q) || (l.neighborhood||'').toLowerCase().includes(q));
+  }
+  if (filtroStatus !== 'Todos') filtered = filtered.filter(l => l.status === filtroStatus.toLowerCase());
+  if (filtroSegmento !== 'TODOS') filtered = filtered.filter(l => (l.segment||'').toUpperCase() === filtroSegmento);
+  if (filtroCategoria !== 'Todas') filtered = filtered.filter(l => l.category === filtroCategoria);
+
+  // Sort
+  if (ordenar === 'rating') filtered = [...filtered].sort((a,b) => (b.rating||0) - (a.rating||0));
+  else if (ordenar === 'reviews') filtered = [...filtered].sort((a,b) => (b.review_count||0) - (a.review_count||0));
+  else if (ordenar === 'name') filtered = [...filtered].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  // Segment counts
+  const segments = {};
+  leads.forEach(l => { const s = (l.segment||'Outros').toUpperCase(); segments[s] = (segments[s]||0)+1; });
+
+  // Category counts
+  const categories = {};
+  leads.forEach(l => { const c = l.category||'Outros'; categories[c] = (categories[c]||0)+1; });
+
+  // Status counts
+  const statusCounts = { total: leads.length };
+  ['novo','contactado','qualificado','convertido','perdido'].forEach(s => {
+    statusCounts[s] = leads.filter(l => l.status === s).length;
+  });
+
+  const exportCSV = () => {
+    const header = ['#','Nome','Bairro','Segmento','Categoria','Rating','Reviews','Telefone','Prioridade','Status'];
+    const rows = filtered.map((l,i) => [i+1, l.name||'', l.neighborhood||'', l.segment||'', l.category||'', l.rating||'', l.review_count||'', l.phone||'', l.priority||'', l.status||'']);
+    const csv = [header, ...rows].map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+    const blob = new Blob(['\uFEFF'+csv], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'leads_calicolors.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const openWhatsApp = (phone, name) => {
+    if (!phone) return;
+    const num = phone.replace(/\D/g, '');
+    const fullNum = num.startsWith('55') ? num : '55' + num;
+    const msg = encodeURIComponent('Olá ' + (name||'') + '! Somos da Cali Colors — QueroUmaCor. Gostaríamos de apresentar nossa plataforma para você. Podemos conversar?');
+    window.open('https://wa.me/' + fullNum + '?text=' + msg, '_blank');
+  };
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando leads...</div>;
+
+  return (
+    <div>
+      {/* KPI BAR */}
+      <div style={{ display:'flex', gap:16, marginBottom:20, flexWrap:'wrap' }}>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p1, fontWeight:700, fontSize:18 }}>{leads.length}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>leads</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p6, fontWeight:700, fontSize:18 }}>{statusCounts.convertido||0}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>clientes</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p7, fontWeight:700, fontSize:18 }}>{statusCounts.contactado||0}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>contactados</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p5, fontWeight:700, fontSize:18 }}>{Object.keys(segments).length}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>segmentos</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p3, fontWeight:700, fontSize:18 }}>{Object.keys(categories).length}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>categorias</span>
+        </div>
+      </div>
+
+      {/* SEARCH + FILTERS BAR */}
+      <div style={{ background:C.ink, borderRadius:14, padding:16, marginBottom:16 }}>
+        <div style={{ display:'flex', gap:12, marginBottom:14, alignItems:'center' }}>
+          <div style={{ flex:1, position:'relative' }}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, segmento, bairro..." style={{ width:'100%', padding:'10px 14px 10px 36px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:13, outline:'none', fontFamily:'DM Sans,sans-serif' }} />
+            <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontSize:14, opacity:0.5 }}>🔍</span>
+          </div>
+          <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{ padding:'10px 14px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:12, outline:'none', cursor:'pointer' }}>
+            <option value="Todos">Todos status</option>
+            <option value="Novo">Novo</option>
+            <option value="Contactado">Contactado</option>
+            <option value="Qualificado">Qualificado</option>
+            <option value="Convertido">Convertido</option>
+            <option value="Perdido">Perdido</option>
+          </select>
+          <select value={ordenar} onChange={e=>setOrdenar(e.target.value)} style={{ padding:'10px 14px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:12, outline:'none', cursor:'pointer' }}>
+            <option value="rating">Ordenar: Rating ↓</option>
+            <option value="reviews">Ordenar: Reviews ↓</option>
+            <option value="name">Ordenar: Nome A-Z</option>
+          </select>
+          <button onClick={exportCSV} style={{ padding:'10px 16px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>⬇ CSV</button>
+        </div>
+
+        {/* SEGMENT CHIPS */}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:10 }}>
+          <button onClick={()=>setFiltroSegmento('TODOS')} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+(filtroSegmento==='TODOS'?C.p1:'rgba(255,255,255,0.2)'), background:filtroSegmento==='TODOS'?C.p1:'transparent', color:'#fff', cursor:'pointer', fontSize:12, fontWeight:600 }}>TODOS {leads.length}</button>
+          {Object.entries(segments).sort((a,b)=>b[1]-a[1]).map(([seg, count]) => (
+            <button key={seg} onClick={()=>setFiltroSegmento(seg===filtroSegmento?'TODOS':seg)} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+(filtroSegmento===seg?C.p1:'rgba(255,255,255,0.2)'), background:filtroSegmento===seg?'rgba(255,255,255,0.15)':'transparent', color:'#fff', cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', gap:6 }}>
+              <span>{seg}</span><span style={{ background:'rgba(255,255,255,0.2)', borderRadius:10, padding:'1px 6px', fontSize:10 }}>{count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* CATEGORY CHIPS */}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button onClick={()=>setFiltroCategoria('Todas')} style={{ padding:'4px 12px', borderRadius:16, border:'1px solid '+(filtroCategoria==='Todas'?C.p1:'rgba(255,255,255,0.15)'), background:filtroCategoria==='Todas'?C.p1:'transparent', color:filtroCategoria==='Todas'?'#fff':'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:11 }}>Todas {leads.length}</button>
+          {Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([cat, count]) => (
+            <button key={cat} onClick={()=>setFiltroCategoria(cat===filtroCategoria?'Todas':cat)} style={{ padding:'4px 12px', borderRadius:16, border:'1px solid '+(filtroCategoria===cat?C.p1:'rgba(255,255,255,0.15)'), background:filtroCategoria===cat?'rgba(255,255,255,0.12)':'transparent', color:'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', gap:4 }}>
+              <span>{cat}</span><span style={{ fontWeight:700 }}>{count}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* TABLE */}
+      <div style={{ background:C.ink, borderRadius:14, padding:4, overflowX:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, color:'rgba(255,255,255,0.85)' }}>
+          <thead>
+            <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.1)' }}>
+              {['#','NOME ↕','SEGMENTO ↕','CATEGORIA ↕','RATING ↕','TELEFONE','PRIO.','STATUS','AÇÃO'].map(h => (
+                <th key={h} style={{ textAlign:'left', padding:'12px 10px', color:'rgba(255,255,255,0.5)', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={9} style={{ padding:'30px 10px', color:'rgba(255,255,255,0.4)', textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
+            )}
+            {filtered.map((l, i) => {
+              const sc = statusColor(l.status);
+              const pc = prioColor(l.priority);
+              const segColor = segColors[(l.segment||'').toUpperCase()] || C.muted;
+              const stars = l.rating ? '★'.repeat(Math.min(5,Math.round(Number(l.rating)))) : '';
+              return (
+                <tr key={l.id || i} style={{ borderBottom:'1px solid rgba(255,255,255,0.06)', transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <td style={{ padding:'12px 10px', color:'rgba(255,255,255,0.4)', fontSize:12 }}>{String(l.id||i+1).padStart(3,'0')}</td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <div style={{ fontWeight:600, color:'#fff' }}>{l.name || '—'}</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>{l.neighborhood || l.city || '—'}</div>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ background:segColor, color:'#fff', borderRadius:6, padding:'3px 10px', fontSize:11, fontWeight:700, textTransform:'uppercase' }}>{l.segment || '—'}</span>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ background:'rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.8)', borderRadius:6, padding:'3px 10px', fontSize:11 }}>{l.category || '—'}</span>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ color:C.p7 }}>{stars}</span>
+                    <span style={{ color:'rgba(255,255,255,0.7)', marginLeft:4 }}>{l.rating ? Number(l.rating).toFixed(1) : '—'}</span>
+                    {l.review_count != null && <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)' }}>({l.review_count})</div>}
+                  </td>
+                  <td style={{ padding:'12px 10px', color:l.phone ? C.p3 : 'rgba(255,255,255,0.3)' }}>{l.phone || '—'}</td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ color:pc }}>● </span>
+                    <span style={{ color:'rgba(255,255,255,0.7)', textTransform:'capitalize' }}>{l.priority || '—'}</span>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <select value={l.status||'novo'} onChange={e=>updateStatus(l.id, e.target.value)} style={{ padding:'4px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:11, outline:'none', cursor:'pointer' }}>
+                      <option value="novo">Novo</option>
+                      <option value="contactado">Contactado</option>
+                      <option value="qualificado">Qualificado</option>
+                      <option value="convertido">Convertido</option>
+                      <option value="perdido">Perdido</option>
+                    </select>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    {l.phone ? (
+                      <button onClick={()=>openWhatsApp(l.phone, l.name)} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:11, fontWeight:600, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+                        <span>📱</span> WhatsApp
+                      </button>
+                    ) : <span style={{ color:'rgba(255,255,255,0.3)' }}>—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 
 const STATUS_MAP = { pending: 'pendente', accepted: 'aceito', completed: 'concluido', rejected: 'rejeitado' };
 
@@ -363,18 +704,243 @@ const Orcamentos = () => {
   );
 };
 
+const ClientesList = () => {
+  const [clientes, setClientes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await window._sb.from('profiles').select('*').eq('role', 'cliente').order('created_at', { ascending: false });
+      if (!error && data) setClientes(data);
+      else {
+        const { data: all } = await window._sb.from('profiles').select('*').order('created_at', { ascending: false });
+        if (all) setClientes(all);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando clientes...</div>;
+
+  return (
+    <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+      <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>👥 Clientes Cadastrados</div>
+      {clientes.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum cliente cadastrado.</div>}
+      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+        {clientes.length > 0 && (
+          <thead>
+            <tr style={{ borderBottom:'2px solid '+C.border }}>
+              {['Nome','Email','Cidade','Estado','Cadastro'].map(h => (
+                <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {clientes.map((c, i) => {
+            const data = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+            return (
+              <tr key={c.id || i} style={{ borderBottom:'1px solid '+C.border }}>
+                <td style={{ padding:'10px 12px' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ width:32, height:32, borderRadius:'50%', background:C.p3+'22', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:13, color:C.p3 }}>{(c.name || '?')[0]}</div>
+                    <span style={{ fontWeight:600 }}>{c.name || 'Sem nome'}</span>
+                  </div>
+                </td>
+                <td style={{ padding:'10px 12px', color:C.muted }}>{c.email || '—'}</td>
+                <td style={{ padding:'10px 12px' }}>{c.city || '—'}</td>
+                <td style={{ padding:'10px 12px' }}>{c.state || '—'}</td>
+                <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const AvaliacoesList = () => {
+  const [quotes, setQuotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await window._sb
+        .from('quotes')
+        .select('*, client:profiles!client_id(name, rating_avg), painter:profiles!painter_id(name, rating_avg)')
+        .order('created_at', { ascending: false });
+      if (!error && data) setQuotes(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando avaliações...</div>;
+
+  const rated = quotes.filter(q => q.painter?.rating_avg != null || q.client?.rating_avg != null);
+
+  return (
+    <div>
+      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>⭐ Avaliações — Pintores</div>
+        {quotes.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum orçamento encontrado para avaliar.</div>}
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+          {quotes.length > 0 && (
+            <thead>
+              <tr style={{ borderBottom:'2px solid '+C.border }}>
+                {['Pintor','Nota Média','Cliente','Serviço','Status','Data'].map(h => (
+                  <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {quotes.map((q, i) => {
+              const st = STATUS_MAP[q.status] || q.status;
+              const data = q.created_at ? new Date(q.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) : '—';
+              const rating = q.painter?.rating_avg;
+              return (
+                <tr key={q.id || i} style={{ borderBottom:'1px solid '+C.border }}>
+                  <td style={{ padding:'10px 12px', fontWeight:600 }}>{q.painter?.name || '—'}</td>
+                  <td style={{ padding:'10px 12px' }}>
+                    {rating != null ? (
+                      <span style={{ color:C.p1 }}>{'★'.repeat(Math.round(Number(rating)))}{'☆'.repeat(5-Math.round(Number(rating)))} {Number(rating).toFixed(1)}</span>
+                    ) : <span style={{ color:C.muted }}>—</span>}
+                  </td>
+                  <td style={{ padding:'10px 12px' }}>{q.client?.name || '—'}</td>
+                  <td style={{ padding:'10px 12px', color:C.muted }}>{q.service_type || '—'}</td>
+                  <td style={{ padding:'10px 12px' }}>
+                    <span style={{ background:st==='aceito'?C.p6+'22':st==='pendente'?C.p7+'44':st==='concluido'?C.p3+'22':C.p4+'22', color:st==='aceito'?C.p6:st==='pendente'?'#b8860b':st==='concluido'?C.p3:C.p4, borderRadius:8, padding:'3px 10px', fontSize:11 }}>{st}</span>
+                  </td>
+                  <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const CursosList = () => {
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await window._sb.from('profiles').select('id, name, city, state, verified, rating_avg').order('rating_avg', { ascending: false });
+      if (data) setProfiles(data.filter(p => p.verified));
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando cursos...</div>;
+
+  return (
+    <div>
+      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8, color: C.ink }}>📚 Cursos — Pintores Verificados</div>
+        <div style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>Pintores verificados podem criar e vender cursos na plataforma.</div>
+        {profiles.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum pintor verificado ainda. Aprove pintores na seção Pintores para habilitar cursos.</div>}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
+          {profiles.map((p, i) => (
+            <div key={p.id || i} style={{ background:C.bg, borderRadius:12, padding:16, border:'1px solid '+C.border }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                <div style={{ width:36, height:36, borderRadius:'50%', background:C.p1+'22', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, color:C.p1, fontSize:14 }}>{(p.name || '?')[0]}</div>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:13 }}>{p.name || 'Sem nome'}</div>
+                  <div style={{ fontSize:11, color:C.muted }}>{[p.city, p.state].filter(Boolean).join(', ')}</div>
+                </div>
+              </div>
+              <div style={{ fontSize:12, color:C.p1 }}>⭐ {p.rating_avg != null ? Number(p.rating_avg).toFixed(1) : '—'}</div>
+              <div style={{ background:C.p6+'22', color:C.p6, borderRadius:8, padding:'3px 10px', fontSize:11, fontWeight:600, display:'inline-block', marginTop:8 }}>✓ Verificado</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MarketingPage = () => {
+  const [stats, setStats] = useState({ profiles: 0, leads: 0, quotes: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const sb = window._sb;
+      const [pRes, lRes, qRes] = await Promise.all([
+        sb.from('profiles').select('id', { count: 'exact', head: true }),
+        sb.from('leads').select('id', { count: 'exact', head: true }),
+        sb.from('quotes').select('id', { count: 'exact', head: true }),
+      ]);
+      setStats({
+        profiles: pRes.count || 0,
+        leads: lRes.count || 0,
+        quotes: qRes.count || 0,
+      });
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando marketing...</div>;
+
+  const convRate = stats.profiles > 0 ? ((stats.quotes / stats.profiles) * 100).toFixed(1) : '0';
+
+  return (
+    <div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:24 }}>
+        <KPICard title="Alcance (Perfis)" value={stats.profiles} sub="base total" trend="" color={C.p3} />
+        <KPICard title="Leads Captados" value={stats.leads} sub="funil de entrada" trend="" color={C.p5} />
+        <KPICard title="Taxa de Conversão" value={convRate + '%'} sub="perfis → orçamentos" trend="" color={C.p1} />
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+        <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontWeight:700, marginBottom:12, color:C.ink }}>📣 Funil de Marketing</div>
+          {[
+            { label:'Perfis cadastrados', value:stats.profiles, pct:100 },
+            { label:'Leads captados', value:stats.leads, pct: stats.profiles ? Math.round(stats.leads/stats.profiles*100) : 0 },
+            { label:'Orçamentos gerados', value:stats.quotes, pct: stats.profiles ? Math.round(stats.quotes/stats.profiles*100) : 0 },
+          ].map((s,i) => (
+            <div key={i} style={{ marginBottom:12 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span style={{ fontSize:13 }}>{s.label}</span>
+                <span style={{ fontSize:13, fontWeight:700 }}>{s.value}</span>
+              </div>
+              <div style={{ background:C.border, borderRadius:4, height:8 }}>
+                <div style={{ background:C.p1, height:8, borderRadius:4, width:Math.max(s.pct,2)+'%' }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontWeight:700, marginBottom:12, color:C.ink }}>💡 Insights</div>
+          <div style={{ fontSize:13, color:C.ink, lineHeight:1.8 }}>
+            <div style={{ padding:'8px 0', borderBottom:'1px solid '+C.border }}>📊 <b>{stats.profiles}</b> perfis na base</div>
+            <div style={{ padding:'8px 0', borderBottom:'1px solid '+C.border }}>🧲 <b>{stats.leads}</b> leads captados</div>
+            <div style={{ padding:'8px 0', borderBottom:'1px solid '+C.border }}>📋 <b>{stats.quotes}</b> orçamentos solicitados</div>
+            <div style={{ padding:'8px 0' }}>📈 Taxa de conversão: <b>{convRate}%</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PAGES = [
   { id:'dashboard', icon:'📊', label:'Dashboard', section:'PRINCIPAL', component:<Dashboard /> },
   { id:'chats', icon:'💬', label:'Chats 3-Way', section:'PRINCIPAL', badge:7, component:<Chats /> },
   { id:'orcamentos', icon:'📋', label:'Orçamentos', section:'PRINCIPAL', badge:12, component:<Orcamentos /> },
   { id:'pintores', icon:'🖌️', label:'Pintores', section:'PESSOAS', badge:3, component:<PintoresList /> },
-  { id:'clientes', icon:'👥', label:'Clientes', section:'PESSOAS', component:<div style={{padding:20,color:C.muted}}>Lista de clientes em desenvolvimento...</div> },
+  { id:'leads', icon:'🧲', label:'Leads', section:'PESSOAS', component:<Leads /> },
+  { id:'clientes', icon:'👥', label:'Clientes', section:'PESSOAS', component:<ClientesList /> },
   { id:'produtos', icon:'🎨', label:'Produtos / Tintas', section:'LOJA', component:<ProdutosList /> },
   { id:'camisetas', icon:'👕', label:'Camisetas Personalizadas', section:'LOJA', component:<Camisetas /> },
-  { id:'cursos', icon:'📚', label:'Cursos', section:'LOJA', component:<div style={{padding:20,color:C.muted}}>Gestão de cursos em desenvolvimento...</div> },
-  { id:'marketing', icon:'📣', label:'Marketing / Ads', section:'LOJA', component:<div style={{padding:20,color:C.muted}}>Ferramentas de marketing em desenvolvimento...</div> },
+  { id:'cursos', icon:'📚', label:'Cursos', section:'LOJA', component:<CursosList /> },
+  { id:'marketing', icon:'📣', label:'Marketing / Ads', section:'LOJA', component:<MarketingPage /> },
   { id:'analytics', icon:'📈', label:'Analytics', section:'DADOS', component:<Analytics /> },
-  { id:'avaliacoes', icon:'⭐', label:'Avaliações', section:'DADOS', component:<div style={{padding:20,color:C.muted}}>Gestão de avaliações em desenvolvimento...</div> },
+  { id:'avaliacoes', icon:'⭐', label:'Avaliações', section:'DADOS', component:<AvaliacoesList /> },
 ];
 
 function App() {
@@ -447,7 +1013,7 @@ function App() {
             <div style={{ fontSize:12, color:C.muted }}>{new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <button onClick={()=>setLoggedIn(false)} style={{ background:'transparent', border:'1px solid '+C.border, borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:12, color:C.muted }}>Sair</button>
+            <button onClick={()=>{ if(window.confirm('Tem certeza que deseja sair do portal?')) { window._sb.auth.signOut(); setLoggedIn(false); } }} style={{ background:'transparent', border:'1px solid '+C.border, borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:12, color:C.muted }}>Sair</button>
           </div>
         </div>
 
