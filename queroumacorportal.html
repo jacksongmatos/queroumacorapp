@@ -950,6 +950,8 @@ function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
+  const [resetMode, setResetMode] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
 
   if (!loggedIn) return (
     <div style={{ minHeight:'100vh', background:C.ink, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -958,19 +960,37 @@ function App() {
           <span style={{ color:C.ink }}>Cali</span><span style={{ color:C.p1 }}>Colors</span>
         </div>
         <div style={{ fontSize:13, color:C.muted, marginBottom:28 }}>Portal de Gestão QueroUmaCor</div>
+        {!resetMode ? (<>
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Email</div>
           <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="loja@calicolors.com.br" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
         </div>
-        <div style={{ marginBottom:20 }}>
+        <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Senha</div>
           <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="••••••••" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
+        </div>
+        <div style={{ textAlign:'right', marginBottom:16 }}>
+          <span onClick={()=>{ setResetMode(true); setLoginError(''); setResetMsg(''); }} style={{ fontSize:12, color:C.p1, cursor:'pointer', fontWeight:600 }}>Esqueci minha senha</span>
         </div>
         {loginError && <div style={{color:'#e63946',fontSize:13,marginBottom:12,textAlign:'center'}}>{loginError}</div>}
         <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setLoginLoading(true); try { const {data,error} = await window._sb.auth.signInWithPassword({email,password:pw}); if(error) throw error; setLoggedIn(true); } catch(e){ setLoginError(e.message||'Email ou senha incorretos'); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
           Entrar no Portal
         </button>
         <div style={{ textAlign:'center', marginTop:12, fontSize:12, color:C.muted }}>Acesso exclusivo Cali Colors</div>
+        </>) : (<>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Email</div>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="loja@calicolors.com.br" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
+        </div>
+        {resetMsg && <div style={{color:'#2e7d32',fontSize:13,marginBottom:12,textAlign:'center'}}>{resetMsg}</div>}
+        {loginError && <div style={{color:'#e63946',fontSize:13,marginBottom:12,textAlign:'center'}}>{loginError}</div>}
+        <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setResetMsg(''); setLoginLoading(true); try { if(!email) throw new Error('Informe seu email'); const {error} = await window._sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname }); if(error) throw error; setResetMsg('Link de redefinição enviado para ' + email); } catch(e){ setLoginError(e.message||'Erro ao enviar email'); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
+          {loginLoading ? 'Enviando...' : 'Enviar link de redefinição'}
+        </button>
+        <div style={{ textAlign:'center', marginTop:14 }}>
+          <span onClick={()=>{ setResetMode(false); setLoginError(''); setResetMsg(''); }} style={{ fontSize:13, color:C.p1, cursor:'pointer', fontWeight:600 }}>← Voltar ao login</span>
+        </div>
+        </>)}
       </div>
     </div>
   );
