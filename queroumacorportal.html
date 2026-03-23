@@ -427,7 +427,7 @@ const Chats = () => {
 };
 
 const GEMINI_API_KEY = 'AIzaSyCa2t1hGoWSKPxy0diC0kz_fz0q5sZN_IE';
-const AI_SEARCH_STORE_ADDRESS = 'Rua Exemplo, 123 - Centro, Guarulhos - SP, 07000-000';
+const AI_SEARCH_STORE_ADDRESS = 'Estr. Pres. Juscelino K. de Oliveira, 1071 - Jardim dos Pimentas, Guarulhos - SP, 07272-345';
 
 const AiSearchModal = ({ open, onClose, onResults, existingLeads }) => {
   const [alvo, setAlvo] = useState('');
@@ -511,20 +511,6 @@ REGRAS:
         </div>
 
         <div style={{ padding:24 }}>
-          {/* API Key config */}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-              <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>🔑 API Key Gemini</div>
-              <button onClick={()=>setShowKeyInput(!showKeyInput)} style={{ fontSize:11, color:C.p5, background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>{showKeyInput ? 'Ocultar' : 'Configurar'}</button>
-            </div>
-            {showKeyInput && (
-              <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Cole sua API Key do Google Gemini aqui..." type="password"
-                style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', fontFamily:'monospace', marginBottom:8 }} />
-            )}
-            {!showKeyInput && apiKey && <div style={{ fontSize:12, color:C.p6 }}>✅ API Key configurada</div>}
-            {!showKeyInput && !apiKey && <div style={{ fontSize:12, color:C.p4 }}>⚠️ Clique em "Configurar" para adicionar sua key</div>}
-          </div>
-
           {/* Store address */}
           <div style={{ marginBottom:16 }}>
             <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>📍 Endereço da Cali Colors</div>
