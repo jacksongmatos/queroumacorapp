@@ -435,6 +435,27 @@ const Leads = () => {
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [ordenar, setOrdenar] = useState('rating');
 
+  const removeDuplicates = async (allLeads) => {
+    const seen = {};
+    const dupeIds = [];
+    for (const l of allLeads) {
+      const key = (l.name || '').trim().toLowerCase();
+      if (!key) continue;
+      if (seen[key]) {
+        dupeIds.push(l.id);
+      } else {
+        seen[key] = true;
+      }
+    }
+    if (dupeIds.length > 0) {
+      for (const id of dupeIds) {
+        await window._sb.from('leads').delete().eq('id', id);
+      }
+      console.log('Removed ' + dupeIds.length + ' duplicate leads');
+    }
+    return dupeIds.length;
+  };
+
   const fetchLeads = async () => {
     // Fix source: indicacao → captacao (leads were gathered by AI, not referral)
     await window._sb.from('leads').update({ source: 'captacao' }).eq('source', 'indicacao');
@@ -443,7 +464,15 @@ const Leads = () => {
       .from('leads')
       .select('*')
       .order('created_at', { ascending: false });
-    if (!error && data) setLeads(data);
+    if (!error && data) {
+      const removed = await removeDuplicates(data);
+      if (removed > 0) {
+        const { data: fresh } = await window._sb.from('leads').select('*').order('created_at', { ascending: false });
+        setLeads(fresh || []);
+      } else {
+        setLeads(data);
+      }
+    }
     setLoading(false);
   };
 
