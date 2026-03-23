@@ -730,9 +730,14 @@ function autoDetectRole(){
 
 async function doLoginSupabase(email, password) {
   const sb = getSupabase();
-  if (!sb) { showScreen('feed'); return; }
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) { alert('Erro: ' + error.message); } else { currentUser = data.user; showScreen('feed'); }
+  if (!sb) { toast('Erro: Supabase nao carregou'); return; }
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) { toast('Erro: ' + error.message); }
+    else { currentUser = data.user; autoDetectRole(); showScreen('feed'); }
+  } catch(e) {
+    toast('Erro de conexao: ' + e.message);
+  }
 }
 function doLogin(){
   const email=document.getElementById('login-email').value.trim();
@@ -832,6 +837,13 @@ async function toggleFollow(userId,btn){
     btn.classList.add('following');
     toast('Seguindo!');
   }
+}
+
+function togglePw(id,btn){
+  const inp=document.getElementById(id);
+  const show=inp.type==='password';
+  inp.type=show?'text':'password';
+  btn.style.opacity=show?'1':'.5';
 }
 
 window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); });
@@ -3100,12 +3112,6 @@ async function doSignup(){
   }
 
   doRegisterSupabase(name,email,pw,role,tag);
-}
-function togglePw(id,btn){
-  const inp=document.getElementById(id);
-  const show=inp.type==='password';
-  inp.type=show?'text':'password';
-  btn.style.opacity=show?'1':'.5';
 }
 function toggleSpec(el){el.classList.toggle('sel');}
 
