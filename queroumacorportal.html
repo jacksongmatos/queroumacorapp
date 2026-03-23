@@ -429,93 +429,215 @@ const Chats = () => {
 const Leads = () => {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filtro, setFiltro] = useState('Todos');
+  const [busca, setBusca] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState('Todos');
+  const [filtroSegmento, setFiltroSegmento] = useState('TODOS');
+  const [filtroCategoria, setFiltroCategoria] = useState('Todas');
+  const [ordenar, setOrdenar] = useState('rating');
 
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await window._sb
-        .from('leads')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data) setLeads(data);
-      setLoading(false);
-    })();
-  }, []);
+  const fetchLeads = async () => {
+    // Fix source: indicacao → captacao (leads were gathered by AI, not referral)
+    await window._sb.from('leads').update({ source: 'captacao' }).eq('source', 'indicacao');
+
+    const { data, error } = await window._sb
+      .from('leads')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && data) setLeads(data);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchLeads(); }, []);
+
+  const updateStatus = async (id, newStatus) => {
+    await window._sb.from('leads').update({ status: newStatus }).eq('id', id);
+    fetchLeads();
+  };
 
   const statusColor = (s) => {
     const map = { novo: C.p3, contactado: C.p7, qualificado: C.p6, convertido: C.p1, perdido: C.p4 };
     return map[s] || C.muted;
   };
 
-  const origemIcon = (o) => {
-    const map = { site: '🌐', indicacao: '🤝', instagram: '📸', whatsapp: '📱', evento: '🎪' };
-    return map[o] || '📋';
+  const prioColor = (p) => {
+    const map = { alta: C.p6, media: C.p7, baixa: C.muted };
+    return map[p] || C.muted;
   };
 
-  const filtered = filtro === 'Todos' ? leads : leads.filter(l => l.status === filtro.toLowerCase());
+  const segColors = { AUTOMOTIVO: '#e63946', GRAFFITI: '#8338ec', RESIDENCIAL: '#ff6b35', COMERCIAL: '#2ec4b6' };
 
-  const counts = { total: leads.length };
+  // Filters
+  let filtered = leads;
+  if (busca) {
+    const q = busca.toLowerCase();
+    filtered = filtered.filter(l => (l.name||'').toLowerCase().includes(q) || (l.segment||'').toLowerCase().includes(q) || (l.category||'').toLowerCase().includes(q) || (l.neighborhood||'').toLowerCase().includes(q));
+  }
+  if (filtroStatus !== 'Todos') filtered = filtered.filter(l => l.status === filtroStatus.toLowerCase());
+  if (filtroSegmento !== 'TODOS') filtered = filtered.filter(l => (l.segment||'').toUpperCase() === filtroSegmento);
+  if (filtroCategoria !== 'Todas') filtered = filtered.filter(l => l.category === filtroCategoria);
+
+  // Sort
+  if (ordenar === 'rating') filtered = [...filtered].sort((a,b) => (b.rating||0) - (a.rating||0));
+  else if (ordenar === 'reviews') filtered = [...filtered].sort((a,b) => (b.review_count||0) - (a.review_count||0));
+  else if (ordenar === 'name') filtered = [...filtered].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  // Segment counts
+  const segments = {};
+  leads.forEach(l => { const s = (l.segment||'Outros').toUpperCase(); segments[s] = (segments[s]||0)+1; });
+
+  // Category counts
+  const categories = {};
+  leads.forEach(l => { const c = l.category||'Outros'; categories[c] = (categories[c]||0)+1; });
+
+  // Status counts
+  const statusCounts = { total: leads.length };
   ['novo','contactado','qualificado','convertido','perdido'].forEach(s => {
-    counts[s] = leads.filter(l => l.status === s).length;
+    statusCounts[s] = leads.filter(l => l.status === s).length;
   });
+
+  const exportCSV = () => {
+    const header = ['#','Nome','Bairro','Segmento','Categoria','Rating','Reviews','Telefone','Prioridade','Status'];
+    const rows = filtered.map((l,i) => [i+1, l.name||'', l.neighborhood||'', l.segment||'', l.category||'', l.rating||'', l.review_count||'', l.phone||'', l.priority||'', l.status||'']);
+    const csv = [header, ...rows].map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+    const blob = new Blob(['\uFEFF'+csv], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'leads_calicolors.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const openWhatsApp = (phone, name) => {
+    if (!phone) return;
+    const num = phone.replace(/\D/g, '');
+    const fullNum = num.startsWith('55') ? num : '55' + num;
+    const msg = encodeURIComponent('Olá ' + (name||'') + '! Somos da Cali Colors — QueroUmaCor. Gostaríamos de apresentar nossa plataforma para você. Podemos conversar?');
+    window.open('https://wa.me/' + fullNum + '?text=' + msg, '_blank');
+  };
 
   if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando leads...</div>;
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 16, marginBottom: 24 }}>
-        <KPICard title="Total de Leads" value={counts.total} sub="cadastrados" trend="" color={C.muted} />
-        <KPICard title="Novos" value={counts.novo} sub="aguardando contato" trend="" color={C.p3} />
-        <KPICard title="Qualificados" value={counts.qualificado} sub="prontos p/ proposta" trend="" color={C.p6} />
-        <KPICard title="Convertidos" value={counts.convertido} sub="viraram clientes" trend="" color={C.p1} />
-        <KPICard title="Perdidos" value={counts.perdido} sub="não converteram" trend="" color={C.p4} />
+      {/* KPI BAR */}
+      <div style={{ display:'flex', gap:16, marginBottom:20, flexWrap:'wrap' }}>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p1, fontWeight:700, fontSize:18 }}>{leads.length}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>leads</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p6, fontWeight:700, fontSize:18 }}>{statusCounts.convertido||0}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>clientes</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p7, fontWeight:700, fontSize:18 }}>{statusCounts.contactado||0}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>contactados</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p5, fontWeight:700, fontSize:18 }}>{Object.keys(segments).length}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>segmentos</span>
+        </div>
+        <div style={{ background:C.ink, borderRadius:12, padding:'10px 18px', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:C.p3, fontWeight:700, fontSize:18 }}>{Object.keys(categories).length}</span><span style={{ color:'rgba(255,255,255,0.7)', fontSize:13 }}>categorias</span>
+        </div>
       </div>
 
-      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, color: C.ink }}>📋 Leads</div>
+      {/* SEARCH + FILTERS BAR */}
+      <div style={{ background:C.ink, borderRadius:14, padding:16, marginBottom:16 }}>
+        <div style={{ display:'flex', gap:12, marginBottom:14, alignItems:'center' }}>
+          <div style={{ flex:1, position:'relative' }}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, segmento, bairro..." style={{ width:'100%', padding:'10px 14px 10px 36px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:13, outline:'none', fontFamily:'DM Sans,sans-serif' }} />
+            <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontSize:14, opacity:0.5 }}>🔍</span>
+          </div>
+          <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{ padding:'10px 14px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:12, outline:'none', cursor:'pointer' }}>
+            <option value="Todos">Todos status</option>
+            <option value="Novo">Novo</option>
+            <option value="Contactado">Contactado</option>
+            <option value="Qualificado">Qualificado</option>
+            <option value="Convertido">Convertido</option>
+            <option value="Perdido">Perdido</option>
+          </select>
+          <select value={ordenar} onChange={e=>setOrdenar(e.target.value)} style={{ padding:'10px 14px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:12, outline:'none', cursor:'pointer' }}>
+            <option value="rating">Ordenar: Rating ↓</option>
+            <option value="reviews">Ordenar: Reviews ↓</option>
+            <option value="name">Ordenar: Nome A-Z</option>
+          </select>
+          <button onClick={exportCSV} style={{ padding:'10px 16px', borderRadius:10, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>⬇ CSV</button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          {['Todos','Novo','Contactado','Qualificado','Convertido','Perdido'].map(f => (
-            <button key={f} onClick={() => setFiltro(f)} style={{
-              padding: '6px 14px', borderRadius: 20, border: '1px solid ' + (filtro === f ? C.p1 : C.border),
-              background: filtro === f ? C.p1 : 'transparent', color: filtro === f ? '#fff' : C.ink,
-              cursor: 'pointer', fontSize: 12, fontWeight: filtro === f ? 600 : 400
-            }}>{f}</button>
+        {/* SEGMENT CHIPS */}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:10 }}>
+          <button onClick={()=>setFiltroSegmento('TODOS')} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+(filtroSegmento==='TODOS'?C.p1:'rgba(255,255,255,0.2)'), background:filtroSegmento==='TODOS'?C.p1:'transparent', color:'#fff', cursor:'pointer', fontSize:12, fontWeight:600 }}>TODOS {leads.length}</button>
+          {Object.entries(segments).sort((a,b)=>b[1]-a[1]).map(([seg, count]) => (
+            <button key={seg} onClick={()=>setFiltroSegmento(seg===filtroSegmento?'TODOS':seg)} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+(filtroSegmento===seg?C.p1:'rgba(255,255,255,0.2)'), background:filtroSegmento===seg?'rgba(255,255,255,0.15)':'transparent', color:'#fff', cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', gap:6 }}>
+              <span>{seg}</span><span style={{ background:'rgba(255,255,255,0.2)', borderRadius:10, padding:'1px 6px', fontSize:10 }}>{count}</span>
+            </button>
           ))}
         </div>
 
-        {filtered.length === 0 && (
-          <div style={{ padding: '20px 0', color: C.muted, textAlign: 'center', fontSize: 13 }}>Nenhum lead encontrado.</div>
-        )}
+        {/* CATEGORY CHIPS */}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button onClick={()=>setFiltroCategoria('Todas')} style={{ padding:'4px 12px', borderRadius:16, border:'1px solid '+(filtroCategoria==='Todas'?C.p1:'rgba(255,255,255,0.15)'), background:filtroCategoria==='Todas'?C.p1:'transparent', color:filtroCategoria==='Todas'?'#fff':'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:11 }}>Todas {leads.length}</button>
+          {Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([cat, count]) => (
+            <button key={cat} onClick={()=>setFiltroCategoria(cat===filtroCategoria?'Todas':cat)} style={{ padding:'4px 12px', borderRadius:16, border:'1px solid '+(filtroCategoria===cat?C.p1:'rgba(255,255,255,0.15)'), background:filtroCategoria===cat?'rgba(255,255,255,0.12)':'transparent', color:'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', gap:4 }}>
+              <span>{cat}</span><span style={{ fontWeight:700 }}>{count}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          {filtered.length > 0 && (
-            <thead>
-              <tr style={{ borderBottom: '2px solid ' + C.border }}>
-                {['Nome','Email','Telefone','Origem','Status','Data'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: C.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-          )}
+      {/* TABLE */}
+      <div style={{ background:C.ink, borderRadius:14, padding:4, overflowX:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, color:'rgba(255,255,255,0.85)' }}>
+          <thead>
+            <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.1)' }}>
+              {['#','NOME ↕','SEGMENTO ↕','CATEGORIA ↕','RATING ↕','TELEFONE','PRIO.','STATUS','AÇÃO'].map(h => (
+                <th key={h} style={{ textAlign:'left', padding:'12px 10px', color:'rgba(255,255,255,0.5)', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={9} style={{ padding:'30px 10px', color:'rgba(255,255,255,0.4)', textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
+            )}
             {filtered.map((l, i) => {
-              const data = l.created_at ? new Date(l.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
               const sc = statusColor(l.status);
+              const pc = prioColor(l.priority);
+              const segColor = segColors[(l.segment||'').toUpperCase()] || C.muted;
+              const stars = l.rating ? '★'.repeat(Math.min(5,Math.round(Number(l.rating)))) : '';
               return (
-                <tr key={l.id || i} style={{ borderBottom: '1px solid ' + C.border }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 600 }}>{l.name || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: C.muted }}>{l.email || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: C.muted }}>{l.phone || '—'}</td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <span>{origemIcon(l.source)} {l.source || '—'}</span>
+                <tr key={l.id || i} style={{ borderBottom:'1px solid rgba(255,255,255,0.06)', transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <td style={{ padding:'12px 10px', color:'rgba(255,255,255,0.4)', fontSize:12 }}>{String(l.id||i+1).padStart(3,'0')}</td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <div style={{ fontWeight:600, color:'#fff' }}>{l.name || '—'}</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>{l.neighborhood || l.city || '—'}</div>
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <span style={{ background: sc + '22', color: sc, borderRadius: 8, padding: '3px 10px', fontSize: 11 }}>{l.status || '—'}</span>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ background:segColor, color:'#fff', borderRadius:6, padding:'3px 10px', fontSize:11, fontWeight:700, textTransform:'uppercase' }}>{l.segment || '—'}</span>
                   </td>
-                  <td style={{ padding: '10px 12px', color: C.muted }}>{data}</td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ background:'rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.8)', borderRadius:6, padding:'3px 10px', fontSize:11 }}>{l.category || '—'}</span>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ color:C.p7 }}>{stars}</span>
+                    <span style={{ color:'rgba(255,255,255,0.7)', marginLeft:4 }}>{l.rating ? Number(l.rating).toFixed(1) : '—'}</span>
+                    {l.review_count != null && <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)' }}>({l.review_count})</div>}
+                  </td>
+                  <td style={{ padding:'12px 10px', color:l.phone ? C.p3 : 'rgba(255,255,255,0.3)' }}>{l.phone || '—'}</td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <span style={{ color:pc }}>● </span>
+                    <span style={{ color:'rgba(255,255,255,0.7)', textTransform:'capitalize' }}>{l.priority || '—'}</span>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <select value={l.status||'novo'} onChange={e=>updateStatus(l.id, e.target.value)} style={{ padding:'4px 8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.15)', background:'rgba(255,255,255,0.08)', color:'#fff', fontSize:11, outline:'none', cursor:'pointer' }}>
+                      <option value="novo">Novo</option>
+                      <option value="contactado">Contactado</option>
+                      <option value="qualificado">Qualificado</option>
+                      <option value="convertido">Convertido</option>
+                      <option value="perdido">Perdido</option>
+                    </select>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    {l.phone ? (
+                      <button onClick={()=>openWhatsApp(l.phone, l.name)} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:11, fontWeight:600, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+                        <span>📱</span> WhatsApp
+                      </button>
+                    ) : <span style={{ color:'rgba(255,255,255,0.3)' }}>—</span>}
+                  </td>
                 </tr>
               );
             })}
