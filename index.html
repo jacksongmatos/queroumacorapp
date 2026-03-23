@@ -695,7 +695,6 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <meta name="apple-mobile-web-app-title" content="QueroUmaCor">
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 
 <body>
@@ -753,8 +752,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <span style="font-size:13px;color:var(--p1);font-weight:600;cursor:pointer;" onclick="toast('Email de recuperação enviado!')">Esqueceu a senha?</span>
       </div>
 
-      <div class="cf-turnstile" data-sitekey="0x4AAAAAACuvRk1s3afKe8Wq" data-theme="light" style="margin-bottom:12px;display:flex;justify-content:center;"></div>
-      <button class="auth-btn" onclick="(function(){const t=document.querySelector('[name=cf-turnstile-response]');if(t&&!t.value&&window.turnstile){alert('Complete a verificação.');return;}doLogin();})()">Entrar</button>
+      <button class="auth-btn" onclick="doLogin()">Entrar</button>
 
       <div class="auth-divider">
         <div class="auth-divider-line"></div>
@@ -1261,7 +1259,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       </div>
     </div>
     <div class="ph-btns">
-      <button class="ph-btn orc" onclick="showScreen('orcamento')">Pedir Orçamento</button>
+      <button class="ph-btn orc" onclick="openOrcamento()">Pedir Orçamento</button>
       <button class="ph-btn follow" onclick="toast('Seguindo Carlos!')">Seguir</button>
       <button class="ph-btn msg" onclick="toast('Mensagem!')">💬</button>
     </div>
@@ -1577,16 +1575,17 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <div class="opc-sub">São Paulo, SP</div>
       </div>
     </div>
+    <input type="hidden" id="orc-painter-id" value="">
     <div class="fg"><label class="fl">Tipo de serviço</label>
-      <select class="fs"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></select>
+      <select id="orc-service-type" class="fs"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></select>
     </div>
     <div class="frow">
-      <div class="fg"><label class="fl">Metragem (m²)</label><input type="number" class="fi" placeholder="Ex: 80"></div>
-      <div class="fg"><label class="fl">Cômodos</label><input type="number" class="fi" placeholder="Ex: 4"></div>
+      <div class="fg"><label class="fl">Metragem (m²)</label><input id="orc-area" type="number" class="fi" placeholder="Ex: 80"></div>
+      <div class="fg"><label class="fl">Cômodos</label><input id="orc-rooms" type="number" class="fi" placeholder="Ex: 4"></div>
     </div>
-    <div class="fg"><label class="fl">Endereço</label><input type="text" class="fi" placeholder="Bairro, cidade"></div>
-    <div class="fg"><label class="fl">Data desejada</label><input type="date" class="fi"></div>
-    <div class="fg"><label class="fl">Descrição</label><textarea class="fta" placeholder="Cores desejadas, estado das paredes, detalhes importantes..."></textarea></div>
+    <div class="fg"><label class="fl">Endereço</label><input id="orc-address" type="text" class="fi" placeholder="Bairro, cidade"></div>
+    <div class="fg"><label class="fl">Data desejada</label><input id="orc-date" type="date" class="fi"></div>
+    <div class="fg"><label class="fl">Descrição</label><textarea id="orc-desc" class="fta" placeholder="Cores desejadas, estado das paredes, detalhes importantes..."></textarea></div>
     <div class="photo-drop" onclick="toast('Câmera aberta!')">
       <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
       <span>Adicionar fotos do local</span>
@@ -3082,7 +3081,67 @@ function submitAvaliacao(){
 }
 
 // ══ ORCAMENTO ══
-function sendOrc(){toast('✅ Enviado! Carlos responderá em breve.');setTimeout(()=>showScreen('profile'),1600);}
+function openOrcamento(){
+  const p = painters[currentPainter];
+  if(p){
+    document.querySelector('.opc-name').innerHTML = p.name + (p.pro ? ' <span style="background:var(--ink);color:var(--p1);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;">PRO</span>' : '');
+    document.querySelector('.opc-av img').src = p.img || 'https://i.pravatar.cc/150?img=11';
+    document.querySelector('.opc-stars').textContent = '★★★★★ ' + (p.rating || '5.0');
+    document.querySelector('.opc-sub').textContent = p.city || '';
+  }
+  // store painter supabase_id for insert (will be filled if painter has profile in DB)
+  document.getElementById('orc-painter-id').value = p && p.supabase_id ? p.supabase_id : '';
+  showScreen('orcamento');
+}
+async function sendOrc(){
+  const sb = getSupabase();
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session){ toast('⚠️ Faça login para enviar orçamento.'); return; }
+
+  const painterId = document.getElementById('orc-painter-id').value || null;
+  const serviceType = document.getElementById('orc-service-type').value;
+  const area = parseFloat(document.getElementById('orc-area').value) || null;
+  const address = document.getElementById('orc-address').value.trim();
+  const proposedDate = document.getElementById('orc-date').value || null;
+  const description = document.getElementById('orc-desc').value.trim();
+
+  if(!serviceType){ toast('⚠️ Selecione o tipo de serviço.'); return; }
+  if(!address){ toast('⚠️ Informe o endereço.'); return; }
+
+  const btn = document.querySelector('.orc-submit');
+  btn.disabled = true;
+  btn.querySelector('span').textContent = 'Enviando...';
+
+  const { error } = await sb.from('quotes').insert({
+    client_id: session.user.id,
+    painter_id: painterId || undefined,
+    title: serviceType,
+    service_type: serviceType,
+    area_m2: area,
+    address: address,
+    description: description || null,
+    proposed_date: proposedDate || null,
+    status: 'pending'
+  });
+
+  btn.disabled = false;
+  btn.querySelector('span').textContent = '📩 Enviar Solicitação';
+
+  if(error){
+    console.error('sendOrc error:', error);
+    toast('❌ Erro ao enviar: ' + error.message);
+  } else {
+    toast('✅ Solicitação enviada com sucesso!');
+    // Clear form
+    document.getElementById('orc-service-type').selectedIndex = 0;
+    document.getElementById('orc-area').value = '';
+    document.getElementById('orc-rooms').value = '';
+    document.getElementById('orc-address').value = '';
+    document.getElementById('orc-date').value = '';
+    document.getElementById('orc-desc').value = '';
+    setTimeout(()=>showScreen('profile'), 1800);
+  }
+}
 let chatStoreAdded = false;
 
 function openChat(id) {
