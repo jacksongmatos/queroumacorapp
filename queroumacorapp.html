@@ -3795,13 +3795,17 @@ function clearPostImages(){
 async function publishPost(){
   const sb = getSupabase();
   if(!sb){ toast('Erro: Supabase nao disponivel'); return; }
+  const btn = document.getElementById('post-publish-btn');
   try {
     const { data:{ session } } = await sb.auth.getSession();
     if(!session){ toast('Faca login para publicar'); return; }
-    const btn = document.getElementById('post-publish-btn');
+    const content = document.getElementById('post-text-input').value.trim();
+    if(!content && postSelectedFiles.length === 0){
+      toast('Adicione texto ou imagem');
+      return;
+    }
     btn.textContent = 'Publicando...';
     btn.disabled = true;
-    const content = document.getElementById('post-text-input').value.trim();
     let imageUrl = null;
     let imageUrlAfter = null;
 
@@ -3809,33 +3813,40 @@ async function publishPost(){
     if(postSelectedFiles.length > 0){
       const file = postSelectedFiles[0];
       const ext = file.name.split('.').pop();
-      const path = `${session.user.id}/${Date.now()}.${ext}`;
-      const { data: upData, error: upError } = await sb.storage.from('posts').upload(path, file);
-      if(upError) { console.error('Upload error:', upError); }
-      else {
-        const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
-        imageUrl = urlData.publicUrl;
+      const path = session.user.id + '/' + Date.now() + '.' + ext;
+      const { error: upError } = await sb.storage.from('posts').upload(path, file);
+      if(upError){
+        console.error('Upload error:', upError);
+        toast('Erro no upload: ' + upError.message);
+        btn.textContent = 'Publicar'; btn.disabled = false;
+        return;
       }
+      const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
+      imageUrl = urlData.publicUrl;
     }
     if(postType === 'ba' && postSelectedFiles.length >= 2){
       const file2 = postSelectedFiles[1];
       const ext2 = file2.name.split('.').pop();
-      const path2 = `${session.user.id}/${Date.now()}_after.${ext2}`;
-      const { data: upData2, error: upError2 } = await sb.storage.from('posts').upload(path2, file2);
-      if(upError2) { console.error('Upload after error:', upError2); }
-      else {
-        const { data: urlData2 } = sb.storage.from('posts').getPublicUrl(path2);
-        imageUrlAfter = urlData2.publicUrl;
+      const path2 = session.user.id + '/' + Date.now() + '_after.' + ext2;
+      const { error: upError2 } = await sb.storage.from('posts').upload(path2, file2);
+      if(upError2){
+        console.error('Upload after error:', upError2);
+        toast('Erro no upload (depois): ' + upError2.message);
+        btn.textContent = 'Publicar'; btn.disabled = false;
+        return;
       }
+      const { data: urlData2 } = sb.storage.from('posts').getPublicUrl(path2);
+      imageUrlAfter = urlData2.publicUrl;
     }
 
     // Insert post
+    const savedType = postType;
     const { error: insertErr } = await sb.from('posts').insert({
       user_id: session.user.id,
       content: content || null,
       image_url: imageUrl,
       image_url_after: imageUrlAfter,
-      type: postType,
+      type: savedType,
       created_at: new Date().toISOString()
     });
 
@@ -3848,19 +3859,16 @@ async function publishPost(){
     } else {
       toast('Post publicado!');
       closeModals();
-      // Reset form
       document.getElementById('post-text-input').value = '';
       clearPostImages();
       setPostType('post');
-      // Reload feed
       loadFeed();
-      if(postType === 'story') loadStories();
+      if(savedType === 'story') loadStories();
     }
   } catch(e) {
     console.error('publishPost error:', e);
-    toast('Erro ao publicar');
-    document.getElementById('post-publish-btn').textContent = 'Publicar';
-    document.getElementById('post-publish-btn').disabled = false;
+    toast('Erro: ' + (e.message || 'falha ao publicar'));
+    if(btn){ btn.textContent = 'Publicar'; btn.disabled = false; }
   }
 }
 
