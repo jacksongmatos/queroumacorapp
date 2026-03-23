@@ -719,6 +719,10 @@ async function doLogoutSupabase() {
   currentUser = null;
   showScreen('login');
 }
+function doLogout() {
+  doLogoutSupabase();
+  toast('Você saiu da conta');
+}
 
 window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); });
 </script>
@@ -975,26 +979,6 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
         <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </div>
       <span class="story-name">Seu story</span>
-    </div>
-    <div class="story" onclick="openProfile('carlos')">
-      <div class="story-ring"><div class="story-inner"><img src="https://i.pravatar.cc/150?img=11" alt=""></div></div>
-      <span class="story-name">carlos_s</span>
-    </div>
-    <div class="story" onclick="openProfile('marcia')">
-      <div class="story-ring"><div class="story-inner"><img src="https://i.pravatar.cc/150?img=5" alt=""></div></div>
-      <span class="story-name">marcia_p</span>
-    </div>
-    <div class="story" onclick="openProfile('joao')">
-      <div class="story-ring"><div class="story-inner"><img src="https://i.pravatar.cc/150?img=12" alt=""></div></div>
-      <span class="story-name">joao_r</span>
-    </div>
-    <div class="story" onclick="openProfile('ana')">
-      <div class="story-ring seen"><div class="story-inner"><img src="https://i.pravatar.cc/150?img=9" alt=""></div></div>
-      <span class="story-name">ana_lima</span>
-    </div>
-    <div class="story" onclick="openProfile('pedro')">
-      <div class="story-ring seen"><div class="story-inner"><img src="https://i.pravatar.cc/150?img=7" alt=""></div></div>
-      <span class="story-name">pedro_m</span>
     </div>
   </div>
 
@@ -1641,6 +1625,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <div style="width:56px;height:56px;border-radius:14px;overflow:hidden;border:2px solid rgba(255,255,255,.15);flex-shrink:0;"><img src="https://i.pravatar.cc/150?img=68" style="width:100%;height:100%;object-fit:cover" alt=""></div>
       <div><div style="color:#fff;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;">Seu Nome</div><div style="color:rgba(255,255,255,.5);font-size:12px;">Configure seu perfil</div></div>
       <button onclick="toast('Editando...')" style="margin-left:auto;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 13px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Editar</button>
+      <button onclick="doLogout()" style="background:rgba(230,57,70,.15);border:1px solid rgba(230,57,70,.3);border-radius:10px;padding:7px 13px;color:var(--p4);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Sair</button>
     </div>
     <div class="mode-toggle">
       <button class="mode-btn active" id="mode-pintor" onclick="setMode('pintor')">🖌️ Sou Pintor</button>

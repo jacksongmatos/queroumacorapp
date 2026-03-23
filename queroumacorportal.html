@@ -426,6 +426,186 @@ const Chats = () => {
   );
 };
 
+const GEMINI_API_KEY = 'AIzaSyCa2t1hGoWSKPxy0diC0kz_fz0q5sZN_IE';
+const AI_SEARCH_STORE_ADDRESS = 'Rua Exemplo, 123 - Centro, Guarulhos - SP, 07000-000';
+
+const AiSearchModal = ({ open, onClose, onResults, existingLeads }) => {
+  const [alvo, setAlvo] = useState('');
+  const [raio, setRaio] = useState(15);
+  const [endereco, setEndereco] = useState(AI_SEARCH_STORE_ADDRESS);
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState(null);
+  const [error, setError] = useState('');
+  const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || GEMINI_API_KEY);
+  const [showKeyInput, setShowKeyInput] = useState(false);
+
+  const doSearch = async () => {
+    if (!alvo.trim()) { setError('Descreva o alvo da busca'); return; }
+    if (!apiKey.trim()) { setShowKeyInput(true); setError('Configure sua API Key do Gemini'); return; }
+    localStorage.setItem('gemini_api_key', apiKey);
+    setSearching(true); setError(''); setResults(null);
+
+    const existingNames = existingLeads.map(l => (l.name||'').toLowerCase());
+    const prompt = `Você é um assistente de prospecção de leads para uma loja de tintas chamada "Cali Colors" localizada em: ${endereco}.
+
+TAREFA: Encontre ${alvo} em um raio de até ${raio}km da loja.
+
+REGRAS:
+- Retorne APENAS um JSON array com no máximo 20 resultados
+- Cada objeto deve ter: name, phone, segment, category, rating, review_count, neighborhood, city, priority, address
+- segment deve ser: RESIDENCIAL, COMERCIAL, AUTOMOTIVO ou GRAFFITI
+- priority: alta, media ou baixa (baseado em proximidade e relevância)
+- phone no formato: 11 XXXX-XXXX (DDD de Guarulhos/SP)
+- rating de 1.0 a 5.0
+- NÃO inclua estes nomes que já são leads: ${existingNames.slice(0,30).join(', ')}
+- Gere resultados realistas baseados no tipo de negócio e região
+- Responda SOMENTE com o JSON array, sem texto adicional`;
+
+    try {
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.8 } })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || 'Erro na API Gemini');
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error('Resposta inválida da AI');
+      const parsed = JSON.parse(jsonMatch[0]);
+      setResults(parsed);
+    } catch (e) {
+      setError(e.message || 'Erro ao buscar leads');
+    } finally { setSearching(false); }
+  };
+
+  const saveLeads = async () => {
+    if (!results || results.length === 0) return;
+    let saved = 0;
+    for (const r of results) {
+      const { error } = await window._sb.from('leads').insert({
+        name: r.name, phone: r.phone, segment: r.segment, category: r.category,
+        rating: r.rating, review_count: r.review_count, neighborhood: r.neighborhood,
+        city: r.city || 'Guarulhos', priority: r.priority || 'media',
+        address: r.address || '', source: 'ai_search', status: 'novo'
+      });
+      if (!error) saved++;
+    }
+    alert('✅ ' + saved + ' leads salvos no banco!');
+    onResults();
+    onClose();
+  };
+
+  if (!open) return null;
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.white, borderRadius:20, width:620, maxHeight:'85vh', overflow:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ background:'linear-gradient(135deg, #8338ec, #6b21c8)', padding:'24px 28px', borderRadius:'20px 20px 0 0' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div>
+              <div style={{ color:'#fff', fontSize:20, fontWeight:800, fontFamily:'Syne,sans-serif' }}>✨ Busca AI de Leads</div>
+              <div style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:4 }}>Powered by Gemini AI — Encontre novos clientes na região</div>
+            </div>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, width:36, height:36, fontSize:18, color:'#fff', cursor:'pointer' }}>✕</button>
+          </div>
+        </div>
+
+        <div style={{ padding:24 }}>
+          {/* API Key config */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+              <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>🔑 API Key Gemini</div>
+              <button onClick={()=>setShowKeyInput(!showKeyInput)} style={{ fontSize:11, color:C.p5, background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>{showKeyInput ? 'Ocultar' : 'Configurar'}</button>
+            </div>
+            {showKeyInput && (
+              <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Cole sua API Key do Google Gemini aqui..." type="password"
+                style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', fontFamily:'monospace', marginBottom:8 }} />
+            )}
+            {!showKeyInput && apiKey && <div style={{ fontSize:12, color:C.p6 }}>✅ API Key configurada</div>}
+            {!showKeyInput && !apiKey && <div style={{ fontSize:12, color:C.p4 }}>⚠️ Clique em "Configurar" para adicionar sua key</div>}
+          </div>
+
+          {/* Store address */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>📍 Endereço da Cali Colors</div>
+            <input value={endereco} onChange={e=>setEndereco(e.target.value)}
+              style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', background:C.bg }} />
+          </div>
+
+          {/* Target description */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>🎯 Descrição do Alvo</div>
+            <textarea value={alvo} onChange={e=>setAlvo(e.target.value)} rows={3}
+              placeholder="Ex: funilarias e oficinas de pintura automotiva, lojas de materiais de construção, pintores residenciais..."
+              style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', resize:'vertical', fontFamily:'DM Sans,sans-serif' }} />
+          </div>
+
+          {/* Radius */}
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:8 }}>📏 Raio de busca: <span style={{ color:C.p5, fontSize:16, fontWeight:800 }}>{raio}km</span></div>
+            <input type="range" min={5} max={50} value={raio} onChange={e=>setRaio(Number(e.target.value))}
+              style={{ width:'100%', accentColor:C.p5 }} />
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.muted }}>
+              <span>5km</span><span>15km</span><span>30km</span><span>50km</span>
+            </div>
+          </div>
+
+          {/* Quick presets */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
+            {['Funilarias e pintura automotiva','Pintores residenciais','Construtoras e reformas','Lojas de materiais','Imobiliárias','Condomínios'].map(t => (
+              <button key={t} onClick={()=>setAlvo(t)} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+C.border, background:alvo===t?'rgba(131,56,236,0.1)':'transparent', color:alvo===t?C.p5:C.ink, fontSize:12, cursor:'pointer', fontWeight:500 }}>{t}</button>
+            ))}
+          </div>
+
+          {error && <div style={{ color:C.p4, fontSize:13, marginBottom:12, padding:'8px 14px', background:'rgba(230,57,70,0.1)', borderRadius:10 }}>⚠️ {error}</div>}
+
+          {/* Search button */}
+          <button onClick={doSearch} disabled={searching}
+            style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:searching?C.muted:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:15, fontWeight:700, cursor:searching?'wait':'pointer', fontFamily:'DM Sans,sans-serif', boxShadow:'0 4px 15px rgba(131,56,236,0.3)' }}>
+            {searching ? '🔄 Buscando com Gemini AI...' : '✨ Buscar Leads com AI'}
+          </button>
+
+          {/* Results */}
+          {results && results.length > 0 && (
+            <div style={{ marginTop:20 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:C.ink }}>🎯 {results.length} leads encontrados</div>
+                <button onClick={saveLeads} style={{ padding:'8px 18px', borderRadius:10, border:'none', background:C.p6, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>💾 Salvar todos no banco</button>
+              </div>
+              <div style={{ maxHeight:300, overflow:'auto', borderRadius:12, border:'1px solid '+C.border }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:C.bg }}>
+                      {['Nome','Segmento','Categoria','Rating','Telefone','Bairro'].map(h=>(
+                        <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:C.muted, fontSize:11 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((r,i)=>(
+                      <tr key={i} style={{ borderTop:'1px solid '+C.border }}>
+                        <td style={{ padding:'8px 10px', fontWeight:600 }}>{r.name}</td>
+                        <td style={{ padding:'8px 10px' }}><span style={{ background:C.p5, color:'#fff', borderRadius:6, padding:'2px 8px', fontSize:10, fontWeight:700 }}>{r.segment}</span></td>
+                        <td style={{ padding:'8px 10px', color:C.muted }}>{r.category}</td>
+                        <td style={{ padding:'8px 10px' }}><span style={{color:'#f5a623'}}>{'★'.repeat(Math.round(r.rating||0))}</span> {(r.rating||0).toFixed(1)}</td>
+                        <td style={{ padding:'8px 10px', color:C.p3 }}>{r.phone}</td>
+                        <td style={{ padding:'8px 10px', color:C.muted }}>{r.neighborhood}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {results && results.length === 0 && (
+            <div style={{ textAlign:'center', padding:20, color:C.muted, marginTop:16 }}>Nenhum lead encontrado. Tente termos diferentes.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Leads = () => {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -434,6 +614,7 @@ const Leads = () => {
   const [filtroSegmento, setFiltroSegmento] = useState('TODOS');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [ordenar, setOrdenar] = useState('rating');
+  const [aiModalOpen, setAiModalOpen] = useState(false);
 
   const removeDuplicates = async (allLeads) => {
     const seen = {};
@@ -586,7 +767,7 @@ const Leads = () => {
             <option value="name">Ordenar: Nome A-Z</option>
           </select>
           <button onClick={exportCSV} style={{ padding:'10px 16px', borderRadius:10, border:'1px solid '+C.border, background:C.bg, color:C.ink, fontSize:12, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>⬇ CSV</button>
-          <button onClick={()=>{ const q = prompt('🤖 Busca AI — Descreva o tipo de lead que procura:\n\nEx: "pintores residenciais com rating acima de 4.5 em SP"'); if(!q) return; setBusca(''); const terms = q.toLowerCase(); const aiFiltered = leads.filter(l => { const text = [l.name,l.segment,l.category,l.neighborhood,l.city,l.phone,l.priority].join(' ').toLowerCase(); return terms.split(' ').filter(t=>t.length>2).some(t=>text.includes(t)); }); if(aiFiltered.length>0){ alert('🤖 AI encontrou ' + aiFiltered.length + ' leads!'); setBusca(terms.split(' ').filter(t=>t.length>2).join(' ')); } else { alert('🤖 Nenhum lead encontrado. Tente termos diferentes.'); } }} style={{ padding:'10px 16px', borderRadius:10, border:'none', background:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(131,56,236,0.35)' }}>✨ Busca AI</button>
+          <button onClick={()=>setAiModalOpen(true)} style={{ padding:'10px 16px', borderRadius:10, border:'none', background:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(131,56,236,0.35)' }}>✨ Busca AI</button>
         </div>
 
         {/* SEGMENT CHIPS */}
@@ -673,6 +854,7 @@ const Leads = () => {
           </tbody>
         </table>
       </div>
+      <AiSearchModal open={aiModalOpen} onClose={()=>setAiModalOpen(false)} onResults={fetchLeads} existingLeads={leads} />
     </div>
   );
 };
