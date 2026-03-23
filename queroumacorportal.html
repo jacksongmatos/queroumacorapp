@@ -426,7 +426,7 @@ const Chats = () => {
   );
 };
 
-const GEMINI_API_KEY = 'AIzaSyCa2t1hGoWSKPxy0diC0kz_fz0q5sZN_IE';
+const CLAUDE_API_KEY = localStorage.getItem('claude_api_key') || '';
 const AI_SEARCH_STORE_ADDRESS = 'Estr. Pres. Juscelino K. de Oliveira, 1071 - Jardim dos Pimentas, Guarulhos - SP, 07272-345';
 
 const AiSearchModal = ({ open, onClose, onResults, existingLeads }) => {
@@ -436,13 +436,14 @@ const AiSearchModal = ({ open, onClose, onResults, existingLeads }) => {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
-  const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || GEMINI_API_KEY);
-  const [showKeyInput, setShowKeyInput] = useState(false);
+
+  const [apiKey, setApiKey] = useState(CLAUDE_API_KEY);
+  const [showKeyInput, setShowKeyInput] = useState(!CLAUDE_API_KEY);
 
   const doSearch = async () => {
     if (!alvo.trim()) { setError('Descreva o alvo da busca'); return; }
-    if (!apiKey.trim()) { setShowKeyInput(true); setError('Configure sua API Key do Gemini'); return; }
-    localStorage.setItem('gemini_api_key', apiKey);
+    if (!apiKey.trim()) { setShowKeyInput(true); setError('Configure sua API Key do Claude'); return; }
+    localStorage.setItem('claude_api_key', apiKey);
     setSearching(true); setError(''); setResults(null);
 
     const existingNames = existingLeads.map(l => (l.name||'').toLowerCase());
@@ -462,14 +463,23 @@ REGRAS:
 - Responda SOMENTE com o JSON array, sem texto adicional`;
 
     try {
-      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=' + apiKey, {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.8 } })
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: prompt }]
+        })
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error.message || 'Erro na API Gemini');
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (data.error) throw new Error(data.error.message || 'Erro na API Claude');
+      const text = data.content?.[0]?.text || '';
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (!jsonMatch) throw new Error('Resposta inválida da AI');
       const parsed = JSON.parse(jsonMatch[0]);
@@ -504,13 +514,28 @@ REGRAS:
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div>
               <div style={{ color:'#fff', fontSize:20, fontWeight:800, fontFamily:'Syne,sans-serif' }}>✨ Busca AI de Leads</div>
-              <div style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:4 }}>Powered by Gemini AI — Encontre novos clientes na região</div>
+              <div style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:4 }}>Powered by Claude AI — Encontre novos clientes na região</div>
             </div>
             <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, width:36, height:36, fontSize:18, color:'#fff', cursor:'pointer' }}>✕</button>
           </div>
         </div>
 
         <div style={{ padding:24 }}>
+          {/* API Key (hidden once set) */}
+          {showKeyInput && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>🔑 API Key Claude</div>
+              <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-..." type="password"
+                style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', fontFamily:'monospace' }} />
+            </div>
+          )}
+          {!showKeyInput && apiKey && (
+            <div style={{ marginBottom:12, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:12, color:C.p6 }}>✅ API Key configurada</span>
+              <button onClick={()=>setShowKeyInput(true)} style={{ fontSize:11, color:C.p5, background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Alterar</button>
+            </div>
+          )}
+
           {/* Store address */}
           <div style={{ marginBottom:16 }}>
             <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>📍 Endereço da Cali Colors</div>
@@ -548,7 +573,7 @@ REGRAS:
           {/* Search button */}
           <button onClick={doSearch} disabled={searching}
             style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:searching?C.muted:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:15, fontWeight:700, cursor:searching?'wait':'pointer', fontFamily:'DM Sans,sans-serif', boxShadow:'0 4px 15px rgba(131,56,236,0.3)' }}>
-            {searching ? '🔄 Buscando com Gemini AI...' : '✨ Buscar Leads com AI'}
+            {searching ? '🔄 Buscando com Claude AI...' : '✨ Buscar Leads com AI'}
           </button>
 
           {/* Results */}
