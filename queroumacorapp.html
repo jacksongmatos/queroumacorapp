@@ -706,6 +706,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="top-nav">
   <div class="logo">Quero<span>Uma</span>Cor</div>
   <div class="nav-right">
+    <button class="nav-btn" onclick="showScreen('mkt')">
+      <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+    </button>
     <button class="nav-btn" onclick="showScreen('notif')">
       <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <div class="badge-dot"></div>
@@ -929,7 +932,8 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 </div>
 
-
+<!-- ══ FEED SCREEN ══ -->
+<div class="screen" id="screen-feed">
   <!-- Stories -->
   <div class="stories-row">
     <div class="story" style="cursor:pointer">
@@ -2465,6 +2469,7 @@ function showScreen(n){
   Object.values(bnMap).forEach(id=>{document.getElementById(id)?.classList.remove('active');});
   if(bnMap[n])document.getElementById(bnMap[n]).classList.add('active');
   if(['pedidos','chat-conv','avaliar'].includes(n)){document.getElementById('bn-myprofile')?.classList.add('active');}
+  if(['chatconv'].includes(n)){document.getElementById('bn-chat')?.classList.add('active');}
   const topNav=document.querySelector('.top-nav');
   const botNav=document.querySelector('.bot-nav');
   if(topNav)topNav.style.display=noNav.includes(n)?'none':'flex';
@@ -2877,6 +2882,7 @@ function calcTinta(){
 }
 
 // ══ CHAT SYSTEM ══
+let currentChat = null;
 function chatTab(el){
   document.querySelectorAll('.chat-tab').forEach(t=>{t.classList.remove('active');});
   el.classList.add('active');
