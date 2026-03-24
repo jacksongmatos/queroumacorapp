@@ -231,28 +231,138 @@ const PintoresList = () => {
   );
 };
 
-const ProdutosList = () => (
-  <div>
-    <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>🎨 Produtos / Tintas</div>
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
-      {[
-        { name: 'Terracota Premium', ml: '18L', price: 'R$ 289', cor: '#c0622d' },
-        { name: 'Branco Absoluto', ml: '18L', price: 'R$ 199', cor: '#f5f5f5' },
-        { name: 'Azul Veneziano', ml: '18L', price: 'R$ 245', cor: '#1a6b8a' },
-        { name: 'Verde Oliva', ml: '3.6L', price: 'R$ 89', cor: '#6b7c45' },
-        { name: 'Grafite Urbano', ml: '18L', price: 'R$ 279', cor: '#4a4a4a' },
-        { name: 'Rosa Quartzo', ml: '3.6L', price: 'R$ 95', cor: '#d4a0a0' },
-      ].map((p,i) => (
-        <div key={i} style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
-          <div style={{ width:'100%', height:60, borderRadius:8, background:p.cor, marginBottom:12 }}></div>
-          <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
-          <div style={{ fontSize:12, color:C.muted }}>{p.ml}</div>
-          <div style={{ fontWeight:700, color:C.p1, marginTop:4 }}>{p.price}</div>
+const ProdutosList = () => {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
+
+  const loadProducts = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await window._sb.from('products').select('*').order('category').order('name');
+      if(error) throw error;
+      setProducts(data || []);
+    } catch(e) {
+      console.error('loadProducts error:', e);
+      setProducts([]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadProducts(); }, []);
+
+  const saveProduct = async () => {
+    try {
+      const productData = { ...form, price: parseFloat(String(form.price).replace(',','.')) || 0, stock: parseInt(form.stock) || 0 };
+      if(!productData.name) { alert('Nome obrigatorio'); return; }
+      if(editing) {
+        const { error } = await window._sb.from('products').update(productData).eq('id', editing);
+        if(error) throw error;
+      } else {
+        const { error } = await window._sb.from('products').insert(productData);
+        if(error) throw error;
+      }
+      setShowForm(false); setEditing(null);
+      setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
+      loadProducts();
+    } catch(e) { alert('Erro: ' + e.message); }
+  };
+
+  const deleteProduct = async (id) => {
+    if(!confirm('Excluir este produto?')) return;
+    try {
+      await window._sb.from('products').delete().eq('id', id);
+      loadProducts();
+    } catch(e) { alert('Erro: ' + e.message); }
+  };
+
+  const editProduct = (p) => {
+    setForm({ name:p.name||'', code:p.code||'', category:p.category||'tintas', volume:p.volume||'18L', price:p.price||'', color_hex:p.color_hex||'#c0622d', color_gradient:p.color_gradient||'', stock:p.stock||0, badge:p.badge||'', description:p.description||'', line:p.line||'', rendimento:p.rendimento||'', demaos:p.demaos||'', secagem:p.secagem||'', active:p.active!==false });
+    setEditing(p.id);
+    setShowForm(true);
+  };
+
+  const categories = { tintas:'🎨 Tintas', texturas:'🖌️ Texturas', epoxi:'⚗️ Epóxi', acessorios:'🛒 Acessórios' };
+  const grouped = {};
+  products.forEach(p => { const cat = p.category || 'tintas'; if(!grouped[cat]) grouped[cat] = []; grouped[cat].push(p); });
+
+  const inputStyle = { width:'100%', padding:'8px 12px', borderRadius:8, border:'1px solid '+C.border, fontSize:13, outline:'none' };
+  const labelStyle = { fontSize:12, color:C.muted, marginBottom:4, display:'block' };
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+        <div style={{ fontWeight:700, color:C.ink, fontSize:18 }}>🎨 Produtos / Tintas</div>
+        <button onClick={()=>{ setEditing(null); setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true }); setShowForm(true); }} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ Novo Produto</button>
+      </div>
+
+      {showForm && (
+        <div style={{ background:C.white, borderRadius:14, padding:20, marginBottom:20, boxShadow:'0 4px 16px rgba(0,0,0,0.08)', border:'2px solid '+C.p1 }}>
+          <div style={{ fontWeight:700, fontSize:15, marginBottom:14 }}>{editing ? 'Editar Produto' : 'Novo Produto'}</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+            <div><label style={labelStyle}>Nome *</label><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={inputStyle} placeholder="Terracota Premium" /></div>
+            <div><label style={labelStyle}>Código</label><input value={form.code} onChange={e=>setForm({...form,code:e.target.value})} style={inputStyle} placeholder="CC-TT-001" /></div>
+            <div><label style={labelStyle}>Categoria</label><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={inputStyle}><option value="tintas">Tintas</option><option value="texturas">Texturas</option><option value="epoxi">Epóxi</option><option value="acessorios">Acessórios</option></select></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+            <div><label style={labelStyle}>Volume</label><input value={form.volume} onChange={e=>setForm({...form,volume:e.target.value})} style={inputStyle} placeholder="18L" /></div>
+            <div><label style={labelStyle}>Preço (R$)</label><input value={form.price} onChange={e=>setForm({...form,price:e.target.value})} style={inputStyle} placeholder="289.00" /></div>
+            <div><label style={labelStyle}>Estoque</label><input type="number" value={form.stock} onChange={e=>setForm({...form,stock:e.target.value})} style={inputStyle} /></div>
+            <div><label style={labelStyle}>Badge</label><input value={form.badge} onChange={e=>setForm({...form,badge:e.target.value})} style={inputStyle} placeholder="-10%, NOVO" /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+            <div><label style={labelStyle}>Cor (hex)</label><div style={{ display:'flex', gap:6 }}><input type="color" value={form.color_hex} onChange={e=>setForm({...form,color_hex:e.target.value})} style={{ width:40, height:34, border:'none', cursor:'pointer' }} /><input value={form.color_hex} onChange={e=>setForm({...form,color_hex:e.target.value})} style={{...inputStyle, flex:1}} /></div></div>
+            <div><label style={labelStyle}>Gradiente (opcional)</label><input value={form.color_gradient} onChange={e=>setForm({...form,color_gradient:e.target.value})} style={inputStyle} placeholder="#c4956a,#d4a870" /></div>
+            <div><label style={labelStyle}>Linha</label><input value={form.line} onChange={e=>setForm({...form,line:e.target.value})} style={inputStyle} placeholder="Linha Premium" /></div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+            <div><label style={labelStyle}>Rendimento</label><input value={form.rendimento} onChange={e=>setForm({...form,rendimento:e.target.value})} style={inputStyle} placeholder="~10m²/L" /></div>
+            <div><label style={labelStyle}>Demãos</label><input value={form.demaos} onChange={e=>setForm({...form,demaos:e.target.value})} style={inputStyle} placeholder="2" /></div>
+            <div><label style={labelStyle}>Secagem</label><input value={form.secagem} onChange={e=>setForm({...form,secagem:e.target.value})} style={inputStyle} placeholder="2h" /></div>
+          </div>
+          <div style={{ marginBottom:12 }}><label style={labelStyle}>Descrição</label><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} style={{...inputStyle, minHeight:60}} placeholder="Tinta premium com acabamento fosco..." /></div>
+          <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13 }}><input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})} /> Ativo</label>
+            <div style={{ flex:1 }}></div>
+            <button onClick={()=>{ setShowForm(false); setEditing(null); }} style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'8px 18px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
+            <button onClick={saveProduct} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:8, padding:'8px 24px', fontSize:13, fontWeight:700, cursor:'pointer' }}>{editing ? 'Salvar' : 'Criar Produto'}</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Carregando produtos...</div> :
+       products.length === 0 ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Nenhum produto cadastrado. Clique em "+ Novo Produto" para começar.</div> :
+       Object.entries(grouped).map(([cat, items]) => (
+        <div key={cat} style={{ marginBottom:24 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.muted, marginBottom:10, textTransform:'uppercase', letterSpacing:.5 }}>{categories[cat] || cat}</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
+            {items.map(p => {
+              const bg = p.color_gradient ? 'linear-gradient(135deg,'+p.color_gradient+')' : (p.color_hex || '#ddd');
+              return (
+                <div key={p.id} style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)', opacity:p.active===false?0.5:1, position:'relative' }}>
+                  {p.badge && <div style={{ position:'absolute', top:8, left:8, background:p.badge==='NOVO'?C.p1:'#e63946', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, zIndex:1 }}>{p.badge}</div>}
+                  <div style={{ width:'100%', height:60, borderRadius:8, background:bg, marginBottom:12 }}></div>
+                  <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
+                  <div style={{ fontSize:11, color:C.muted }}>{p.code}{p.code && p.volume ? ' · ' : ''}{p.volume}</div>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6 }}>
+                    <div style={{ fontWeight:700, color:C.p1 }}>R$ {Number(p.price||0).toFixed(2).replace('.',',')}</div>
+                    <div style={{ fontSize:11, color:p.stock<=5?'#e63946':'#2e7d32' }}>{p.stock} unid</div>
+                  </div>
+                  <div style={{ display:'flex', gap:6, marginTop:10 }}>
+                    <button onClick={()=>editProduct(p)} style={{ flex:1, background:C.cream, border:'none', borderRadius:8, padding:'6px', fontSize:12, cursor:'pointer', fontWeight:600, color:C.ink }}>Editar</button>
+                    <button onClick={()=>deleteProduct(p.id)} style={{ background:'none', border:'1px solid #e6394644', borderRadius:8, padding:'6px 10px', fontSize:12, cursor:'pointer', color:'#e63946' }}>×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ))}
     </div>
-  </div>
-);
+  );
+};
 
 const Camisetas = () => {
   const [cor, setCor] = useState('#1a1a2e');
@@ -384,41 +494,76 @@ const Analytics = () => {
 
 const Chats = () => {
   const [messages, setMessages] = useState([]);
+  const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       const { data, error } = await window._sb
         .from('messages')
-        .select('id, sender_id, content, type, created_at')
+        .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
         .order('created_at', { ascending: false })
-        .limit(30);
-      if (!error && data) setMessages(data);
+        .limit(50);
+      if (!error && data) {
+        setMessages(data);
+        // Load sender/receiver profiles
+        const ids = [...new Set(data.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean))];
+        if(ids.length > 0){
+          const { data: profs } = await window._sb.from('profiles').select('id, name, avatar_url, role, user_type').in('id', ids);
+          if(profs){
+            const map = {};
+            profs.forEach(p => { map[p.id] = p; });
+            setProfiles(map);
+          }
+        }
+      }
       setLoading(false);
     })();
   }, []);
 
   if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando mensagens...</div>;
 
+  // Group by conversation_id or sender_id to show conversations
+  const convMap = {};
+  messages.forEach(m => {
+    const key = m.conversation_id || m.sender_id || m.id;
+    if(!convMap[key]) convMap[key] = { messages: [], lastMsg: m, participants: new Set() };
+    convMap[key].messages.push(m);
+    if(m.sender_id) convMap[key].participants.add(m.sender_id);
+    if(m.receiver_id) convMap[key].participants.add(m.receiver_id);
+    if(!convMap[key].lastMsg || new Date(m.created_at) > new Date(convMap[key].lastMsg.created_at)) convMap[key].lastMsg = m;
+  });
+  const conversations = Object.values(convMap).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
+
   return (
     <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-      <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>💬 Mensagens Recentes</div>
-      {messages.length === 0 && <div style={{ color:C.muted, fontSize:13 }}>Nenhuma mensagem encontrada.</div>}
-      {messages.map((m, i) => {
-        const data = m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+      <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>Mensagens Recentes</div>
+      {conversations.length === 0 && <div style={{ color:C.muted, fontSize:13 }}>Nenhuma mensagem encontrada.</div>}
+      {conversations.map((conv, i) => {
+        const m = conv.lastMsg;
+        const sender = profiles[m.sender_id];
+        const senderName = sender ? sender.name : (m.sender_id ? m.sender_id.slice(0,8) + '...' : 'Desconhecido');
+        const senderAvatar = sender?.avatar_url;
+        const initials = senderName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+        const participants = [...conv.participants].map(id => profiles[id]?.name || '?').join(', ');
+        const isPintor = sender && (sender.role === 'pintor' || sender.user_type === 'pintor');
+        const dt = m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
         return (
-          <div key={m.id || i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom: i < messages.length - 1 ? '1px solid '+C.border : 'none' }}>
-            <div style={{ width:40, height:40, borderRadius:'50%', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 }}>
-              💬
+          <div key={m.id || i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom: i < conversations.length - 1 ? '1px solid '+C.border : 'none' }}>
+            <div style={{ width:40, height:40, borderRadius:'50%', overflow:'hidden', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:13, color:C.ink, flexShrink:0 }}>
+              {senderAvatar ? <img src={senderAvatar} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
             </div>
-            <div style={{ flex:1 }}>
+            <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:2 }}>
-                <span style={{ fontWeight:600, fontSize:13 }}>{m.sender_id ? m.sender_id.slice(0,8) + '...' : '—'}</span>
-                <span style={{ background:C.p3+'22', color:C.p3, borderRadius:6, fontSize:10, padding:'1px 8px' }}>{m.type || 'text'}</span>
+                <span style={{ fontWeight:600, fontSize:13 }}>{senderName}</span>
+                {isPintor && <span style={{ background:C.ink, color:C.p1, borderRadius:6, fontSize:9, padding:'1px 6px', fontWeight:700 }}>PINTOR</span>}
+                {conv.participants.size > 2 && <span style={{ background:C.p1+'22', color:C.p1, borderRadius:6, fontSize:9, padding:'1px 6px', fontWeight:700 }}>3-WAY</span>}
               </div>
-              <div style={{ fontSize:12, color:C.muted }}>{m.content || '—'}</div>
+              <div style={{ fontSize:12, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.content || ''}</div>
+              {conv.participants.size > 1 && <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{participants}</div>}
             </div>
-            <div style={{ fontSize:11, color:C.muted }}>{data}</div>
+            <div style={{ fontSize:11, color:C.muted, flexShrink:0 }}>{dt}</div>
+            {conv.messages.length > 1 && <div style={{ background:C.p1, color:'#fff', borderRadius:'50%', width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>{conv.messages.length}</div>}
           </div>
         );
       })}

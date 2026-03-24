@@ -2320,7 +2320,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <div class="mkt-header">
     <div class="mkt-logo-row">
       <div class="mkt-logo">Loja <span>Cali Colors</span></div>
-      <button class="mkt-cart-btn" onclick="showModal('cart-modal')">
+      <button class="mkt-cart-btn" onclick="renderCartModal();showModal('cart-modal')">
         <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         <div class="mkt-cart-badge" id="cart-count">3</div>
       </button>
@@ -2344,104 +2344,30 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <div style="font-size:12px;color:rgba(255,255,255,.75);">Exclusivo para assinantes PRO · Até 31/03</div>
     </div>
 
-    <!-- TINTAS -->
+    <!-- TINTAS (loaded from DB) -->
     <div id="mkt-tintas">
       <div class="mkt-section-title">Tintas Premium</div>
-      <div class="mkt-products">
-        <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#c4956a,#d4a870)"><span class="mkt-badge-promo">-10%</span>🪣</div>
-          <div class="mkt-card-body">
-            <div class="mkt-card-name">Terracota Toscana</div>
-            <div class="mkt-card-code">CC-TT-001</div>
-            <div class="mkt-card-price">R$170,90</div>
-            <div class="mkt-card-stock low">⚠️ 3 unid</div>
-            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
-          </div>
-        </div>
-        <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#f5f0eb,#e8e0d5)"><span class="mkt-badge-new">NOVO</span>🪣</div>
-          <div class="mkt-card-body">
-            <div class="mkt-card-name">Off-White Premium</div>
-            <div class="mkt-card-code">CC-OW-004</div>
-            <div class="mkt-card-price">R$164,90</div>
-            <div class="mkt-card-stock ok">✅ 47 unid</div>
-            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
-          </div>
-        </div>
-        <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#7a9e7e,#5a8060)">🪣</div>
-          <div class="mkt-card-body">
-            <div class="mkt-card-name">Sage Green</div>
-            <div class="mkt-card-code">CC-SG-012</div>
-            <div class="mkt-card-price">R$174,90</div>
-            <div class="mkt-card-stock ok">✅ 22 unid</div>
-            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
-          </div>
-        </div>
-        <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#2c2c2c,#1a1a1a)">🪣</div>
-          <div class="mkt-card-body">
-            <div class="mkt-card-name">Grafite Urbano</div>
-            <div class="mkt-card-code">CC-GU-008</div>
-            <div class="mkt-card-price">R$194,90</div>
-            <div class="mkt-card-stock ok">✅ 15 unid</div>
-            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
-          </div>
-        </div>
-        <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#4a6fa5,#2a4f85)">🪣</div>
-          <div class="mkt-card-body">
-            <div class="mkt-card-name">Azul Sereno</div>
-            <div class="mkt-card-code">CC-AS-019</div>
-            <div class="mkt-card-price">R$179,90</div>
-            <div class="mkt-card-stock ok">✅ 8 unid</div>
-            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
-          </div>
-        </div>
-        <div class="mkt-card" onclick="showModal('product-detail-modal')">
-          <div class="mkt-swatch" style="background:linear-gradient(135deg,#e8d5c4,#d4b89a)">🪣</div>
-          <div class="mkt-card-body">
-            <div class="mkt-card-name">Champagne Rosé</div>
-            <div class="mkt-card-code">CC-VN-006</div>
-            <div class="mkt-card-price">R$165,00</div>
-            <div class="mkt-card-stock ok">✅ 6 unid</div>
-            <button class="mkt-card-add" onclick="event.stopPropagation();addToCart()">+ Carrinho</button>
-          </div>
-        </div>
+      <div class="mkt-products" id="mkt-tintas-grid">
+        <div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--muted);font-size:13px;">Carregando produtos...</div>
       </div>
     </div>
 
-    <!-- TEXTURAS (hidden) -->
+    <!-- TEXTURAS (loaded from DB) -->
     <div id="mkt-texturas" style="display:none">
       <div class="mkt-section-title">Linhas de Textura</div>
-      <div class="mkt-products">
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#e8d5c4,#c4956a)"><span class="mkt-badge-promo">-10%</span>🖌️</div><div class="mkt-card-body"><div class="mkt-card-name">Venetian Champagne</div><div class="mkt-card-vol">5L</div><div class="mkt-card-price">R$223,20</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#b8c4a8,#8fa880)">🖌️</div><div class="mkt-card-body"><div class="mkt-card-name">Grafiato Rústico</div><div class="mkt-card-vol">5L</div><div class="mkt-card-price">R$198,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#d4a870,#b8845a)"><span class="mkt-badge-new">NOVO</span>🖌️</div><div class="mkt-card-body"><div class="mkt-card-name">Marmorizado Gold</div><div class="mkt-card-vol">5L</div><div class="mkt-card-price">R$285,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#a0a0b0,#707080)">🖌️</div><div class="mkt-card-body"><div class="mkt-card-name">Cimento Queimado</div><div class="mkt-card-vol">5L</div><div class="mkt-card-price">R$210,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-      </div>
+      <div class="mkt-products" id="mkt-texturas-grid"></div>
     </div>
 
-    <!-- EPOXI (hidden) -->
+    <!-- EPOXI (loaded from DB) -->
     <div id="mkt-epoxi" style="display:none">
       <div class="mkt-section-title">Linha Epóxi</div>
-      <div class="mkt-products">
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#a0a0b0,#606090)"><span class="mkt-badge-promo">-10%</span>⚗️</div><div class="mkt-card-body"><div class="mkt-card-name">Epóxi Metálico</div><div class="mkt-card-vol">Kit 5L</div><div class="mkt-card-price">R$288,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#c8c8d8,#a8a8b8)">⚗️</div><div class="mkt-card-body"><div class="mkt-card-name">Epóxi Cristal</div><div class="mkt-card-vol">Kit 5L</div><div class="mkt-card-price">R$265,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#1a1a1a,#2c2c3c)"><span class="mkt-badge-new">NOVO</span>⚗️</div><div class="mkt-card-body"><div class="mkt-card-name">Epóxi 3D Profundo</div><div class="mkt-card-vol">Kit 5L</div><div class="mkt-card-price">R$420,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:linear-gradient(135deg,#8080a0,#606080)">⚗️</div><div class="mkt-card-body"><div class="mkt-card-name">Primer Epóxi</div><div class="mkt-card-vol">3,6L</div><div class="mkt-card-price">R$145,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-      </div>
+      <div class="mkt-products" id="mkt-epoxi-grid"></div>
     </div>
 
-    <!-- ACESSORIOS (hidden) -->
+    <!-- ACESSORIOS (loaded from DB) -->
     <div id="mkt-acessorios" style="display:none">
       <div class="mkt-section-title">Acessórios</div>
-      <div class="mkt-products">
-        <div class="mkt-card"><div class="mkt-swatch" style="background:#f0ece6">🎭</div><div class="mkt-card-body"><div class="mkt-card-name">Rolo Pelo Curto</div><div class="mkt-card-vol">Pack com 2</div><div class="mkt-card-price">R$28,90</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:#f0ece6">🪣</div><div class="mkt-card-body"><div class="mkt-card-name">Bandeja + Rolo</div><div class="mkt-card-vol">Kit completo</div><div class="mkt-card-price">R$42,90</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:#f0ece6">🖌️</div><div class="mkt-card-body"><div class="mkt-card-name">Pincel Profissional</div><div class="mkt-card-vol">Kit 5 tamanhos</div><div class="mkt-card-price">R$68,00</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-        <div class="mkt-card"><div class="mkt-swatch" style="background:#f0ece6">🧲</div><div class="mkt-card-body"><div class="mkt-card-name">Fita Crepe Premium</div><div class="mkt-card-vol">Pack 3 rolos</div><div class="mkt-card-price">R$24,90</div><button class="mkt-card-add" onclick="addToCart()">+ Carrinho</button></div></div>
-      </div>
+      <div class="mkt-products" id="mkt-acessorios-grid"></div>
     </div>
 
     <!-- CAMISETAS (hidden) -->
@@ -2707,16 +2633,14 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="overlay" id="cart-modal" onclick="closeModals()">
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">🛒 Meu Carrinho</div>
-    <div class="cart-item"><div class="cart-item-icon" style="background:linear-gradient(135deg,#c4956a,#d4a870)">🪣</div><div class="cart-item-name">Terracota Toscana 18L</div><div class="cart-item-price">R$170,90</div><button class="cart-remove" onclick="toast('Removido do carrinho')">×</button></div>
-    <div class="cart-item"><div class="cart-item-icon" style="background:linear-gradient(135deg,#f5f0eb,#e8e0d5)">🪣</div><div class="cart-item-name">Off-White Premium 3,6L</div><div class="cart-item-price">R$58,90</div><button class="cart-remove" onclick="toast('Removido do carrinho')">×</button></div>
-    <div class="cart-item"><div class="cart-item-icon" style="background:#f0ece6">👕</div><div class="cart-item-name">Camiseta Logo Pintor + CC · M</div><div class="cart-item-price">R$89,90</div><button class="cart-remove" onclick="toast('Removido do carrinho')">×</button></div>
+    <div class="sheet-title">Meu Carrinho</div>
+    <div id="cart-items-container"></div>
     <div style="display:flex;justify-content:space-between;padding:14px 0 8px;border-top:1px solid var(--border);margin-top:8px;">
       <div style="font-size:15px;font-weight:700;">Total</div>
-      <div style="font-size:18px;font-weight:800;color:var(--p1);font-family:'Syne',sans-serif;">R$319,70</div>
+      <div id="cart-total" style="font-size:18px;font-weight:800;color:var(--p1);font-family:'Syne',sans-serif;">R$0,00</div>
     </div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">🚚 Frete grátis acima de R$200 · Entrega 3-5 dias úteis</div>
-    <button onclick="toast('✅ Pedido confirmado! Você receberá em 3-5 dias.');closeModals()" style="width:100%;padding:14px;background:var(--p1);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Finalizar Compra</button>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Frete gratis acima de R$200 · Entrega 3-5 dias uteis</div>
+    <button onclick="toast('Pedido confirmado! Voce recebera em 3-5 dias.');closeModals()" style="width:100%;padding:14px;background:var(--p1);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Finalizar Compra</button>
   </div>
 </div>
 
@@ -2773,6 +2697,7 @@ function showScreen(n){
   if(pp)pp.classList.remove('show');
   if(n==='chat-conv'){setTimeout(()=>{const b=document.getElementById('chat-body');if(b)b.scrollTop=b.scrollHeight;},100);}
   if(n==='feed') loadFeed();
+  if(n==='mkt') { loadMktProducts(); updateCartBadge(); }
 }
 
 // ══ NAV TOGGLE ══
@@ -3746,9 +3671,11 @@ function addStoreToChat(){
 
 
 // ══ MARKETPLACE ══
-let cartCount = 3;
+let cartCount = 0;
+let cartItems = JSON.parse(localStorage.getItem('quc_cart') || '[]');
 let shirtQty = 1;
 let logoState = {pintor: true, cali: true};
+let mktProducts = [];
 
 function mktTab(el, tab) {
   document.querySelectorAll('.mkt-tab').forEach(t => t.classList.remove('active'));
@@ -3759,10 +3686,110 @@ function mktTab(el, tab) {
   });
 }
 
-function addToCart() {
-  cartCount++;
-  document.getElementById('cart-count').textContent = cartCount;
-  toast('🛒 Adicionado ao carrinho!');
+function updateCartBadge(){
+  cartCount = cartItems.length;
+  const el = document.getElementById('cart-count');
+  if(el) el.textContent = cartCount;
+}
+
+function addToCart(productId) {
+  if(productId){
+    const p = mktProducts.find(x => x.id === productId);
+    if(p) cartItems.push({ id:p.id, name:p.name, price:p.price, color_hex:p.color_hex, color_gradient:p.color_gradient, volume:p.volume });
+  }
+  localStorage.setItem('quc_cart', JSON.stringify(cartItems));
+  updateCartBadge();
+  toast('Adicionado ao carrinho!');
+}
+
+function renderCartModal(){
+  const container = document.getElementById('cart-items-container');
+  if(!container) return;
+  if(cartItems.length === 0){
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">Carrinho vazio</div>';
+    document.getElementById('cart-total').textContent = 'R$0,00';
+    return;
+  }
+  let total = 0;
+  container.innerHTML = cartItems.map((item, i) => {
+    total += Number(item.price || 0);
+    const bg = item.color_gradient ? 'linear-gradient(135deg,'+item.color_gradient+')' : (item.color_hex || '#ddd');
+    return '<div class="cart-item"><div class="cart-item-icon" style="background:'+bg+'"></div><div class="cart-item-name">'+item.name+' '+(item.volume||'')+'</div><div class="cart-item-price">R$'+Number(item.price).toFixed(2).replace('.',',')+'</div><button class="cart-remove" onclick="removeFromCart('+i+')">×</button></div>';
+  }).join('');
+  document.getElementById('cart-total').textContent = 'R$' + total.toFixed(2).replace('.',',');
+}
+
+function removeFromCart(index){
+  cartItems.splice(index, 1);
+  localStorage.setItem('quc_cart', JSON.stringify(cartItems));
+  updateCartBadge();
+  renderCartModal();
+}
+
+function getCategoryEmoji(cat){
+  return cat === 'texturas' ? '🖌️' : cat === 'epoxi' ? '⚗️' : cat === 'acessorios' ? '🎭' : '🪣';
+}
+
+function renderProductCard(p){
+  const bg = p.color_gradient ? 'linear-gradient(135deg,'+p.color_gradient+')' : (p.color_hex || '#ddd');
+  const emoji = getCategoryEmoji(p.category);
+  const badgeHtml = p.badge ? (p.badge === 'NOVO' ? '<span class="mkt-badge-new">NOVO</span>' : '<span class="mkt-badge-promo">'+p.badge+'</span>') : '';
+  const stockClass = p.stock <= 5 ? 'low' : 'ok';
+  const stockIcon = p.stock <= 5 ? '⚠️' : '✅';
+  const priceFormatted = 'R$' + Number(p.price||0).toFixed(2).replace('.',',');
+  return '<div class="mkt-card" onclick="openProductDetail(\''+p.id+'\')"><div class="mkt-swatch" style="background:'+bg+'">'+badgeHtml+emoji+'</div><div class="mkt-card-body"><div class="mkt-card-name">'+p.name+'</div><div class="mkt-card-code">'+(p.code||'')+'</div><div class="mkt-card-price">'+priceFormatted+'</div>'+(p.stock !== undefined ? '<div class="mkt-card-stock '+stockClass+'">'+stockIcon+' '+p.stock+' unid</div>' : '')+'<button class="mkt-card-add" onclick="event.stopPropagation();addToCart(\''+p.id+'\')">+ Carrinho</button></div></div>';
+}
+
+function openProductDetail(productId){
+  const p = mktProducts.find(x => x.id === productId);
+  if(!p){ showModal('product-detail-modal'); return; }
+  const bg = p.color_gradient ? 'linear-gradient(135deg,'+p.color_gradient+')' : (p.color_hex || '#ddd');
+  const emoji = getCategoryEmoji(p.category);
+  const modal = document.getElementById('product-detail-modal');
+  const sheet = modal.querySelector('.sheet');
+  const priceFormatted = 'R$' + Number(p.price||0).toFixed(2).replace('.',',');
+  sheet.innerHTML = '<div class="sheet-handle"></div>'
+    + '<div style="height:140px;background:'+bg+';border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:60px;margin-bottom:16px;">'+emoji+'</div>'
+    + '<div style="font-size:20px;font-weight:800;font-family:Syne,sans-serif;">'+p.name+'</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:10px;">'+(p.code ? 'Cód. '+p.code+' · ' : '')+(p.line||'')+'</div>'
+    + (p.description ? '<div style="font-size:13.5px;color:#555;line-height:1.5;margin-bottom:14px;">'+p.description+'</div>' : '')
+    + '<div style="display:flex;gap:10px;margin-bottom:14px;">'
+    + (p.rendimento ? '<div style="flex:1;background:var(--cream);border-radius:12px;padding:10px;text-align:center;"><div style="font-size:11px;color:var(--muted);">Rendimento</div><div style="font-size:14px;font-weight:700;">'+p.rendimento+'</div></div>' : '')
+    + (p.demaos ? '<div style="flex:1;background:var(--cream);border-radius:12px;padding:10px;text-align:center;"><div style="font-size:11px;color:var(--muted);">Demãos</div><div style="font-size:14px;font-weight:700;">'+p.demaos+'</div></div>' : '')
+    + (p.secagem ? '<div style="flex:1;background:var(--cream);border-radius:12px;padding:10px;text-align:center;"><div style="font-size:11px;color:var(--muted);">Secagem</div><div style="font-size:14px;font-weight:700;">'+p.secagem+'</div></div>' : '')
+    + '</div>'
+    + '<div style="margin-bottom:14px;"><div style="font-size:22px;font-weight:800;color:var(--p1);font-family:Syne,sans-serif;">'+priceFormatted+'</div></div>'
+    + '<button onclick="addToCart(\''+p.id+'\');closeModals()" style="width:100%;padding:14px;background:var(--p1);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif;">+ Adicionar ao Carrinho</button>';
+  showModal('product-detail-modal');
+}
+
+async function loadMktProducts(){
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const { data, error } = await sb.from('products').select('*').eq('active', true).order('name');
+    if(error) throw error;
+    mktProducts = data || [];
+    const cats = { tintas:[], texturas:[], epoxi:[], acessorios:[] };
+    mktProducts.forEach(p => {
+      const cat = p.category || 'tintas';
+      if(!cats[cat]) cats[cat] = [];
+      cats[cat].push(p);
+    });
+    Object.entries(cats).forEach(([cat, items]) => {
+      const grid = document.getElementById('mkt-'+cat+'-grid');
+      if(!grid) return;
+      if(items.length === 0){
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--muted);font-size:13px;">Nenhum produto nesta categoria</div>';
+      } else {
+        grid.innerHTML = items.map(p => renderProductCard(p)).join('');
+      }
+    });
+  } catch(e){
+    console.error('loadMktProducts error:', e);
+    const grid = document.getElementById('mkt-tintas-grid');
+    if(grid) grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--muted);font-size:13px;">Erro ao carregar produtos</div>';
+  }
 }
 
 function changeQty(delta) {
