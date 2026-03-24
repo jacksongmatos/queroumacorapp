@@ -178,6 +178,36 @@ CREATE POLICY "Users can upload to posts bucket" ON storage.objects
 CREATE POLICY "Public read posts bucket" ON storage.objects
   FOR SELECT USING (bucket_id = 'posts');
 
+-- Storage: ensure 'avatars' bucket exists
+-- ============================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow authenticated users to upload to avatars bucket
+DO $$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Users can upload avatars') THEN
+  CREATE POLICY "Users can upload avatars" ON storage.objects
+    FOR INSERT TO authenticated WITH CHECK (bucket_id = 'avatars');
+END IF;
+END $$;
+
+-- Allow public read from avatars bucket
+DO $$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Public read avatars') THEN
+  CREATE POLICY "Public read avatars" ON storage.objects
+    FOR SELECT USING (bucket_id = 'avatars');
+END IF;
+END $$;
+
+-- Allow users to update/overwrite their own avatars
+DO $$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Users can update own avatars') THEN
+  CREATE POLICY "Users can update own avatars" ON storage.objects
+    FOR UPDATE TO authenticated USING (bucket_id = 'avatars');
+END IF;
+END $$;
+
 -- ============================================
 -- Announcements table (avisos do portal)
 -- ============================================

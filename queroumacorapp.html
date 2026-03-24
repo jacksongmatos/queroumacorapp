@@ -2749,6 +2749,17 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <div class="sheet" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto;">
     <div class="sheet-handle"></div>
     <div class="sheet-title">Editar Perfil</div>
+    <!-- Avatar upload -->
+    <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:16px;">
+      <div style="position:relative;cursor:pointer;" onclick="document.getElementById('ep-avatar-input').click()">
+        <img id="ep-avatar-preview" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--p1);">
+        <div style="position:absolute;bottom:0;right:0;width:26px;height:26px;background:var(--p1);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </div>
+      </div>
+      <input type="file" id="ep-avatar-input" accept="image/*" style="display:none" onchange="previewAvatar(this)">
+      <div style="font-size:12px;color:var(--p1);margin-top:6px;font-weight:600;">Trocar foto</div>
+    </div>
     <div style="margin-bottom:12px;">
       <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Nome</div>
       <input id="ep-name" type="text" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border);font-size:14px;outline:none;font-family:'DM Sans',sans-serif;">
@@ -3480,11 +3491,23 @@ async function loadPedidos(){
   }
 }
 
+let _epAvatarFile = null; // holds selected avatar file for upload
+
+function previewAvatar(input){
+  if(input.files && input.files[0]){
+    _epAvatarFile = input.files[0];
+    const reader = new FileReader();
+    reader.onload = e => { document.getElementById('ep-avatar-preview').src = e.target.result; };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
 async function openEditProfile(){
   const sb = getSupabase();
   if(!sb || !currentUser) return;
+  _epAvatarFile = null; // reset
   try {
-    const { data: prof } = await sb.from('profiles').select('name, tag, city, state, phone, specialties').eq('id', currentUser.id).single();
+    const { data: prof } = await sb.from('profiles').select('name, tag, city, state, phone, specialties, avatar_url').eq('id', currentUser.id).single();
     if(prof){
       document.getElementById('ep-name').value = prof.name || '';
       document.getElementById('ep-tag').value = prof.tag || '';
@@ -3492,6 +3515,20 @@ async function openEditProfile(){
       document.getElementById('ep-state').value = prof.state || '';
       document.getElementById('ep-phone').value = prof.phone || '';
       document.getElementById('ep-specs').value = prof.specialties || '';
+      // Show current avatar
+      const preview = document.getElementById('ep-avatar-preview');
+      if(preview) preview.src = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(prof.name || 'U')+'&background=e8e2d9&color=1a1a2e&size=96';
+    } else {
+      // Fallback to user_metadata
+      const meta = currentUser.user_metadata || {};
+      document.getElementById('ep-name').value = meta.name || currentUser.email?.split('@')[0] || '';
+      document.getElementById('ep-tag').value = meta.tag || '';
+      document.getElementById('ep-city').value = '';
+      document.getElementById('ep-state').value = '';
+      document.getElementById('ep-phone').value = '';
+      document.getElementById('ep-specs').value = '';
+      const preview = document.getElementById('ep-avatar-preview');
+      if(preview) preview.src = 'https://ui-avatars.com/api/?name='+encodeURIComponent(meta.name || 'U')+'&background=e8e2d9&color=1a1a2e&size=96';
     }
   } catch(e){ console.warn('openEditProfile error:', e); }
   showModal('edit-profile-modal');
@@ -3512,6 +3549,29 @@ async function saveEditProfile(){
       specialties: document.getElementById('ep-specs').value.trim(),
       updated_at: new Date().toISOString(),
     };
+
+    // Upload avatar if a new file was selected
+    if(_epAvatarFile){
+      btn.textContent = 'Enviando foto...';
+      const ext = _epAvatarFile.name.split('.').pop() || 'jpg';
+      const filePath = 'avatars/' + currentUser.id + '/' + Date.now() + '.' + ext;
+      const { error: upErr } = await sb.storage.from('avatars').upload(filePath, _epAvatarFile, { upsert: true });
+      if(upErr){
+        // If bucket doesn't exist, try 'posts' bucket as fallback
+        console.warn('Avatar upload error:', upErr.message);
+        const fallbackPath = 'avatars/' + currentUser.id + '_' + Date.now() + '.' + ext;
+        const { error: upErr2 } = await sb.storage.from('posts').upload(fallbackPath, _epAvatarFile, { upsert: true });
+        if(upErr2) throw new Error('Erro no upload da foto: ' + upErr2.message);
+        const { data: urlData } = sb.storage.from('posts').getPublicUrl(fallbackPath);
+        updates.avatar_url = urlData.publicUrl;
+      } else {
+        const { data: urlData } = sb.storage.from('avatars').getPublicUrl(filePath);
+        updates.avatar_url = urlData.publicUrl;
+      }
+      _epAvatarFile = null;
+      btn.textContent = 'Salvando...';
+    }
+
     // Try update first
     const { data: existing } = await sb.from('profiles').select('id').eq('id', currentUser.id).single();
     if(existing){
