@@ -2934,6 +2934,18 @@ async function loadChatList(){
       const preview = lastMsg.content || '';
       const isMine = lastMsg.sender_id === myId;
       const time = lastMsg.created_at ? new Date(lastMsg.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
+      // Populate chatData so openChat() can find this conversation
+      chatData[conv.id] = chatData[conv.id] || {
+        type: 'direct',
+        name: name,
+        sub: other.tag ? '@' + other.tag : '',
+        participants: [{
+          img: avatar,
+          name: name,
+          role: isPintor ? 'Pintor' : 'Usuario'
+        }],
+        messages: []
+      };
       return '<div class="conv-item" onclick="openChat(\''+conv.id+'\')">'
         + '<div class="conv-avatars"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div></div>'
         + '<div class="conv-info"><div class="conv-name">'+escapeHtml(name)+(isPintor?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
