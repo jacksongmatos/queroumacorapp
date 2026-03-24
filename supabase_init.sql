@@ -67,10 +67,17 @@ BEGIN
 END $$;
 
 -- ============================================
--- Profiles table - ensure upsert works
+-- Profiles table - ensure read/write works
 -- ============================================
+-- Allow everyone to read profiles (needed for search, feed, etc.)
 DO $$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Profiles are viewable by everyone'
+  ) THEN
+    CREATE POLICY "Profiles are viewable by everyone" ON public.profiles
+      FOR SELECT USING (true);
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Users can update own profile'
   ) THEN
@@ -82,6 +89,77 @@ BEGIN
   ) THEN
     CREATE POLICY "Users can insert own profile" ON public.profiles
       FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Foreign key: posts.user_id -> profiles.id
+-- (needed for Supabase embedded joins)
+-- ============================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'posts_user_id_fkey' AND table_name = 'posts'
+  ) THEN
+    ALTER TABLE public.posts
+      ADD CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Follows table (needed for feed filtering)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.follows (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  follower_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  following_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(follower_id, following_id)
+);
+
+ALTER TABLE public.follows ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'follows' AND policyname = 'Follows are viewable by everyone'
+  ) THEN
+    CREATE POLICY "Follows are viewable by everyone" ON public.follows FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'follows' AND policyname = 'Users can manage own follows'
+  ) THEN
+    CREATE POLICY "Users can manage own follows" ON public.follows
+      FOR ALL TO authenticated USING (auth.uid() = follower_id) WITH CHECK (auth.uid() = follower_id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Likes table (needed for post likes)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.likes (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  post_id uuid REFERENCES public.posts(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, post_id)
+);
+
+ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'likes' AND policyname = 'Likes are viewable by everyone'
+  ) THEN
+    CREATE POLICY "Likes are viewable by everyone" ON public.likes FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'likes' AND policyname = 'Users can manage own likes'
+  ) THEN
+    CREATE POLICY "Users can manage own likes" ON public.likes
+      FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
   END IF;
 END $$;
 

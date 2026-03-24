@@ -899,11 +899,17 @@ function searchPeople(query){
     const sb=getSupabase();
     if(!sb)return;
     const cleanQuery=query.replace('@','').trim();
-    const {data,error}=await sb
-      .from('profiles')
-      .select('id, name, tag, avatar_url, user_type, role, city')
-      .or('name.ilike.%'+cleanQuery+'%,tag.ilike.%'+cleanQuery+'%')
-      .limit(20);
+    let data = null, error = null;
+    try {
+      const res = await sb
+        .from('profiles')
+        .select('id, name, tag, avatar_url, user_type, role, city')
+        .or(`name.ilike.%${cleanQuery}%,tag.ilike.%${cleanQuery}%,city.ilike.%${cleanQuery}%`)
+        .limit(20);
+      data = res.data;
+      error = res.error;
+      if(error) console.warn('searchPeople error:', error.message);
+    } catch(e) { console.warn('searchPeople exception:', e); }
     if(error||!data||data.length===0){
       container.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--muted);">
         <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--border)" stroke-width="1.5" style="margin-bottom:14px;"><path d="M16 16l-3.5-3.5"/><circle cx="10" cy="10" r="7"/></svg>
@@ -3959,6 +3965,7 @@ async function loadPosts(){
     const sb = getSupabase();
     if(!sb) return;
     const feedIds = await getFollowingIds();
+    // Try with join first, fallback to separate query if FK not configured
     let { data: posts, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, tag, avatar_url)')
       .neq('media_type', 'story')
@@ -3966,15 +3973,23 @@ async function loadPosts(){
       .order('created_at', { ascending: false })
       .limit(30);
     if(error){
-      console.error('loadPosts query error:', error);
+      console.warn('loadPosts join failed, fetching without join:', error.message);
       const res = await sb.from('posts')
-        .select('*, profiles:user_id(name, tag, avatar_url)')
+        .select('*')
         .neq('media_type', 'story')
         .in('user_id', feedIds)
         .order('created_at', { ascending: false })
         .limit(30);
       posts = res.data;
       if(res.error) throw res.error;
+      // Load profiles separately
+      if(posts && posts.length > 0){
+        const userIds = [...new Set(posts.map(p => p.user_id))];
+        const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
+        const profMap = {};
+        (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
+        posts.forEach(p => { p.profiles = profMap[p.user_id] || {}; });
+      }
     }
 
     const container = document.getElementById('feed-posts-area');
@@ -4094,14 +4109,32 @@ async function loadStories(){
     // Load stories from last 24h (like IG) from followed users + own
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
     const feedIds = await getFollowingIds();
-    const { data: stories, error } = await sb.from('posts')
+    let { data: stories, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, tag, avatar_url)')
       .eq('media_type', 'story')
       .in('user_id', feedIds)
       .gte('created_at', since)
       .order('created_at', { ascending: true })
       .limit(100);
-    if(error) throw error;
+    if(error){
+      console.warn('loadStories join failed, fetching without join:', error.message);
+      const res = await sb.from('posts')
+        .select('*')
+        .eq('media_type', 'story')
+        .in('user_id', feedIds)
+        .gte('created_at', since)
+        .order('created_at', { ascending: true })
+        .limit(100);
+      stories = res.data;
+      if(res.error) throw res.error;
+      if(stories && stories.length > 0){
+        const userIds = [...new Set(stories.map(s => s.user_id))];
+        const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
+        const profMap = {};
+        (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
+        stories.forEach(s => { s.profiles = profMap[s.user_id] || {}; });
+      }
+    }
 
     // Group stories by user_id (like IG)
     const grouped = {};
