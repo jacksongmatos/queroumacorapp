@@ -84,6 +84,7 @@ BEGIN
   BEGIN ALTER TABLE public.profiles ADD COLUMN lng numeric; EXCEPTION WHEN duplicate_column THEN NULL; END;
   BEGIN ALTER TABLE public.profiles ADD COLUMN invited_by uuid; EXCEPTION WHEN duplicate_column THEN NULL; END;
   BEGIN ALTER TABLE public.profiles ADD COLUMN invite_code_used text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN portal_access boolean DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 
 -- ============================================
@@ -302,6 +303,16 @@ BEGIN
   ) THEN
     CREATE POLICY "Users can send messages" ON public.messages
       FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+  END IF;
+  -- Portal users (admin) can view ALL messages for Chats 3-Way
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Portal users can view all messages'
+  ) THEN
+    CREATE POLICY "Portal users can view all messages" ON public.messages
+      FOR SELECT TO authenticated
+      USING (
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND portal_access = true)
+      );
   END IF;
 END $$;
 
