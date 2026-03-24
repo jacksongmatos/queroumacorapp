@@ -760,9 +760,18 @@ async function loadMyProfileData(){
         subEl.textContent = parts.length > 0 ? parts.join(' · ') : 'Configure seu perfil';
       }
       // Update myprofile avatar
+      const avatarFallback = 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
+      const avatarSrc = prof.avatar_url || avatarFallback;
       const myAvatar = document.getElementById('myprofile-avatar');
       if(myAvatar){
-        myAvatar.src = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
+        myAvatar.onerror = function(){ this.onerror=null; this.src=avatarFallback; };
+        myAvatar.src = avatarSrc;
+      }
+      // Also update story circle avatar
+      const storyAv = document.getElementById('my-story-avatar');
+      if(storyAv){
+        storyAv.onerror = function(){ this.onerror=null; this.src=avatarFallback; };
+        storyAv.src = avatarSrc;
       }
       // Set mode based on DB role
       if(role === 'pintor') setMode('pintor');
@@ -1456,7 +1465,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <div class="stories-row" id="stories-row">
     <div class="story add-story" style="cursor:pointer" onclick="showModal('post-modal')">
       <div class="story-ring" id="my-story-ring">
-        <div class="story-inner" id="my-story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt=""></div>
+        <div class="story-inner" id="my-story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt="" onerror="this.onerror=null;this.src='https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96'"></div>
         <div class="story-plus" onclick="event.stopPropagation();showModal('post-modal')">
           <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </div>
@@ -1910,7 +1919,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
       <div style="width:76px;height:76px;border-radius:50%;padding:2.5px;background:conic-gradient(var(--p1),var(--p4),var(--p5),var(--p3),var(--p1));flex-shrink:0;">
         <div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2.5px solid var(--ink);">
-          <img id="myprofile-avatar" src="https://i.pravatar.cc/150?img=68" style="width:100%;height:100%;object-fit:cover" alt="">
+          <img id="myprofile-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" style="width:100%;height:100%;object-fit:cover" alt="" onerror="this.onerror=null;this.src='https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96'">
         </div>
       </div>
       <div style="flex:1;display:flex;justify-content:space-around;text-align:center;">
@@ -2752,7 +2761,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <!-- Avatar upload -->
     <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:16px;">
       <div style="position:relative;cursor:pointer;" onclick="document.getElementById('ep-avatar-input').click()">
-        <img id="ep-avatar-preview" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--p1);">
+        <img id="ep-avatar-preview" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--p1);" onerror="this.onerror=null;this.src='https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96'">
         <div style="position:absolute;bottom:0;right:0;width:26px;height:26px;background:var(--p1);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </div>
@@ -3554,19 +3563,73 @@ async function saveEditProfile(){
     if(_epAvatarFile){
       btn.textContent = 'Enviando foto...';
       const ext = _epAvatarFile.name.split('.').pop() || 'jpg';
-      const filePath = 'avatars/' + currentUser.id + '/' + Date.now() + '.' + ext;
-      const { error: upErr } = await sb.storage.from('avatars').upload(filePath, _epAvatarFile, { upsert: true });
-      if(upErr){
-        // If bucket doesn't exist, try 'posts' bucket as fallback
-        console.warn('Avatar upload error:', upErr.message);
-        const fallbackPath = 'avatars/' + currentUser.id + '_' + Date.now() + '.' + ext;
-        const { error: upErr2 } = await sb.storage.from('posts').upload(fallbackPath, _epAvatarFile, { upsert: true });
-        if(upErr2) throw new Error('Erro no upload da foto: ' + upErr2.message);
-        const { data: urlData } = sb.storage.from('posts').getPublicUrl(fallbackPath);
-        updates.avatar_url = urlData.publicUrl;
-      } else {
-        const { data: urlData } = sb.storage.from('avatars').getPublicUrl(filePath);
-        updates.avatar_url = urlData.publicUrl;
+      const ts = Date.now();
+      let avatarUploaded = false;
+
+      // Try avatars bucket first
+      try {
+        const filePath = currentUser.id + '/' + ts + '.' + ext;
+        const { error: upErr } = await sb.storage.from('avatars').upload(filePath, _epAvatarFile, { upsert: true });
+        if(!upErr){
+          const { data: urlData } = sb.storage.from('avatars').getPublicUrl(filePath);
+          if(urlData && urlData.publicUrl){
+            updates.avatar_url = urlData.publicUrl;
+            avatarUploaded = true;
+            console.log('Avatar uploaded to avatars bucket:', updates.avatar_url);
+          }
+        } else {
+          console.warn('Avatars bucket upload failed:', upErr.message);
+        }
+      } catch(e){ console.warn('Avatars bucket error:', e); }
+
+      // Fallback: try posts bucket
+      if(!avatarUploaded){
+        try {
+          const fallbackPath = 'avatar_' + currentUser.id + '_' + ts + '.' + ext;
+          const { error: upErr2 } = await sb.storage.from('posts').upload(fallbackPath, _epAvatarFile, { upsert: true });
+          if(!upErr2){
+            const { data: urlData } = sb.storage.from('posts').getPublicUrl(fallbackPath);
+            if(urlData && urlData.publicUrl){
+              updates.avatar_url = urlData.publicUrl;
+              avatarUploaded = true;
+              console.log('Avatar uploaded to posts bucket:', updates.avatar_url);
+            }
+          } else {
+            console.warn('Posts bucket upload failed:', upErr2.message);
+          }
+        } catch(e){ console.warn('Posts bucket error:', e); }
+      }
+
+      // Last resort: convert to data URL and store directly
+      if(!avatarUploaded){
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(_epAvatarFile);
+          });
+          // Resize to max 200px to keep data URL small
+          const canvas = document.createElement('canvas');
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve; img.onerror = reject;
+            img.src = dataUrl;
+          });
+          const maxSize = 200;
+          let w = img.width, h = img.height;
+          if(w > h){ h = Math.round(h * maxSize / w); w = maxSize; }
+          else { w = Math.round(w * maxSize / h); h = maxSize; }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          updates.avatar_url = canvas.toDataURL('image/jpeg', 0.7);
+          avatarUploaded = true;
+          console.log('Avatar saved as data URL (storage unavailable)');
+        } catch(e){ console.warn('Data URL fallback error:', e); }
+      }
+
+      if(!avatarUploaded){
+        toast('Erro no upload da foto, mas salvando perfil...');
       }
       _epAvatarFile = null;
       btn.textContent = 'Salvando...';
@@ -3586,7 +3649,18 @@ async function saveEditProfile(){
     }
     toast('Perfil atualizado!');
     closeModals();
+    // Update all avatar locations after save
+    const newAvatarUrl = (saved && saved[0] && saved[0].avatar_url) ? saved[0].avatar_url : updates.avatar_url;
+    if(newAvatarUrl){
+      // Update profile screen avatar immediately
+      const myAvEl = document.getElementById('myprofile-avatar');
+      if(myAvEl) myAvEl.src = newAvatarUrl;
+      // Update story circle avatar immediately
+      const storyAvEl = document.getElementById('my-story-avatar');
+      if(storyAvEl) storyAvEl.src = newAvatarUrl;
+    }
     loadMyProfileData();
+    updateMyStoryAvatar();
   } catch(e){
     console.error('saveEditProfile error:', e);
     toast('Erro ao salvar: ' + (e.message || 'tente novamente'));
