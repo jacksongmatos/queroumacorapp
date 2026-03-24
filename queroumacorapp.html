@@ -3731,17 +3731,42 @@ async function loadStories(){
 
     // Group stories by user_id (like IG)
     const grouped = {};
+    const myId = currentUser ? currentUser.id : null;
+    let myStoryGroup = null;
     (stories || []).forEach(s => {
       const uid = s.user_id;
       if(!grouped[uid]) grouped[uid] = { user_id: uid, profile: s.profiles || {}, stories: [] };
       grouped[uid].stories.push(s);
     });
-    storyGroups = Object.values(grouped);
+    // Separate own stories from others
+    if(myId && grouped[myId]){
+      myStoryGroup = grouped[myId];
+      delete grouped[myId];
+    }
+    storyGroups = [];
+    // If user has stories, add as first group (index 0) so openStoryViewer works
+    if(myStoryGroup) storyGroups.push(myStoryGroup);
+    storyGroups.push(...Object.values(grouped));
 
     // Render circles
     const row = document.getElementById('stories-row');
-    let html = row.children[0].outerHTML; // keep add-story button
-    storyGroups.forEach((g, gi) => {
+    const addStoryEl = row.children[0];
+    // Update add-story ring: colorido se tem stories, cinza se nao
+    const addStoryRing = addStoryEl.querySelector('.story-ring');
+    if(myStoryGroup){
+      addStoryRing.classList.remove('seen');
+      addStoryRing.style.background = 'conic-gradient(var(--p1),var(--p4),var(--p5),var(--p3),var(--p1))';
+      // Make add-story also open own stories on tap (+ button still opens post modal)
+      addStoryEl.setAttribute('onclick', 'openStoryViewer(0)');
+    } else {
+      addStoryRing.style.background = 'rgba(255,255,255,.15)';
+      addStoryEl.setAttribute('onclick', "showModal('post-modal')");
+    }
+    let html = addStoryEl.outerHTML;
+    // Render other users' stories (skip index 0 if it's own)
+    const startIdx = myStoryGroup ? 1 : 0;
+    for(let gi = startIdx; gi < storyGroups.length; gi++){
+      const g = storyGroups[gi];
       const p = g.profile;
       const name = (p.name || 'User').split(' ')[0];
       const avatar = p.avatar_url || g.stories[0].image_url || 'https://i.pravatar.cc/150?img=68';
@@ -3750,7 +3775,7 @@ async function loadStories(){
         <div class="story-ring${seen}"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
         <span class="story-name">${name}</span>
       </div>`;
-    });
+    }
     row.innerHTML = html;
 
     // Update empty state
