@@ -3962,7 +3962,7 @@ function openChat(id) {
     const localRendered = savedMsgs.map(m => {
       const t = m.time ? new Date(m.time) : new Date();
       const timeStr = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
-      return { from: m.from || 'me', text: m.content || '', time: timeStr };
+      return { from: m.from || 'me', text: m.content || '', time: timeStr, type: m.type || 'text' };
     });
     renderMessages(localRendered);
   } else {
@@ -4028,12 +4028,13 @@ function openChat(id) {
         const t = new Date(m.created_at);
         const time = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
         if(m.type === 'store'){
-          return { from:'store', text: m.content, time, sender:'Cali Colors' };
+          return { from:'store', text: m.content, time, type: 'text', sender:'Cali Colors' };
         }
         return {
           from: m.sender_id === myId ? 'me' : 'other',
           text: m.content,
           time,
+          type: m.type || 'text',
           sender: otherPart ? otherPart.name : 'Pintor',
           img: otherPart ? otherPart.img : ''
         };
@@ -4052,10 +4053,15 @@ function openChat(id) {
 function renderMessages(msgs){
   const area = document.getElementById('msgs-area');
   area.innerHTML = msgs.map(m=>{
+    const isImg = m.type === 'image' || (m.text && m.text.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i));
+    const contentHtml = isImg
+      ? '<img src="'+escapeHtml(m.text)+'" style="max-width:200px;border-radius:10px;display:block;" alt="foto">'
+      : escapeHtml(m.text);
+
     if(m.from==='me') return `
       <div class="msg-row me">
         <div>
-          <div class="msg-bubble">${m.text}</div>
+          <div class="msg-bubble">${contentHtml}</div>
           <div class="msg-time">${m.time}</div>
         </div>
       </div>`;
@@ -4085,7 +4091,7 @@ function renderMessages(msgs){
           <div class="msg-av store-av">CC</div>
           <div>
             <div class="msg-sender" style="color:var(--p1);">Cali Colors</div>
-            <div class="msg-bubble store">${m.text}${extra}</div>
+            <div class="msg-bubble store">${isImg ? contentHtml : m.text}${extra}</div>
             <div class="msg-time">${m.time}</div>
           </div>
         </div>`;
@@ -4096,7 +4102,7 @@ function renderMessages(msgs){
         <div class="msg-av"><img src="${m.img}" alt="${m.sender}"></div>
         <div>
           <div class="msg-sender">${m.sender}</div>
-          <div class="msg-bubble other">${m.text}</div>
+          <div class="msg-bubble other">${contentHtml}</div>
           <div class="msg-time">${m.time}</div>
         </div>
       </div>`;
@@ -4160,19 +4166,33 @@ function appendMsg(m){
   if(m.id) renderedMsgIds.add(m.id);
   const area = document.getElementById('msgs-area');
   if(!area) return;
+
+  const isImg = m.type === 'image' || (m.text && m.text.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i));
+  const contentHtml = isImg
+    ? '<img src="'+escapeHtml(m.text)+'" style="max-width:200px;border-radius:10px;display:block;" alt="foto">'
+    : escapeHtml(m.text);
+
   const div = document.createElement('div');
   if(m.from==='me'){
     div.className='msg-row me';
-    div.innerHTML=`<div><div class="msg-bubble">${escapeHtml(m.text)}</div><div class="msg-time">${m.time}</div></div>`;
+    div.innerHTML=`<div><div class="msg-bubble">${contentHtml}</div><div class="msg-time">${m.time}</div></div>`;
   } else if(m.from==='store'){
     div.className='msg-row';
-    div.innerHTML=`<div class="msg-av store-av">CC</div><div><div class="msg-sender" style="color:var(--p1);">Cali Colors</div><div class="msg-bubble store">${escapeHtml(m.text)}</div><div class="msg-time">${m.time}</div></div>`;
+    div.innerHTML=`<div class="msg-av store-av">CC</div><div><div class="msg-sender" style="color:var(--p1);">Cali Colors</div><div class="msg-bubble store">${contentHtml}</div><div class="msg-time">${m.time}</div></div>`;
   } else {
     div.className='msg-row';
-    div.innerHTML=`<div class="msg-av"><img src="${m.img||''}" alt="${m.sender||''}"></div><div><div class="msg-sender">${m.sender||''}</div><div class="msg-bubble other">${escapeHtml(m.text)}</div><div class="msg-time">${m.time}</div></div>`;
+    div.innerHTML=`<div class="msg-av"><img src="${m.img||''}" alt="${m.sender||''}"></div><div><div class="msg-sender">${m.sender||''}</div><div class="msg-bubble other">${contentHtml}</div><div class="msg-time">${m.time}</div></div>`;
   }
   area.appendChild(div);
   area.scrollTop=area.scrollHeight;
+
+  // Save received messages to localStorage too
+  if(currentChat && m.from !== 'me'){
+    saveMsgLocal(currentChat, { from: m.from, content: m.text, type: isImg ? 'image' : 'text', time: new Date().toISOString() });
+    const localConvs = loadConvsLocal();
+    const existing = localConvs[currentChat] || {};
+    saveConvLocal(currentChat, { ...existing, lastMsg: isImg ? '📷 Foto' : (m.text||'').substring(0,50), lastMsgFrom: 'other', lastMsgTime: new Date().toISOString() });
+  }
 }
 
 async function handleChatAttachment(input){
@@ -4198,6 +4218,15 @@ async function handleChatAttachment(input){
     div.innerHTML = '<div><div class="msg-bubble"><img src="'+imgUrl+'" style="max-width:200px;border-radius:10px;display:block;" alt="foto"></div><div class="msg-time">'+time+'</div></div>';
     area.appendChild(div);
     area.scrollTop = area.scrollHeight;
+
+    // Save to localStorage
+    if(currentChat){
+      saveMsgLocal(currentChat, { from:'me', content: imgUrl, type:'image', time: new Date().toISOString() });
+      const localConvs = loadConvsLocal();
+      const existing = localConvs[currentChat] || {};
+      saveConvLocal(currentChat, { ...existing, lastMsg: '📷 Foto', lastMsgFrom: 'me', lastMsgTime: new Date().toISOString() });
+    }
+
     // Save to DB
     const parts = currentChat ? currentChat.split('_') : [];
     const uuidParts = parts.filter(p => p.includes('-'));
