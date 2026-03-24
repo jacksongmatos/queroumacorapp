@@ -877,7 +877,7 @@ function searchPeople(query){
       const isSelf=currentUser&&currentUser.id===p.id;
       const roleBadge=p.role==='pintor'?'<span style="background:var(--ink);color:var(--p1);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.3px;margin-left:5px;">PINTOR</span>':'';
       const avatarUrl=p.avatar_url||'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'?')+'&background=e8e2d9&color=1a1a2e&size=96';
-      return `<div class="search-result-item" onclick="toast('Perfil de ${(p.name||p.tag||'').replace(/'/g,"\\'")}')">
+      return `<div class="search-result-item" onclick="openUserProfile('${p.id}')">
         <div class="search-result-avatar"><img src="${avatarUrl}" alt=""></div>
         <div class="search-result-info">
           <div class="search-result-tag">${p.tag?'@'+p.tag:p.name||'Sem tag'}${roleBadge}</div>
@@ -887,6 +887,37 @@ function searchPeople(query){
       </div>`;
     }).join('');
   },300);
+}
+
+async function openUserProfile(userId){
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const { data: prof } = await sb.from('profiles').select('*').eq('id', userId).single();
+    if(!prof){ toast('Perfil nao encontrado'); return; }
+    // Check if it's a painter in the hardcoded list (for full profile view)
+    const painterKey = Object.keys(painters).find(k => painters[k].name === prof.name);
+    if(painterKey){
+      openProfile(painterKey);
+      return;
+    }
+    // For DB profiles, update profile screen elements directly
+    const screen = document.getElementById('screen-profile');
+    const nameEl = screen.querySelector('.ph-name');
+    const bioEl = screen.querySelector('.ph-bio');
+    const avatarEl = screen.querySelector('.ph-avatar img');
+    const name = prof.name || 'Usuario';
+    const avatar = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=200';
+    const location = (prof.city||'')+(prof.state?' · '+prof.state:'');
+    const role = (prof.role||prof.user_type||'cliente')==='pintor' ? 'Pintor' : 'Cliente';
+    if(nameEl) nameEl.textContent = name;
+    if(bioEl) bioEl.textContent = (prof.tag?'@'+prof.tag+' · ':'')+role+(location?' · '+location:'');
+    if(avatarEl) avatarEl.src = avatar;
+    showScreen('profile');
+  } catch(e){
+    console.error('openUserProfile error:', e);
+    toast('Erro ao abrir perfil');
+  }
 }
 
 async function toggleFollow(userId,btn){
@@ -1200,9 +1231,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <!-- Stories -->
   <div class="stories-row" id="stories-row">
     <div class="story add-story" style="cursor:pointer" onclick="showModal('post-modal')">
-      <div class="story-ring">
-        <div class="story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt=""></div>
-        <div class="story-plus">
+      <div class="story-ring" id="my-story-ring">
+        <div class="story-inner" id="my-story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt=""></div>
+        <div class="story-plus" onclick="event.stopPropagation();showModal('post-modal')">
           <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </div>
       </div>
@@ -3058,10 +3089,17 @@ function switchTab(n){
     if(el) el.style.display=t===n?'block':'none';
   });
 }
-function filterRev(el){
+function filterRev(el, rating){
   document.querySelectorAll('.rev-chip').forEach(c=>{c.style.background='var(--border)';c.style.color='var(--ink)';});
   el.style.background='var(--ink)'; el.style.color='#fff';
-  toast('Filtrando avaliações...');
+  const cards = document.querySelectorAll('#tab-reviews .rev-card, #tab-reviews [class*="rev"]');
+  cards.forEach(c => {
+    if(!rating || rating === 'all') c.style.display = '';
+    else {
+      const stars = (c.textContent.match(/⭐/g)||[]).length;
+      c.style.display = stars === parseInt(rating) ? '' : 'none';
+    }
+  });
 }
 
 // ══ CALCULATOR ══
@@ -3286,7 +3324,7 @@ function filterPedidos(el,status){
 }
 
 // ══ SIMPLE CHAT (pintor↔cliente) ══
-function sendChatMsg(){
+async function sendChatMsg(){
   const inp=document.getElementById('chat-input-field');
   if(!inp)return;
   const msg=inp.value.trim();
@@ -3295,21 +3333,23 @@ function sendChatMsg(){
   const typing=document.getElementById('chat-typing');
   const div=document.createElement('div');
   div.className='chat-msg sent';
-  div.innerHTML='<div class="chat-bubble">'+msg+'</div><div class="chat-time">Você · agora</div>';
+  div.innerHTML='<div class="chat-bubble">'+escapeHtml(msg)+'</div><div class="chat-time">Voce · agora</div>';
   body.insertBefore(div,typing);
   inp.value='';
   body.scrollTop=body.scrollHeight;
-  typing.style.display='flex';
-  body.scrollTop=body.scrollHeight;
-  const replies=["Entendido! Vou verificar minha agenda e te confirmo.","Perfeito, anotei!","Pode deixar, cuido de tudo com capricho. 🖌️","Combinado! Qualquer dúvida pode chamar aqui.","Ótimo! Vou preparar o orçamento detalhado."];
-  setTimeout(()=>{
-    typing.style.display='none';
-    const rep=document.createElement('div');
-    rep.className='chat-msg recv';
-    rep.innerHTML='<div class="chat-bubble">'+replies[Math.floor(Math.random()*replies.length)]+'</div><div class="chat-time">Carlos · agora</div>';
-    body.insertBefore(rep,typing);
-    body.scrollTop=body.scrollHeight;
-  },1500);
+
+  // Save to Supabase
+  const sb = getSupabase();
+  if(sb && currentUser){
+    try {
+      await sb.from('messages').insert({
+        sender_id: currentUser.id,
+        content: msg,
+        type: 'text',
+        created_at: new Date().toISOString()
+      });
+    } catch(e){ console.warn('sendChatMsg save error:', e); }
+  }
 }
 document.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&document.activeElement?.id==='chat-input-field')sendChatMsg();
@@ -3326,10 +3366,32 @@ function setStar(n){
   document.getElementById('star-label').style.color=n>=4?'var(--p6)':n>=3?'var(--p7)':'var(--p4)';
 }
 function toggleCriteria(el){el.classList.toggle('sel');}
-function submitAvaliacao(){
-  if(!starVal){toast('⭐ Selecione uma nota primeiro!');return;}
-  toast('✅ Avaliação enviada! '+starLabels[starVal]);
-  setTimeout(()=>showScreen('myprofile'),1800);
+async function submitAvaliacao(){
+  if(!starVal){toast('Selecione uma nota primeiro!');return;}
+  const sb = getSupabase();
+  if(!sb || !currentUser){ toast('Faca login primeiro'); return; }
+  const criteria = [];
+  document.querySelectorAll('.criteria-chip.sel').forEach(c => criteria.push(c.textContent.trim()));
+  const comment = document.getElementById('avalia-ta')?.value.trim() || '';
+  try {
+    const { error } = await sb.from('reviews').insert({
+      reviewer_id: currentUser.id,
+      rating: starVal,
+      criteria: criteria,
+      comment: comment || null,
+      created_at: new Date().toISOString()
+    });
+    if(error) throw error;
+    toast('Avaliacao enviada! '+starLabels[starVal]);
+    starVal = 0;
+    document.querySelectorAll('.star-btn').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.criteria-chip.sel').forEach(c => c.classList.remove('sel'));
+    if(document.getElementById('avalia-ta')) document.getElementById('avalia-ta').value = '';
+    setTimeout(()=>showScreen('myprofile'),1200);
+  } catch(e){
+    console.error('submitAvaliacao error:', e);
+    toast('Erro ao enviar avaliacao');
+  }
 }
 
 // ══ ORCAMENTO ══
@@ -3733,6 +3795,14 @@ async function loadPosts(){
     }
     if(emptyEl) emptyEl.style.display = 'none';
 
+    // Load user's likes
+    let myLikes = [];
+    if(currentUser){
+      const postIds = posts.map(p => p.id);
+      const { data: likesData } = await sb.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds);
+      if(likesData) myLikes = likesData.map(l => l.post_id);
+    }
+
     let html = '';
     posts.forEach(p => {
       const prof = p.profiles || {};
@@ -3741,7 +3811,10 @@ async function loadPosts(){
       const avatar = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
       const time = getTimeAgo(p.created_at);
       const caption = p.caption || '';
+      const liked = myLikes.includes(p.id);
       const imgHtml = p.media_url ? '<img src="'+p.media_url+'" alt="" style="width:100%;display:block;object-fit:cover;">' : '';
+      const heartFill = liked ? 'var(--p4)' : 'none';
+      const heartStroke = liked ? 'var(--p4)' : 'var(--ink)';
 
       html += '<div class="mpost" data-post-id="'+p.id+'">';
       html += '<div class="mpost-head">';
@@ -3753,7 +3826,7 @@ async function loadPosts(){
       html += '</div>';
       if(imgHtml) html += '<div class="ba-wrap">'+imgHtml+'</div>';
       html += '<div class="mpost-actions">';
-      html += '<button class="act-btn" onclick="togglePostLike(this)"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button>';
+      html += '<button class="act-btn" onclick="togglePostLike(this)"><svg viewBox="0 0 24 24" style="fill:'+heartFill+';stroke:'+heartStroke+';"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button>';
       html += '<button class="act-btn"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
       html += '<button class="act-btn"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>';
       html += '<button class="act-btn save-btn"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>';
@@ -3774,15 +3847,32 @@ function escapeHtml(str){
   return d.innerHTML;
 }
 
-function togglePostLike(btn){
+async function togglePostLike(btn){
   const svg = btn.querySelector('svg');
-  if(svg.style.fill === 'var(--p4)'){
+  const postEl = btn.closest('.mpost');
+  const postId = postEl ? postEl.dataset.postId : null;
+  const isLiked = svg.style.fill === 'var(--p4)';
+
+  // Toggle UI immediately
+  if(isLiked){
     svg.style.fill = 'none';
     svg.style.stroke = 'var(--ink)';
   } else {
     svg.style.fill = 'var(--p4)';
     svg.style.stroke = 'var(--p4)';
   }
+
+  // Save to DB
+  if(!postId) return;
+  const sb = getSupabase();
+  if(!sb || !currentUser) return;
+  try {
+    if(isLiked){
+      await sb.from('likes').delete().eq('user_id', currentUser.id).eq('post_id', postId);
+    } else {
+      await sb.from('likes').insert({ user_id: currentUser.id, post_id: postId });
+    }
+  } catch(e){ console.warn('togglePostLike error:', e); }
 }
 
 function getTimeAgo(dateStr){
@@ -3977,9 +4067,6 @@ function storyPrev(){
 //  CHANGE 2: POSTING SYSTEM
 // ══════════════════════════════
 let postSelectedFiles = [];
-let postType = 'story'; // always story now
-
-function setPostType(type){ postType = 'story'; }
 
 function handlePostFiles(input){
   const files = Array.from(input.files);
