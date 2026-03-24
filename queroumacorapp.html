@@ -3791,21 +3791,32 @@ async function loadFeed(){
   await loadPosts();
 }
 
+async function getFollowingIds(){
+  const sb = getSupabase();
+  if(!sb || !currentUser) return [currentUser ? currentUser.id : null].filter(Boolean);
+  const { data } = await sb.from('follows').select('following_id').eq('follower_id', currentUser.id);
+  const ids = (data || []).map(f => f.following_id);
+  if(currentUser) ids.push(currentUser.id);
+  return ids;
+}
+
 async function loadPosts(){
   try {
     const sb = getSupabase();
     if(!sb) return;
+    const feedIds = await getFollowingIds();
     let { data: posts, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url)')
       .neq('media_type', 'story')
+      .in('user_id', feedIds)
       .order('created_at', { ascending: false })
       .limit(30);
     if(error){
       console.error('loadPosts query error:', error);
-      // Fallback: load all non-story posts
       const res = await sb.from('posts')
         .select('*, profiles:user_id(name, avatar_url)')
         .neq('media_type', 'story')
+        .in('user_id', feedIds)
         .order('created_at', { ascending: false })
         .limit(30);
       posts = res.data;
@@ -3925,11 +3936,13 @@ async function loadStories(){
   try {
     const sb = getSupabase();
     if(!sb) return;
-    // Load stories from last 24h (like IG)
+    // Load stories from last 24h (like IG) from followed users + own
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
+    const feedIds = await getFollowingIds();
     const { data: stories, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url)')
       .eq('media_type', 'story')
+      .in('user_id', feedIds)
       .gte('created_at', since)
       .order('created_at', { ascending: true })
       .limit(100);
