@@ -1319,7 +1319,7 @@ const MarketingPage = () => {
                 <span style={{ fontSize:13, fontWeight:700 }}>{s.value}</span>
               </div>
               <div style={{ background:C.border, borderRadius:4, height:8 }}>
-                <div style={{ background:C.p1, height:8, borderRadius:4, width:Math.max(s.pct,2)+'%' }}></div>
+                <div style={{ background:C.p1, height:8, borderRadius:4, width:Math.min(Math.max(s.pct,2),100)+'%' }}></div>
               </div>
             </div>
           ))}
