@@ -3778,6 +3778,9 @@ async function loadStories(){
     }
     row.innerHTML = html;
 
+    // Re-apply user avatar/name after innerHTML rebuild
+    updateMyStoryAvatar();
+
     // Update empty state
     const emptyEl = document.getElementById('feed-empty');
     if(emptyEl) emptyEl.style.display = storyGroups.length > 0 ? 'none' : 'block';
@@ -4191,7 +4194,6 @@ showScreen = function(n){
   }
   if(n === 'feed'){
     loadFeed();
-    loadStories();
   }
   if(n === 'explore'){
     setTimeout(() => {
@@ -4335,7 +4337,6 @@ function shareInviteCode(view){
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     loadFeed();
-    loadStories();
   }, 1000);
 });
 
