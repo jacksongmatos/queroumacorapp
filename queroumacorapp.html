@@ -716,9 +716,11 @@ async function initAuth() {
   if (!sb) return;
   const { data: { session } } = await sb.auth.getSession();
   if (session) { currentUser = session.user; showScreen('feed'); autoDetectRole(); }
+  // Load feed after auth completes (whether logged in or not)
+  loadFeed();
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = session ? session.user : null;
-    if(currentUser) autoDetectRole();
+    if(currentUser){ autoDetectRole(); loadFeed(); }
   });
 }
 function autoDetectRole(){
@@ -3953,11 +3955,16 @@ async function loadFeed(){
 
 async function getFollowingIds(){
   const sb = getSupabase();
-  if(!sb || !currentUser) return [currentUser ? currentUser.id : null].filter(Boolean);
-  const { data } = await sb.from('follows').select('following_id').eq('follower_id', currentUser.id);
-  const ids = (data || []).map(f => f.following_id);
-  if(currentUser) ids.push(currentUser.id);
-  return ids;
+  if(!sb || !currentUser) return [];
+  try {
+    const { data } = await sb.from('follows').select('following_id').eq('follower_id', currentUser.id);
+    const ids = (data || []).map(f => f.following_id);
+    ids.push(currentUser.id);
+    return ids;
+  } catch(e) {
+    console.warn('getFollowingIds error:', e);
+    return [currentUser.id];
+  }
 }
 
 async function loadPosts(){
@@ -3965,31 +3972,22 @@ async function loadPosts(){
     const sb = getSupabase();
     if(!sb) return;
     const feedIds = await getFollowingIds();
-    // Try with join first, fallback to separate query if FK not configured
-    let { data: posts, error } = await sb.from('posts')
-      .select('*, profiles:user_id(name, tag, avatar_url)')
-      .neq('media_type', 'story')
-      .in('user_id', feedIds)
-      .order('created_at', { ascending: false })
-      .limit(30);
+    // Build query - if user has following list, filter by it; otherwise show all recent posts
+    let query = sb.from('posts').select('*').neq('media_type', 'story');
+    if(feedIds.length > 0) query = query.in('user_id', feedIds);
+    query = query.order('created_at', { ascending: false }).limit(30);
+    let { data: posts, error } = await query;
     if(error){
-      console.warn('loadPosts join failed, fetching without join:', error.message);
-      const res = await sb.from('posts')
-        .select('*')
-        .neq('media_type', 'story')
-        .in('user_id', feedIds)
-        .order('created_at', { ascending: false })
-        .limit(30);
-      posts = res.data;
-      if(res.error) throw res.error;
-      // Load profiles separately
-      if(posts && posts.length > 0){
-        const userIds = [...new Set(posts.map(p => p.user_id))];
-        const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
-        const profMap = {};
-        (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
-        posts.forEach(p => { p.profiles = profMap[p.user_id] || {}; });
-      }
+      console.warn('loadPosts error:', error.message);
+      posts = [];
+    }
+    // Load profiles separately (more reliable than FK join)
+    if(posts && posts.length > 0){
+      const userIds = [...new Set(posts.map(p => p.user_id))];
+      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
+      const profMap = {};
+      (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
+      posts.forEach(p => { p.profiles = profMap[p.user_id] || {}; });
     }
 
     const container = document.getElementById('feed-posts-area');
@@ -4109,31 +4107,22 @@ async function loadStories(){
     // Load stories from last 24h (like IG) from followed users + own
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
     const feedIds = await getFollowingIds();
-    let { data: stories, error } = await sb.from('posts')
-      .select('*, profiles:user_id(name, tag, avatar_url)')
-      .eq('media_type', 'story')
-      .in('user_id', feedIds)
-      .gte('created_at', since)
-      .order('created_at', { ascending: true })
-      .limit(100);
+    // Build query - if user has following list, filter by it; otherwise show all recent stories
+    let storyQuery = sb.from('posts').select('*').eq('media_type', 'story');
+    if(feedIds.length > 0) storyQuery = storyQuery.in('user_id', feedIds);
+    storyQuery = storyQuery.gte('created_at', since).order('created_at', { ascending: true }).limit(100);
+    let { data: stories, error } = await storyQuery;
     if(error){
-      console.warn('loadStories join failed, fetching without join:', error.message);
-      const res = await sb.from('posts')
-        .select('*')
-        .eq('media_type', 'story')
-        .in('user_id', feedIds)
-        .gte('created_at', since)
-        .order('created_at', { ascending: true })
-        .limit(100);
-      stories = res.data;
-      if(res.error) throw res.error;
-      if(stories && stories.length > 0){
-        const userIds = [...new Set(stories.map(s => s.user_id))];
-        const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
-        const profMap = {};
-        (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
-        stories.forEach(s => { s.profiles = profMap[s.user_id] || {}; });
-      }
+      console.warn('loadStories error:', error.message);
+      stories = [];
+    }
+    // Load profiles separately
+    if(stories && stories.length > 0){
+      const userIds = [...new Set(stories.map(s => s.user_id))];
+      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
+      const profMap = {};
+      (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
+      stories.forEach(s => { s.profiles = profMap[s.user_id] || {}; });
     }
 
     // Group stories by user_id (like IG)
@@ -4800,12 +4789,7 @@ function shareInviteCode(view){
   }
 }
 
-// Load feed on startup (deferred)
-window.addEventListener('DOMContentLoaded', () => {
-  setTimeout(() => {
-    loadFeed();
-  }, 1000);
-});
+// Feed is loaded by initAuth after auth check completes
 
 </script>
 
