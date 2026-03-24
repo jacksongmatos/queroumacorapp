@@ -4297,6 +4297,8 @@ function openChat(id) {
 
 function renderMessages(msgs){
   const area = document.getElementById('msgs-area');
+  const conv = currentChat ? chatData[currentChat] : null;
+  const is3way = conv && (conv.type === '3way' || conv.type === 'store');
   area.innerHTML = msgs.map(m=>{
     const isImg = m.type === 'image' || (m.text && m.text.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i));
     const contentHtml = isImg
@@ -4306,6 +4308,7 @@ function renderMessages(msgs){
     if(m.from==='me') return `
       <div class="msg-row me">
         <div>
+          ${is3way && m.sender ? '<div class="msg-sender" style="text-align:right;">'+escapeHtml(m.sender)+'</div>' : ''}
           <div class="msg-bubble">${contentHtml}</div>
           <div class="msg-time">${m.time}</div>
         </div>
@@ -4365,7 +4368,8 @@ async function sendMsg(){
   const time = now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
 
   // Show immediately (optimistic)
-  appendMsg({ from:'me', text: txt, time });
+  const myName = (currentUser && currentUser.user_metadata && currentUser.user_metadata.name) || currentUser?.email?.split('@')[0] || 'Eu';
+  appendMsg({ from:'me', text: txt, time, sender: myName });
 
   // Save to localStorage
   if(currentChat){
@@ -4417,10 +4421,12 @@ function appendMsg(m){
     ? '<img src="'+escapeHtml(m.text)+'" style="max-width:200px;border-radius:10px;display:block;" alt="foto">'
     : escapeHtml(m.text);
 
+  const conv = currentChat ? chatData[currentChat] : null;
+  const is3way = conv && (conv.type === '3way' || conv.type === 'store');
   const div = document.createElement('div');
   if(m.from==='me'){
     div.className='msg-row me';
-    div.innerHTML=`<div><div class="msg-bubble">${contentHtml}</div><div class="msg-time">${m.time}</div></div>`;
+    div.innerHTML=`<div>${is3way && m.sender ? '<div class="msg-sender" style="text-align:right;">'+escapeHtml(m.sender)+'</div>' : ''}<div class="msg-bubble">${contentHtml}</div><div class="msg-time">${m.time}</div></div>`;
   } else if(m.from==='store'){
     div.className='msg-row';
     div.innerHTML=`<div class="msg-av store-av">CC</div><div><div class="msg-sender" style="color:var(--p1);">Cali Colors</div><div class="msg-bubble store">${contentHtml}</div><div class="msg-time">${m.time}</div></div>`;
