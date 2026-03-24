@@ -3098,118 +3098,155 @@ function chatTab(el){
   el.classList.add('active');
 }
 
-// ══ LOAD CHAT LIST FROM SUPABASE ══
-async function loadChatList(){
-  const sb = getSupabase();
-  const container = document.getElementById('conv-list');
-  if(!sb || !currentUser || !container) {
-    console.warn('loadChatList: missing sb=', !!sb, 'currentUser=', !!currentUser, 'container=', !!container);
-    return;
-  }
+// ══ LOCAL STORAGE CHAT PERSISTENCE ══
+function getLocalConvKey(){
+  return currentUser ? 'quc_convs_' + currentUser.id : null;
+}
+function getLocalMsgsKey(convId){
+  return currentUser ? 'quc_msgs_' + currentUser.id + '_' + convId : null;
+}
+function saveConvLocal(convId, convMeta){
+  const key = getLocalConvKey();
+  if(!key) return;
   try {
-    const myId = currentUser.id;
-    console.log('loadChatList: querying messages for user', myId);
+    const all = JSON.parse(localStorage.getItem(key) || '{}');
+    all[convId] = { ...convMeta, updatedAt: new Date().toISOString() };
+    localStorage.setItem(key, JSON.stringify(all));
+  } catch(e){ console.warn('saveConvLocal err:', e); }
+}
+function loadConvsLocal(){
+  const key = getLocalConvKey();
+  if(!key) return {};
+  try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch(e){ return {}; }
+}
+function saveMsgLocal(convId, msg){
+  const key = getLocalMsgsKey(convId);
+  if(!key) return;
+  try {
+    const msgs = JSON.parse(localStorage.getItem(key) || '[]');
+    // Avoid duplicates by checking content+time
+    const isDup = msgs.some(m => m.content === msg.content && m.time === msg.time && m.from === msg.from);
+    if(!isDup){
+      msgs.push(msg);
+      // Keep last 100 messages per conversation
+      if(msgs.length > 100) msgs.splice(0, msgs.length - 100);
+      localStorage.setItem(key, JSON.stringify(msgs));
+    }
+  } catch(e){ console.warn('saveMsgLocal err:', e); }
+}
+function loadMsgsLocal(convId){
+  const key = getLocalMsgsKey(convId);
+  if(!key) return [];
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch(e){ return []; }
+}
 
-    // Query 1: messages I sent
-    const { data: sentMsgs, error: sentErr } = await sb.from('messages')
-      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
-      .eq('sender_id', myId)
-      .order('created_at', { ascending: false })
-      .limit(100);
+// ══ LOAD CHAT LIST (localStorage primary + Supabase background sync) ══
+async function loadChatList(){
+  const container = document.getElementById('conv-list');
+  if(!currentUser || !container) return;
+  const myId = currentUser.id;
 
-    // Query 2: messages I received
-    const { data: recvMsgs, error: recvErr } = await sb.from('messages')
-      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
-      .eq('receiver_id', myId)
-      .order('created_at', { ascending: false })
-      .limit(100);
+  // 1) Render from localStorage FIRST (instant)
+  const localConvs = loadConvsLocal();
+  renderConvList(container, localConvs, myId);
 
-    if(sentErr) console.error('loadChatList sentErr:', sentErr.message);
-    if(recvErr) console.error('loadChatList recvErr:', recvErr.message);
+  // 2) Try Supabase in background to sync + merge
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const [sentRes, recvRes] = await Promise.all([
+      sb.from('messages').select('id, sender_id, receiver_id, conversation_id, content, type, created_at').eq('sender_id', myId).order('created_at',{ascending:false}).limit(100),
+      sb.from('messages').select('id, sender_id, receiver_id, conversation_id, content, type, created_at').eq('receiver_id', myId).order('created_at',{ascending:false}).limit(100)
+    ]);
+    if(sentRes.error) console.warn('loadChatList sent err:', sentRes.error.message);
+    if(recvRes.error) console.warn('loadChatList recv err:', recvRes.error.message);
 
-    // Merge and deduplicate
-    const allMsgs = [...(sentMsgs||[]), ...(recvMsgs||[])];
+    const allMsgs = [...(sentRes.data||[]), ...(recvRes.data||[])];
     const seen = new Set();
     const msgs = [];
-    allMsgs.forEach(m => {
-      if(!seen.has(m.id)){ seen.add(m.id); msgs.push(m); }
-    });
-    msgs.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+    allMsgs.forEach(m => { if(!seen.has(m.id)){ seen.add(m.id); msgs.push(m); } });
 
-    console.log('loadChatList: found', msgs.length, 'messages (sent:', (sentMsgs||[]).length, 'recv:', (recvMsgs||[]).length, ')');
+    if(msgs.length > 0){
+      // Group by conversation and save to localStorage
+      const convGroups = {};
+      msgs.forEach(m => {
+        const otherId = m.sender_id === myId ? m.receiver_id : m.sender_id;
+        const key = m.conversation_id || otherId || m.id;
+        if(!convGroups[key]) convGroups[key] = { lastMsg: m, otherId, is3way: false };
+        if(new Date(m.created_at) > new Date(convGroups[key].lastMsg.created_at)) convGroups[key].lastMsg = m;
+        if(m.type === 'system' && m.content === '__STORE_ADDED__') convGroups[key].is3way = true;
+      });
 
-    if(msgs.length === 0){
-      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem conversas</div><div style="font-size:13px;">Suas mensagens aparecerão aqui</div></div>';
-      return;
-    }
-    // Group by conversation_id
-    const convs = {};
-    msgs.forEach(m => {
-      const otherId = m.sender_id === myId ? m.receiver_id : m.sender_id;
-      const key = m.conversation_id || otherId || m.id;
-      if(!convs[key]) convs[key] = { id: key, otherId: otherId, messages: [], lastMsg: null, is3way: false };
-      // Ensure otherId is set (pick the non-me ID)
-      if(!convs[key].otherId && otherId) convs[key].otherId = otherId;
-      convs[key].messages.push(m);
-      if(m.type === 'system' && m.content === '__STORE_ADDED__') convs[key].is3way = true;
-      if(m.type !== 'system'){
-        if(!convs[key].lastMsg || new Date(m.created_at) > new Date(convs[key].lastMsg.created_at)){
-          convs[key].lastMsg = m;
-        }
+      // Fetch profiles
+      const otherIds = [...new Set(Object.values(convGroups).map(c => c.otherId).filter(Boolean))];
+      let profileMap = {};
+      if(otherIds.length > 0){
+        const { data: profs } = await sb.from('profiles').select('id, name, avatar_url, role, user_type, tag').in('id', otherIds);
+        if(profs) profs.forEach(p => { profileMap[p.id] = p; });
       }
-    });
-    Object.values(convs).forEach(c => { if(!c.lastMsg) c.lastMsg = c.messages[0]; });
-    const convList = Object.values(convs).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
 
-    // Load profiles for all other users
-    const otherIds = [...new Set(convList.map(c => c.otherId).filter(Boolean))];
-    let profileMap = {};
-    if(otherIds.length > 0){
-      const { data: profs, error: profErr } = await sb.from('profiles').select('id, name, avatar_url, role, user_type, tag').in('id', otherIds);
-      if(profErr) console.error('loadChatList profile error:', profErr.message);
-      if(profs) profs.forEach(p => { profileMap[p.id] = p; });
+      // Merge into localStorage
+      Object.entries(convGroups).forEach(([convId, cg]) => {
+        const other = profileMap[cg.otherId] || {};
+        const existing = localConvs[convId] || {};
+        saveConvLocal(convId, {
+          name: other.name || existing.name || 'Usuario',
+          avatar: other.avatar_url || existing.avatar || '',
+          tag: other.tag || existing.tag || '',
+          role: other.role || other.user_type || existing.role || '',
+          otherId: cg.otherId,
+          is3way: cg.is3way || existing.is3way || false,
+          lastMsg: cg.lastMsg.content || existing.lastMsg || '',
+          lastMsgFrom: cg.lastMsg.sender_id === myId ? 'me' : 'other',
+          lastMsgTime: cg.lastMsg.created_at || existing.lastMsgTime || ''
+        });
+      });
+
+      // Re-render with merged data
+      renderConvList(container, loadConvsLocal(), myId);
     }
+  } catch(e){ console.warn('loadChatList supabase sync error:', e); }
+}
 
-    container.innerHTML = convList.map(conv => {
-      const other = profileMap[conv.otherId] || {};
-      const name = other.name || 'Usuario';
-      const avatar = other.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
-      const isPintor = other.role === 'pintor' || other.user_type === 'pintor';
-      const lastMsg = conv.lastMsg;
-      const preview = (lastMsg && lastMsg.content) ? lastMsg.content : '';
-      const isMine = lastMsg && lastMsg.sender_id === myId;
-      const time = (lastMsg && lastMsg.created_at) ? new Date(lastMsg.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
-      // Populate chatData so openChat() can find this conversation
-      const existing3way = chatData[conv.id] && chatData[conv.id].type === '3way';
-      const is3wayChat = existing3way || conv.is3way;
-      if(!chatData[conv.id] || chatData[conv.id].type === 'direct'){
-        chatData[conv.id] = {
-          type: is3wayChat ? '3way' : 'direct',
-          name: is3wayChat ? name + ' + Cali Colors' : name,
-          sub: is3wayChat ? '3 participantes · Chat 3-way ativo' : (other.tag ? '@' + other.tag : ''),
-          participants: is3wayChat
-            ? [{logo:true,name:'Cali Colors',role:'Loja Oficial'},{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}]
-            : [{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}],
-          messages: []
-        };
-      }
-      const displayName = is3wayChat ? name + ' + Cali Colors' : name;
-      const storeAvatar = is3wayChat
-        ? '<div class="conv-av-store" style="position:absolute;bottom:-2px;right:-2px;width:18px;height:18px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);z-index:2;"><span style="font-size:7px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
-        : '';
-      const threewayBadge = is3wayChat ? ' <span style="background:var(--ink);color:var(--p1);font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">3-WAY</span>' : '';
-      return '<div class="conv-item" onclick="openChat(\''+conv.id+'\')">'
-        + '<div class="conv-avatars" style="position:relative;"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div>'+storeAvatar+'</div>'
-        + '<div class="conv-info"><div class="conv-name">'+escapeHtml(displayName)+threewayBadge+(isPintor && !is3wayChat?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
-        + '<div class="conv-preview">'+(isMine?'Voce: ':'')+escapeHtml(preview.substring(0,50))+'</div></div>'
-        + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;"><div class="conv-time">'+time+'</div></div>'
-        + '</div>';
-    }).join('');
-    console.log('loadChatList: rendered', convList.length, 'conversations');
-  } catch(e){
-    console.error('loadChatList error:', e);
-    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Erro ao carregar</div><div style="font-size:13px;color:#c00;">'+escapeHtml(e.message||String(e))+'</div><div style="margin-top:12px;"><button onclick="loadChatList()" style="background:var(--p1);color:#fff;border:none;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:700;">Tentar novamente</button></div></div>';
+function renderConvList(container, convMap, myId){
+  const convList = Object.entries(convMap).sort((a,b) => new Date(b[1].updatedAt||0) - new Date(a[1].updatedAt||0));
+  if(convList.length === 0){
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem conversas</div><div style="font-size:13px;">Suas mensagens aparecerão aqui</div></div>';
+    return;
   }
+  container.innerHTML = convList.map(([convId, c]) => {
+    const name = c.name || 'Usuario';
+    const avatar = c.avatar || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
+    const isPintor = c.role === 'pintor';
+    const is3way = c.is3way || false;
+    const preview = c.lastMsg || '';
+    const isMine = c.lastMsgFrom === 'me';
+    const time = c.lastMsgTime ? new Date(c.lastMsgTime).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : '';
+
+    // Populate chatData so openChat() works
+    if(!chatData[convId]){
+      chatData[convId] = {
+        type: is3way ? '3way' : 'direct',
+        name: is3way ? name + ' + Cali Colors' : name,
+        sub: is3way ? '3 participantes · Chat 3-way ativo' : (c.tag ? '@' + c.tag : ''),
+        participants: is3way
+          ? [{logo:true,name:'Cali Colors',role:'Loja Oficial'},{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}]
+          : [{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}],
+        messages: []
+      };
+    }
+    const displayName = is3way ? name + ' + Cali Colors' : name;
+    const storeAvatar = is3way
+      ? '<div class="conv-av-store" style="position:absolute;bottom:-2px;right:-2px;width:18px;height:18px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);z-index:2;"><span style="font-size:7px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+      : '';
+    const threewayBadge = is3way ? ' <span style="background:var(--ink);color:var(--p1);font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">3-WAY</span>' : '';
+    return '<div class="conv-item" onclick="openChat(\''+convId+'\')">'
+      + '<div class="conv-avatars" style="position:relative;"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div>'+storeAvatar+'</div>'
+      + '<div class="conv-info"><div class="conv-name">'+escapeHtml(displayName)+threewayBadge+(isPintor && !is3way?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
+      + '<div class="conv-preview">'+(isMine?'Voce: ':'')+escapeHtml(preview.substring(0,50))+'</div></div>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;"><div class="conv-time">'+time+'</div></div>'
+      + '</div>';
+  }).join('');
 }
 
 // ══ NEW CHAT MODAL ══
@@ -3675,6 +3712,14 @@ async function sendChatMsg(){
   inp.value='';
   body.scrollTop=body.scrollHeight;
 
+  // Save to localStorage
+  if(currentChat){
+    saveMsgLocal(currentChat, { from:'me', content: msg, time: new Date().toISOString() });
+    const localConvs = loadConvsLocal();
+    const existing = localConvs[currentChat] || {};
+    saveConvLocal(currentChat, { ...existing, lastMsg: msg, lastMsgFrom: 'me', lastMsgTime: new Date().toISOString() });
+  }
+
   // Save to Supabase
   const sb = getSupabase();
   if(sb && currentUser){
@@ -3858,6 +3903,21 @@ function openChat(id) {
   chatStoreAdded = false;
   renderedMsgIds.clear();
   const conv = chatData[id];
+  if(!conv){ console.error('openChat: no chatData for', id); return; }
+
+  // Save conversation to localStorage so it appears in chat list
+  const otherP = conv.participants.find(p => !p.logo) || conv.participants[0] || {};
+  saveConvLocal(id, {
+    name: otherP.name || conv.name || 'Usuario',
+    avatar: otherP.img || '',
+    tag: conv.sub && conv.sub.startsWith('@') ? conv.sub.substring(1) : '',
+    role: otherP.role || '',
+    otherId: '',
+    is3way: conv.type === '3way',
+    lastMsg: '',
+    lastMsgFrom: '',
+    lastMsgTime: new Date().toISOString()
+  });
 
   // Header
   const avatarsEl = document.getElementById('chat-header-avatars');
@@ -3896,8 +3956,18 @@ function openChat(id) {
   const invBar = document.getElementById('invite-store-bar');
   invBar.style.display = (conv.type==='direct') ? 'flex' : 'none';
 
-  // Render local mock messages first (immediate feedback)
-  renderMessages(conv.messages);
+  // Render saved messages from localStorage first (instant)
+  const savedMsgs = loadMsgsLocal(id);
+  if(savedMsgs.length > 0){
+    const localRendered = savedMsgs.map(m => {
+      const t = m.time ? new Date(m.time) : new Date();
+      const timeStr = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
+      return { from: m.from || 'me', text: m.content || '', time: timeStr };
+    });
+    renderMessages(localRendered);
+  } else {
+    renderMessages(conv.messages);
+  }
   showScreen('chatconv');
   setTimeout(()=>{ const area=document.getElementById('msgs-area'); if(area) area.scrollTop=area.scrollHeight; },200);
   setTimeout(()=>{ const area=document.getElementById('msgs-area'); if(area) area.scrollTop=area.scrollHeight; },500);
@@ -4045,6 +4115,15 @@ async function sendMsg(){
 
   // Show immediately (optimistic)
   appendMsg({ from:'me', text: txt, time });
+
+  // Save to localStorage
+  if(currentChat){
+    saveMsgLocal(currentChat, { from:'me', content: txt, time: new Date().toISOString() });
+    // Update conversation preview
+    const localConvs = loadConvsLocal();
+    const existing = localConvs[currentChat] || {};
+    saveConvLocal(currentChat, { ...existing, lastMsg: txt, lastMsgFrom: 'me', lastMsgTime: new Date().toISOString() });
+  }
 
   // Save to Supabase
   const sb = getSupabase();
