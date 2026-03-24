@@ -634,7 +634,7 @@ const Chats = () => {
       receiver_id: receiverId,
       conversation_id: openConv,
       content: txt,
-      type: 'text'
+      type: 'store'
     });
     if(error) console.error('Send error:', error);
     setSending(false);
