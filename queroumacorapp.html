@@ -838,6 +838,7 @@ async function doRegisterSupabase(name, email, password, type, tag) {
     const profileData = {
       id: data.user.id,
       name: name,
+      tag: tag || name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_.]/g, ''),
       user_type: type || 'cliente',
       role: type || 'cliente',
       city: cityName,
