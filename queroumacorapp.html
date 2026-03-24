@@ -744,8 +744,9 @@ async function loadMyProfileData(){
     const subEl = document.getElementById('myprofile-sub');
     const avatarEl = document.querySelector('#screen-feed .ph-avatar img, #screen-feed img[style*="border-radius"]');
     if(prof){
-      let name = prof.name || currentUser.user_metadata?.name || 'Seu Nome';
+      let name = prof.name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Seu Nome';
       if(name.includes('@')) name = name.split('@')[0];
+      name = name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       const tag = prof.tag || currentUser.user_metadata?.tag || '';
       const city = [prof.city, prof.state].filter(Boolean).join(', ');
       const role = prof.role || prof.user_type || 'cliente';
@@ -768,7 +769,10 @@ async function loadMyProfileData(){
     } else {
       // Fallback to user_metadata
       const meta = currentUser.user_metadata || {};
-      if(nameEl) nameEl.textContent = meta.name || 'Seu Nome';
+      let fallbackName = meta.name || currentUser.email?.split('@')[0] || 'Seu Nome';
+      if(fallbackName.includes('@')) fallbackName = fallbackName.split('@')[0];
+      fallbackName = fallbackName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      if(nameEl) nameEl.textContent = fallbackName;
       if(subEl) subEl.textContent = meta.tag ? '@' + meta.tag : 'Configure seu perfil';
     }
     // Load stats (posts, followers, following)
@@ -2227,9 +2231,12 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <span>+ Convidar <b>Cali Colors</b> para esta conversa</span>
     </div>
 
+    <!-- Hidden file input for attachments -->
+    <input type="file" id="chat-file-input" accept="image/*" style="display:none" onchange="handleChatAttachment(this)">
+
     <!-- Input -->
     <div class="chat-input-bar">
-      <button class="chat-attach" onclick="toast('Anexar foto')">
+      <button class="chat-attach" onclick="document.getElementById('chat-file-input').click()">
         <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
       <div class="chat-input-wrap">
@@ -2314,7 +2321,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       </div>
     </div>
     <div class="chat-input-row">
-      <button onclick="toast('📎 Anexar')" style="background:none;border:none;cursor:pointer;padding:4px;">
+      <button onclick="document.getElementById('chat-file-input').click()" style="background:none;border:none;cursor:pointer;padding:4px;">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
       <input class="chat-input" id="chat-input-field" type="text" placeholder="Mensagem...">
@@ -2332,10 +2339,14 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <div class="orc-title">Avaliar Serviço</div>
   </div>
   <div class="avaliar-screen">
-    <div class="avaliar-card">
-      <div class="avaliar-av"><img src="https://i.pravatar.cc/150?img=65" alt="Fábio"></div>
-      <div class="avaliar-title">Fábio Teixeira</div>
-      <div class="avaliar-sub">Epóxi industrial · Garagem · 30m² · Mar 2026</div>
+    <!-- Servico a avaliar (loaded dynamically) -->
+    <div id="avaliar-service-container">
+      <div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;">Carregando servicos...</div>
+    </div>
+    <div class="avaliar-card" id="avaliar-form" style="display:none;">
+      <div class="avaliar-av"><img id="avaliar-av-img" src="" alt=""></div>
+      <div class="avaliar-title" id="avaliar-title">—</div>
+      <div class="avaliar-sub" id="avaliar-sub">—</div>
       <div class="stars-row" id="stars-row">
         <span class="star-btn" onclick="setStar(1)">⭐</span>
         <span class="star-btn" onclick="setStar(2)">⭐</span>
@@ -2358,12 +2369,10 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     </div>
     <div style="font-size:13px;font-weight:700;color:var(--ink);margin:14px 0 8px;">Fotos do resultado (opcional)</div>
     <div class="foto-obra-row">
-      <div class="foto-obra-item"><img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200" alt=""></div>
-      <div class="foto-obra-item"><img src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=200" alt=""></div>
       <div class="foto-obra-add" onclick="toast('📷 Adicionar foto')">+</div>
     </div>
     <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px;">Comentário (opcional)</div>
-    <textarea class="avaliar-ta" id="avalia-ta" placeholder="Conte como foi a experiência com o Fábio..."></textarea>
+    <textarea class="avaliar-ta" id="avalia-ta" placeholder="Conte como foi a experiência..."></textarea>
     <button class="avaliar-submit" onclick="submitAvaliacao()">⭐ Publicar Avaliação</button>
   </div>
 </div>
@@ -2710,7 +2719,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
       <div id="cart-total" style="font-size:18px;font-weight:800;color:var(--p1);font-family:'Syne',sans-serif;">R$0,00</div>
     </div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Frete gratis acima de R$200 · Entrega 3-5 dias uteis</div>
-    <button onclick="toast('Pedido confirmado! Voce recebera em 3-5 dias.');closeModals()" style="width:100%;padding:14px;background:var(--p1);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Finalizar Compra</button>
+    <button id="cart-submit-btn" onclick="submitCartOrder()" style="width:100%;padding:14px;background:var(--p1);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Enviar Solicitacao de Compra</button>
   </div>
 </div>
 
@@ -2825,6 +2834,7 @@ function showScreen(n){
   if(n==='chat') loadChatList();
   if(n==='notif') loadNotifications();
   if(n==='pedidos') loadPedidos();
+  if(n==='avaliar') loadAvaliarScreen();
 }
 
 
@@ -3095,7 +3105,7 @@ async function loadChatList(){
   try {
     const myId = currentUser.id;
     const { data: msgs, error } = await sb.from('messages')
-      .select('id, sender_id, receiver_id, conversation_id, content, created_at')
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
       .or('sender_id.eq.'+myId+',receiver_id.eq.'+myId)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -3109,10 +3119,19 @@ async function loadChatList(){
     msgs.forEach(m => {
       const otherId = m.sender_id === myId ? m.receiver_id : m.sender_id;
       const key = m.conversation_id || otherId || m.id;
-      if(!convs[key]) convs[key] = { id: key, otherId: otherId, messages: [], lastMsg: m };
+      if(!convs[key]) convs[key] = { id: key, otherId: otherId, messages: [], lastMsg: null, is3way: false };
       convs[key].messages.push(m);
-      if(new Date(m.created_at) > new Date(convs[key].lastMsg.created_at)) convs[key].lastMsg = m;
+      // Track 3-way status from DB
+      if(m.type === 'system' && m.content === '__STORE_ADDED__') convs[key].is3way = true;
+      // Use most recent non-system message as preview
+      if(m.type !== 'system'){
+        if(!convs[key].lastMsg || new Date(m.created_at) > new Date(convs[key].lastMsg.created_at)){
+          convs[key].lastMsg = m;
+        }
+      }
     });
+    // Fallback: if no non-system lastMsg, use any message
+    Object.values(convs).forEach(c => { if(!c.lastMsg) c.lastMsg = c.messages[0]; });
     const convList = Object.values(convs).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
     // Load profiles for all other users
     const otherIds = [...new Set(convList.map(c => c.otherId).filter(Boolean))];
@@ -3130,9 +3149,29 @@ async function loadChatList(){
       const preview = lastMsg.content || '';
       const isMine = lastMsg.sender_id === myId;
       const time = lastMsg.created_at ? new Date(lastMsg.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
+      // Populate chatData so openChat() can find this conversation
+      const existing3way = chatData[conv.id] && chatData[conv.id].type === '3way';
+      const db3way = conv.is3way;
+      const is3wayChat = existing3way || db3way;
+      if(!chatData[conv.id] || chatData[conv.id].type === 'direct'){
+        chatData[conv.id] = {
+          type: is3wayChat ? '3way' : 'direct',
+          name: is3wayChat ? name + ' + Cali Colors' : name,
+          sub: is3wayChat ? '3 participantes · Chat 3-way ativo' : (other.tag ? '@' + other.tag : ''),
+          participants: is3wayChat
+            ? [{logo:true,name:'Cali Colors',role:'Loja Oficial'},{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}]
+            : [{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}],
+          messages: []
+        };
+      }
+      const displayName = is3wayChat ? name + ' + Cali Colors' : name;
+      const storeAvatar = is3wayChat
+        ? '<div class="conv-av-store" style="position:absolute;bottom:-2px;right:-2px;width:18px;height:18px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);z-index:2;"><span style="font-size:7px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+        : '';
+      const threewayBadge = is3wayChat ? ' <span style="background:var(--ink);color:var(--p1);font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">3-WAY</span>' : '';
       return '<div class="conv-item" onclick="openChat(\''+conv.id+'\')">'
-        + '<div class="conv-avatars"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div></div>'
-        + '<div class="conv-info"><div class="conv-name">'+escapeHtml(name)+(isPintor?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
+        + '<div class="conv-avatars" style="position:relative;"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div>'+storeAvatar+'</div>'
+        + '<div class="conv-info"><div class="conv-name">'+escapeHtml(displayName)+threewayBadge+(isPintor && !is3wayChat?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
         + '<div class="conv-preview">'+(isMine?'Voce: ':'')+escapeHtml(preview.substring(0,50))+'</div></div>'
         + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;"><div class="conv-time">'+time+'</div></div>'
         + '</div>';
@@ -3192,7 +3231,23 @@ async function startNewChat(userId){
       } catch(e){}
     }
     if(!calicolorsUserId){
-      toast('Loja Cali Colors ainda nao cadastrada');
+      // Try finding by email as fallback
+      try {
+        const { data } = await sb.from('profiles').select('id').ilike('name', '%cali%').limit(1);
+        if(data && data.length > 0) calicolorsUserId = data[0].id;
+      } catch(e){}
+    }
+    if(!calicolorsUserId){
+      // Create a temporary store chat without DB user
+      const convId = 'store_calicolors_' + currentUser.id;
+      chatData[convId] = {
+        type: 'store',
+        name: 'Cali Colors Tintas',
+        sub: '@calicolorstintas · Loja Oficial',
+        participants: [{logo:true,name:'Cali Colors',role:'Loja Oficial'}],
+        messages: [{from:'store',sender:'Cali Colors',text:'Ola! 👋 Bem-vindo a Cali Colors! Como posso ajudar?',time:new Date().getHours()+':'+(new Date().getMinutes()<10?'0':'')+new Date().getMinutes()}]
+      };
+      openChat(convId);
       return;
     }
     userId = calicolorsUserId;
@@ -3232,12 +3287,13 @@ async function loadNotifications(){
   const container = document.getElementById('notif-list');
   if(!sb || !currentUser || !container) return;
   try {
-    // Load recent follows, likes, and quotes for current user
+    // Load recent follows, likes, quotes, and announcements
     const myId = currentUser.id;
-    const [followsRes, likesRes, quotesRes] = await Promise.all([
+    const [followsRes, likesRes, quotesRes, announcementsRes] = await Promise.all([
       sb.from('follows').select('id, follower_id, created_at, profiles:follower_id(name, avatar_url, tag)').eq('following_id', myId).order('created_at', { ascending: false }).limit(10),
       sb.from('likes').select('id, user_id, created_at, profiles:user_id(name, avatar_url, tag)').eq('user_id', myId).order('created_at', { ascending: false }).limit(10),
       sb.from('quotes').select('id, status, created_at, painter:profiles!painter_id(name, avatar_url)').eq('client_id', myId).order('created_at', { ascending: false }).limit(10),
+      sb.from('announcements').select('id, title, message, created_at').eq('active', true).order('created_at', { ascending: false }).limit(10).then(r=>r).catch(()=>({data:[]})),
     ]);
     const notifs = [];
     (followsRes.data || []).forEach(f => {
@@ -3252,14 +3308,24 @@ async function loadNotifications(){
       const p = q.painter || {};
       notifs.push({ type:'quote', name: p.name||'Pintor', avatar: p.avatar_url, status: q.status, time: q.created_at, id: q.id });
     });
+    // Add announcements (avisos)
+    (announcementsRes.data || []).forEach(a => {
+      notifs.push({ type:'announcement', name: 'QueroUmaCor', title: a.title, message: a.message, time: a.created_at, id: a.id });
+    });
     notifs.sort((a,b) => new Date(b.time) - new Date(a.time));
     if(notifs.length === 0){
       container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem notificacoes</div><div style="font-size:13px;">Suas notificacoes aparecerão aqui</div></div>';
       return;
     }
     container.innerHTML = notifs.map(n => {
-      const avatar = n.avatar || 'https://ui-avatars.com/api/?name='+encodeURIComponent(n.name)+'&background=e8e2d9&color=1a1a2e&size=96';
       const timeAgo = getTimeAgo(n.time);
+      if(n.type === 'announcement'){
+        return '<div class="notif-card" style="background:linear-gradient(135deg,rgba(255,107,53,.08),rgba(255,107,53,.02));border-left:3px solid var(--p1);">'
+          + '<div class="notif-av" style="background:var(--p1);border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="font-size:18px;">📢</span></div>'
+          + '<div class="notif-txt"><b>'+escapeHtml(n.title||'Aviso')+'</b><br><span style="font-size:12px;color:#555;">'+escapeHtml(n.message||'')+'</span></div>'
+          + '<div class="notif-time">'+timeAgo+'</div></div>';
+      }
+      const avatar = n.avatar || 'https://ui-avatars.com/api/?name='+encodeURIComponent(n.name)+'&background=e8e2d9&color=1a1a2e&size=96';
       let text = '';
       if(n.type === 'follow') text = '<b>'+escapeHtml(n.name)+'</b> comecou a seguir voce.';
       else if(n.type === 'like') text = '<b>'+escapeHtml(n.name)+'</b> curtiu seu post.';
@@ -3279,18 +3345,50 @@ async function loadPedidos(){
   if(!sb || !currentUser || !container) return;
   try {
     const myId = currentUser.id;
+    // Load quotes (orcamentos)
     const { data: quotes, error } = await sb.from('quotes')
       .select('*, painter:profiles!painter_id(name, avatar_url), client:profiles!client_id(name, avatar_url)')
       .or('client_id.eq.'+myId+',painter_id.eq.'+myId)
       .order('created_at', { ascending: false });
     if(error) throw error;
-    if(!quotes || quotes.length === 0){
-      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem pedidos</div><div style="font-size:13px;">Seus orcamentos aparecerão aqui</div></div>';
+
+    // Load store orders (compras da loja)
+    let orders = [];
+    try {
+      const { data: ordersData } = await sb.from('orders')
+        .select('*')
+        .eq('user_id', myId)
+        .order('created_at', { ascending: false });
+      orders = ordersData || [];
+    } catch(e){ /* orders table might not exist yet */ }
+
+    if((!quotes || quotes.length === 0) && orders.length === 0){
+      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem pedidos</div><div style="font-size:13px;">Seus orcamentos e compras aparecerão aqui</div></div>';
       return;
     }
-    const statusLabels = { pending:'Aguardando', accepted:'Aceito', completed:'Concluido', rejected:'Rejeitado' };
-    const statusClasses = { pending:'status-aguardando', accepted:'status-respondido', completed:'status-concluido', rejected:'status-rejeitado' };
-    container.innerHTML = quotes.map(q => {
+    const statusLabels = { pending:'Aguardando', accepted:'Aceito', completed:'Concluido', rejected:'Rejeitado', processing:'Em andamento', shipped:'Enviado' };
+    const statusClasses = { pending:'status-aguardando', accepted:'status-respondido', completed:'status-concluido', rejected:'status-rejeitado', processing:'status-respondido', shipped:'status-concluido' };
+
+    let html = '';
+    // Render store orders
+    orders.forEach(o => {
+      const itemNames = (o.items || []).map(i => i.name).slice(0,3).join(', ');
+      const st = statusLabels[o.status] || 'Aguardando';
+      const stClass = statusClasses[o.status] || 'status-aguardando';
+      const date = o.created_at ? new Date(o.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '';
+      const total = o.total ? 'R$ '+Number(o.total).toFixed(2).replace('.',',') : '';
+      html += '<div data-status="'+(o.status||'pending')+'" class="pedido-card">'
+        + '<div class="pedido-head">'
+        + '<div class="pedido-pav" style="background:var(--ink);display:flex;align-items:center;justify-content:center;border-radius:10px;width:40px;height:40px;"><span style="font-size:10px;font-weight:800;color:var(--p1);font-family:Syne,sans-serif;">CC</span></div>'
+        + '<div><div class="pedido-painter">Cali Colors - Loja</div><div class="pedido-tipo">'+escapeHtml(itemNames || 'Compra')+'</div></div>'
+        + '<div class="pedido-status '+stClass+'">'+st+'</div>'
+        + '</div>'
+        + '<div class="pedido-meta">'+(total?'<span>'+total+'</span>':'')+'<span>'+date+'</span></div>'
+        + '</div>';
+    });
+
+    // Render quotes
+    (quotes || []).forEach(q => {
       const isClient = q.client_id === myId;
       const other = isClient ? (q.painter || {}) : (q.client || {});
       const name = other.name || 'Usuario';
@@ -3299,7 +3397,7 @@ async function loadPedidos(){
       const stClass = statusClasses[q.status] || 'status-aguardando';
       const date = q.created_at ? new Date(q.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '';
       const price = q.price ? 'R$ '+Number(q.price).toLocaleString('pt-BR') : '';
-      return '<div data-status="'+(q.status||'pending')+'" class="pedido-card">'
+      html += '<div data-status="'+(q.status||'pending')+'" class="pedido-card">'
         + '<div class="pedido-head">'
         + '<div class="pedido-pav"><img src="'+avatar+'" alt=""></div>'
         + '<div><div class="pedido-painter">'+escapeHtml(name)+'</div><div class="pedido-tipo">'+(q.service_type||q.title||'Orcamento')+'</div></div>'
@@ -3307,7 +3405,8 @@ async function loadPedidos(){
         + '</div>'
         + '<div class="pedido-meta">'+(price?'<span>'+price+'</span>':'')+'<span>'+date+'</span></div>'
         + '</div>';
-    }).join('');
+    });
+    container.innerHTML = html;
   } catch(e){
     console.error('loadPedidos error:', e);
     container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px;">Erro ao carregar pedidos</div>';
@@ -3339,19 +3438,32 @@ async function saveEditProfile(){
   try {
     const updates = {
       name: document.getElementById('ep-name').value.trim(),
-      tag: document.getElementById('ep-tag').value.trim().replace('@',''),
+      tag: document.getElementById('ep-tag').value.trim().replace('@','').toLowerCase(),
       city: document.getElementById('ep-city').value.trim(),
-      state: document.getElementById('ep-state').value.trim(),
+      state: document.getElementById('ep-state').value.trim().toUpperCase(),
       phone: document.getElementById('ep-phone').value.trim(),
       specialties: document.getElementById('ep-specs').value.trim(),
+      updated_at: new Date().toISOString(),
     };
-    updates.id = currentUser.id;
-    const { error } = await sb.from('profiles').upsert(updates, { onConflict: 'id' });
-    if(error) throw error;
+    // Try update first
+    const { data: existing } = await sb.from('profiles').select('id').eq('id', currentUser.id).single();
+    if(existing){
+      const { error } = await sb.from('profiles').update(updates).eq('id', currentUser.id);
+      if(error) throw error;
+    } else {
+      updates.id = currentUser.id;
+      updates.role = currentUser.user_metadata?.role || currentUser.user_metadata?.user_type || 'cliente';
+      updates.user_type = updates.role;
+      const { error } = await sb.from('profiles').insert(updates);
+      if(error) throw error;
+    }
     toast('Perfil atualizado!');
     closeModals();
     loadMyProfileData();
-  } catch(e){ toast('Erro: ' + e.message); }
+  } catch(e){
+    console.error('saveEditProfile error:', e);
+    toast('Erro ao salvar: ' + (e.message || 'tente novamente'));
+  }
   btn.textContent = 'Salvar'; btn.disabled = false;
 }
 
@@ -3485,8 +3597,12 @@ async function sendChatMsg(){
   const sb = getSupabase();
   if(sb && currentUser){
     try {
+      const ids = currentChat ? currentChat.split('_') : [];
+      const receiverId = ids.find(id => id !== currentUser.id) || null;
       await sb.from('messages').insert({
         sender_id: currentUser.id,
+        receiver_id: receiverId,
+        conversation_id: currentChat,
         content: msg,
         type: 'text',
         created_at: new Date().toISOString()
@@ -3509,6 +3625,52 @@ function setStar(n){
   document.getElementById('star-label').style.color=n>=4?'var(--p6)':n>=3?'var(--p7)':'var(--p4)';
 }
 function toggleCriteria(el){el.classList.toggle('sel');}
+
+let avaliarQuoteId = null;
+async function loadAvaliarScreen(){
+  const sb = getSupabase();
+  const container = document.getElementById('avaliar-service-container');
+  const form = document.getElementById('avaliar-form');
+  if(!sb || !currentUser || !container) return;
+  try {
+    // Load completed/accepted quotes for the user to review
+    const { data: quotes, error } = await sb.from('quotes')
+      .select('id, title, service_type, area_m2, created_at, status, painter:profiles!painter_id(id, name, avatar_url, city)')
+      .eq('client_id', currentUser.id)
+      .in('status', ['completed','accepted'])
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if(error) throw error;
+    if(!quotes || quotes.length === 0){
+      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:40px;margin-bottom:12px;">⭐</div><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhum servico para avaliar</div><div style="font-size:13px;">Quando um orcamento for concluido, voce podera avaliar aqui</div></div>';
+      form.style.display = 'none';
+      return;
+    }
+    // Show the first/most recent service to evaluate
+    const q = quotes[0];
+    const painter = q.painter || {};
+    avaliarQuoteId = q.id;
+    const avatar = painter.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(painter.name||'P')+'&background=e8e2d9&color=1a1a2e&size=96';
+    document.getElementById('avaliar-av-img').src = avatar;
+    document.getElementById('avaliar-title').textContent = painter.name || 'Pintor';
+    document.getElementById('avaliar-sub').textContent = (q.service_type||q.title||'Servico') + (painter.city ? ' · '+painter.city : '') + (q.area_m2 ? ' · '+q.area_m2+'m²' : '');
+    container.innerHTML = '';
+    form.style.display = 'block';
+    // Show other services as selectable list if > 1
+    if(quotes.length > 1){
+      container.innerHTML = '<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Selecione o servico</div>' +
+        quotes.map(qq => {
+          const pp = qq.painter || {};
+          return '<div onclick="selectAvaliarService(\''+qq.id+'\')" style="padding:10px;background:'+(qq.id===q.id?'var(--cream)':'var(--white)')+';border-radius:10px;margin-bottom:6px;cursor:pointer;border:1px solid '+(qq.id===q.id?'var(--p1)':'var(--border)')+';font-size:13px;"><b>'+(pp.name||'Pintor')+'</b> — '+(qq.service_type||qq.title||'Servico')+'</div>';
+        }).join('');
+    }
+  } catch(e){
+    console.error('loadAvaliarScreen error:', e);
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhum servico para avaliar</div><div style="font-size:13px;">Solicite um orcamento primeiro</div></div>';
+    form.style.display = 'none';
+  }
+}
+
 async function submitAvaliacao(){
   if(!starVal){toast('Selecione uma nota primeiro!');return;}
   const sb = getSupabase();
@@ -3519,6 +3681,7 @@ async function submitAvaliacao(){
   try {
     const { error } = await sb.from('reviews').insert({
       reviewer_id: currentUser.id,
+      quote_id: avaliarQuoteId || null,
       rating: starVal,
       criteria: criteria,
       comment: comment || null,
@@ -3659,25 +3822,60 @@ function openChat(id) {
     const { data:{ session } } = await sb.auth.getSession();
     if(!session) return;
 
-    // Load history
+    // Load history by conversation_id (both sent and received)
     const { data: msgs, error } = await sb.from('messages')
-      .select('id, sender_id, content, created_at')
-      .eq('sender_id', session.user.id)
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
+      .eq('conversation_id', id)
       .order('created_at', { ascending: true })
-      .limit(20);
+      .limit(50);
 
     if(!error && msgs && msgs.length > 0){
       const myId = session.user.id;
-      const now = new Date();
-      const realMsgs = msgs.map(m => {
+      // Detect 3-way from DB messages
+      const has3way = msgs.some(m => m.type === 'system' && m.content === '__STORE_ADDED__');
+      if(has3way && conv.type !== '3way'){
+        conv.type = '3way';
+        if(!conv.participants.some(p => p.logo)){
+          conv.participants.unshift({logo:true,name:'Cali Colors',role:'Loja Oficial'});
+        }
+        conv.name = conv.name.includes('Cali Colors') ? conv.name : conv.name + ' + Cali Colors';
+        conv.sub = '3 participantes · Chat 3-way ativo';
+        chatStoreAdded = true;
+        // Update header for 3-way
+        document.getElementById('chat-header-name').textContent = conv.name;
+        document.getElementById('chat-header-sub').textContent = conv.sub;
+        document.getElementById('invite-store-bar').style.display = 'none';
+        const avatarsEl = document.getElementById('chat-header-avatars');
+        const parts = conv.participants.slice(0,3);
+        avatarsEl.innerHTML = parts.map((p,i)=>`
+          <div class="cha-av" style="left:${i*10}px;z-index:${3-i}">
+            ${p.logo
+              ? '<div style="width:100%;height:100%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+              : '<img src="'+p.img+'" alt="'+p.name+'">'}
+          </div>`).join('');
+        avatarsEl.style.width=(parts.length*10+22)+'px';
+        const partRow = document.getElementById('participant-row');
+        partRow.style.display='flex';
+        partRow.innerHTML = conv.participants.map(p=>`
+          <div class="part-chip ${p.logo?'store':''}">
+            ${p.logo?'<div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>':'<img src="'+p.img+'" alt="'+p.name+'">'}
+            <div><div class="part-chip-name">${p.name}</div><div class="part-chip-role">${p.role}</div></div>
+          </div>`).join('');
+      }
+      // Find the other user's participant info (skip store)
+      const otherPart = conv.participants.find(p => !p.logo) || conv.participants[0];
+      const realMsgs = msgs.filter(m => m.type !== 'system').map(m => {
         const t = new Date(m.created_at);
         const time = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
+        if(m.type === 'store'){
+          return { from:'store', text: m.content, time, sender:'Cali Colors' };
+        }
         return {
           from: m.sender_id === myId ? 'me' : 'other',
           text: m.content,
           time,
-          sender: conv.participants[0] ? conv.participants[0].name : 'Pintor',
-          img: conv.participants[0] ? conv.participants[0].img : ''
+          sender: otherPart ? otherPart.name : 'Pintor',
+          img: otherPart ? otherPart.img : ''
         };
       });
       renderMessages(realMsgs);
@@ -3777,12 +3975,24 @@ async function sendMsg(){
   const sb = getSupabase();
   const { data:{ session } } = await sb.auth.getSession();
   if(session){
+    // Extract receiver_id from conversation_id (format: id1_id2)
+    const ids = currentChat ? currentChat.split('_') : [];
+    const receiverId = ids.find(id => id !== session.user.id) || null;
     const { error } = await sb.from('messages').insert({
       sender_id: session.user.id,
+      receiver_id: receiverId,
+      conversation_id: currentChat,
       content: txt,
       type: 'text'
     });
     if(error) console.error('sendMsg error:', error.message);
+
+    // Broadcast via Realtime
+    sb.channel('chat:' + currentChat).send({
+      type: 'broadcast',
+      event: 'new_message',
+      payload: { sender_id: session.user.id, content: txt }
+    });
   }
 }
 
@@ -3800,29 +4010,114 @@ function appendMsg(m){
   area.scrollTop=area.scrollHeight;
 }
 
+async function handleChatAttachment(input){
+  const file = input.files[0];
+  if(!file) return;
+  input.value = '';
+  const sb = getSupabase();
+  if(!sb || !currentUser){ toast('Faca login primeiro'); return; }
+  toast('Enviando imagem...');
+  try {
+    const ext = file.name.split('.').pop();
+    const path = 'chat/' + currentUser.id + '/' + Date.now() + '.' + ext;
+    const { data, error } = await sb.storage.from('posts').upload(path, file, { upsert: true });
+    if(error) throw error;
+    const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
+    const imgUrl = urlData.publicUrl;
+    const now = new Date();
+    const time = now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
+    // Show image in chat
+    const area = document.getElementById('msgs-area');
+    const div = document.createElement('div');
+    div.className = 'msg-row me';
+    div.innerHTML = '<div><div class="msg-bubble"><img src="'+imgUrl+'" style="max-width:200px;border-radius:10px;display:block;" alt="foto"></div><div class="msg-time">'+time+'</div></div>';
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+    // Save to DB
+    const ids = currentChat ? currentChat.split('_') : [];
+    const receiverId = ids.find(id => id !== currentUser.id) || null;
+    await sb.from('messages').insert({
+      sender_id: currentUser.id,
+      receiver_id: receiverId,
+      conversation_id: currentChat,
+      content: imgUrl,
+      type: 'image'
+    });
+    toast('Imagem enviada!');
+  } catch(e){
+    console.error('handleChatAttachment error:', e);
+    toast('Erro ao enviar imagem');
+  }
+}
+
 function addStoreToChat(){
   if(chatStoreAdded) return;
   chatStoreAdded=true;
   const conv=chatData[currentChat];
   conv.type='3way';
-  conv.name=conv.name+' + Cali Colors';
+  conv.name=conv.name.includes('Cali Colors') ? conv.name : conv.name+' + Cali Colors';
   conv.sub='3 participantes · Chat 3-way ativo';
-  conv.participants.unshift({logo:true,name:'Cali Colors',role:'Loja Oficial'});
+  if(!conv.participants.some(p => p.logo)){
+    conv.participants.unshift({logo:true,name:'Cali Colors',role:'Loja Oficial'});
+  }
   document.getElementById('chat-header-name').textContent=conv.name;
   document.getElementById('chat-header-sub').textContent=conv.sub;
   document.getElementById('invite-store-bar').style.display='none';
+
+  // Update header avatars for 3-way
+  const avatarsEl = document.getElementById('chat-header-avatars');
+  const parts = conv.participants.slice(0,3);
+  avatarsEl.innerHTML = parts.map((p,i)=>`
+    <div class="cha-av" style="left:${i*10}px;z-index:${3-i}">
+      ${p.logo
+        ? '<div style="width:100%;height:100%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+        : '<img src="'+(p.img||'')+'" alt="'+(p.name||'')+'">'}
+    </div>`).join('');
+  avatarsEl.style.width=(parts.length*10+22)+'px';
+
   const partRow=document.getElementById('participant-row');
   partRow.style.display='flex';
   partRow.innerHTML=conv.participants.map(p=>`
     <div class="part-chip ${p.logo?'store':''}">
-      ${p.logo?`<div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:var(--p1);font-family:'Syne',sans-serif;">CC</span></div>`:`<img src="${p.img}" alt="${p.name}">`}
+      ${p.logo?'<div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>':'<img src="'+(p.img||'')+'" alt="'+(p.name||'')+'">'}
       <div><div class="part-chip-name">${p.name}</div><div class="part-chip-role">${p.role}</div></div>
     </div>`).join('');
+
+  // APPEND store welcome message to existing messages (don't wipe!)
   const time=new Date().getHours()+':'+(new Date().getMinutes()<10?'0':'')+new Date().getMinutes();
-  conv.messages.push({from:'store',sender:'Cali Colors',text:'Olá! 👋 Fui convidado para ajudar nesta conversa. Como posso auxiliar com tintas e materiais?',time});
-  renderMessages(conv.messages);
+  const storeText = 'Olá! 👋 Fui convidado para ajudar nesta conversa. Como posso auxiliar com tintas e materiais?';
   const area=document.getElementById('msgs-area');
+  const div=document.createElement('div');
+  div.className='msg-row';
+  div.innerHTML='<div class="msg-av store-av">CC</div><div><div class="msg-sender" style="color:var(--p1);">Cali Colors</div><div class="msg-bubble store">'+storeText+'</div><div class="msg-time">'+time+'</div></div>';
+  area.appendChild(div);
   area.scrollTop=area.scrollHeight;
+
+  // Save 3-way status + store welcome message to DB
+  (async()=>{
+    const sb=getSupabase();
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session) return;
+    const ids = currentChat ? currentChat.split('_') : [];
+    const receiverId = ids.find(id => id !== session.user.id) || null;
+    // Save system marker so we know this is 3-way
+    await sb.from('messages').insert({
+      sender_id: session.user.id,
+      receiver_id: receiverId,
+      conversation_id: currentChat,
+      content: '__STORE_ADDED__',
+      type: 'system'
+    });
+    // Save the store welcome message
+    await sb.from('messages').insert({
+      sender_id: session.user.id,
+      receiver_id: receiverId,
+      conversation_id: currentChat,
+      content: storeText,
+      type: 'store'
+    });
+  })();
+
   toast('Cali Colors foi adicionada ao chat! 🎨');
 }
 
@@ -3857,6 +4152,8 @@ function addToCart(productId) {
   localStorage.setItem('quc_cart', JSON.stringify(cartItems));
   updateCartBadge();
   toast('Adicionado ao carrinho!');
+  // Open cart modal after adding
+  setTimeout(() => { renderCartModal(); showModal('cart-modal'); }, 300);
 }
 
 function renderCartModal(){
@@ -3881,6 +4178,34 @@ function removeFromCart(index){
   localStorage.setItem('quc_cart', JSON.stringify(cartItems));
   updateCartBadge();
   renderCartModal();
+}
+
+async function submitCartOrder(){
+  if(cartItems.length === 0){ toast('Carrinho vazio!'); return; }
+  const sb = getSupabase();
+  if(!sb || !currentUser){ toast('Faca login primeiro'); return; }
+  const btn = document.getElementById('cart-submit-btn');
+  btn.textContent = 'Enviando...'; btn.disabled = true;
+  try {
+    const total = cartItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const { error } = await sb.from('orders').insert({
+      user_id: currentUser.id,
+      items: cartItems,
+      total: total,
+      status: 'pending',
+      created_at: new Date().toISOString()
+    });
+    if(error) throw error;
+    toast('Solicitacao de compra enviada! A loja entrara em contato.');
+    cartItems = [];
+    localStorage.setItem('quc_cart', JSON.stringify(cartItems));
+    updateCartBadge();
+    closeModals();
+  } catch(e){
+    console.error('submitCartOrder error:', e);
+    toast('Erro ao enviar pedido: ' + (e.message || 'tente novamente'));
+  }
+  btn.textContent = 'Enviar Solicitacao de Compra'; btn.disabled = false;
 }
 
 function getCategoryEmoji(cat){
@@ -4594,12 +4919,11 @@ function renderPainterList(painters_list){
   }).join('');
 }
 
-function filterExplorePainters(query){
+async function filterExplorePainters(query){
   const q = (query||'').replace('@','').trim().toLowerCase();
   if(!q){
     // Show all: DB painters + local painters
     const allPainters = [...dbPainters];
-    // Add local painters that aren't already in DB list
     Object.entries(painters).forEach(([id, p]) => {
       const alreadyInDB = dbPainters.some(dp => dp.name === p.name);
       if(!alreadyInDB) allPainters.push({ id: id, name: p.name, img: p.img, city: p.city, specialties: p.specs.join(', '), rating: p.rating, rating_avg: p.rating });
@@ -4607,7 +4931,7 @@ function filterExplorePainters(query){
     renderPainterList(allPainters);
     return;
   }
-  // Filter DB painters
+  // Filter local DB painters
   const filtered = dbPainters.filter(p => {
     const name = (p.name||'').toLowerCase();
     const tag = (p.tag||'').toLowerCase();
@@ -4615,7 +4939,7 @@ function filterExplorePainters(query){
     const specs = (p.specialties||'').toLowerCase();
     return name.includes(q) || tag.includes(q) || city.includes(q) || specs.includes(q);
   });
-  // Also filter local painters (skip if already matched from DB)
+  // Also filter local painters
   Object.entries(painters).forEach(([id, p]) => {
     const alreadyInResults = filtered.some(dp => dp.name === p.name);
     if(alreadyInResults) return;
@@ -4627,6 +4951,22 @@ function filterExplorePainters(query){
       filtered.push({ id: id, name: p.name, img: p.img, city: p.city, specialties: p.specs.join(', '), rating: p.rating, rating_avg: p.rating });
     }
   });
+  // If no results from cache, search Supabase directly
+  if(filtered.length === 0){
+    try {
+      const sb = getSupabase();
+      if(sb){
+        const { data } = await sb.from('profiles')
+          .select('id, name, tag, avatar_url, city, state, specialties, rating_avg, role, user_type')
+          .or('role.eq.pintor,user_type.eq.pintor')
+          .ilike('name', '%'+q+'%')
+          .limit(20);
+        if(data && data.length > 0){
+          data.forEach(p => filtered.push(p));
+        }
+      }
+    } catch(e){ console.warn('filterExplorePainters search error:', e); }
+  }
   renderPainterList(filtered);
 }
 
