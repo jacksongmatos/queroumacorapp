@@ -70,8 +70,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);o
 .story-inner{width:100%;height:100%;border-radius:50%;overflow:hidden;border:2.5px solid var(--ink);}
 .story-inner img{width:100%;height:100%;object-fit:cover;}
 .story-name{font-size:10.5px;color:rgba(255,255,255,.75);text-align:center;width:58px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.add-story .story-ring{background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;padding:0;}
-.add-story .story-ring svg{width:22px;height:22px;stroke:rgba(255,255,255,.5);}
+.add-story .story-ring{background:rgba(255,255,255,.15);position:relative;}
+.add-story .story-inner{width:100%;height:100%;border-radius:50%;overflow:hidden;border:2.5px solid var(--ink);}
+.add-story .story-inner img{width:100%;height:100%;object-fit:cover;}
+.add-story .story-plus{position:absolute;bottom:-1px;right:-1px;width:22px;height:22px;border-radius:50%;background:#1a1a2e;border:2.5px solid var(--ink);display:flex;align-items:center;justify-content:center;z-index:2;}
+.add-story .story-plus svg{width:13px;height:13px;stroke:#fff;stroke-width:3;}
 
 /* Mosaic Feed */
 .mosaic-feed{padding:12px;display:flex;flex-direction:column;gap:10px;}
@@ -726,6 +729,26 @@ function autoDetectRole(){
   else setMode('cliente');
   const tag = meta.tag || '';
   if(tag) document.getElementById('myprofile-sub').textContent = '@' + tag;
+  updateMyStoryAvatar();
+}
+
+async function updateMyStoryAvatar(){
+  const el = document.getElementById('my-story-avatar');
+  const nameEl = document.getElementById('my-story-name');
+  if(!el || !currentUser) return;
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const { data: profile } = await sb.from('profiles').select('avatar_url, name').eq('id', currentUser.id).single();
+    const fullName = (profile && profile.name) || currentUser.user_metadata?.name || '';
+    const firstName = fullName.split(' ')[0] || 'Seu story';
+    if(nameEl) nameEl.textContent = firstName;
+    if(profile && profile.avatar_url){
+      el.src = profile.avatar_url;
+    } else {
+      el.src = 'https://ui-avatars.com/api/?name='+encodeURIComponent(fullName || 'U')+'&background=e8e2d9&color=1a1a2e&size=96';
+    }
+  } catch(e){ console.warn('updateMyStoryAvatar error:', e); }
 }
 
 async function doLoginSupabase(email, password) {
@@ -756,8 +779,20 @@ async function doRegisterSupabase(name, email, password, type, tag) {
   const stateName = cityParts[1] || '';
   const { data, error } = await sb.auth.signUp({ email, password, options: { data: { name: name, user_type: type || 'cliente', tag: tag } } });
   if (error) { alert('Erro: ' + error.message); return; }
-  // Create profile record
+  // Upload avatar if selected
+  let avatarUrl = null;
   if(data && data.user){
+    const avatarFile = document.getElementById('signup-avatar-input').files[0];
+    if(avatarFile){
+      try {
+        const ext = avatarFile.name.split('.').pop();
+        const path = data.user.id + '/avatar.' + ext;
+        await sb.storage.from('posts').upload(path, avatarFile, { upsert: true });
+        const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
+        avatarUrl = urlData.publicUrl;
+      } catch(e){ console.warn('Avatar upload error:', e); }
+    }
+    // Create profile record
     try {
       await sb.from('profiles').upsert({
         id: data.user.id,
@@ -768,6 +803,7 @@ async function doRegisterSupabase(name, email, password, type, tag) {
         city: cityName,
         state: stateName,
         phone: phone,
+        avatar_url: avatarUrl,
         created_at: new Date().toISOString()
       }, { onConflict: 'id' });
     } catch(e){ console.warn('Profile create error:', e); }
@@ -776,6 +812,14 @@ async function doRegisterSupabase(name, email, password, type, tag) {
   autoDetectRole();
   showScreen('feed');
   toast('Conta criada com sucesso!');
+}
+
+function previewSignupAvatar(input){
+  const file = input.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const preview = document.getElementById('signup-avatar-preview');
+  preview.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
 }
 
 async function doLogoutSupabase() {
@@ -1028,6 +1072,19 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
           <input class="auth-input" type="text" id="s-name" placeholder="Seu nome">
         </div>
         <div class="auth-field">
+          <label class="auth-label">Foto de perfil</label>
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div id="signup-avatar-preview" style="width:64px;height:64px;border-radius:50%;overflow:hidden;background:var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:2px solid var(--border);">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--muted)" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div style="flex:1;">
+              <input type="file" id="signup-avatar-input" accept="image/*" style="display:none" onchange="previewSignupAvatar(this)">
+              <button type="button" class="auth-btn secondary" style="margin:0;padding:8px 16px;font-size:13px;" onclick="document.getElementById('signup-avatar-input').click()">Escolher foto</button>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">Aparece no seu story e perfil</div>
+            </div>
+          </div>
+        </div>
+        <div class="auth-field">
           <label class="auth-label">Sua tag única</label>
           <div style="position:relative;">
             <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:15px;font-weight:600;pointer-events:none;">@</span>
@@ -1142,11 +1199,14 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="screen" id="screen-feed">
   <!-- Stories -->
   <div class="stories-row" id="stories-row">
-    <div class="story" style="cursor:pointer" onclick="showModal('post-modal')">
-      <div class="add-story story-ring">
-        <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <div class="story add-story" style="cursor:pointer" onclick="showModal('post-modal')">
+      <div class="story-ring">
+        <div class="story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt=""></div>
+        <div class="story-plus">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
       </div>
-      <span class="story-name">Seu story</span>
+      <span class="story-name" id="my-story-name">Seu story</span>
     </div>
     <!-- Dynamic stories loaded here -->
   </div>
@@ -1156,13 +1216,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <div id="feed-empty" style="text-align:center;color:var(--muted);">
       <div style="font-size:48px;margin-bottom:12px;">📸</div>
       <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhum story ainda</div>
-      <div style="font-size:13px;">Toque no + para criar seu primeiro story!</div>
+      <div style="font-size:13px;">Toque na sua foto para criar seu primeiro story!</div>
     </div>
   </div>
-  <!-- FAB on feed -->
-  <button onclick="showModal('post-modal')" style="position:fixed;right:20px;bottom:78px;width:52px;height:52px;border-radius:50%;background:var(--p1);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(255,107,53,.45);z-index:200;">
-    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-  </button>
 </div>
 
 <!-- ══ EXPLORE / MAP SCREEN ══ -->
@@ -4212,33 +4268,24 @@ async function generateInviteCode(view){
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = 'QUC-';
     for(let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    // Insert into invites table
-    const { error } = await sb.from('invites').insert({
-      code: code,
-      created_by: session.user.id,
-      used: false,
-      uses: 0,
-      max_uses: 5
-    });
-    if(error){
-      console.error('Invite insert error:', error);
-      // If table doesn't exist, still show the code
-      if(error.code === '42P01'){
-        toast('Tabela de convites nao existe ainda');
-      } else {
-        toast('Erro: ' + error.message);
-      }
-      btn.textContent = 'Gerar Codigo de Convite'; btn.disabled = false;
-      return;
-    }
+    // Try to insert into invites table (non-blocking)
+    try {
+      await sb.from('invites').insert({
+        code: code,
+        created_by: session.user.id,
+        used: false,
+        uses: 0,
+        max_uses: 5
+      });
+    } catch(dbErr){ console.warn('Invite DB insert skipped:', dbErr); }
+    // Always show the code to the user
     generatedInviteCode[view] = code;
-    // Show code
     document.getElementById('my-invite-code-' + view).style.display = 'block';
     document.getElementById('my-invite-code-value-' + view).textContent = code;
     document.getElementById('share-invite-btn-' + view).style.display = 'block';
     btn.textContent = 'Gerar Novo Codigo';
     btn.disabled = false;
-    toast('Codigo gerado: ' + code);
+    toast('Codigo gerado!');
   } catch(e){
     console.error('generateInviteCode error:', e);
     toast('Erro ao gerar codigo');
@@ -4255,7 +4302,7 @@ function shareInviteCode(view){
   } else if(navigator.clipboard){
     navigator.clipboard.writeText(code).then(()=>toast('Codigo copiado!')).catch(()=>toast('Codigo: '+code));
   } else {
-    toast('Codigo: ' + code);
+    prompt('Copie o codigo:', code);
   }
 }
 
