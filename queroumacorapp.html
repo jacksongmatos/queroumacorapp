@@ -1151,12 +1151,12 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <!-- Dynamic stories loaded here -->
   </div>
 
-  <!-- MOSAIC FEED (dynamic) -->
-  <div class="mosaic-feed" id="mosaic-feed">
-    <div id="feed-empty" style="text-align:center;padding:40px 20px;color:var(--muted);">
-      <div style="font-size:48px;margin-bottom:12px;">🎨</div>
-      <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhuma publicacao ainda.</div>
-      <div style="font-size:13px;">Siga pintores para ver posts aqui!</div>
+  <!-- Stories feed area -->
+  <div id="stories-feed-area" style="flex:1;display:flex;align-items:center;justify-content:center;padding:30px 20px;">
+    <div id="feed-empty" style="text-align:center;color:var(--muted);">
+      <div style="font-size:48px;margin-bottom:12px;">📸</div>
+      <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhum story ainda</div>
+      <div style="font-size:13px;">Toque no + para criar seu primeiro story!</div>
     </div>
   </div>
   <!-- FAB on feed -->
@@ -2484,29 +2484,48 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="overlay" id="post-modal" onclick="closeModals()">
   <div class="sheet" onclick="event.stopPropagation()" style="max-height:85vh;overflow-y:auto;">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">Novo Post</div>
-    <!-- Hidden file input -->
-    <input type="file" id="post-file-input" accept="image/*,video/*" multiple style="display:none" onchange="handlePostFiles(this)">
+    <div class="sheet-title">Novo Story</div>
+    <input type="file" id="post-file-input" accept="image/*,video/*" style="display:none" onchange="handlePostFiles(this)">
     <input type="file" id="post-file-camera" accept="image/*" capture="environment" style="display:none" onchange="handlePostFiles(this)">
-    <!-- Post type selector -->
-    <div style="display:flex;gap:8px;margin-bottom:12px;">
-      <button id="post-type-post" onclick="setPostType('post')" style="flex:1;padding:8px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid var(--p1);background:var(--p1);color:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;">Post</button>
-      <button id="post-type-ba" onclick="setPostType('ba')" style="flex:1;padding:8px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid var(--border);background:transparent;color:var(--ink);cursor:pointer;font-family:'DM Sans',sans-serif;">Antes/Depois</button>
-      <button id="post-type-story" onclick="setPostType('story')" style="flex:1;padding:8px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid var(--border);background:transparent;color:var(--ink);cursor:pointer;font-family:'DM Sans',sans-serif;">Story</button>
-    </div>
     <!-- Image picker area -->
     <div id="post-picker-area" style="border:2px dashed var(--border);border-radius:14px;padding:28px;text-align:center;cursor:pointer;background:var(--cream);margin-bottom:12px" onclick="document.getElementById('post-file-input').click()">
       <div style="font-size:36px;margin-bottom:8px">📸</div>
-      <div style="font-size:14px;font-weight:600">Escolher fotos</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px" id="post-picker-hint">Toque para abrir a galeria ou camera</div>
+      <div style="font-size:14px;font-weight:600">Escolher foto</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px" id="post-picker-hint">Selecione 1 imagem para o story</div>
     </div>
     <!-- Preview area -->
     <div id="post-preview-area" style="display:none;margin-bottom:12px;">
       <div id="post-preview-images" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;"></div>
-      <button onclick="clearPostImages()" style="margin-top:6px;background:none;border:none;color:var(--p4);font-size:12px;font-weight:600;cursor:pointer;">Remover imagens</button>
+      <button onclick="clearPostImages()" style="margin-top:6px;background:none;border:none;color:var(--p4);font-size:12px;font-weight:600;cursor:pointer;">Remover imagem</button>
     </div>
-    <textarea id="post-text-input" placeholder="Descreva o trabalho, tecnica, localizacao..." style="width:100%;border:1.5px solid var(--border);border-radius:12px;padding:12px;font-size:14px;font-family:'DM Sans',sans-serif;height:80px;resize:none;outline:none;margin-bottom:12px"></textarea>
-    <button id="post-publish-btn" onclick="publishPost()" style="width:100%;padding:13px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Publicar</button>
+    <textarea id="post-text-input" placeholder="Adicione um texto ao story (opcional)..." style="width:100%;border:1.5px solid var(--border);border-radius:12px;padding:12px;font-size:14px;font-family:'DM Sans',sans-serif;height:60px;resize:none;outline:none;margin-bottom:12px"></textarea>
+    <button id="post-publish-btn" onclick="publishPost()" style="width:100%;padding:13px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Publicar Story</button>
+  </div>
+</div>
+
+<!-- Story Viewer (Instagram-style) -->
+<div id="story-viewer" style="position:fixed;inset:0;background:#000;z-index:500;display:none;flex-direction:column;">
+  <!-- Progress bars -->
+  <div id="story-progress-bar" style="display:flex;gap:3px;padding:8px 10px 0;position:absolute;top:0;left:0;right:0;z-index:3;"></div>
+  <!-- Header -->
+  <div id="story-header" style="display:flex;align-items:center;gap:10px;padding:24px 14px 10px;position:absolute;top:0;left:0;right:0;z-index:3;background:linear-gradient(to bottom,rgba(0,0,0,.5),transparent);">
+    <div style="width:34px;height:34px;border-radius:50%;overflow:hidden;border:2px solid #fff;flex-shrink:0;">
+      <img id="story-viewer-avatar" src="" style="width:100%;height:100%;object-fit:cover;">
+    </div>
+    <div style="flex:1;">
+      <div id="story-viewer-name" style="color:#fff;font-size:13px;font-weight:600;"></div>
+      <div id="story-viewer-time" style="color:rgba(255,255,255,.6);font-size:11px;"></div>
+    </div>
+    <button onclick="closeStoryViewer()" style="background:none;border:none;cursor:pointer;padding:6px;">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <!-- Story image -->
+  <img id="story-viewer-img" src="" style="width:100%;height:100%;object-fit:contain;position:absolute;inset:0;">
+  <!-- Tap zones -->
+  <div style="position:absolute;inset:0;display:flex;z-index:2;">
+    <div style="flex:1;" onclick="storyPrev()"></div>
+    <div style="flex:1;" onclick="storyNext()"></div>
   </div>
 </div>
 
@@ -3616,90 +3635,8 @@ document.head.appendChild(styleTag);
 //  CHANGE 1: DYNAMIC FEED
 // ══════════════════════════════
 async function loadFeed(){
-  const feedEl = document.getElementById('mosaic-feed');
-  const emptyEl = document.getElementById('feed-empty');
-  try {
-    const sb = getSupabase();
-    if(!sb){ return; }
-    const { data: posts, error } = await sb.from('posts')
-      .select('*, profiles:user_id(name, avatar_url, city, state, user_type)')
-      .neq('type', 'story')
-      .order('created_at', { ascending: false })
-      .limit(30);
-    if(error) throw error;
-    if(!posts || posts.length === 0){
-      emptyEl.style.display = 'block';
-      return;
-    }
-    emptyEl.style.display = 'none';
-    let html = '';
-    posts.forEach((post, idx) => {
-      const p = post.profiles || {};
-      const uname = p.name || 'Pintor';
-      const city = [p.city, p.state].filter(Boolean).join(', ') || '';
-      const avatar = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
-      const timeAgo = getTimeAgo(post.created_at);
-      const likeId = 'lk-d-'+idx;
-      const likeCountId = 'lkc-d-'+idx;
-      likes['d-'+idx] = Math.floor(Math.random()*200)+10;
-
-      if(post.image_url_after && post.image_url){
-        // Before/After post
-        const baId = 'ba-d-'+idx;
-        html += `<div class="mpost mpost-featured">
-          <div class="mpost-head" style="cursor:pointer">
-            <div class="av-ring"><div class="av-inner"><img src="${avatar}" alt=""></div></div>
-            <div class="post-meta"><div class="post-uname">${uname}</div><div class="post-city">${city}</div></div>
-            <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">...</div>
-          </div>
-          <div class="ba-wrap" style="aspect-ratio:4/5" id="${baId}" onclick="toggleBA('${baId}')">
-            <img id="${baId}-a" src="${post.image_url}" style="width:100%;height:100%;object-fit:cover;display:block;transition:opacity .4s">
-            <img id="${baId}-b" src="${post.image_url_after}" style="width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0;opacity:0;transition:opacity .4s">
-            <div class="ba-label a" id="${baId}-la">ANTES</div>
-            <div class="ba-label d" id="${baId}-ld">DEPOIS</div>
-            <div class="ba-hint">Toque para ver o resultado</div>
-          </div>
-          <div class="mpost-featured-actions">
-            <button class="act-btn" id="${likeId}" onclick="paintLike(event,'${likeId}','${likeCountId}','#8338ec')">
-              <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            </button>
-            <div class="like-count" id="${likeCountId}">${likes['d-'+idx]}</div>
-            <button class="act-btn" onclick="toast('Comentarios')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-            <button class="act-btn" onclick="toast('Salvo!')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
-          </div>
-          <div class="mpost-featured-cap">
-            <div class="post-cap">${post.content || ''}</div>
-            <div class="post-time">${timeAgo}</div>
-          </div>
-        </div>`;
-      } else {
-        // Regular post
-        html += `<div class="mpost">
-          <div class="mpost-head" style="cursor:pointer">
-            <div class="av-ring"><div class="av-inner"><img src="${avatar}" alt=""></div></div>
-            <div class="post-meta"><div class="post-uname">${uname}</div><div class="post-city">${city}</div></div>
-            <div class="post-dots" onclick="event.stopPropagation();showModal('post-opts-modal')">...</div>
-          </div>
-          ${post.image_url ? `<img src="${post.image_url}" style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block">` : ''}
-          <div class="mpost-actions">
-            <button class="act-btn" id="${likeId}" onclick="paintLike(event,'${likeId}','${likeCountId}','#8338ec')">
-              <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            </button>
-            <button class="act-btn" onclick="toast('Comentarios')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-            <button class="act-btn save-btn" onclick="toast('Salvo!')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>
-          </div>
-          <div class="like-count" id="${likeCountId}">${likes['d-'+idx]} curtidas</div>
-          ${post.content ? `<div class="post-cap"><b>${uname}</b> ${post.content}</div>` : ''}
-          <div class="post-time">${timeAgo}</div>
-        </div>`;
-      }
-    });
-    feedEl.innerHTML = html + emptyEl.outerHTML;
-    document.getElementById('feed-empty').style.display = 'none';
-  } catch(e) {
-    console.error('loadFeed error:', e);
-    // Keep empty state visible
-  }
+  // Feed now only shows stories - loadStories handles everything
+  await loadStories();
 }
 
 function getTimeAgo(dateStr){
@@ -3715,32 +3652,150 @@ function getTimeAgo(dateStr){
   return new Date(dateStr).toLocaleDateString('pt-BR');
 }
 
+// Stories data grouped by user
+let storyGroups = [];
+let currentStoryGroup = 0;
+let currentStoryIndex = 0;
+let storyTimer = null;
+const STORY_DURATION = 5000; // 5 seconds per story like IG
+
 async function loadStories(){
-  // For now, just show the add button (stories loaded from supabase later)
   try {
     const sb = getSupabase();
     if(!sb) return;
+    // Load stories from last 24h (like IG)
+    const since = new Date(Date.now() - 24*60*60*1000).toISOString();
     const { data: stories, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url)')
       .eq('type', 'story')
-      .order('created_at', { ascending: false })
-      .limit(20);
+      .gte('created_at', since)
+      .order('created_at', { ascending: true })
+      .limit(100);
     if(error) throw error;
-    if(!stories || stories.length === 0) return;
+
+    // Group stories by user_id (like IG)
+    const grouped = {};
+    (stories || []).forEach(s => {
+      const uid = s.user_id;
+      if(!grouped[uid]) grouped[uid] = { user_id: uid, profile: s.profiles || {}, stories: [] };
+      grouped[uid].stories.push(s);
+    });
+    storyGroups = Object.values(grouped);
+
+    // Render circles
     const row = document.getElementById('stories-row');
     let html = row.children[0].outerHTML; // keep add-story button
-    stories.forEach(s => {
-      const p = s.profiles || {};
+    storyGroups.forEach((g, gi) => {
+      const p = g.profile;
       const name = (p.name || 'User').split(' ')[0];
-      const avatar = p.avatar_url || s.image_url || 'https://i.pravatar.cc/150?img=68';
-      html += `<div class="story" onclick="toast('Story de ${name}')">
-        <div class="story-ring"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
+      const avatar = p.avatar_url || g.stories[0].image_url || 'https://i.pravatar.cc/150?img=68';
+      const seen = isStoryGroupSeen(g.user_id) ? ' seen' : '';
+      html += `<div class="story" onclick="openStoryViewer(${gi})">
+        <div class="story-ring${seen}"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
         <span class="story-name">${name}</span>
       </div>`;
     });
     row.innerHTML = html;
+
+    // Update empty state
+    const emptyEl = document.getElementById('feed-empty');
+    if(emptyEl) emptyEl.style.display = storyGroups.length > 0 ? 'none' : 'block';
   } catch(e) {
     console.error('loadStories error:', e);
+  }
+}
+
+function isStoryGroupSeen(userId){
+  try { const seen = JSON.parse(localStorage.getItem('seen_stories') || '{}'); return !!seen[userId]; } catch(e){ return false; }
+}
+function markStoryGroupSeen(userId){
+  try { const seen = JSON.parse(localStorage.getItem('seen_stories') || '{}'); seen[userId] = Date.now(); localStorage.setItem('seen_stories', JSON.stringify(seen)); } catch(e){}
+}
+
+function openStoryViewer(groupIndex){
+  currentStoryGroup = groupIndex;
+  currentStoryIndex = 0;
+  const viewer = document.getElementById('story-viewer');
+  viewer.style.display = 'flex';
+  renderCurrentStory();
+}
+
+function closeStoryViewer(){
+  document.getElementById('story-viewer').style.display = 'none';
+  if(storyTimer) clearInterval(storyTimer);
+  storyTimer = null;
+  loadStories(); // refresh seen states
+}
+
+function renderCurrentStory(){
+  const g = storyGroups[currentStoryGroup];
+  if(!g) { closeStoryViewer(); return; }
+  const s = g.stories[currentStoryIndex];
+  if(!s) { closeStoryViewer(); return; }
+  const p = g.profile;
+
+  // Update image
+  document.getElementById('story-viewer-img').src = s.image_url || '';
+  // Update header
+  document.getElementById('story-viewer-avatar').src = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
+  document.getElementById('story-viewer-name').textContent = p.name || 'User';
+  document.getElementById('story-viewer-time').textContent = getTimeAgo(s.created_at);
+
+  // Progress bars
+  const barContainer = document.getElementById('story-progress-bar');
+  barContainer.innerHTML = '';
+  g.stories.forEach((_, i) => {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'flex:1;height:2.5px;border-radius:2px;background:rgba(255,255,255,.35);overflow:hidden;';
+    const fill = document.createElement('div');
+    fill.style.cssText = 'height:100%;border-radius:2px;background:#fff;';
+    if(i < currentStoryIndex) fill.style.width = '100%';
+    else if(i === currentStoryIndex) { fill.style.width = '0%'; fill.id = 'story-progress-fill'; }
+    else fill.style.width = '0%';
+    bar.appendChild(fill);
+    barContainer.appendChild(bar);
+  });
+
+  // Mark seen
+  markStoryGroupSeen(g.user_id);
+
+  // Start auto-advance timer
+  if(storyTimer) clearInterval(storyTimer);
+  let elapsed = 0;
+  const step = 50;
+  storyTimer = setInterval(() => {
+    elapsed += step;
+    const fill = document.getElementById('story-progress-fill');
+    if(fill) fill.style.width = (elapsed / STORY_DURATION * 100) + '%';
+    if(elapsed >= STORY_DURATION) storyNext();
+  }, step);
+}
+
+function storyNext(){
+  const g = storyGroups[currentStoryGroup];
+  if(!g) { closeStoryViewer(); return; }
+  if(currentStoryIndex < g.stories.length - 1){
+    currentStoryIndex++;
+    renderCurrentStory();
+  } else if(currentStoryGroup < storyGroups.length - 1){
+    // Next user's stories (like IG)
+    currentStoryGroup++;
+    currentStoryIndex = 0;
+    renderCurrentStory();
+  } else {
+    closeStoryViewer();
+  }
+}
+
+function storyPrev(){
+  if(currentStoryIndex > 0){
+    currentStoryIndex--;
+    renderCurrentStory();
+  } else if(currentStoryGroup > 0){
+    currentStoryGroup--;
+    const g = storyGroups[currentStoryGroup];
+    currentStoryIndex = g.stories.length - 1;
+    renderCurrentStory();
   }
 }
 
@@ -3748,41 +3803,21 @@ async function loadStories(){
 //  CHANGE 2: POSTING SYSTEM
 // ══════════════════════════════
 let postSelectedFiles = [];
-let postType = 'post'; // 'post', 'ba', 'story'
+let postType = 'story'; // always story now
 
-function setPostType(type){
-  postType = type;
-  const btns = { post: 'post-type-post', ba: 'post-type-ba', story: 'post-type-story' };
-  Object.entries(btns).forEach(([k,id])=>{
-    const el = document.getElementById(id);
-    if(k===type){ el.style.background='var(--p1)'; el.style.color='#fff'; el.style.borderColor='var(--p1)'; }
-    else { el.style.background='transparent'; el.style.color='var(--ink)'; el.style.borderColor='var(--border)'; }
-  });
-  const hint = document.getElementById('post-picker-hint');
-  if(type==='ba') hint.textContent = 'Selecione 2 imagens: antes e depois';
-  else if(type==='story') hint.textContent = 'Selecione 1 imagem para o story';
-  else hint.textContent = 'Toque para abrir a galeria ou camera';
-}
+function setPostType(type){ postType = 'story'; }
 
 function handlePostFiles(input){
   const files = Array.from(input.files);
   if(!files.length) return;
-  postSelectedFiles = files;
+  postSelectedFiles = [files[0]]; // only 1 image for story
   const previewArea = document.getElementById('post-preview-area');
   const previewImages = document.getElementById('post-preview-images');
   previewArea.style.display = 'block';
   document.getElementById('post-picker-area').style.display = 'none';
   previewImages.innerHTML = '';
-  files.forEach(f => {
-    const url = URL.createObjectURL(f);
-    previewImages.innerHTML += `<img src="${url}" class="post-preview-img">`;
-  });
-  if(postType === 'ba' && files.length >= 2){
-    previewImages.innerHTML += `<div style="display:flex;flex-direction:column;justify-content:center;gap:4px;padding:0 8px;flex-shrink:0;">
-      <span style="font-size:11px;font-weight:700;color:var(--p3);">ANTES</span>
-      <span style="font-size:11px;font-weight:700;color:var(--p1);">DEPOIS</span>
-    </div>`;
-  }
+  const url = URL.createObjectURL(files[0]);
+  previewImages.innerHTML = `<img src="${url}" class="post-preview-img" style="max-height:200px;border-radius:10px;object-fit:cover;">`;
 }
 
 function clearPostImages(){
@@ -3800,75 +3835,54 @@ async function publishPost(){
     const { data:{ session } } = await sb.auth.getSession();
     if(!session){ toast('Faca login para publicar'); return; }
     const content = document.getElementById('post-text-input').value.trim();
-    if(!content && postSelectedFiles.length === 0){
-      toast('Adicione texto ou imagem');
+    if(postSelectedFiles.length === 0){
+      toast('Adicione uma imagem para o story');
       return;
     }
     btn.textContent = 'Publicando...';
     btn.disabled = true;
     let imageUrl = null;
-    let imageUrlAfter = null;
 
-    // Upload images to Supabase Storage
-    if(postSelectedFiles.length > 0){
-      const file = postSelectedFiles[0];
-      const ext = file.name.split('.').pop();
-      const path = session.user.id + '/' + Date.now() + '.' + ext;
-      const { error: upError } = await sb.storage.from('posts').upload(path, file);
-      if(upError){
-        console.error('Upload error:', upError);
-        toast('Erro no upload: ' + upError.message);
-        btn.textContent = 'Publicar'; btn.disabled = false;
-        return;
-      }
-      const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
-      imageUrl = urlData.publicUrl;
+    // Upload image to Supabase Storage
+    const file = postSelectedFiles[0];
+    const ext = file.name.split('.').pop();
+    const path = session.user.id + '/' + Date.now() + '.' + ext;
+    const { error: upError } = await sb.storage.from('posts').upload(path, file);
+    if(upError){
+      console.error('Upload error:', upError);
+      toast('Erro no upload: ' + upError.message);
+      btn.textContent = 'Publicar Story'; btn.disabled = false;
+      return;
     }
-    if(postType === 'ba' && postSelectedFiles.length >= 2){
-      const file2 = postSelectedFiles[1];
-      const ext2 = file2.name.split('.').pop();
-      const path2 = session.user.id + '/' + Date.now() + '_after.' + ext2;
-      const { error: upError2 } = await sb.storage.from('posts').upload(path2, file2);
-      if(upError2){
-        console.error('Upload after error:', upError2);
-        toast('Erro no upload (depois): ' + upError2.message);
-        btn.textContent = 'Publicar'; btn.disabled = false;
-        return;
-      }
-      const { data: urlData2 } = sb.storage.from('posts').getPublicUrl(path2);
-      imageUrlAfter = urlData2.publicUrl;
-    }
+    const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
+    imageUrl = urlData.publicUrl;
 
-    // Insert post
-    const savedType = postType;
+    // Insert story
     const { error: insertErr } = await sb.from('posts').insert({
       user_id: session.user.id,
       content: content || null,
       image_url: imageUrl,
-      image_url_after: imageUrlAfter,
-      type: savedType,
+      type: 'story',
       created_at: new Date().toISOString()
     });
 
-    btn.textContent = 'Publicar';
+    btn.textContent = 'Publicar Story';
     btn.disabled = false;
 
     if(insertErr){
-      console.error('Post insert error:', insertErr);
+      console.error('Story insert error:', insertErr);
       toast('Erro ao publicar: ' + insertErr.message);
     } else {
-      toast('Post publicado!');
+      toast('Story publicado!');
       closeModals();
       document.getElementById('post-text-input').value = '';
       clearPostImages();
-      setPostType('post');
-      loadFeed();
-      if(savedType === 'story') loadStories();
+      loadStories();
     }
   } catch(e) {
     console.error('publishPost error:', e);
     toast('Erro: ' + (e.message || 'falha ao publicar'));
-    if(btn){ btn.textContent = 'Publicar'; btn.disabled = false; }
+    if(btn){ btn.textContent = 'Publicar Story'; btn.disabled = false; }
   }
 }
 
