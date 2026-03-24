@@ -3967,6 +3967,7 @@ async function loadStories(){
   try {
     const sb = getSupabase();
     if(!sb) return;
+    const myId = currentUser ? currentUser.id : null;
     // Load stories from last 24h (like IG) from followed users + own
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
     const feedIds = await getFollowingIds();
@@ -3979,18 +3980,28 @@ async function loadStories(){
       console.warn('loadStories error:', error.message);
       stories = [];
     }
-    // Load profiles separately
+
+    // Load profiles for ALL followed users (not just those with stories)
+    const followedIds = feedIds.filter(id => id !== myId);
+    let allFollowedProfiles = {};
+    if(followedIds.length > 0){
+      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', followedIds);
+      (profs||[]).forEach(pr => { allFollowedProfiles[pr.id] = pr; });
+    }
+
+    // Also load profiles for story authors
     if(stories && stories.length > 0){
-      const userIds = [...new Set(stories.map(s => s.user_id))];
-      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
-      const profMap = {};
-      (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
-      stories.forEach(s => { s.profiles = profMap[s.user_id] || {}; });
+      const storyUserIds = [...new Set(stories.map(s => s.user_id))];
+      const missingIds = storyUserIds.filter(id => !allFollowedProfiles[id] && id !== myId);
+      if(missingIds.length > 0){
+        const { data: profs2 } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', missingIds);
+        (profs2||[]).forEach(pr => { allFollowedProfiles[pr.id] = pr; });
+      }
+      stories.forEach(s => { s.profiles = allFollowedProfiles[s.user_id] || {}; });
     }
 
     // Group stories by user_id (like IG)
     const grouped = {};
-    const myId = currentUser ? currentUser.id : null;
     let myStoryGroup = null;
     (stories || []).forEach(s => {
       const uid = s.user_id;
@@ -4022,14 +4033,18 @@ async function loadStories(){
       addStoryEl.setAttribute('onclick', "showModal('post-modal')");
     }
     let html = addStoryEl.outerHTML;
-    // Render other users' stories (skip index 0 if it's own)
+    // Render users with stories (skip index 0 if it's own)
     const startIdx = myStoryGroup ? 1 : 0;
+    const renderedUserIds = new Set();
     for(let gi = startIdx; gi < storyGroups.length; gi++){
       const g = storyGroups[gi];
       const p = g.profile;
-      let name = p.name || 'User';
-      if(name.includes('@')) name = name.split('@')[0];
-      name = name.split(' ')[0];
+      renderedUserIds.add(g.user_id);
+      let name = p.tag ? '@' + p.tag : (p.name || 'User');
+      if(!p.tag){
+        if(name.includes('@')) name = name.split('@')[0];
+        name = name.split(' ')[0];
+      }
       const avatar = p.avatar_url || g.stories[0].media_url || 'https://i.pravatar.cc/150?img=68';
       const seen = isStoryGroupSeen(g.user_id) ? ' seen' : '';
       html += `<div class="story" onclick="openStoryViewer(${gi})">
@@ -4037,6 +4052,25 @@ async function loadStories(){
         <span class="story-name">${name}</span>
       </div>`;
     }
+
+    // Render followed users WITHOUT stories (profile circles)
+    for(const uid of followedIds){
+      if(renderedUserIds.has(uid)) continue;
+      const p = allFollowedProfiles[uid];
+      if(!p) continue;
+      let name = p.tag ? '@' + p.tag : (p.name || 'User');
+      if(!p.tag){
+        if(name.includes('@')) name = name.split('@')[0];
+        name = name.split(' ')[0];
+      }
+      const initials = (p.name || 'U').split(' ').map(w => w[0]).join('').substring(0,2).toUpperCase();
+      const avatar = p.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=e8e2d9&color=1a1a2e&size=96`;
+      html += `<div class="story" onclick="openUserProfile('${uid}')">
+        <div class="story-ring seen"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
+        <span class="story-name">${name}</span>
+      </div>`;
+    }
+
     row.innerHTML = html;
 
     // Re-apply user avatar/name after innerHTML rebuild
@@ -4044,7 +4078,7 @@ async function loadStories(){
 
     // Update empty state
     const emptyEl = document.getElementById('feed-empty');
-    if(emptyEl) emptyEl.style.display = storyGroups.length > 0 ? 'none' : 'block';
+    if(emptyEl) emptyEl.style.display = (storyGroups.length > 0 || followedIds.length > 0) ? 'none' : 'block';
   } catch(e) {
     console.error('loadStories error:', e);
   }
