@@ -1212,7 +1212,7 @@ function App() {
           <span onClick={()=>{ setResetMode(true); setLoginError(''); setResetMsg(''); }} style={{ fontSize:12, color:C.p1, cursor:'pointer', fontWeight:600 }}>Esqueci minha senha</span>
         </div>
         {loginError && <div style={{color:'#e63946',fontSize:13,marginBottom:12,textAlign:'center'}}>{loginError}</div>}
-        <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setLoginLoading(true); try { const {data,error} = await window._sb.auth.signInWithPassword({email,password:pw}); if(error) throw error; setLoggedIn(true); } catch(e){ setLoginError(e.message||'Email ou senha incorretos'); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
+        <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setLoginLoading(true); try { const {data,error} = await window._sb.auth.signInWithPassword({email,password:pw}); if(error) throw error; const { data: prof } = await window._sb.from('profiles').select('portal_access').eq('id', data.user.id).single(); if(!prof || !prof.portal_access){ await window._sb.auth.signOut(); throw new Error('Sem permissao. Esta conta nao tem acesso ao portal.'); } setLoggedIn(true); } catch(e){ setLoginError(e.message||'Email ou senha incorretos'); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
           Entrar no Portal
         </button>
         <div style={{ textAlign:'center', marginTop:12, fontSize:12, color:C.muted }}>Acesso exclusivo Cali Colors</div>
