@@ -2716,6 +2716,7 @@ function showScreen(n){
   const pp=document.getElementById('painter-popup');
   if(pp)pp.classList.remove('show');
   if(n==='chat-conv'){setTimeout(()=>{const b=document.getElementById('chat-body');if(b)b.scrollTop=b.scrollHeight;},100);}
+  if(n==='feed') loadFeed();
 }
 
 // ══ TOAST ══
