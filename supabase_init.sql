@@ -67,6 +67,26 @@ BEGIN
 END $$;
 
 -- ============================================
+-- Profiles table - ensure all columns exist
+-- ============================================
+-- Add missing columns if they don't exist
+DO $$
+BEGIN
+  BEGIN ALTER TABLE public.profiles ADD COLUMN tag text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN city text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN state text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN phone text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN specialties text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN role text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN user_type text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN rating_avg numeric; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN lat numeric; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN lng numeric; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN invited_by uuid; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.profiles ADD COLUMN invite_code_used text; EXCEPTION WHEN duplicate_column THEN NULL; END;
+END $$;
+
+-- ============================================
 -- Profiles table - ensure read/write works
 -- ============================================
 -- Allow everyone to read profiles (needed for search, feed, etc.)
