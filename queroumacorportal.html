@@ -1191,6 +1191,11 @@ function App() {
   const [pw, setPw] = useState('');
   const [resetMode, setResetMode] = useState(false);
   const [resetMsg, setResetMsg] = useState('');
+  const [signupMode, setSignupMode] = useState(false);
+  const [signupName, setSignupName] = useState('');
+  const [signupCode, setSignupCode] = useState('');
+  const [signupStep, setSignupStep] = useState(0); // 0=code, 1=form
+  const [validatedInvite, setValidatedInvite] = useState(null);
 
   if (!loggedIn) return (
     <div style={{ minHeight:'100vh', background:C.ink, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -1215,7 +1220,44 @@ function App() {
         <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setLoginLoading(true); try { const {data,error} = await window._sb.auth.signInWithPassword({email,password:pw}); if(error) throw error; const { data: prof } = await window._sb.from('profiles').select('portal_access').eq('id', data.user.id).single(); if(!prof || !prof.portal_access){ await window._sb.auth.signOut(); throw new Error('Sem permissao. Esta conta nao tem acesso ao portal.'); } setLoggedIn(true); } catch(e){ setLoginError(e.message||'Email ou senha incorretos'); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
           Entrar no Portal
         </button>
-        <div style={{ textAlign:'center', marginTop:12, fontSize:12, color:C.muted }}>Acesso exclusivo Cali Colors</div>
+        <div style={{ textAlign:'center', marginTop:14 }}>
+          <span onClick={()=>{ setSignupMode(true); setSignupStep(0); setLoginError(''); setSignupCode(''); setSignupName(''); setEmail(''); setPw(''); setValidatedInvite(null); }} style={{ fontSize:13, color:C.p1, cursor:'pointer', fontWeight:600 }}>Criar conta no portal</span>
+        </div>
+        <div style={{ textAlign:'center', marginTop:6, fontSize:12, color:C.muted }}>Acesso exclusivo Cali Colors</div>
+        </>) : signupMode ? (<>
+        {signupStep === 0 ? (<>
+        <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:6 }}>Codigo de Convite</div>
+        <div style={{ fontSize:12, color:C.muted, marginBottom:16 }}>Para criar uma conta no portal, voce precisa de um codigo de convite de alguem que ja tem acesso.</div>
+        <div style={{ marginBottom:14 }}>
+          <input value={signupCode} onChange={e=>setSignupCode(e.target.value.toUpperCase())} placeholder="QUC-XXXXX" style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:18, fontWeight:700, letterSpacing:2, textAlign:'center', outline:'none', fontFamily:'monospace' }} />
+        </div>
+        {loginError && <div style={{color:'#e63946',fontSize:13,marginBottom:12,textAlign:'center'}}>{loginError}</div>}
+        <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setLoginLoading(true); try { if(!signupCode.trim()) throw new Error('Insira o codigo de convite'); const { data: inv, error } = await window._sb.from('invites').select('id, code, used, max_uses, uses, created_by').eq('code', signupCode.trim()).single(); if(error || !inv) throw new Error('Codigo invalido'); if(inv.used || (inv.max_uses > 0 && inv.uses >= inv.max_uses)) throw new Error('Este codigo ja foi utilizado'); const { data: inviter } = await window._sb.from('profiles').select('portal_access').eq('id', inv.created_by).single(); if(!inviter || !inviter.portal_access) throw new Error('Este codigo nao da acesso ao portal. O codigo precisa ser de alguem que ja tem acesso ao portal.'); setValidatedInvite(inv); setSignupStep(1); } catch(e){ setLoginError(e.message); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
+          {loginLoading ? 'Validando...' : 'Validar Codigo'}
+        </button>
+        </>) : (<>
+        <div style={{ fontSize:14, fontWeight:700, color:C.ink, marginBottom:4 }}>Criar conta</div>
+        <div style={{ fontSize:12, color:C.muted, marginBottom:16 }}>Codigo <b>{validatedInvite?.code}</b> validado</div>
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Nome</div>
+          <input value={signupName} onChange={e=>setSignupName(e.target.value)} placeholder="Seu nome" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
+        </div>
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Email</div>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="email@exemplo.com" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Senha</div>
+          <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Minimo 6 caracteres" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
+        </div>
+        {loginError && <div style={{color:'#e63946',fontSize:13,marginBottom:12,textAlign:'center'}}>{loginError}</div>}
+        <button disabled={loginLoading} onClick={async()=>{ setLoginError(''); setLoginLoading(true); try { if(!signupName.trim() || !email.trim() || !pw) throw new Error('Preencha todos os campos'); if(pw.length < 6) throw new Error('Senha deve ter no minimo 6 caracteres'); const { data: authData, error: authErr } = await window._sb.auth.signUp({ email: email.trim(), password: pw, options: { data: { name: signupName.trim(), user_type: 'admin' } } }); if(authErr) throw authErr; if(authData.user){ await window._sb.from('profiles').upsert({ id: authData.user.id, name: signupName.trim(), user_type: 'admin', role: 'admin', portal_access: true, invite_code_used: validatedInvite.code, invited_by: validatedInvite.created_by, created_at: new Date().toISOString() }, { onConflict: 'id' }); await window._sb.from('invites').update({ uses: (validatedInvite.uses||0)+1 }).eq('id', validatedInvite.id); } setLoggedIn(true); } catch(e){ setLoginError(e.message||'Erro ao criar conta'); } finally { setLoginLoading(false); } }} style={{ width:'100%', padding:'12px', background:C.p1, color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer' }}>
+          {loginLoading ? 'Criando conta...' : 'Criar Conta'}
+        </button>
+        </>)}
+        <div style={{ textAlign:'center', marginTop:14 }}>
+          <span onClick={()=>{ setSignupMode(false); setLoginError(''); setResetMode(false); }} style={{ fontSize:13, color:C.p1, cursor:'pointer', fontWeight:600 }}>← Voltar ao login</span>
+        </div>
         </>) : (<>
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Email</div>
