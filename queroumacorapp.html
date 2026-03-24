@@ -1231,9 +1231,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   <!-- Stories -->
   <div class="stories-row" id="stories-row">
     <div class="story add-story" style="cursor:pointer" onclick="showModal('post-modal')">
-      <div class="story-ring">
-        <div class="story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt=""></div>
-        <div class="story-plus">
+      <div class="story-ring" id="my-story-ring">
+        <div class="story-inner" id="my-story-inner"><img id="my-story-avatar" src="https://ui-avatars.com/api/?name=U&background=e8e2d9&color=1a1a2e&size=96" alt=""></div>
+        <div class="story-plus" onclick="event.stopPropagation();showModal('post-modal')">
           <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </div>
       </div>
