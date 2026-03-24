@@ -1196,7 +1196,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     </button>
     <button class="nav-btn" onclick="showScreen('chat')">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <div class="badge-dot" style="background:var(--p4)"></div>
+      <div class="badge-dot" id="chat-badge-dot" style="background:var(--p4);display:none"></div>
     </button>
   </div>
 </div>
@@ -2832,7 +2832,7 @@ function showScreen(n){
   if(n==='feed') loadFeed();
   if(n==='mkt') { loadMktProducts(); updateCartBadge(); }
   if(n==='myprofile') loadMyProfileData();
-  if(n==='chat') loadChatList();
+  if(n==='chat'){ loadChatList(); const cb=document.getElementById('chat-badge-dot'); if(cb) cb.style.display='none'; }
   if(n==='notif') loadNotifications();
   if(n==='pedidos') loadPedidos();
   if(n==='avaliar') loadAvaliarScreen();
@@ -3573,21 +3573,69 @@ async function setupGlobalMsgSubscription(){
   } catch(e){ console.error('setupGlobalMsgSubscription error:', e); }
 }
 
-function handleRealtimeMsg(payload){
+async function handleRealtimeMsg(payload){
   const m = payload.new;
   if(!m || !currentUser) return;
   const myId = currentUser.id;
-  // Skip messages I sent (already shown optimistically), unless from another device
   const isMine = m.sender_id === myId;
 
   console.log('Realtime msg received:', m.id, 'from:', m.sender_id, 'conv:', m.conversation_id, 'type:', m.type);
 
-  // If we're on the chat list, refresh it
+  // Save incoming message to localStorage so it persists
+  if(!isMine && m.type !== 'system'){
+    const t = new Date(m.created_at || Date.now());
+    const time = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
+    saveMsgLocal(m.conversation_id, { from:'other', content: m.content, type: m.type || 'text', time });
+
+    // Ensure conversation exists in localStorage for the receiver
+    const localConvs = loadConvsLocal();
+    if(!localConvs[m.conversation_id]){
+      // New conversation - fetch sender profile to populate it
+      try {
+        const sb = getSupabase();
+        if(sb){
+          const { data: prof } = await sb.from('profiles').select('id, name, avatar_url, role, user_type, tag').eq('id', m.sender_id).single();
+          if(prof){
+            saveConvLocal(m.conversation_id, {
+              name: prof.name || 'Usuario',
+              avatar: prof.avatar_url || '',
+              tag: prof.tag || '',
+              role: prof.role || prof.user_type || '',
+              otherId: m.sender_id,
+              is3way: false,
+              lastMsg: m.content,
+              lastMsgFrom: 'other',
+              lastMsgTime: m.created_at || new Date().toISOString()
+            });
+            // Also populate chatData so openChat works immediately
+            chatData[m.conversation_id] = {
+              type: 'direct',
+              name: prof.name || 'Usuario',
+              sub: prof.tag ? '@' + prof.tag : '',
+              participants: [{img: prof.avatar_url || '', name: prof.name || 'Usuario', role: prof.role === 'pintor' ? 'Pintor' : 'Usuario'}],
+              messages: []
+            };
+          }
+        }
+      } catch(e){ console.warn('handleRealtimeMsg profile fetch:', e); }
+    } else {
+      // Update existing conversation with latest message
+      saveConvLocal(m.conversation_id, {
+        ...localConvs[m.conversation_id],
+        lastMsg: m.content,
+        lastMsgFrom: 'other',
+        lastMsgTime: m.created_at || new Date().toISOString()
+      });
+    }
+  }
+
+  // Always refresh chat list (even if not visible, so it's ready when user opens it)
   const chatScreen = document.getElementById('screen-chat');
   if(chatScreen && chatScreen.style.display !== 'none'){
     loadChatList();
   }
-  // If we're in this conversation, append the message (skip own messages - already shown)
+
+  // If we're in this conversation, append the message
   if(currentChat && m.conversation_id === currentChat && !isMine && m.type !== 'system'){
     const conv = chatData[currentChat];
     const otherPart = conv ? (conv.participants.find(p => !p.logo) || conv.participants[0]) : {};
@@ -3607,10 +3655,20 @@ function handleRealtimeMsg(payload){
       });
     }
   }
-  // If not in any chat but got a new message, show notification
-  if(!isMine && currentChat !== m.conversation_id){
-    // Could show a toast or badge here
-    console.log('New message in conversation:', m.conversation_id);
+
+  // Show notification if message is from someone else and we're NOT in that conversation
+  if(!isMine && m.conversation_id !== currentChat && m.type !== 'system'){
+    // Show badge dot on chat nav button
+    const badge = document.getElementById('chat-badge-dot');
+    if(badge) badge.style.display = 'block';
+
+    // Show toast notification with sender name
+    const conv = chatData[m.conversation_id];
+    const localConvs = loadConvsLocal();
+    const localConv = localConvs[m.conversation_id];
+    const senderName = (conv && conv.name) || (localConv && localConv.name) || 'Alguém';
+    const preview = m.content && m.content.length > 40 ? m.content.substring(0, 40) + '...' : (m.content || '');
+    toast('💬 ' + senderName + ': ' + preview);
   }
 }
 
