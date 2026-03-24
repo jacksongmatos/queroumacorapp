@@ -792,20 +792,25 @@ async function doRegisterSupabase(name, email, password, type, tag) {
         avatarUrl = urlData.publicUrl;
       } catch(e){ console.warn('Avatar upload error:', e); }
     }
-    // Create profile record
+    // Create profile record with referral tracking
+    const profileData = {
+      id: data.user.id,
+      name: name,
+      user_type: type || 'cliente',
+      role: type || 'cliente',
+      city: cityName,
+      state: stateName,
+      phone: phone,
+      avatar_url: avatarUrl,
+      created_at: new Date().toISOString()
+    };
+    // Track who invited this user
+    if(validatedInviteCode){
+      if(validatedInviteCode.code) profileData.invite_code_used = validatedInviteCode.code;
+      if(validatedInviteCode.created_by) profileData.invited_by = validatedInviteCode.created_by;
+    }
     try {
-      await sb.from('profiles').upsert({
-        id: data.user.id,
-        name: name,
-        tag: (tag || '').toLowerCase(),
-        user_type: type || 'cliente',
-        role: type || 'cliente',
-        city: cityName,
-        state: stateName,
-        phone: phone,
-        avatar_url: avatarUrl,
-        created_at: new Date().toISOString()
-      }, { onConflict: 'id' });
+      await sb.from('profiles').upsert(profileData, { onConflict: 'id' });
     } catch(e){ console.warn('Profile create error:', e); }
   }
   currentUser = data.user;
@@ -3242,7 +3247,7 @@ async function validateInvite(){
   try {
     const sb = getSupabase();
     const { data, error } = await sb.from('invites')
-      .select('id, code, used, max_uses, uses')
+      .select('id, code, used, max_uses, uses, created_by')
       .eq('code', code)
       .single();
 
