@@ -255,6 +255,14 @@ BEGIN
   END IF;
 END $$;
 
+-- Enable Realtime for messages table (required for postgres_changes subscription)
+ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+
+-- Index for faster conversation queries
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON public.messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON public.messages(sender_id);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver_id ON public.messages(receiver_id);
+
 -- ============================================
 -- Reviews table (ensure it exists)
 -- ============================================
