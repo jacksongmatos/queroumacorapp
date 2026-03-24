@@ -256,6 +256,9 @@ BEGIN
 END $$;
 
 -- Enable Realtime for messages table (required for postgres_changes subscription)
+-- REPLICA IDENTITY FULL is REQUIRED for Realtime + RLS to work together
+-- Without it, Supabase cannot evaluate RLS policies on realtime events
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 
 -- Index for faster conversation queries

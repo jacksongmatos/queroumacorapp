@@ -3551,44 +3551,67 @@ async function setupGlobalMsgSubscription(){
   const sb = getSupabase();
   if(!sb || !currentUser) return;
   try {
-    _globalMsgSub = sb.channel('global-messages')
+    const myId = currentUser.id;
+    // Subscribe to messages where I'm the receiver (sent by others to me)
+    // Also subscribe to messages I sent (for multi-device sync)
+    _globalMsgSub = sb.channel('my-messages-' + myId)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'messages'
-      }, (payload) => {
-        const m = payload.new;
-        if(!m) return;
-        const myId = currentUser.id;
-        // Only process messages relevant to me
-        if(m.sender_id !== myId && m.receiver_id !== myId) return;
-        // If we're on the chat list, refresh it
-        const chatScreen = document.getElementById('screen-chat');
-        if(chatScreen && chatScreen.style.display !== 'none'){
-          loadChatList();
-        }
-        // If we're in this conversation, append the message
-        if(currentChat && m.conversation_id === currentChat && m.sender_id !== myId && m.type !== 'system'){
-          const conv = chatData[currentChat];
-          const otherPart = conv ? (conv.participants.find(p => !p.logo) || conv.participants[0]) : {};
-          const t = new Date(m.created_at || Date.now());
-          const time = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
-          if(m.type === 'store'){
-            appendMsg({ id: m.id, from:'store', text: m.content, time, sender:'Cali Colors' });
-          } else {
-            appendMsg({
-              id: m.id,
-              from: 'other',
-              text: m.content,
-              time,
-              sender: otherPart ? otherPart.name : '',
-              img: otherPart ? otherPart.img : ''
-            });
-          }
-        }
-      })
-      .subscribe();
+        table: 'messages',
+        filter: 'receiver_id=eq.' + myId
+      }, handleRealtimeMsg)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: 'sender_id=eq.' + myId
+      }, handleRealtimeMsg)
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+      });
   } catch(e){ console.error('setupGlobalMsgSubscription error:', e); }
+}
+
+function handleRealtimeMsg(payload){
+  const m = payload.new;
+  if(!m || !currentUser) return;
+  const myId = currentUser.id;
+  // Skip messages I sent (already shown optimistically), unless from another device
+  const isMine = m.sender_id === myId;
+
+  console.log('Realtime msg received:', m.id, 'from:', m.sender_id, 'conv:', m.conversation_id, 'type:', m.type);
+
+  // If we're on the chat list, refresh it
+  const chatScreen = document.getElementById('screen-chat');
+  if(chatScreen && chatScreen.style.display !== 'none'){
+    loadChatList();
+  }
+  // If we're in this conversation, append the message (skip own messages - already shown)
+  if(currentChat && m.conversation_id === currentChat && !isMine && m.type !== 'system'){
+    const conv = chatData[currentChat];
+    const otherPart = conv ? (conv.participants.find(p => !p.logo) || conv.participants[0]) : {};
+    const t = new Date(m.created_at || Date.now());
+    const time = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
+    if(m.type === 'store'){
+      appendMsg({ id: m.id, from:'store', text: m.content, time, type: m.type, sender:'Cali Colors' });
+    } else {
+      appendMsg({
+        id: m.id,
+        from: 'other',
+        text: m.content,
+        time,
+        type: m.type || 'text',
+        sender: otherPart ? otherPart.name : '',
+        img: otherPart ? otherPart.img : ''
+      });
+    }
+  }
+  // If not in any chat but got a new message, show notification
+  if(!isMine && currentChat !== m.conversation_id){
+    // Could show a toast or badge here
+    console.log('New message in conversation:', m.conversation_id);
+  }
 }
 
 // Bridge function for starting chat from profile
