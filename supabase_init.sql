@@ -177,3 +177,101 @@ CREATE POLICY "Users can upload to posts bucket" ON storage.objects
 -- Allow public read from posts bucket
 CREATE POLICY "Public read posts bucket" ON storage.objects
   FOR SELECT USING (bucket_id = 'posts');
+
+-- ============================================
+-- Announcements table (avisos do portal)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.announcements (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL,
+  message text NOT NULL,
+  active boolean DEFAULT true,
+  created_by uuid REFERENCES auth.users(id),
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Announcements viewable by everyone" ON public.announcements
+  FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated users can manage announcements" ON public.announcements
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Orders table (pedidos da loja)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.orders (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  items jsonb DEFAULT '[]'::jsonb,
+  total numeric DEFAULT 0,
+  status text DEFAULT 'pending',
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own orders" ON public.orders
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create own orders" ON public.orders
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Authenticated users can view all orders" ON public.orders
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can update orders" ON public.orders
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Messages table (ensure conversation_id and receiver_id exist)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.messages (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  sender_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  receiver_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  conversation_id text,
+  content text,
+  type text DEFAULT 'text',
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Messages viewable by participants'
+  ) THEN
+    CREATE POLICY "Messages viewable by participants" ON public.messages
+      FOR SELECT USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Users can send messages'
+  ) THEN
+    CREATE POLICY "Users can send messages" ON public.messages
+      FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Reviews table (ensure it exists)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.reviews (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  reviewer_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  quote_id uuid,
+  rating integer,
+  criteria jsonb DEFAULT '[]'::jsonb,
+  comment text,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Reviews viewable by everyone" ON public.reviews
+  FOR SELECT USING (true);
+
+CREATE POLICY "Users can create reviews" ON public.reviews
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = reviewer_id);
