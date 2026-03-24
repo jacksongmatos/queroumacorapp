@@ -3623,7 +3623,7 @@ async function loadFeed(){
     if(!sb){ return; }
     const { data: posts, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url, city, state, user_type)')
-      .neq('type', 'story')
+      .neq('media_type', 'story')
       .order('created_at', { ascending: false })
       .limit(30);
     if(error) throw error;
