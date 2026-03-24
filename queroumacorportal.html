@@ -528,77 +528,253 @@ const Analytics = () => {
 };
 
 const Chats = () => {
-  const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);
+  const [openConv, setOpenConv] = useState(null); // conversation_id
+  const [chatMsgs, setChatMsgs] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [msgText, setMsgText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [myUserId, setMyUserId] = useState(null);
+  const msgsEndRef = React.useRef(null);
+  const subRef = React.useRef(null);
 
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await window._sb
-        .from('messages')
-        .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (!error && data) {
-        setMessages(data);
-        // Load sender/receiver profiles
-        const ids = [...new Set(data.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean))];
-        if(ids.length > 0){
-          const { data: profs } = await window._sb.from('profiles').select('id, name, avatar_url, role, user_type').in('id', ids);
-          if(profs){
-            const map = {};
-            profs.forEach(p => { map[p.id] = p; });
-            setProfiles(map);
-          }
-        }
-      }
-      setLoading(false);
-    })();
-  }, []);
+  const scrollToBottom = () => { msgsEndRef.current?.scrollIntoView({ behavior:'smooth' }); };
 
-  if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando mensagens...</div>;
+  // Load conversations list
+  const loadConversations = async () => {
+    const { data: { session } } = await window._sb.auth.getSession();
+    if(session) setMyUserId(session.user.id);
 
-  // Group by conversation_id or sender_id to show conversations
-  const convMap = {};
-  messages.forEach(m => {
-    const key = m.conversation_id || m.sender_id || m.id;
-    if(!convMap[key]) convMap[key] = { messages: [], lastMsg: m, participants: new Set() };
-    convMap[key].messages.push(m);
-    if(m.sender_id) convMap[key].participants.add(m.sender_id);
-    if(m.receiver_id) convMap[key].participants.add(m.receiver_id);
-    if(!convMap[key].lastMsg || new Date(m.created_at) > new Date(convMap[key].lastMsg.created_at)) convMap[key].lastMsg = m;
-  });
-  const conversations = Object.values(convMap).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
+    const { data, error } = await window._sb
+      .from('messages')
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if(error || !data){ setLoading(false); return; }
 
+    const ids = [...new Set(data.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean))];
+    let profMap = {};
+    if(ids.length > 0){
+      const { data: profs } = await window._sb.from('profiles').select('id, name, avatar_url, role, user_type, tag').in('id', ids);
+      if(profs) profs.forEach(p => { profMap[p.id] = p; });
+    }
+    setProfiles(profMap);
+
+    const convMap = {};
+    data.forEach(m => {
+      const key = m.conversation_id || m.sender_id || m.id;
+      if(!convMap[key]) convMap[key] = { id: key, messages: [], lastMsg: m, participants: new Set(), is3way: false };
+      convMap[key].messages.push(m);
+      if(m.sender_id) convMap[key].participants.add(m.sender_id);
+      if(m.receiver_id) convMap[key].participants.add(m.receiver_id);
+      if(m.type === 'system' && m.content === '__STORE_ADDED__') convMap[key].is3way = true;
+      if(!convMap[key].lastMsg || new Date(m.created_at) > new Date(convMap[key].lastMsg.created_at)) convMap[key].lastMsg = m;
+    });
+    const sorted = Object.values(convMap).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
+    setConversations(sorted);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadConversations(); }, []);
+
+  // Open a conversation
+  const openChat = async (convId) => {
+    setOpenConv(convId);
+    setChatLoading(true);
+    setChatMsgs([]);
+
+    const { data, error } = await window._sb
+      .from('messages')
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
+      .eq('conversation_id', convId)
+      .order('created_at', { ascending: true })
+      .limit(200);
+
+    if(!error && data) setChatMsgs(data);
+    setChatLoading(false);
+    setTimeout(scrollToBottom, 100);
+
+    // Realtime subscription
+    if(subRef.current) subRef.current.unsubscribe();
+    subRef.current = window._sb
+      .channel('portal-chat-' + convId)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'conversation_id=eq.' + convId },
+        (payload) => {
+          setChatMsgs(prev => {
+            if(prev.some(m => m.id === payload.new.id)) return prev;
+            return [...prev, payload.new];
+          });
+          setTimeout(scrollToBottom, 100);
+        })
+      .subscribe();
+  };
+
+  // Cleanup subscription on unmount or conv change
+  useEffect(() => { return () => { if(subRef.current) subRef.current.unsubscribe(); }; }, []);
+
+  // Send message
+  const sendMessage = async () => {
+    const txt = msgText.trim();
+    if(!txt || sending) return;
+    setSending(true);
+    setMsgText('');
+
+    const { data: { session } } = await window._sb.auth.getSession();
+    if(!session){ setSending(false); return; }
+
+    // Find receiver from conversation participants
+    const conv = conversations.find(c => c.id === openConv);
+    const participantIds = conv ? [...conv.participants] : [];
+    const receiverId = participantIds.find(id => id !== session.user.id) || null;
+
+    const { error } = await window._sb.from('messages').insert({
+      sender_id: session.user.id,
+      receiver_id: receiverId,
+      conversation_id: openConv,
+      content: txt,
+      type: 'text'
+    });
+    if(error) console.error('Send error:', error);
+    setSending(false);
+    setTimeout(scrollToBottom, 100);
+  };
+
+  const handleKeyDown = (e) => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } };
+
+  const formatTime = (ts) => {
+    if(!ts) return '';
+    const d = new Date(ts);
+    return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + d.getHours() + ':' + (d.getMinutes()<10?'0':'') + d.getMinutes();
+  };
+
+  const getInitials = (name) => name ? name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() : '??';
+
+  if(loading) return <div style={{ padding:20, color:C.muted }}>Carregando mensagens...</div>;
+
+  // Chat view (conversation open)
+  if(openConv){
+    const conv = conversations.find(c => c.id === openConv);
+    const participantNames = conv ? [...conv.participants].map(id => profiles[id]?.name || 'Usuario').join(', ') : '';
+
+    return (
+      <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 120px)', background:C.white, borderRadius:16, overflow:'hidden', boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+        {/* Chat header */}
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid '+C.border, display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+          <button onClick={() => { setOpenConv(null); loadConversations(); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:C.ink, padding:'4px 8px', borderRadius:8 }}>←</button>
+          <div style={{ display:'flex', gap:-4 }}>
+            {conv && [...conv.participants].slice(0,3).map((id, i) => {
+              const p = profiles[id];
+              return (
+                <div key={id} style={{ width:36, height:36, borderRadius:'50%', overflow:'hidden', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:11, color:C.ink, marginLeft: i>0?-8:0, border:'2px solid '+C.white, position:'relative', zIndex:3-i }}>
+                  {p?.avatar_url ? <img src={p.avatar_url} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : getInitials(p?.name||'')}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:700, fontSize:14, color:C.ink }}>{participantNames}</div>
+            <div style={{ fontSize:11, color:C.muted }}>
+              {conv?.is3way && <span style={{ background:C.p1+'22', color:C.p1, borderRadius:4, fontSize:9, padding:'1px 6px', fontWeight:700, marginRight:6 }}>3-WAY</span>}
+              {conv ? conv.participants.size + ' participantes' : ''}
+            </div>
+          </div>
+        </div>
+
+        {/* Messages area */}
+        <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', background:'#faf8f5' }}>
+          {chatLoading && <div style={{ textAlign:'center', color:C.muted, padding:20 }}>Carregando...</div>}
+          {chatMsgs.filter(m => m.type !== 'system').map((m) => {
+            const isMe = m.sender_id === myUserId;
+            const isStore = m.type === 'store';
+            const sender = profiles[m.sender_id];
+            const senderName = sender?.name || 'Usuario';
+            const isImg = m.type === 'image' || (m.content && m.content.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i));
+            const time = formatTime(m.created_at);
+
+            return (
+              <div key={m.id} style={{ display:'flex', flexDirection: isMe ? 'row-reverse' : 'row', gap:8, marginBottom:12, alignItems:'flex-end' }}>
+                {!isMe && (
+                  <div style={{ width:32, height:32, borderRadius:'50%', overflow:'hidden', background: isStore ? C.ink : C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:10, color: isStore ? C.p1 : C.ink, flexShrink:0 }}>
+                    {isStore ? 'CC' : (sender?.avatar_url ? <img src={sender.avatar_url} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : getInitials(senderName))}
+                  </div>
+                )}
+                <div style={{ maxWidth:'65%' }}>
+                  {!isMe && <div style={{ fontSize:10, fontWeight:600, color: isStore ? C.p1 : C.muted, marginBottom:2, marginLeft:4 }}>{isStore ? 'Cali Colors' : senderName}</div>}
+                  <div style={{
+                    padding: isImg ? 4 : '10px 14px',
+                    borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                    background: isMe ? C.ink : (isStore ? C.p1+'15' : C.white),
+                    color: isMe ? '#fff' : C.ink,
+                    fontSize:13, lineHeight:'1.4',
+                    border: isMe ? 'none' : '1px solid '+C.border,
+                    wordBreak:'break-word'
+                  }}>
+                    {isImg ? <img src={m.content} style={{ maxWidth:220, borderRadius:12, display:'block' }} /> : m.content}
+                  </div>
+                  <div style={{ fontSize:9, color:C.muted, marginTop:2, textAlign: isMe ? 'right' : 'left', marginLeft:4, marginRight:4 }}>{time}</div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={msgsEndRef} />
+        </div>
+
+        {/* Input area */}
+        <div style={{ padding:'12px 20px', borderTop:'1px solid '+C.border, display:'flex', gap:10, alignItems:'center', flexShrink:0, background:C.white }}>
+          <input
+            value={msgText}
+            onChange={e => setMsgText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Digite sua mensagem..."
+            style={{ flex:1, padding:'10px 16px', borderRadius:24, border:'1px solid '+C.border, fontSize:13, outline:'none', background:'#faf8f5' }}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={sending || !msgText.trim()}
+            style={{ width:40, height:40, borderRadius:'50%', background: msgText.trim() ? C.p1 : C.border, color:'#fff', border:'none', cursor: msgText.trim() ? 'pointer' : 'default', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+          >➤</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Conversations list
   return (
     <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-      <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>Mensagens Recentes</div>
-      {conversations.length === 0 && <div style={{ color:C.muted, fontSize:13 }}>Nenhuma mensagem encontrada.</div>}
+      <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>Conversas</div>
+      {conversations.length === 0 && <div style={{ color:C.muted, fontSize:13 }}>Nenhuma conversa encontrada.</div>}
       {conversations.map((conv, i) => {
         const m = conv.lastMsg;
         const sender = profiles[m.sender_id];
         const senderName = sender ? sender.name : (m.sender_id ? m.sender_id.slice(0,8) + '...' : 'Desconhecido');
         const senderAvatar = sender?.avatar_url;
-        const initials = senderName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-        const participants = [...conv.participants].map(id => profiles[id]?.name || '?').join(', ');
+        const initials = getInitials(senderName);
+        const participantNames = [...conv.participants].map(id => profiles[id]?.name || '?').join(', ');
         const isPintor = sender && (sender.role === 'pintor' || sender.user_type === 'pintor');
+        const lastContent = m.type === 'system' ? '(sistema)' : (m.type === 'image' ? '📷 Foto' : (m.content || '').substring(0, 60));
         const dt = m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
         return (
-          <div key={m.id || i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom: i < conversations.length - 1 ? '1px solid '+C.border : 'none' }}>
-            <div style={{ width:40, height:40, borderRadius:'50%', overflow:'hidden', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:13, color:C.ink, flexShrink:0 }}>
+          <div key={conv.id || i} onClick={() => openChat(conv.id)} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom: i < conversations.length - 1 ? '1px solid '+C.border : 'none', cursor:'pointer', transition:'background 0.15s', borderRadius:8 }}
+            onMouseEnter={e => e.currentTarget.style.background='#faf8f5'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+            <div style={{ width:44, height:44, borderRadius:'50%', overflow:'hidden', background:C.p2, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14, color:C.ink, flexShrink:0 }}>
               {senderAvatar ? <img src={senderAvatar} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
             </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:2 }}>
                 <span style={{ fontWeight:600, fontSize:13 }}>{senderName}</span>
                 {isPintor && <span style={{ background:C.ink, color:C.p1, borderRadius:6, fontSize:9, padding:'1px 6px', fontWeight:700 }}>PINTOR</span>}
-                {conv.participants.size > 2 && <span style={{ background:C.p1+'22', color:C.p1, borderRadius:6, fontSize:9, padding:'1px 6px', fontWeight:700 }}>3-WAY</span>}
+                {conv.is3way && <span style={{ background:C.p1+'22', color:C.p1, borderRadius:6, fontSize:9, padding:'1px 6px', fontWeight:700 }}>3-WAY</span>}
+                {conv.participants.size > 2 && !conv.is3way && <span style={{ background:C.p3+'22', color:C.p3, borderRadius:6, fontSize:9, padding:'1px 6px', fontWeight:700 }}>{conv.participants.size}P</span>}
               </div>
-              <div style={{ fontSize:12, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.content || ''}</div>
-              {conv.participants.size > 1 && <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{participants}</div>}
+              <div style={{ fontSize:12, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{lastContent}</div>
+              {conv.participants.size > 1 && <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{participantNames}</div>}
             </div>
-            <div style={{ fontSize:11, color:C.muted, flexShrink:0 }}>{dt}</div>
-            {conv.messages.length > 1 && <div style={{ background:C.p1, color:'#fff', borderRadius:'50%', width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>{conv.messages.length}</div>}
+            <div style={{ textAlign:'right', flexShrink:0 }}>
+              <div style={{ fontSize:11, color:C.muted }}>{dt}</div>
+              {conv.messages.length > 1 && <div style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:700, padding:'2px 7px', marginTop:4, display:'inline-block' }}>{conv.messages.length}</div>}
+            </div>
           </div>
         );
       })}
