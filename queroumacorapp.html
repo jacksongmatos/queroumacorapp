@@ -3688,7 +3688,7 @@ async function loadStories(){
     storyGroups.forEach((g, gi) => {
       const p = g.profile;
       const name = (p.name || 'User').split(' ')[0];
-      const avatar = p.avatar_url || g.stories[0].image_url || 'https://i.pravatar.cc/150?img=68';
+      const avatar = p.avatar_url || g.stories[0].media_url || 'https://i.pravatar.cc/150?img=68';
       const seen = isStoryGroupSeen(g.user_id) ? ' seen' : '';
       html += `<div class="story" onclick="openStoryViewer(${gi})">
         <div class="story-ring${seen}"><div class="story-inner"><img src="${avatar}" alt=""></div></div>
@@ -3735,7 +3735,7 @@ function renderCurrentStory(){
   const p = g.profile;
 
   // Update image
-  document.getElementById('story-viewer-img').src = s.image_url || '';
+  document.getElementById('story-viewer-img').src = s.media_url || '';
   // Update header
   document.getElementById('story-viewer-avatar').src = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
   document.getElementById('story-viewer-name').textContent = p.name || 'User';
@@ -3860,8 +3860,8 @@ async function publishPost(){
     // Insert story
     const { error: insertErr } = await sb.from('posts').insert({
       user_id: session.user.id,
-      content: content || null,
-      image_url: imageUrl,
+      caption: content || null,
+      media_url: imageUrl,
       media_type: 'story',
       created_at: new Date().toISOString()
     });
