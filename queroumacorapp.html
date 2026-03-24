@@ -3667,7 +3667,7 @@ async function loadStories(){
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
     const { data: stories, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url)')
-      .eq('type', 'story')
+      .eq('media_type', 'story')
       .gte('created_at', since)
       .order('created_at', { ascending: true })
       .limit(100);
@@ -3862,7 +3862,7 @@ async function publishPost(){
       user_id: session.user.id,
       content: content || null,
       image_url: imageUrl,
-      type: 'story',
+      media_type: 'story',
       created_at: new Date().toISOString()
     });
 
