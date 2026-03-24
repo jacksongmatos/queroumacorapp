@@ -629,14 +629,23 @@ const Chats = () => {
     const participantIds = conv ? [...conv.participants] : [];
     const receiverId = participantIds.find(id => id !== session.user.id) || null;
 
-    const { error } = await window._sb.from('messages').insert({
+    const { data: inserted, error } = await window._sb.from('messages').insert({
       sender_id: session.user.id,
       receiver_id: receiverId,
       conversation_id: openConv,
       content: txt,
       type: 'store'
-    });
-    if(error) console.error('Send error:', error);
+    }).select();
+    if(error){
+      console.error('Send error:', error);
+      alert('Erro ao enviar: ' + error.message);
+    } else if(inserted && inserted[0]){
+      // Optimistic: add to chat immediately without waiting for realtime
+      setChatMsgs(prev => {
+        if(prev.some(m => m.id === inserted[0].id)) return prev;
+        return [...prev, inserted[0]];
+      });
+    }
     setSending(false);
     setTimeout(scrollToBottom, 100);
   };
