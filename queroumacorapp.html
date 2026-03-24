@@ -866,8 +866,8 @@ function searchPeople(query){
     const cleanQuery=query.replace('@','').trim();
     const {data,error}=await sb
       .from('profiles')
-      .select('id, name, avatar_url, user_type, city')
-      .ilike('name', '%'+cleanQuery+'%')
+      .select('id, name, tag, avatar_url, user_type, role, city')
+      .or('name.ilike.%'+cleanQuery+'%,tag.ilike.%'+cleanQuery+'%')
       .limit(20);
     if(error||!data||data.length===0){
       container.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--muted);">
@@ -885,13 +885,15 @@ function searchPeople(query){
     container.innerHTML=data.map(p=>{
       const isFollowing=followingIds.includes(p.id);
       const isSelf=currentUser&&currentUser.id===p.id;
-      const roleBadge=p.role==='pintor'?'<span style="background:var(--ink);color:var(--p1);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.3px;margin-left:5px;">PINTOR</span>':'';
+      const isPintor=(p.role==='pintor'||p.user_type==='pintor');
+      const roleBadge=isPintor?'<span style="background:var(--ink);color:var(--p1);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.3px;margin-left:5px;">PINTOR</span>':'';
       const avatarUrl=p.avatar_url||'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'?')+'&background=e8e2d9&color=1a1a2e&size=96';
+      const tagDisplay=p.tag?'@'+p.tag:'';
       return `<div class="search-result-item" onclick="openUserProfile('${p.id}')">
         <div class="search-result-avatar"><img src="${avatarUrl}" alt=""></div>
         <div class="search-result-info">
           <div class="search-result-tag">${p.name||'Sem nome'}${roleBadge}</div>
-          <div class="search-result-name">${p.name||''}${p.city?' · '+p.city:''}</div>
+          <div class="search-result-name">${tagDisplay}${tagDisplay&&p.city?' · ':''}${p.city||''}</div>
         </div>
         ${isSelf?'':`<button class="search-result-follow ${isFollowing?'following':'follow'}" onclick="event.stopPropagation();toggleFollow('${p.id}',this)">${isFollowing?'Seguindo':'Seguir'}</button>`}
       </div>`;
@@ -1265,8 +1267,8 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <div class="screen" id="screen-explore">
   <div class="explore-screen">
     <div class="explore-search">
-      <input class="exp-input" type="text" placeholder="Cidade, bairro ou especialidade...">
-      <button class="exp-filter-btn" onclick="toast('Filtros')">Filtrar</button>
+      <input class="exp-input" id="explore-search-input" type="text" placeholder="Buscar por nome, @tag ou cidade..." oninput="filterExplorePainters(this.value)">
+      <button class="exp-filter-btn" onclick="filterExplorePainters(document.getElementById('explore-search-input').value)">Filtrar</button>
     </div>
     <div class="map-container" id="map-container">
       <!-- Leaflet map -->
@@ -4255,23 +4257,24 @@ function createPinIcon(painter){
   });
 }
 
+let dbPainters = [];
+
 async function loadMapPainters(){
   try {
     const sb = getSupabase();
     if(!sb) return;
     const { data: profiles, error } = await sb.from('profiles')
-      .select('id, name, avatar_url, city, state, user_type, specialties, rating_avg, lat, lng')
-      .eq('role', 'pintor')
+      .select('id, name, tag, avatar_url, city, state, user_type, role, specialties, rating_avg, lat, lng')
+      .or('role.eq.pintor,user_type.eq.pintor')
       .limit(50);
     if(error) throw error;
     if(!profiles || profiles.length === 0) return;
 
+    dbPainters = profiles;
+
     // Clear existing markers loaded from DB
     mapMarkers.forEach(m => { if(m._fromDB) leafletMap.removeLayer(m); });
     mapMarkers = mapMarkers.filter(m => !m._fromDB);
-
-    const painterListEl = document.getElementById('painter-list');
-    let listHtml = '';
 
     profiles.forEach(p => {
       if(p.lat && p.lng){
@@ -4288,19 +4291,68 @@ async function loadMapPainters(){
         });
         mapMarkers.push(marker);
       }
-
-      const stars = '* '.repeat(Math.floor(p.rating_avg||0));
-      listHtml += `<div onclick="toast('Perfil: ${p.name}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-        <img src="${p.avatar_url || 'https://i.pravatar.cc/150?img=68'}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-        <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.name || 'Pintor'}</div><div style="font-size:12px;color:var(--muted);">${[p.city, p.state].filter(Boolean).join(', ')} ${p.specialties ? '- ' + p.specialties : ''}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${Number(p.rating_avg||0).toFixed(1)}</div></div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>`;
     });
 
-    if(listHtml) painterListEl.innerHTML = listHtml;
+    renderPainterList(profiles);
   } catch(e) {
     console.error('loadMapPainters error:', e);
   }
+}
+
+function renderPainterList(painters_list){
+  const painterListEl = document.getElementById('painter-list');
+  if(!painterListEl) return;
+  if(!painters_list || painters_list.length === 0){
+    painterListEl.innerHTML = '<div style="text-align:center;padding:30px 20px;color:var(--muted);font-size:13px;">Nenhum pintor encontrado</div>';
+    return;
+  }
+  painterListEl.innerHTML = painters_list.map(p => {
+    const stars = '* '.repeat(Math.floor(p.rating_avg||p.rating||0));
+    const rating = Number(p.rating_avg||p.rating||0).toFixed(1);
+    const avatarUrl = p.avatar_url || p.img || 'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'P')+'&background=e8e2d9&color=1a1a2e&size=96';
+    const location = p.city ? [p.city, p.state].filter(Boolean).join(', ') : '';
+    const specs = p.specialties || (p.specs ? p.specs.slice(0,2).join(', ') : '');
+    return `<div onclick="openUserProfile('${p.id}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
+      <img src="${avatarUrl}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
+      <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.name || 'Pintor'}</div><div style="font-size:12px;color:var(--muted);">${location} ${specs ? '- ' + specs : ''}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${rating}</div></div>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>`;
+  }).join('');
+}
+
+function filterExplorePainters(query){
+  const q = (query||'').replace('@','').trim().toLowerCase();
+  if(!q){
+    // Show all: DB painters + local painters
+    const allPainters = [...dbPainters];
+    // Add local painters that aren't already in DB list
+    Object.entries(painters).forEach(([id, p]) => {
+      const alreadyInDB = dbPainters.some(dp => dp.name === p.name);
+      if(!alreadyInDB) allPainters.push({ id: id, name: p.name, img: p.img, city: p.city, specialties: p.specs.join(', '), rating: p.rating, rating_avg: p.rating });
+    });
+    renderPainterList(allPainters);
+    return;
+  }
+  // Filter DB painters
+  const filtered = dbPainters.filter(p => {
+    const name = (p.name||'').toLowerCase();
+    const tag = (p.tag||'').toLowerCase();
+    const city = (p.city||'').toLowerCase();
+    const specs = (p.specialties||'').toLowerCase();
+    return name.includes(q) || tag.includes(q) || city.includes(q) || specs.includes(q);
+  });
+  // Also filter local painters
+  Object.entries(painters).forEach(([id, p]) => {
+    const alreadyInDB = dbPainters.some(dp => dp.name === p.name);
+    if(alreadyInDB) return;
+    const name = p.name.toLowerCase();
+    const city = (p.city||'').toLowerCase();
+    const specs = (p.specs||[]).join(' ').toLowerCase();
+    if(name.includes(q) || city.includes(q) || specs.includes(q)){
+      filtered.push({ id: id, name: p.name, img: p.img, city: p.city, specialties: p.specs.join(', '), rating: p.rating, rating_avg: p.rating });
+    }
+  });
+  renderPainterList(filtered);
 }
 
 function loadLocalPaintersOnMap(){
@@ -4313,8 +4365,6 @@ function loadLocalPaintersOnMap(){
     pedro: [-25.43, -49.27],
     fabio: [-30.03, -51.23]
   };
-  const painterListEl = document.getElementById('painter-list');
-  let listHtml = '';
 
   Object.entries(painters).forEach(([id, p]) => {
     const c = coords[id];
@@ -4327,14 +4377,15 @@ function loadLocalPaintersOnMap(){
       });
       mapMarkers.push(marker);
     }
-    const stars = '*'.repeat(Math.floor(p.rating));
-    listHtml += `<div onclick="openProfile('${id}')" style="background:var(--white);border-radius:14px;padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06);">
-      <img src="${p.img}" style="width:52px;height:52px;border-radius:12px;object-fit:cover">
-      <div style="flex:1"><div style="font-size:14px;font-weight:700;">${p.name} ${p.pro?'<span style=\"background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;\">PRO</span>':''}</div><div style="font-size:12px;color:var(--muted);">${p.city} - ${p.specs.slice(0,2).join(', ')}</div><div style="font-size:12px;color:var(--p1);margin-top:2px;">${stars} ${p.rating.toFixed(1)} - ${p.total} avaliacoes</div></div>
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-    </div>`;
   });
-  if(painterListEl && !painterListEl.innerHTML.trim()) painterListEl.innerHTML = listHtml;
+
+  // Build combined list: DB painters + local painters not in DB
+  const allPainters = [...dbPainters];
+  Object.entries(painters).forEach(([id, p]) => {
+    const alreadyInDB = dbPainters.some(dp => dp.name === p.name);
+    if(!alreadyInDB) allPainters.push({ id: id, name: p.name, img: p.img, city: p.city, specialties: p.specs.join(', '), rating: p.rating, rating_avg: p.rating });
+  });
+  renderPainterList(allPainters);
 }
 
 // ══════════════════════════════
