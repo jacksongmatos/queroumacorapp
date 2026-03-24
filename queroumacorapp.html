@@ -1244,7 +1244,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 
   <!-- Feed posts area -->
   <div class="mosaic-feed" id="feed-posts-area"></div>
-  <div id="feed-empty" style="text-align:center;color:var(--muted);padding:60px 20px;">
+  <div id="feed-empty" style="display:none;text-align:center;color:var(--muted);padding:60px 20px;">
     <div style="font-size:48px;margin-bottom:12px;">📸</div>
     <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhuma publicacao ainda</div>
     <div style="font-size:13px;">Siga pintores ou crie seu primeiro post!</div>
@@ -3779,12 +3779,22 @@ async function loadPosts(){
   try {
     const sb = getSupabase();
     if(!sb) return;
-    const { data: posts, error } = await sb.from('posts')
+    let { data: posts, error } = await sb.from('posts')
       .select('*, profiles:user_id(name, avatar_url, tag)')
       .eq('media_type', 'post')
       .order('created_at', { ascending: false })
       .limit(30);
-    if(error) throw error;
+    if(error){
+      console.error('loadPosts query error:', error);
+      // Fallback: load all non-story posts
+      const res = await sb.from('posts')
+        .select('*, profiles:user_id(name, avatar_url, tag)')
+        .neq('media_type', 'story')
+        .order('created_at', { ascending: false })
+        .limit(30);
+      posts = res.data;
+      if(res.error) throw res.error;
+    }
 
     const container = document.getElementById('feed-posts-area');
     const emptyEl = document.getElementById('feed-empty');
@@ -4141,13 +4151,15 @@ async function publishPost(){
 
     if(insertErr){
       console.error('Post insert error:', insertErr);
-      toast('Erro ao publicar: ' + insertErr.message);
+      toast('Erro ao publicar: ' + (insertErr.message || JSON.stringify(insertErr)));
     } else {
       toast(type === 'story' ? 'Story publicado!' : 'Post publicado!');
       closeModals();
       document.getElementById('post-text-input').value = '';
       clearPostImages();
-      loadFeed();
+      // Reset type to story for next time
+      setPostType('story');
+      await loadFeed();
     }
   } catch(e) {
     console.error('publishPost error:', e);
