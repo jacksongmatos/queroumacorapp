@@ -2899,7 +2899,7 @@ async function loadChatList(){
   try {
     const myId = currentUser.id;
     const { data: msgs, error } = await sb.from('messages')
-      .select('id, sender_id, receiver_id, conversation_id, content, created_at')
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
       .or('sender_id.eq.'+myId+',receiver_id.eq.'+myId)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -2913,10 +2913,19 @@ async function loadChatList(){
     msgs.forEach(m => {
       const otherId = m.sender_id === myId ? m.receiver_id : m.sender_id;
       const key = m.conversation_id || otherId || m.id;
-      if(!convs[key]) convs[key] = { id: key, otherId: otherId, messages: [], lastMsg: m };
+      if(!convs[key]) convs[key] = { id: key, otherId: otherId, messages: [], lastMsg: null, is3way: false };
       convs[key].messages.push(m);
-      if(new Date(m.created_at) > new Date(convs[key].lastMsg.created_at)) convs[key].lastMsg = m;
+      // Track 3-way status from DB
+      if(m.type === 'system' && m.content === '__STORE_ADDED__') convs[key].is3way = true;
+      // Use most recent non-system message as preview
+      if(m.type !== 'system'){
+        if(!convs[key].lastMsg || new Date(m.created_at) > new Date(convs[key].lastMsg.created_at)){
+          convs[key].lastMsg = m;
+        }
+      }
     });
+    // Fallback: if no non-system lastMsg, use any message
+    Object.values(convs).forEach(c => { if(!c.lastMsg) c.lastMsg = c.messages[0]; });
     const convList = Object.values(convs).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
     // Load profiles for all other users
     const otherIds = [...new Set(convList.map(c => c.otherId).filter(Boolean))];
@@ -2935,20 +2944,28 @@ async function loadChatList(){
       const isMine = lastMsg.sender_id === myId;
       const time = lastMsg.created_at ? new Date(lastMsg.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
       // Populate chatData so openChat() can find this conversation
-      chatData[conv.id] = chatData[conv.id] || {
-        type: 'direct',
-        name: name,
-        sub: other.tag ? '@' + other.tag : '',
-        participants: [{
-          img: avatar,
-          name: name,
-          role: isPintor ? 'Pintor' : 'Usuario'
-        }],
-        messages: []
-      };
+      const existing3way = chatData[conv.id] && chatData[conv.id].type === '3way';
+      const db3way = conv.is3way;
+      const is3wayChat = existing3way || db3way;
+      if(!chatData[conv.id] || chatData[conv.id].type === 'direct'){
+        chatData[conv.id] = {
+          type: is3wayChat ? '3way' : 'direct',
+          name: is3wayChat ? name + ' + Cali Colors' : name,
+          sub: is3wayChat ? '3 participantes · Chat 3-way ativo' : (other.tag ? '@' + other.tag : ''),
+          participants: is3wayChat
+            ? [{logo:true,name:'Cali Colors',role:'Loja Oficial'},{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}]
+            : [{img:avatar,name:name,role:isPintor?'Pintor':'Usuario'}],
+          messages: []
+        };
+      }
+      const displayName = is3wayChat ? name + ' + Cali Colors' : name;
+      const storeAvatar = is3wayChat
+        ? '<div class="conv-av-store" style="position:absolute;bottom:-2px;right:-2px;width:18px;height:18px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);z-index:2;"><span style="font-size:7px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+        : '';
+      const threewayBadge = is3wayChat ? ' <span style="background:var(--ink);color:var(--p1);font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">3-WAY</span>' : '';
       return '<div class="conv-item" onclick="openChat(\''+conv.id+'\')">'
-        + '<div class="conv-avatars"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div></div>'
-        + '<div class="conv-info"><div class="conv-name">'+escapeHtml(name)+(isPintor?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
+        + '<div class="conv-avatars" style="position:relative;"><div class="conv-av-main"><img src="'+avatar+'" alt=""></div>'+storeAvatar+'</div>'
+        + '<div class="conv-info"><div class="conv-name">'+escapeHtml(displayName)+threewayBadge+(isPintor && !is3wayChat?' <span style="background:var(--p1);color:#fff;font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;">PINTOR</span>':'')+'</div>'
         + '<div class="conv-preview">'+(isMine?'Voce: ':'')+escapeHtml(preview.substring(0,50))+'</div></div>'
         + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;"><div class="conv-time">'+time+'</div></div>'
         + '</div>';
@@ -3601,23 +3618,58 @@ function openChat(id) {
 
     // Load history by conversation_id (both sent and received)
     const { data: msgs, error } = await sb.from('messages')
-      .select('id, sender_id, receiver_id, conversation_id, content, created_at')
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
       .eq('conversation_id', id)
       .order('created_at', { ascending: true })
       .limit(50);
 
     if(!error && msgs && msgs.length > 0){
       const myId = session.user.id;
-      const now = new Date();
-      const realMsgs = msgs.map(m => {
+      // Detect 3-way from DB messages
+      const has3way = msgs.some(m => m.type === 'system' && m.content === '__STORE_ADDED__');
+      if(has3way && conv.type !== '3way'){
+        conv.type = '3way';
+        if(!conv.participants.some(p => p.logo)){
+          conv.participants.unshift({logo:true,name:'Cali Colors',role:'Loja Oficial'});
+        }
+        conv.name = conv.name.includes('Cali Colors') ? conv.name : conv.name + ' + Cali Colors';
+        conv.sub = '3 participantes · Chat 3-way ativo';
+        chatStoreAdded = true;
+        // Update header for 3-way
+        document.getElementById('chat-header-name').textContent = conv.name;
+        document.getElementById('chat-header-sub').textContent = conv.sub;
+        document.getElementById('invite-store-bar').style.display = 'none';
+        const avatarsEl = document.getElementById('chat-header-avatars');
+        const parts = conv.participants.slice(0,3);
+        avatarsEl.innerHTML = parts.map((p,i)=>`
+          <div class="cha-av" style="left:${i*10}px;z-index:${3-i}">
+            ${p.logo
+              ? '<div style="width:100%;height:100%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+              : '<img src="'+p.img+'" alt="'+p.name+'">'}
+          </div>`).join('');
+        avatarsEl.style.width=(parts.length*10+22)+'px';
+        const partRow = document.getElementById('participant-row');
+        partRow.style.display='flex';
+        partRow.innerHTML = conv.participants.map(p=>`
+          <div class="part-chip ${p.logo?'store':''}">
+            ${p.logo?'<div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>':'<img src="'+p.img+'" alt="'+p.name+'">'}
+            <div><div class="part-chip-name">${p.name}</div><div class="part-chip-role">${p.role}</div></div>
+          </div>`).join('');
+      }
+      // Find the other user's participant info (skip store)
+      const otherPart = conv.participants.find(p => !p.logo) || conv.participants[0];
+      const realMsgs = msgs.filter(m => m.type !== 'system').map(m => {
         const t = new Date(m.created_at);
         const time = t.getHours()+':'+(t.getMinutes()<10?'0':'')+t.getMinutes();
+        if(m.type === 'store'){
+          return { from:'store', text: m.content, time, sender:'Cali Colors' };
+        }
         return {
           from: m.sender_id === myId ? 'me' : 'other',
           text: m.content,
           time,
-          sender: conv.participants[0] ? conv.participants[0].name : 'Pintor',
-          img: conv.participants[0] ? conv.participants[0].img : ''
+          sender: otherPart ? otherPart.name : 'Pintor',
+          img: otherPart ? otherPart.img : ''
         };
       });
       renderMessages(realMsgs);
@@ -3797,24 +3849,69 @@ function addStoreToChat(){
   chatStoreAdded=true;
   const conv=chatData[currentChat];
   conv.type='3way';
-  conv.name=conv.name+' + Cali Colors';
+  conv.name=conv.name.includes('Cali Colors') ? conv.name : conv.name+' + Cali Colors';
   conv.sub='3 participantes · Chat 3-way ativo';
-  conv.participants.unshift({logo:true,name:'Cali Colors',role:'Loja Oficial'});
+  if(!conv.participants.some(p => p.logo)){
+    conv.participants.unshift({logo:true,name:'Cali Colors',role:'Loja Oficial'});
+  }
   document.getElementById('chat-header-name').textContent=conv.name;
   document.getElementById('chat-header-sub').textContent=conv.sub;
   document.getElementById('invite-store-bar').style.display='none';
+
+  // Update header avatars for 3-way
+  const avatarsEl = document.getElementById('chat-header-avatars');
+  const parts = conv.participants.slice(0,3);
+  avatarsEl.innerHTML = parts.map((p,i)=>`
+    <div class="cha-av" style="left:${i*10}px;z-index:${3-i}">
+      ${p.logo
+        ? '<div style="width:100%;height:100%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>'
+        : '<img src="'+(p.img||'')+'" alt="'+(p.name||'')+'">'}
+    </div>`).join('');
+  avatarsEl.style.width=(parts.length*10+22)+'px';
+
   const partRow=document.getElementById('participant-row');
   partRow.style.display='flex';
   partRow.innerHTML=conv.participants.map(p=>`
     <div class="part-chip ${p.logo?'store':''}">
-      ${p.logo?`<div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:var(--p1);font-family:'Syne',sans-serif;">CC</span></div>`:`<img src="${p.img}" alt="${p.name}">`}
+      ${p.logo?'<div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:var(--p1);font-family:\'Syne\',sans-serif;">CC</span></div>':'<img src="'+(p.img||'')+'" alt="'+(p.name||'')+'">'}
       <div><div class="part-chip-name">${p.name}</div><div class="part-chip-role">${p.role}</div></div>
     </div>`).join('');
+
+  // APPEND store welcome message to existing messages (don't wipe!)
   const time=new Date().getHours()+':'+(new Date().getMinutes()<10?'0':'')+new Date().getMinutes();
-  conv.messages.push({from:'store',sender:'Cali Colors',text:'Olá! 👋 Fui convidado para ajudar nesta conversa. Como posso auxiliar com tintas e materiais?',time});
-  renderMessages(conv.messages);
+  const storeText = 'Olá! 👋 Fui convidado para ajudar nesta conversa. Como posso auxiliar com tintas e materiais?';
   const area=document.getElementById('msgs-area');
+  const div=document.createElement('div');
+  div.className='msg-row';
+  div.innerHTML='<div class="msg-av store-av">CC</div><div><div class="msg-sender" style="color:var(--p1);">Cali Colors</div><div class="msg-bubble store">'+storeText+'</div><div class="msg-time">'+time+'</div></div>';
+  area.appendChild(div);
   area.scrollTop=area.scrollHeight;
+
+  // Save 3-way status + store welcome message to DB
+  (async()=>{
+    const sb=getSupabase();
+    const { data:{ session } } = await sb.auth.getSession();
+    if(!session) return;
+    const ids = currentChat ? currentChat.split('_') : [];
+    const receiverId = ids.find(id => id !== session.user.id) || null;
+    // Save system marker so we know this is 3-way
+    await sb.from('messages').insert({
+      sender_id: session.user.id,
+      receiver_id: receiverId,
+      conversation_id: currentChat,
+      content: '__STORE_ADDED__',
+      type: 'system'
+    });
+    // Save the store welcome message
+    await sb.from('messages').insert({
+      sender_id: session.user.id,
+      receiver_id: receiverId,
+      conversation_id: currentChat,
+      content: storeText,
+      type: 'store'
+    });
+  })();
+
   toast('Cali Colors foi adicionada ao chat! 🎨');
 }
 
