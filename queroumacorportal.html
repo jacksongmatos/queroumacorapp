@@ -1137,7 +1137,7 @@ const ClientesList = () => {
         {clientes.length > 0 && (
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['Nome','Email','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado'].map(h => (
+              {['Nome','@Tag','Email','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -1154,6 +1154,7 @@ const ClientesList = () => {
                     <span style={{ fontWeight:600 }}>{c.name || 'Sem nome'}</span>
                   </div>
                 </td>
+                <td style={{ padding:'10px 12px', color:C.p3, fontWeight:600 }}>{c.tag ? '@'+c.tag : '—'}</td>
                 <td style={{ padding:'10px 12px', color:C.muted }}>{c.email || '—'}</td>
                 <td style={{ padding:'10px 12px' }}>{c.city || '—'}</td>
                 <td style={{ padding:'10px 12px' }}>{c.state || '—'}</td>
