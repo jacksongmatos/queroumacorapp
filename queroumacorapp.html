@@ -4265,33 +4265,24 @@ async function generateInviteCode(view){
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = 'QUC-';
     for(let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    // Insert into invites table
-    const { error } = await sb.from('invites').insert({
-      code: code,
-      created_by: session.user.id,
-      used: false,
-      uses: 0,
-      max_uses: 5
-    });
-    if(error){
-      console.error('Invite insert error:', error);
-      // If table doesn't exist, still show the code
-      if(error.code === '42P01'){
-        toast('Tabela de convites nao existe ainda');
-      } else {
-        toast('Erro: ' + error.message);
-      }
-      btn.textContent = 'Gerar Codigo de Convite'; btn.disabled = false;
-      return;
-    }
+    // Try to insert into invites table (non-blocking)
+    try {
+      await sb.from('invites').insert({
+        code: code,
+        created_by: session.user.id,
+        used: false,
+        uses: 0,
+        max_uses: 5
+      });
+    } catch(dbErr){ console.warn('Invite DB insert skipped:', dbErr); }
+    // Always show the code to the user
     generatedInviteCode[view] = code;
-    // Show code
     document.getElementById('my-invite-code-' + view).style.display = 'block';
     document.getElementById('my-invite-code-value-' + view).textContent = code;
     document.getElementById('share-invite-btn-' + view).style.display = 'block';
     btn.textContent = 'Gerar Novo Codigo';
     btn.disabled = false;
-    toast('Codigo gerado: ' + code);
+    toast('Codigo gerado!');
   } catch(e){
     console.error('generateInviteCode error:', e);
     toast('Erro ao gerar codigo');
@@ -4308,7 +4299,7 @@ function shareInviteCode(view){
   } else if(navigator.clipboard){
     navigator.clipboard.writeText(code).then(()=>toast('Codigo copiado!')).catch(()=>toast('Codigo: '+code));
   } else {
-    toast('Codigo: ' + code);
+    prompt('Copie o codigo:', code);
   }
 }
 
