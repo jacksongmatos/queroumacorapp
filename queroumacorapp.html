@@ -771,7 +771,116 @@ async function loadMyProfileData(){
       if(nameEl) nameEl.textContent = meta.name || 'Seu Nome';
       if(subEl) subEl.textContent = meta.tag ? '@' + meta.tag : 'Configure seu perfil';
     }
+    // Load stats (posts, followers, following)
+    loadMyProfileStats();
   } catch(e){ console.warn('loadMyProfileData error:', e); }
+}
+
+async function loadMyProfileStats(){
+  const sb = getSupabase();
+  if(!sb || !currentUser) return;
+  try {
+    // Count posts
+    const { count: postCount } = await sb.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', currentUser.id).neq('media_type', 'story');
+    const postsEl = document.getElementById('myprofile-posts-count');
+    if(postsEl) postsEl.textContent = postCount || 0;
+
+    // Count followers (people following me)
+    const { count: followersCount } = await sb.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', currentUser.id);
+    const followersEl = document.getElementById('myprofile-followers-count');
+    if(followersEl) followersEl.textContent = followersCount || 0;
+
+    // Count following (people I follow)
+    const { count: followingCount } = await sb.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', currentUser.id);
+    const followingEl = document.getElementById('myprofile-following-count');
+    if(followingEl) followingEl.textContent = followingCount || 0;
+  } catch(e){ console.warn('loadMyProfileStats error:', e); }
+}
+
+async function openFollowersModal(){
+  const sb = getSupabase();
+  if(!sb || !currentUser) return;
+  const list = document.getElementById('followers-list');
+  list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">Carregando...</div>';
+  showModal('followers-modal');
+  try {
+    const { data } = await sb.from('follows').select('follower_id').eq('following_id', currentUser.id);
+    if(!data || data.length === 0){
+      list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">Nenhum seguidor ainda</div>';
+      return;
+    }
+    const ids = data.map(f => f.follower_id);
+    const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', ids);
+    list.innerHTML = '';
+    (profs||[]).forEach(p => {
+      const name = p.name || 'Usuario';
+      const tag = p.tag ? '@' + p.tag : '';
+      const avatar = p.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
+      list.innerHTML += `<div onclick="hideModal('followers-modal');openUserProfile('${p.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+        <div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;"><img src="${avatar}" style="width:100%;height:100%;object-fit:cover"></div>
+        <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>${tag ? '<div style="font-size:12px;color:var(--muted);">'+tag+'</div>' : ''}</div>
+      </div>`;
+    });
+  } catch(e){ list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">Erro ao carregar</div>'; }
+}
+
+async function openFollowingModal(){
+  const sb = getSupabase();
+  if(!sb || !currentUser) return;
+  const list = document.getElementById('following-list');
+  list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">Carregando...</div>';
+  showModal('following-modal');
+  try {
+    const { data } = await sb.from('follows').select('following_id').eq('follower_id', currentUser.id);
+    if(!data || data.length === 0){
+      list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">Voce nao segue ninguem ainda</div>';
+      return;
+    }
+    const ids = data.map(f => f.following_id);
+    const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', ids);
+    list.innerHTML = '';
+    (profs||[]).forEach(p => {
+      const name = p.name || 'Usuario';
+      const tag = p.tag ? '@' + p.tag : '';
+      const avatar = p.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
+      list.innerHTML += `<div onclick="hideModal('following-modal');openUserProfile('${p.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+        <div style="width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;"><img src="${avatar}" style="width:100%;height:100%;object-fit:cover"></div>
+        <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>${tag ? '<div style="font-size:12px;color:var(--muted);">'+tag+'</div>' : ''}</div>
+        <button onclick="event.stopPropagation();toggleFollowFromList(this,'${p.id}')" class="following" style="padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif;background:rgba(0,0,0,.05);border:1px solid var(--border);color:var(--ink);">Seguindo</button>
+      </div>`;
+    });
+  } catch(e){ list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">Erro ao carregar</div>'; }
+}
+
+async function toggleFollowFromList(btn, userId){
+  const sb = getSupabase();
+  if(!sb || !currentUser) return;
+  if(btn.classList.contains('following')){
+    await sb.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', userId);
+    btn.textContent = 'Seguir';
+    btn.classList.remove('following');
+    btn.style.background = 'var(--p1)';
+    btn.style.color = '#fff';
+    btn.style.border = 'none';
+  } else {
+    await sb.from('follows').insert({ follower_id: currentUser.id, following_id: userId });
+    btn.textContent = 'Seguindo';
+    btn.classList.add('following');
+    btn.style.background = 'rgba(0,0,0,.05)';
+    btn.style.color = 'var(--ink)';
+    btn.style.border = '1px solid var(--border)';
+  }
+  loadMyProfileStats();
+}
+
+function shareProfile(){
+  const name = document.getElementById('myprofile-name').textContent || 'Meu perfil';
+  if(navigator.share){
+    navigator.share({ title: name + ' - QueroUmaCor', text: 'Confira meu perfil no QueroUmaCor!', url: window.location.href });
+  } else {
+    navigator.clipboard.writeText(window.location.href);
+    toast('Link copiado!');
+  }
 }
 
 async function updateMyStoryAvatar(){
@@ -953,11 +1062,9 @@ async function openUserProfile(userId){
   try {
     const { data: prof } = await sb.from('profiles').select('*').eq('id', userId).single();
     if(!prof){ toast('Perfil nao encontrado'); return; }
-    // Check if it's a painter in the hardcoded list (for full profile view)
-    const painterKey = Object.keys(painters).find(k => painters[k].name === prof.name);
-    if(painterKey){
-      openProfile(painterKey);
-      return;
+    // Check if it's own profile
+    if(currentUser && userId === currentUser.id){
+      showScreen('myprofile'); return;
     }
     // For DB profiles, update profile screen elements directly
     const screen = document.getElementById('screen-profile');
@@ -971,10 +1078,58 @@ async function openUserProfile(userId){
     if(nameEl) nameEl.textContent = name;
     if(bioEl) bioEl.textContent = (prof.tag?'@'+prof.tag+' · ':'')+role+(location?' · '+location:'');
     if(avatarEl) avatarEl.src = avatar;
+
+    // Load stats for this user
+    const { count: postCount } = await sb.from('posts').select('*',{count:'exact',head:true}).eq('user_id',userId).neq('media_type','story');
+    const { count: followersCount } = await sb.from('follows').select('*',{count:'exact',head:true}).eq('following_id',userId);
+    const { count: followingCount } = await sb.from('follows').select('*',{count:'exact',head:true}).eq('follower_id',userId);
+    const statsEl = screen.querySelector('.ph-stats');
+    if(statsEl){
+      statsEl.innerHTML = `
+        <div class="ph-stat"><div class="ph-stat-n">${postCount||0}</div><div class="ph-stat-l">posts</div></div>
+        <div class="ph-stat"><div class="ph-stat-n">${followersCount||0}</div><div class="ph-stat-l">seguidores</div></div>
+        <div class="ph-stat"><div class="ph-stat-n">${followingCount||0}</div><div class="ph-stat-l">seguindo</div></div>
+      `;
+    }
+
+    // Check if currently following
+    let isFollowing = false;
+    if(currentUser){
+      const { data: fol } = await sb.from('follows').select('id').eq('follower_id',currentUser.id).eq('following_id',userId).limit(1);
+      isFollowing = fol && fol.length > 0;
+    }
+
+    // Update buttons: Follow/Following + Chat + Cali Colors
+    const btnsEl = screen.querySelector('.ph-btns');
+    if(btnsEl){
+      const followClass = isFollowing ? 'following' : 'follow';
+      const followText = isFollowing ? 'Seguindo' : 'Seguir';
+      const followStyle = isFollowing
+        ? 'background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;'
+        : 'background:var(--p1);border:none;color:#fff;';
+      btnsEl.innerHTML = `
+        <button class="ph-btn ${followClass}" onclick="toggleFollow('${userId}',this)" style="${followStyle}flex:1;padding:9px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">${followText}</button>
+        <button class="ph-btn msg" onclick="startChatWith('${userId}','${name.replace(/'/g,"\\'")}')" style="padding:9px 14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;font-size:16px;cursor:pointer;">💬</button>
+        <button class="ph-btn" onclick="showScreen('mkt')" style="padding:9px 14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">🛒 Cali</button>
+      `;
+    }
+
     showScreen('profile');
   } catch(e){
     console.error('openUserProfile error:', e);
     toast('Erro ao abrir perfil');
+  }
+}
+
+// Start a chat with a user from their profile
+async function startChatWith(userId, userName){
+  // Navigate to chat screen and create/open conversation
+  showScreen('chat');
+  // If openChatConversation exists, use it; otherwise just navigate
+  if(typeof openChatConversation === 'function'){
+    openChatConversation(userId, userName);
+  } else {
+    toast('Chat com ' + userName);
   }
 }
 
@@ -987,12 +1142,18 @@ async function toggleFollow(userId,btn){
     btn.textContent='Seguir';
     btn.classList.remove('following');
     btn.classList.add('follow');
+    btn.style.background='var(--p1)';
+    btn.style.border='none';
+    btn.style.color='#fff';
     toast('Deixou de seguir');
   } else {
     await sb.from('follows').insert({follower_id:currentUser.id,following_id:userId});
     btn.textContent='Seguindo';
     btn.classList.remove('follow');
     btn.classList.add('following');
+    btn.style.background='rgba(255,255,255,.12)';
+    btn.style.border='1px solid rgba(255,255,255,.2)';
+    btn.style.color='#fff';
     toast('Seguindo!');
   }
 }
@@ -1740,12 +1901,38 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 <!-- ══ MY PROFILE (PINTOR + CLIENTE) ══ -->
 <div class="screen" id="screen-myprofile">
   <div style="background:var(--ink);padding:16px 16px 0;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-      <div style="width:56px;height:56px;border-radius:14px;overflow:hidden;border:2px solid rgba(255,255,255,.15);flex-shrink:0;"><img id="myprofile-avatar" src="https://i.pravatar.cc/150?img=68" style="width:100%;height:100%;object-fit:cover" alt=""></div>
-      <div style="flex:1"><div id="myprofile-name" style="color:#fff;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;">Seu Nome</div><div id="myprofile-sub" style="color:rgba(255,255,255,.5);font-size:12px;">Configure seu perfil</div></div>
-      <button onclick="doLogout()" style="background:rgba(230,57,70,.15);border:1px solid rgba(230,57,70,.3);border-radius:10px;padding:7px 13px;color:#e63946;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Sair</button>
+    <!-- Profile header like IG -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+      <div style="width:76px;height:76px;border-radius:50%;padding:2.5px;background:conic-gradient(var(--p1),var(--p4),var(--p5),var(--p3),var(--p1));flex-shrink:0;">
+        <div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2.5px solid var(--ink);">
+          <img id="myprofile-avatar" src="https://i.pravatar.cc/150?img=68" style="width:100%;height:100%;object-fit:cover" alt="">
+        </div>
+      </div>
+      <div style="flex:1;display:flex;justify-content:space-around;text-align:center;">
+        <div style="cursor:default;">
+          <div id="myprofile-posts-count" style="color:#fff;font-size:18px;font-weight:800;font-family:'Syne',sans-serif;">0</div>
+          <div style="color:rgba(255,255,255,.55);font-size:11px;">posts</div>
+        </div>
+        <div onclick="openFollowersModal()" style="cursor:pointer;">
+          <div id="myprofile-followers-count" style="color:#fff;font-size:18px;font-weight:800;font-family:'Syne',sans-serif;">0</div>
+          <div style="color:rgba(255,255,255,.55);font-size:11px;">seguidores</div>
+        </div>
+        <div onclick="openFollowingModal()" style="cursor:pointer;">
+          <div id="myprofile-following-count" style="color:#fff;font-size:18px;font-weight:800;font-family:'Syne',sans-serif;">0</div>
+          <div style="color:rgba(255,255,255,.55);font-size:11px;">seguindo</div>
+        </div>
+      </div>
     </div>
-    <!-- Role is auto-detected from user_metadata -->
+    <!-- Name and tag -->
+    <div style="margin-bottom:6px;">
+      <div id="myprofile-name" style="color:#fff;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;">Seu Nome</div>
+      <div id="myprofile-sub" style="color:rgba(255,255,255,.5);font-size:12px;margin-top:2px;">Configure seu perfil</div>
+    </div>
+    <!-- Action buttons -->
+    <div style="display:flex;gap:8px;padding-bottom:14px;">
+      <button onclick="openEditProfile()" style="flex:1;padding:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Editar perfil</button>
+      <button onclick="shareProfile()" style="flex:1;padding:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Compartilhar</button>
+    </div>
   </div>
 
   <!-- PINTOR VIEW -->
@@ -2398,6 +2585,24 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 </div>
 
+<!-- FOLLOWERS MODAL -->
+<div class="overlay" id="followers-modal" onclick="hideModal('followers-modal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:75vh;display:flex;flex-direction:column;">
+    <div class="sheet-handle"></div>
+    <div style="font-size:16px;font-weight:800;text-align:center;padding:4px 0 12px;font-family:'Syne',sans-serif;color:var(--ink);">Seguidores</div>
+    <div id="followers-list" style="overflow-y:auto;flex:1;padding:0 4px;"></div>
+  </div>
+</div>
+
+<!-- FOLLOWING MODAL -->
+<div class="overlay" id="following-modal" onclick="hideModal('following-modal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:75vh;display:flex;flex-direction:column;">
+    <div class="sheet-handle"></div>
+    <div style="font-size:16px;font-weight:800;text-align:center;padding:4px 0 12px;font-family:'Syne',sans-serif;color:var(--ink);">Seguindo</div>
+    <div id="following-list" style="overflow-y:auto;flex:1;padding:0 4px;"></div>
+  </div>
+</div>
+
 <div class="overlay" id="pro-modal" onclick="closeModals()">
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
@@ -2634,6 +2839,7 @@ function toast(msg){
 // ══ MODALS ══
 function showModal(id){document.getElementById(id).classList.add('open');}
 function closeModals(){document.querySelectorAll('.overlay').forEach(m=>m.classList.remove('open'));}
+function hideModal(id){document.getElementById(id).classList.remove('open');}
 
 // ══ BEFORE/AFTER ══
 const baStates={};
