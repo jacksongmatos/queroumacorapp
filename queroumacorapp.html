@@ -901,44 +901,21 @@ function searchPeople(query){
   searchTimeout=setTimeout(async()=>{
     const sb=getSupabase();
     if(!sb)return;
-    const cleanQuery=query.replace('@','').trim();
-    let data = null, error = null;
+    const cleanQuery=query.replace('@','').trim().toLowerCase();
+    let data = [];
     try {
-      // Search by name, tag, city, and email
-      const res = await sb
-        .from('profiles')
-        .select('id, name, tag, avatar_url, user_type, role, city, email')
-        .or(`name.ilike.%${cleanQuery}%,tag.ilike.%${cleanQuery}%,city.ilike.%${cleanQuery}%,email.ilike.%${cleanQuery}%`)
-        .limit(20);
-      data = res.data;
-      error = res.error;
-      if(error) console.warn('searchPeople or-filter error:', error.message);
-      // If or-filter fails (e.g. email column doesn't exist), try without email
-      if(error){
-        const res2 = await sb
-          .from('profiles')
-          .select('id, name, tag, avatar_url, user_type, role, city')
-          .or(`name.ilike.%${cleanQuery}%,tag.ilike.%${cleanQuery}%,city.ilike.%${cleanQuery}%`)
-          .limit(20);
-        data = res2.data;
-        error = res2.error;
-      }
-      // If still no results, try fetching all profiles and filter client-side
-      if((!data || data.length === 0) && !error){
-        console.warn('searchPeople: no results from filter, trying all profiles');
-        const res3 = await sb.from('profiles').select('id, name, tag, avatar_url, user_type, role, city').limit(100);
-        if(res3.data && res3.data.length > 0){
-          const q = cleanQuery.toLowerCase();
-          data = res3.data.filter(p => {
-            const n = (p.name||'').toLowerCase();
-            const t = (p.tag||'').toLowerCase();
-            const c = (p.city||'').toLowerCase();
-            return n.includes(q) || t.includes(q) || c.includes(q) || (p.id||'').toLowerCase().includes(q);
-          });
-        }
-      }
+      // Fetch all profiles and filter client-side (most reliable approach)
+      const res = await sb.from('profiles').select('id, name, tag, avatar_url, user_type, role, city').limit(200);
+      if(res.error) console.warn('searchPeople error:', res.error.message);
+      const allProfiles = res.data || [];
+      data = allProfiles.filter(p => {
+        const n = (p.name||'').toLowerCase();
+        const t = (p.tag||'').toLowerCase();
+        const c = (p.city||'').toLowerCase();
+        return n.includes(cleanQuery) || t.includes(cleanQuery) || c.includes(cleanQuery);
+      });
     } catch(e) { console.warn('searchPeople exception:', e); }
-    if(error||!data||data.length===0){
+    if(!data||data.length===0){
       container.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--muted);">
         <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--border)" stroke-width="1.5" style="margin-bottom:14px;"><path d="M16 16l-3.5-3.5"/><circle cx="10" cy="10" r="7"/></svg>
         <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px;">Nenhum resultado</div>
