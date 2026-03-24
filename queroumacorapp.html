@@ -856,8 +856,8 @@ function searchPeople(query){
     const cleanQuery=query.replace('@','').trim();
     const {data,error}=await sb
       .from('profiles')
-      .select('id, name, avatar_url, tag, user_type, city')
-      .or('tag.ilike.%'+cleanQuery+'%,name.ilike.%'+cleanQuery+'%')
+      .select('id, name, avatar_url, user_type, city')
+      .ilike('name', '%'+cleanQuery+'%')
       .limit(20);
     if(error||!data||data.length===0){
       container.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--muted);">
@@ -880,7 +880,7 @@ function searchPeople(query){
       return `<div class="search-result-item" onclick="openUserProfile('${p.id}')">
         <div class="search-result-avatar"><img src="${avatarUrl}" alt=""></div>
         <div class="search-result-info">
-          <div class="search-result-tag">${p.tag?'@'+p.tag:p.name||'Sem tag'}${roleBadge}</div>
+          <div class="search-result-tag">${p.name||'Sem nome'}${roleBadge}</div>
           <div class="search-result-name">${p.name||''}${p.city?' · '+p.city:''}</div>
         </div>
         ${isSelf?'':`<button class="search-result-follow ${isFollowing?'following':'follow'}" onclick="event.stopPropagation();toggleFollow('${p.id}',this)">${isFollowing?'Seguindo':'Seguir'}</button>`}
