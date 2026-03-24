@@ -3635,29 +3635,33 @@ async function saveEditProfile(){
       btn.textContent = 'Salvando...';
     }
 
-    // Try update first
+    // Try update first, then insert if profile doesn't exist
     const { data: existing } = await sb.from('profiles').select('id').eq('id', currentUser.id).single();
     if(existing){
       const { error } = await sb.from('profiles').update(updates).eq('id', currentUser.id);
-      if(error) throw error;
+      if(error){
+        console.error('Profile update error:', error);
+        throw error;
+      }
     } else {
       updates.id = currentUser.id;
       updates.role = currentUser.user_metadata?.role || currentUser.user_metadata?.user_type || 'cliente';
       updates.user_type = updates.role;
       const { error } = await sb.from('profiles').insert(updates);
-      if(error) throw error;
+      if(error){
+        console.error('Profile insert error:', error);
+        throw error;
+      }
     }
-    toast('Perfil atualizado!');
+    console.log('Profile saved successfully, avatar_url:', updates.avatar_url || '(unchanged)');
+    toast('Perfil salvo!');
     closeModals();
     // Update all avatar locations after save
-    const newAvatarUrl = (saved && saved[0] && saved[0].avatar_url) ? saved[0].avatar_url : updates.avatar_url;
-    if(newAvatarUrl){
-      // Update profile screen avatar immediately
+    if(updates.avatar_url){
       const myAvEl = document.getElementById('myprofile-avatar');
-      if(myAvEl) myAvEl.src = newAvatarUrl;
-      // Update story circle avatar immediately
+      if(myAvEl) myAvEl.src = updates.avatar_url;
       const storyAvEl = document.getElementById('my-story-avatar');
-      if(storyAvEl) storyAvEl.src = newAvatarUrl;
+      if(storyAvEl) storyAvEl.src = updates.avatar_url;
     }
     loadMyProfileData();
     updateMyStoryAvatar();
