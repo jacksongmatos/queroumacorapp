@@ -3102,58 +3102,86 @@ function chatTab(el){
 async function loadChatList(){
   const sb = getSupabase();
   const container = document.getElementById('conv-list');
-  if(!sb || !currentUser || !container) return;
+  if(!sb || !currentUser || !container) {
+    console.warn('loadChatList: missing sb=', !!sb, 'currentUser=', !!currentUser, 'container=', !!container);
+    return;
+  }
   try {
     const myId = currentUser.id;
-    const { data: msgs, error } = await sb.from('messages')
+    console.log('loadChatList: querying messages for user', myId);
+
+    // Query 1: messages I sent
+    const { data: sentMsgs, error: sentErr } = await sb.from('messages')
       .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
-      .or('sender_id.eq.'+myId+',receiver_id.eq.'+myId)
+      .eq('sender_id', myId)
       .order('created_at', { ascending: false })
-      .limit(200);
-    if(error) throw error;
-    if(!msgs || msgs.length === 0){
+      .limit(100);
+
+    // Query 2: messages I received
+    const { data: recvMsgs, error: recvErr } = await sb.from('messages')
+      .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
+      .eq('receiver_id', myId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if(sentErr) console.error('loadChatList sentErr:', sentErr.message);
+    if(recvErr) console.error('loadChatList recvErr:', recvErr.message);
+
+    // Merge and deduplicate
+    const allMsgs = [...(sentMsgs||[]), ...(recvMsgs||[])];
+    const seen = new Set();
+    const msgs = [];
+    allMsgs.forEach(m => {
+      if(!seen.has(m.id)){ seen.add(m.id); msgs.push(m); }
+    });
+    msgs.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+
+    console.log('loadChatList: found', msgs.length, 'messages (sent:', (sentMsgs||[]).length, 'recv:', (recvMsgs||[]).length, ')');
+
+    if(msgs.length === 0){
       container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem conversas</div><div style="font-size:13px;">Suas mensagens aparecerão aqui</div></div>';
       return;
     }
-    // Group by conversation partner
+    // Group by conversation_id
     const convs = {};
     msgs.forEach(m => {
       const otherId = m.sender_id === myId ? m.receiver_id : m.sender_id;
       const key = m.conversation_id || otherId || m.id;
       if(!convs[key]) convs[key] = { id: key, otherId: otherId, messages: [], lastMsg: null, is3way: false };
+      // Ensure otherId is set (pick the non-me ID)
+      if(!convs[key].otherId && otherId) convs[key].otherId = otherId;
       convs[key].messages.push(m);
-      // Track 3-way status from DB
       if(m.type === 'system' && m.content === '__STORE_ADDED__') convs[key].is3way = true;
-      // Use most recent non-system message as preview
       if(m.type !== 'system'){
         if(!convs[key].lastMsg || new Date(m.created_at) > new Date(convs[key].lastMsg.created_at)){
           convs[key].lastMsg = m;
         }
       }
     });
-    // Fallback: if no non-system lastMsg, use any message
     Object.values(convs).forEach(c => { if(!c.lastMsg) c.lastMsg = c.messages[0]; });
     const convList = Object.values(convs).sort((a,b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
+
     // Load profiles for all other users
     const otherIds = [...new Set(convList.map(c => c.otherId).filter(Boolean))];
     let profileMap = {};
     if(otherIds.length > 0){
-      const { data: profs } = await sb.from('profiles').select('id, name, avatar_url, role, user_type, tag').in('id', otherIds);
+      const { data: profs, error: profErr } = await sb.from('profiles').select('id, name, avatar_url, role, user_type, tag').in('id', otherIds);
+      if(profErr) console.error('loadChatList profile error:', profErr.message);
       if(profs) profs.forEach(p => { profileMap[p.id] = p; });
     }
+
     container.innerHTML = convList.map(conv => {
       const other = profileMap[conv.otherId] || {};
       const name = other.name || 'Usuario';
       const avatar = other.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
       const isPintor = other.role === 'pintor' || other.user_type === 'pintor';
       const lastMsg = conv.lastMsg;
-      const preview = lastMsg.content || '';
-      const isMine = lastMsg.sender_id === myId;
-      const time = lastMsg.created_at ? new Date(lastMsg.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
+      const preview = (lastMsg && lastMsg.content) ? lastMsg.content : '';
+      const isMine = lastMsg && lastMsg.sender_id === myId;
+      const time = (lastMsg && lastMsg.created_at) ? new Date(lastMsg.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
       // Populate chatData so openChat() can find this conversation
       const existing3way = chatData[conv.id] && chatData[conv.id].type === '3way';
-      const db3way = conv.is3way;
-      const is3wayChat = existing3way || db3way;
+      const is3wayChat = existing3way || conv.is3way;
       if(!chatData[conv.id] || chatData[conv.id].type === 'direct'){
         chatData[conv.id] = {
           type: is3wayChat ? '3way' : 'direct',
@@ -3177,9 +3205,10 @@ async function loadChatList(){
         + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;"><div class="conv-time">'+time+'</div></div>'
         + '</div>';
     }).join('');
+    console.log('loadChatList: rendered', convList.length, 'conversations');
   } catch(e){
     console.error('loadChatList error:', e);
-    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Sem conversas</div><div style="font-size:13px;">Toque em + Nova para iniciar uma conversa</div></div>';
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--muted);"><div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Erro ao carregar</div><div style="font-size:13px;color:#c00;">'+escapeHtml(e.message||String(e))+'</div><div style="margin-top:12px;"><button onclick="loadChatList()" style="background:var(--p1);color:#fff;border:none;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:700;">Tentar novamente</button></div></div>';
   }
 }
 
@@ -3653,15 +3682,18 @@ async function sendChatMsg(){
       const parts = currentChat ? currentChat.split('_') : [];
       const uuidParts = parts.filter(p => p.includes('-'));
       const receiverId = uuidParts.find(id => id !== currentUser.id) || null;
-      const { error } = await sb.from('messages').insert({
+      const insertData = {
         sender_id: currentUser.id,
         receiver_id: receiverId,
         conversation_id: currentChat,
         content: msg,
         type: 'text'
-      });
-      if(error){ console.error('sendChatMsg error:', error.message); toast('Erro ao enviar'); }
-    } catch(e){ console.warn('sendChatMsg save error:', e); }
+      };
+      console.log('sendChatMsg: inserting', JSON.stringify(insertData));
+      const { data: res, error } = await sb.from('messages').insert(insertData).select();
+      if(error){ console.error('sendChatMsg error:', error.message, error.details); toast('Erro: ' + error.message); }
+      else { console.log('sendChatMsg: saved OK, id=', res && res[0] ? res[0].id : 'unknown'); }
+    } catch(e){ console.error('sendChatMsg save error:', e); toast('Erro ao salvar mensagem'); }
   }
 }
 document.addEventListener('keydown',e=>{
@@ -3870,19 +3902,22 @@ function openChat(id) {
   setTimeout(()=>{ const area=document.getElementById('msgs-area'); if(area) area.scrollTop=area.scrollHeight; },200);
   setTimeout(()=>{ const area=document.getElementById('msgs-area'); if(area) area.scrollTop=area.scrollHeight; },500);
 
-  // Load real messages from Supabase + subscribe Realtime
-  const topic = 'chat:' + id;
+  // Load real messages from Supabase
   (async () => {
     const sb = getSupabase();
     const { data:{ session } } = await sb.auth.getSession();
-    if(!session) return;
+    if(!session){ console.warn('openChat: no session'); return; }
 
+    console.log('openChat: loading messages for conversation', id);
     // Load history by conversation_id (both sent and received)
     const { data: msgs, error } = await sb.from('messages')
       .select('id, sender_id, receiver_id, conversation_id, content, type, created_at')
       .eq('conversation_id', id)
       .order('created_at', { ascending: true })
-      .limit(50);
+      .limit(100);
+
+    if(error) console.error('openChat load error:', error.message, error.details);
+    console.log('openChat: loaded', msgs ? msgs.length : 0, 'messages');
 
     if(!error && msgs && msgs.length > 0){
       const myId = session.user.id;
@@ -4023,18 +4058,21 @@ async function sendMsg(){
   const uuidParts = parts.filter(p => p.includes('-'));
   const receiverId = uuidParts.find(id => id !== session.user.id) || null;
 
-  const { error } = await sb.from('messages').insert({
+  const insertData = {
     sender_id: session.user.id,
     receiver_id: receiverId,
     conversation_id: currentChat,
     content: txt,
     type: 'text'
-  });
+  };
+  console.log('sendMsg: inserting', JSON.stringify(insertData));
+  const { data: insertResult, error } = await sb.from('messages').insert(insertData).select();
   if(error){
-    console.error('sendMsg error:', error.message);
-    toast('Erro ao enviar mensagem');
+    console.error('sendMsg error:', error.message, error.details, error.hint);
+    toast('Erro: ' + error.message);
+  } else {
+    console.log('sendMsg: saved OK, id=', insertResult && insertResult[0] ? insertResult[0].id : 'unknown');
   }
-  // Realtime delivery handled by global postgres_changes subscription
 }
 
 function appendMsg(m){
