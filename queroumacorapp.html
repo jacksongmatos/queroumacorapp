@@ -3572,18 +3572,18 @@ async function saveEditProfile(){
       btn.textContent = 'Salvando...';
     }
 
-    // Try update first
-    const { data: existing } = await sb.from('profiles').select('id').eq('id', currentUser.id).single();
-    if(existing){
-      const { error } = await sb.from('profiles').update(updates).eq('id', currentUser.id);
-      if(error) throw error;
-    } else {
-      updates.id = currentUser.id;
-      updates.role = currentUser.user_metadata?.role || currentUser.user_metadata?.user_type || 'cliente';
-      updates.user_type = updates.role;
-      const { error } = await sb.from('profiles').insert(updates);
-      if(error) throw error;
+    // Use upsert to handle both insert and update
+    updates.id = currentUser.id;
+    // Ensure role/user_type are set for new profiles
+    const meta = currentUser.user_metadata || {};
+    if(!updates.role) updates.role = meta.role || meta.user_type || 'cliente';
+    if(!updates.user_type) updates.user_type = updates.role;
+    const { data: saved, error } = await sb.from('profiles').upsert(updates, { onConflict: 'id' }).select();
+    if(error){
+      console.error('Upsert error:', error);
+      throw error;
     }
+    console.log('Profile saved:', saved);
     toast('Perfil atualizado!');
     closeModals();
     loadMyProfileData();
