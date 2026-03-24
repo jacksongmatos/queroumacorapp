@@ -747,7 +747,8 @@ async function loadMyProfileData(){
     const subEl = document.getElementById('myprofile-sub');
     const avatarEl = document.querySelector('#screen-feed .ph-avatar img, #screen-feed img[style*="border-radius"]');
     if(prof){
-      const name = prof.name || currentUser.user_metadata?.name || 'Seu Nome';
+      let name = prof.name || currentUser.user_metadata?.name || 'Seu Nome';
+      if(name.includes('@')) name = name.split('@')[0];
       const tag = prof.tag || currentUser.user_metadata?.tag || '';
       const city = [prof.city, prof.state].filter(Boolean).join(', ');
       const role = prof.role || prof.user_type || 'cliente';
@@ -2553,8 +2554,8 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <div class="sheet-title" id="post-modal-title">Nova Publicacao</div>
     <!-- Type toggle -->
     <div style="display:flex;gap:0;border:1.5px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">
-      <button id="post-type-story" onclick="setPostType('story')" style="flex:1;padding:10px;font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--ink);color:#fff;transition:.2s;">Story</button>
-      <button id="post-type-post" onclick="setPostType('post')" style="flex:1;padding:10px;font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--white);color:var(--ink);transition:.2s;">Post</button>
+      <button id="post-type-story" onclick="setPostType('story')" style="flex:1;padding:10px;font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--white);color:var(--ink);transition:.2s;">Story</button>
+      <button id="post-type-post" onclick="setPostType('post')" style="flex:1;padding:10px;font-size:13px;font-weight:700;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--ink);color:#fff;transition:.2s;">Post</button>
     </div>
     <input type="file" id="post-file-input" accept="image/*,video/*" style="display:none" onchange="handlePostFiles(this)">
     <input type="file" id="post-file-camera" accept="image/*" capture="environment" style="display:none" onchange="handlePostFiles(this)">
@@ -2695,9 +2696,11 @@ function showScreen(n){
   closeModals();
   const pp=document.getElementById('painter-popup');
   if(pp)pp.classList.remove('show');
-  if(n==='chat-conv'){setTimeout(()=>{const b=document.getElementById('chat-body');if(b)b.scrollTop=b.scrollHeight;},100);}
+  if(n==='chat-conv'){setTimeout(()=>{const b=document.getElementById('chat-body');if(b)b.scrollTop=b.scrollHeight;},150);}
+  if(n==='chatconv'){setTimeout(()=>{const a=document.getElementById('msgs-area');if(a)a.scrollTop=a.scrollHeight;},150);}
   if(n==='feed') loadFeed();
   if(n==='mkt') { loadMktProducts(); updateCartBadge(); }
+  if(n==='myprofile') loadMyProfileData();
 }
 
 // ══ NAV TOGGLE ══
@@ -3494,7 +3497,8 @@ function openChat(id) {
   // Render local mock messages first (immediate feedback)
   renderMessages(conv.messages);
   showScreen('chatconv');
-  setTimeout(()=>{ const area=document.getElementById('msgs-area'); area.scrollTop=area.scrollHeight; },100);
+  setTimeout(()=>{ const area=document.getElementById('msgs-area'); if(area) area.scrollTop=area.scrollHeight; },200);
+  setTimeout(()=>{ const area=document.getElementById('msgs-area'); if(area) area.scrollTop=area.scrollHeight; },500);
 
   // Load real messages from Supabase + subscribe Realtime
   const topic = 'chat:' + id;
@@ -3601,6 +3605,7 @@ function renderMessages(msgs){
         </div>
       </div>`;
   }).join('');
+  setTimeout(()=>{ area.scrollTop = area.scrollHeight; }, 50);
 }
 
 async function sendMsg(){
@@ -3846,7 +3851,7 @@ document.head.appendChild(styleTag);
 // ══════════════════════════════
 //  CHANGE 1: DYNAMIC FEED
 // ══════════════════════════════
-let currentPostType = 'story';
+let currentPostType = 'post';
 function setPostType(type){
   currentPostType = type;
   const storyBtn = document.getElementById('post-type-story');
@@ -3880,7 +3885,7 @@ async function loadPosts(){
     if(!sb) return;
     const feedIds = await getFollowingIds();
     let { data: posts, error } = await sb.from('posts')
-      .select('*, profiles:user_id(name, avatar_url)')
+      .select('*, profiles:user_id(name, tag, avatar_url)')
       .neq('media_type', 'story')
       .in('user_id', feedIds)
       .order('created_at', { ascending: false })
@@ -3888,7 +3893,7 @@ async function loadPosts(){
     if(error){
       console.error('loadPosts query error:', error);
       const res = await sb.from('posts')
-        .select('*, profiles:user_id(name, avatar_url)')
+        .select('*, profiles:user_id(name, tag, avatar_url)')
         .neq('media_type', 'story')
         .in('user_id', feedIds)
         .order('created_at', { ascending: false })
@@ -3917,7 +3922,8 @@ async function loadPosts(){
     let html = '';
     posts.forEach(p => {
       const prof = p.profiles || {};
-      const name = prof.name || 'Usuario';
+      let name = prof.name || 'Usuario';
+      if(name.includes('@')) name = name.split('@')[0]; // fallback if email stored as name
       const tag = prof.tag ? '@' + prof.tag : '';
       const avatar = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
       const time = getTimeAgo(p.created_at);
@@ -4014,7 +4020,7 @@ async function loadStories(){
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
     const feedIds = await getFollowingIds();
     const { data: stories, error } = await sb.from('posts')
-      .select('*, profiles:user_id(name, avatar_url)')
+      .select('*, profiles:user_id(name, tag, avatar_url)')
       .eq('media_type', 'story')
       .in('user_id', feedIds)
       .gte('created_at', since)
@@ -4061,7 +4067,9 @@ async function loadStories(){
     for(let gi = startIdx; gi < storyGroups.length; gi++){
       const g = storyGroups[gi];
       const p = g.profile;
-      const name = (p.name || 'User').split(' ')[0];
+      let name = p.name || 'User';
+      if(name.includes('@')) name = name.split('@')[0];
+      name = name.split(' ')[0];
       const avatar = p.avatar_url || g.stories[0].media_url || 'https://i.pravatar.cc/150?img=68';
       const seen = isStoryGroupSeen(g.user_id) ? ' seen' : '';
       html += `<div class="story" onclick="openStoryViewer(${gi})">
