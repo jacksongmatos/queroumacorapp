@@ -1342,13 +1342,194 @@ const MarketingPage = () => {
   );
 };
 
+// ══ AVISOS (Announcements) ══
+const Avisos = () => {
+  const [avisos, setAvisos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadAvisos = async () => {
+    try {
+      const { data, error } = await window._sb.from('announcements').select('*').order('created_at', { ascending: false });
+      if(!error && data) setAvisos(data);
+    } catch(e){ console.warn('loadAvisos error:', e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadAvisos(); }, []);
+
+  const saveAviso = async () => {
+    if(!title.trim()){ alert('Preencha o titulo'); return; }
+    if(!message.trim()){ alert('Preencha a mensagem'); return; }
+    setSaving(true);
+    try {
+      const { data: { session } } = await window._sb.auth.getSession();
+      const { error } = await window._sb.from('announcements').insert({
+        title: title.trim(),
+        message: message.trim(),
+        active: true,
+        created_by: session?.user?.id || null,
+        created_at: new Date().toISOString()
+      });
+      if(error) throw error;
+      setTitle(''); setMessage('');
+      loadAvisos();
+    } catch(e){ alert('Erro: ' + (e.message || 'tente novamente')); }
+    setSaving(false);
+  };
+
+  const toggleAviso = async (id, active) => {
+    try {
+      await window._sb.from('announcements').update({ active: !active }).eq('id', id);
+      loadAvisos();
+    } catch(e){ console.warn('toggleAviso error:', e); }
+  };
+
+  const deleteAviso = async (id) => {
+    if(!confirm('Tem certeza que deseja excluir este aviso?')) return;
+    try {
+      await window._sb.from('announcements').delete().eq('id', id);
+      loadAvisos();
+    } catch(e){ console.warn('deleteAviso error:', e); }
+  };
+
+  return (
+    <div>
+      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>📢 Criar Novo Aviso</div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Titulo</div>
+          <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Ex: Promocao de tintas" style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none' }} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Mensagem</div>
+          <textarea value={message} onChange={e=>setMessage(e.target.value)} placeholder="Escreva o conteudo do aviso..." rows={3} style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:14, outline:'none', resize:'vertical', fontFamily:'DM Sans, sans-serif' }} />
+        </div>
+        <button disabled={saving} onClick={saveAviso} style={{ padding:'10px 24px', background:C.p1, color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer' }}>
+          {saving ? 'Salvando...' : 'Publicar Aviso'}
+        </button>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>Este aviso aparecera na aba de notificacoes do app para todos os usuarios.</div>
+      </div>
+
+      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>Avisos Publicados</div>
+        {loading && <div style={{ color: C.muted, fontSize: 13 }}>Carregando...</div>}
+        {!loading && avisos.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum aviso publicado ainda.</div>}
+        {avisos.map(a => (
+          <div key={a.id} style={{ borderBottom:'1px solid '+C.border, padding:'14px 0', display:'flex', alignItems:'flex-start', gap:12 }}>
+            <div style={{ fontSize: 24 }}>{a.active ? '📢' : '🔇'}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: a.active ? C.ink : C.muted }}>{a.title}</div>
+              <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{a.message}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{a.created_at ? new Date(a.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : ''}</div>
+            </div>
+            <div style={{ display:'flex', gap:6 }}>
+              <button onClick={()=>toggleAviso(a.id, a.active)} style={{ background: a.active ? C.p7+'33' : C.p6+'33', border:'none', borderRadius:8, padding:'4px 10px', fontSize:11, fontWeight:600, cursor:'pointer', color: a.active ? '#b8860b' : C.p6 }}>
+                {a.active ? 'Desativar' : 'Ativar'}
+              </button>
+              <button onClick={()=>deleteAviso(a.id)} style={{ background:C.p4+'22', border:'none', borderRadius:8, padding:'4px 10px', fontSize:11, fontWeight:600, cursor:'pointer', color:C.p4 }}>Excluir</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ══ PEDIDOS DA LOJA (Orders) ══
+const PedidosLoja = () => {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await window._sb.from('orders')
+          .select('*, user:profiles!user_id(name, phone, city, state, tag)')
+          .order('created_at', { ascending: false });
+        if(!error && data) setOrders(data);
+      } catch(e){ console.warn('loadOrders error:', e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  const updateOrderStatus = async (id, status) => {
+    try {
+      await window._sb.from('orders').update({ status }).eq('id', id);
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+    } catch(e){ console.warn('updateOrderStatus error:', e); }
+  };
+
+  const STATUS_COLORS = { pending: C.p7, processing: C.p1, shipped: C.p3, completed: C.p6, cancelled: C.p4 };
+  const STATUS_LABELS = { pending:'Aguardando', processing:'Em andamento', shipped:'Enviado', completed:'Concluido', cancelled:'Cancelado' };
+
+  return (
+    <div>
+      <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>🛒 Pedidos da Loja</div>
+        {loading && <div style={{ color: C.muted, fontSize: 13 }}>Carregando pedidos...</div>}
+        {!loading && orders.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum pedido recebido ainda.</div>}
+        <div style={{ overflowX:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+          {orders.length > 0 && (
+            <thead>
+              <tr style={{ borderBottom:'2px solid '+C.border }}>
+                {['Cliente','Telefone','Itens','Total','Status','Data','Acoes'].map(h => (
+                  <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {orders.map((o, i) => {
+              const user = o.user || {};
+              const items = o.items || [];
+              const itemNames = items.map(it => it.name).join(', ');
+              const st = o.status || 'pending';
+              const stColor = STATUS_COLORS[st] || C.muted;
+              const stLabel = STATUS_LABELS[st] || st;
+              const data = o.created_at ? new Date(o.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
+              return (
+                <tr key={o.id || i} style={{ borderBottom:'1px solid '+C.border }}>
+                  <td style={{ padding:'10px 12px', fontWeight:600 }}>{user.name || '—'}{user.tag ? ' @'+user.tag : ''}</td>
+                  <td style={{ padding:'10px 12px', color:C.muted }}>{user.phone || '—'}</td>
+                  <td style={{ padding:'10px 12px', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{itemNames || '—'}</td>
+                  <td style={{ padding:'10px 12px', fontWeight:700, color:C.p1 }}>R${Number(o.total||0).toFixed(2).replace('.',',')}</td>
+                  <td style={{ padding:'10px 12px' }}>
+                    <span style={{ background:stColor+'22', color:stColor, borderRadius:8, padding:'3px 10px', fontSize:11, fontWeight:600 }}>{stLabel}</span>
+                  </td>
+                  <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>
+                  <td style={{ padding:'10px 12px' }}>
+                    <select value={st} onChange={e=>updateOrderStatus(o.id, e.target.value)} style={{ padding:'4px 8px', borderRadius:8, border:'1px solid '+C.border, fontSize:12, cursor:'pointer' }}>
+                      <option value="pending">Aguardando</option>
+                      <option value="processing">Em andamento</option>
+                      <option value="shipped">Enviado</option>
+                      <option value="completed">Concluido</option>
+                      <option value="cancelled">Cancelado</option>
+                    </select>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PAGES_DEF = [
   { id:'dashboard', icon:'📊', label:'Dashboard', section:'PRINCIPAL', component:<Dashboard /> },
+  { id:'avisos', icon:'📢', label:'Avisos / Notificacoes', section:'PRINCIPAL', component:<Avisos /> },
   { id:'chats', icon:'💬', label:'Chats 3-Way', section:'PRINCIPAL', badgeKey:'chats', component:<Chats /> },
   { id:'orcamentos', icon:'📋', label:'Orçamentos', section:'PRINCIPAL', badgeKey:'orcamentos', component:<Orcamentos /> },
   { id:'pintores', icon:'🖌️', label:'Pintores', section:'PESSOAS', badgeKey:'pintores', component:<PintoresList /> },
   { id:'leads', icon:'🧲', label:'Leads', section:'PESSOAS', badgeKey:'leads', component:<Leads /> },
   { id:'clientes', icon:'👥', label:'Clientes', section:'PESSOAS', badgeKey:'clientes', component:<ClientesList /> },
+  { id:'pedidos-loja', icon:'🛒', label:'Pedidos da Loja', section:'LOJA', component:<PedidosLoja /> },
   { id:'produtos', icon:'🎨', label:'Produtos / Tintas', section:'LOJA', component:<ProdutosList /> },
   { id:'camisetas', icon:'👕', label:'Camisetas Personalizadas', section:'LOJA', component:<Camisetas /> },
   { id:'cursos', icon:'📚', label:'Cursos', section:'LOJA', component:<CursosList /> },
