@@ -46,10 +46,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);o
 .scroll{flex:1;overflow-y:auto;overflow-x:hidden;}
 .scroll::-webkit-scrollbar{display:none;}
 
-/* BOTTOM NAV */
-.bot-nav{height:var(--bot-h);background:var(--ink);display:flex;align-items:center;justify-content:space-around;padding:0 8px;padding-bottom:env(safe-area-inset-bottom);flex-shrink:0;}
-.bn{display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:8px 14px;gap:3px;border-radius:14px;transition:.2s;}
-.bn svg{width:24px;height:24px;stroke:#ffffff55;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:.2s;}
+/* SIDE NAV (mobile adaptive) */
+.bot-nav{position:fixed;right:0;top:50%;transform:translateY(-50%);width:56px;background:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 6px;border-radius:18px 0 0 18px;z-index:300;transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-4px 0 20px rgba(0,0,0,.2);}
+.bot-nav.collapsed{transform:translateY(-50%) translateX(100%);}
+.nav-toggle{position:fixed;right:56px;top:50%;transform:translateY(-50%);width:24px;height:48px;background:var(--ink);border:none;border-radius:10px 0 0 10px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:301;transition:right .3s cubic-bezier(.4,0,.2,1);box-shadow:-3px 0 10px rgba(0,0,0,.15);}
+.bot-nav.collapsed~.nav-toggle,.bot-nav.collapsed+.nav-toggle{right:0;}
+.nav-toggle svg{width:14px;height:14px;stroke:#fff;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s;}
+.bot-nav.collapsed~.nav-toggle svg,.bot-nav.collapsed+.nav-toggle svg{transform:rotate(180deg);}
+.bn{display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:8px;gap:3px;border-radius:12px;transition:.2s;width:44px;height:44px;justify-content:center;}
+.bn svg{width:22px;height:22px;stroke:#ffffff55;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;transition:.2s;}
 .bn.active{background:rgba(255,107,53,.15);}
 .bn.active svg{stroke:var(--p1);}
 .bn-dot{width:5px;height:5px;border-radius:50%;background:transparent;}
@@ -2499,8 +2504,10 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
 
 </div><!-- end scroll -->
 
-<!-- BOTTOM NAV -->
-<div class="bot-nav">
+</div><!-- end app -->
+
+<!-- SIDE NAV -->
+<div class="bot-nav" id="side-nav">
   <div class="bn active" id="bn-feed" onclick="showScreen('feed')">
     <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     <div class="bn-dot"></div>
@@ -2522,8 +2529,9 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
     <div class="bn-dot"></div>
   </div>
 </div>
-
-</div><!-- end app -->
+<button class="nav-toggle" id="nav-toggle" onclick="toggleNav()">
+  <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+</button>
 
 <!-- MODALS -->
 <div class="overlay" id="post-opts-modal" onclick="closeModals()">
@@ -2708,14 +2716,22 @@ function showScreen(n){
   if(['chatconv'].includes(n)){/* chat is in top nav, no bottom nav highlight */}
   const topNav=document.querySelector('.top-nav');
   const botNav=document.querySelector('.bot-nav');
+  const navToggle=document.getElementById('nav-toggle');
   if(topNav)topNav.style.display=noNav.includes(n)?'none':'flex';
   if(botNav)botNav.style.display=noNav.includes(n)?'none':'flex';
+  if(navToggle)navToggle.style.display=noNav.includes(n)?'none':'flex';
   const scrollArea=document.getElementById('scroll-area');
   if(scrollArea)scrollArea.scrollTop=0;
   closeModals();
   const pp=document.getElementById('painter-popup');
   if(pp)pp.classList.remove('show');
   if(n==='chat-conv'){setTimeout(()=>{const b=document.getElementById('chat-body');if(b)b.scrollTop=b.scrollHeight;},100);}
+}
+
+// ══ NAV TOGGLE ══
+function toggleNav(){
+  const nav=document.querySelector('.bot-nav');
+  if(nav)nav.classList.toggle('collapsed');
 }
 
 // ══ TOAST ══
