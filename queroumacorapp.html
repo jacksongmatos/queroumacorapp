@@ -732,9 +732,48 @@ function autoDetectRole(){
   const userType = meta.user_type || meta.role || 'cliente';
   if(userType === 'pintor') setMode('pintor');
   else setMode('cliente');
-  const tag = meta.tag || '';
-  if(tag) document.getElementById('myprofile-sub').textContent = '@' + tag;
+  // Load full profile from DB
+  loadMyProfileData();
   updateMyStoryAvatar();
+}
+
+async function loadMyProfileData(){
+  if(!currentUser) return;
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const { data: prof } = await sb.from('profiles').select('name, tag, avatar_url, city, state, user_type, role, phone, specialties').eq('id', currentUser.id).single();
+    const nameEl = document.getElementById('myprofile-name');
+    const subEl = document.getElementById('myprofile-sub');
+    const avatarEl = document.querySelector('#screen-feed .ph-avatar img, #screen-feed img[style*="border-radius"]');
+    if(prof){
+      const name = prof.name || currentUser.user_metadata?.name || 'Seu Nome';
+      const tag = prof.tag || currentUser.user_metadata?.tag || '';
+      const city = [prof.city, prof.state].filter(Boolean).join(', ');
+      const role = prof.role || prof.user_type || 'cliente';
+      if(nameEl) nameEl.textContent = name;
+      if(subEl){
+        const parts = [];
+        if(tag) parts.push('@' + tag);
+        if(city) parts.push(city);
+        if(role === 'pintor') parts.push('Pintor');
+        subEl.textContent = parts.length > 0 ? parts.join(' · ') : 'Configure seu perfil';
+      }
+      // Update myprofile avatar
+      const myAvatar = document.getElementById('myprofile-avatar');
+      if(myAvatar){
+        myAvatar.src = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
+      }
+      // Set mode based on DB role
+      if(role === 'pintor') setMode('pintor');
+      else setMode('cliente');
+    } else {
+      // Fallback to user_metadata
+      const meta = currentUser.user_metadata || {};
+      if(nameEl) nameEl.textContent = meta.name || 'Seu Nome';
+      if(subEl) subEl.textContent = meta.tag ? '@' + meta.tag : 'Configure seu perfil';
+    }
+  } catch(e){ console.warn('loadMyProfileData error:', e); }
 }
 
 async function updateMyStoryAvatar(){
