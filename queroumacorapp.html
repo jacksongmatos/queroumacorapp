@@ -3179,7 +3179,8 @@ async function saveEditProfile(){
       phone: document.getElementById('ep-phone').value.trim(),
       specialties: document.getElementById('ep-specs').value.trim(),
     };
-    const { error } = await sb.from('profiles').update(updates).eq('id', currentUser.id);
+    updates.id = currentUser.id;
+    const { error } = await sb.from('profiles').upsert(updates, { onConflict: 'id' });
     if(error) throw error;
     toast('Perfil atualizado!');
     closeModals();
@@ -4323,13 +4324,13 @@ async function publishPost(){
       imageUrl = urlData.publicUrl;
     }
 
-    const { error: insertErr } = await sb.from('posts').insert({
+    const { data: insertData, error: insertErr } = await sb.from('posts').insert({
       user_id: session.user.id,
       caption: content || null,
       media_url: imageUrl,
       media_type: type === 'story' ? 'story' : 'image',
       created_at: new Date().toISOString()
-    });
+    }).select();
 
     btn.textContent = 'Publicar';
     btn.disabled = false;
@@ -4489,14 +4490,15 @@ function filterExplorePainters(query){
     const specs = (p.specialties||'').toLowerCase();
     return name.includes(q) || tag.includes(q) || city.includes(q) || specs.includes(q);
   });
-  // Also filter local painters
+  // Also filter local painters (skip if already matched from DB)
   Object.entries(painters).forEach(([id, p]) => {
-    const alreadyInDB = dbPainters.some(dp => dp.name === p.name);
-    if(alreadyInDB) return;
+    const alreadyInResults = filtered.some(dp => dp.name === p.name);
+    if(alreadyInResults) return;
     const name = p.name.toLowerCase();
     const city = (p.city||'').toLowerCase();
     const specs = (p.specs||[]).join(' ').toLowerCase();
-    if(name.includes(q) || city.includes(q) || specs.includes(q)){
+    const handle = (p.handle||'').toLowerCase();
+    if(name.includes(q) || city.includes(q) || specs.includes(q) || handle.includes(q)){
       filtered.push({ id: id, name: p.name, img: p.img, city: p.city, specialties: p.specs.join(', '), rating: p.rating, rating_avg: p.rating });
     }
   });
