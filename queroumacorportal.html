@@ -76,19 +76,22 @@ const Dashboard = () => {
     (async () => {
       const sb = window._sb;
       const [profilesRes, leadsRes, quotesRes, msgsRes] = await Promise.all([
-        sb.from('profiles').select('id, role, state, created_at'),
+        sb.from('profiles').select('*'),
         sb.from('leads').select('id'),
-        sb.from('quotes').select('id, status, created_at, client:profiles!client_id(name), painter:profiles!painter_id(name)').order('created_at', { ascending: false }).limit(20),
+        sb.from('quotes').select('id, status, created_at').order('created_at', { ascending: false }).limit(20),
         sb.from('messages').select('id, content, created_at, sender_id').order('created_at', { ascending: false }).limit(5),
       ]);
+
+      if(profilesRes.error) console.warn('Dashboard profiles error:', profilesRes.error.message);
+      if(quotesRes.error) console.warn('Dashboard quotes error:', quotesRes.error.message);
 
       const profiles = profilesRes.data || [];
       const leads = leadsRes.data || [];
       const quotes = quotesRes.data || [];
       const msgs = msgsRes.data || [];
 
-      const pintores = profiles.filter(p => p.role === 'pintor' || !p.role).length;
-      const clientes = profiles.filter(p => p.role === 'cliente').length;
+      const pintores = profiles.filter(p => p.role === 'pintor' || p.user_type === 'pintor').length;
+      const clientes = profiles.filter(p => p.role === 'cliente' || p.user_type === 'cliente' || (!p.role && !p.user_type)).length;
 
       setStats({ pintores: profiles.length, clientes, leads: leads.length, orcamentos: quotes.length });
 
