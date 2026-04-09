@@ -31,6 +31,7 @@
 body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);overflow:hidden;height:100vh;}
 
 .app{width:100%;max-width:430px;margin:0 auto;height:100vh;display:flex;flex-direction:column;background:var(--cream);position:relative;overflow:hidden;box-shadow:0 0 60px rgba(0,0,0,.18);}
+@media(max-width:430px){.app{max-width:100%;box-shadow:none;}.bot-nav{max-width:100%;}.overlay{max-width:100%;}.splash-canvas{max-width:100%;}}
 
 /* TOP NAV */
 .top-nav{height:var(--nav-h);background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 18px;flex-shrink:0;position:relative;overflow:hidden;}
