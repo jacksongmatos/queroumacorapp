@@ -740,7 +740,7 @@ async function loadMyProfileData(){
   const sb = getSupabase();
   if(!sb) return;
   try {
-    const { data: prof } = await sb.from('profiles').select('name, tag, avatar_url, city, state, user_type, role, phone, specialties').eq('id', currentUser.id).single();
+    const { data: prof } = await sb.from('profiles').select('name, tag, avatar_url, city, state, user_type, role, phone, specialties, portal_access').eq('id', currentUser.id).single();
     const nameEl = document.getElementById('myprofile-name');
     const subEl = document.getElementById('myprofile-sub');
     const avatarEl = document.querySelector('#screen-feed .ph-avatar img, #screen-feed img[style*="border-radius"]');
@@ -773,6 +773,9 @@ async function loadMyProfileData(){
         storyAv.onerror = function(){ this.onerror=null; this.src=avatarFallback; };
         storyAv.src = avatarSrc;
       }
+      // Show/hide CRM portal link
+      const portalLink = document.getElementById('crm-portal-link');
+      if(portalLink) portalLink.style.display = prof.portal_access ? '' : 'none';
       // Set mode based on DB role
       if(role === 'pintor') setMode('pintor');
       else setMode('cliente');
@@ -1990,6 +1993,11 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
           <div style="font-size:28px;margin-bottom:6px;">🏆</div>
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Certificados</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">Formação</div>
+        </div>
+        <div id="crm-portal-link" onclick="window.open('/portal','_blank')" style="display:none;background:linear-gradient(135deg,var(--p1),var(--p4));border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
+          <div style="font-size:28px;margin-bottom:6px;">📊</div>
+          <div style="font-size:12px;font-weight:700;color:#fff;">CRM / Portal</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">Painel admin</div>
         </div>
       </div>
 
