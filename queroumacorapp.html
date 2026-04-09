@@ -685,6 +685,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);o
 .leaflet-marker-icon{background:none!important;border:none!important;}
 /* Post preview images */
 .post-preview-img{width:80px;height:80px;border-radius:10px;object-fit:cover;flex-shrink:0;}
+/* Skeleton loading */
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.skel{background:linear-gradient(90deg,#eee 25%,#e0e0e0 50%,#eee 75%);background-size:200% 100%;animation:shimmer 1.2s infinite;border-radius:8px;}
+.skel-post{padding:14px;margin:8px;}
+.skel-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.skel-circle{width:40px;height:40px;border-radius:50%;flex-shrink:0;}
+.skel-line{height:12px;border-radius:6px;}
+.skel-img{width:100%;height:280px;border-radius:12px;margin-bottom:10px;}
 /* Feed empty state */
 #feed-empty{display:block;}
 .search-result-item{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;transition:background .15s;}
@@ -712,17 +720,32 @@ function getSupabase() {
   return _supabase;
 }
 
+let _feedLoaded = false;
 async function initAuth() {
   const sb = getSupabase();
   if (!sb) return;
   const { data: { session } } = await sb.auth.getSession();
-  if (session) { currentUser = session.user; showScreen('feed'); autoDetectRole(); setupGlobalMsgSubscription(); }
-  // Load feed after auth completes (whether logged in or not)
-  loadFeed();
+  if (session) {
+    currentUser = session.user;
+    showScreen('feed');
+    autoDetectRole();
+    setupGlobalMsgSubscription();
+    // Load feed once right after auth
+    _feedLoaded = true;
+    loadFeed();
+  } else {
+    loadFeed();
+  }
   sb.auth.onAuthStateChange((event, session) => {
     currentUser = session ? session.user : null;
-    if(currentUser){ autoDetectRole(); loadFeed(); setupGlobalMsgSubscription(); }
-    else if(_globalMsgSub){ _globalMsgSub.unsubscribe(); _globalMsgSub=null; }
+    if(currentUser){
+      autoDetectRole();
+      setupGlobalMsgSubscription();
+      if(!_feedLoaded){ _feedLoaded = true; loadFeed(); }
+    } else {
+      _feedLoaded = false;
+      if(_globalMsgSub){ _globalMsgSub.unsubscribe(); _globalMsgSub=null; }
+    }
   });
 }
 function autoDetectRole(){
@@ -1183,7 +1206,7 @@ function togglePw(id,btn){
   btn.style.opacity=show?'1':'.5';
 }
 
-window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); });
+window.addEventListener('DOMContentLoaded', () => { initAuth(); });
 </script>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff6b35">
@@ -1464,7 +1487,7 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
   </div>
 
   <!-- Feed posts area -->
-  <div class="mosaic-feed" id="feed-posts-area"></div>
+  <div class="mosaic-feed" id="feed-posts-area"><div class="skel-post"><div class="skel-row"><div class="skel skel-circle"></div><div style="flex:1"><div class="skel skel-line" style="width:40%"></div></div></div><div class="skel skel-img"></div><div class="skel skel-line" style="width:60%;margin-bottom:8px"></div><div class="skel skel-line" style="width:30%"></div></div><div class="skel-post"><div class="skel-row"><div class="skel skel-circle"></div><div style="flex:1"><div class="skel skel-line" style="width:50%"></div></div></div><div class="skel skel-img"></div><div class="skel skel-line" style="width:45%;margin-bottom:8px"></div><div class="skel skel-line" style="width:25%"></div></div></div>
   <div id="feed-empty" style="display:none;text-align:center;color:var(--muted);padding:60px 20px;">
     <div style="font-size:48px;margin-bottom:12px;">📸</div>
     <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px;">Nenhuma publicacao ainda</div>
@@ -4819,15 +4842,6 @@ async function loadPosts(){
       console.warn('loadPosts error:', error.message);
       posts = [];
     }
-    // Load profiles separately (more reliable than FK join)
-    if(posts && posts.length > 0){
-      const userIds = [...new Set(posts.map(p => p.user_id))];
-      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds);
-      const profMap = {};
-      (profs||[]).forEach(pr => { profMap[pr.id] = pr; });
-      posts.forEach(p => { p.profiles = profMap[p.user_id] || {}; });
-    }
-
     const container = document.getElementById('feed-posts-area');
     const emptyEl = document.getElementById('feed-empty');
     if(!posts || posts.length === 0){
@@ -4837,18 +4851,26 @@ async function loadPosts(){
     }
     if(emptyEl) emptyEl.style.display = 'none';
 
-    // Load user's likes + like counts in parallel
-    let myLikes = [];
-    let likeCounts = {};
+    // Load profiles, user likes, and like counts ALL in parallel
+    const userIds = [...new Set(posts.map(p => p.user_id))];
     const postIds = posts.map(p => p.id);
     const savedPosts = JSON.parse(localStorage.getItem('savedPosts') || '[]');
+    let myLikes = [];
+    let likeCounts = {};
+    const queries = [
+      sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds)
+    ];
     if(currentUser){
-      const [likesRes, countsRes] = await Promise.all([
-        sb.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds),
-        sb.from('likes').select('post_id').in('post_id', postIds)
-      ]);
-      if(likesRes.data) myLikes = likesRes.data.map(l => l.post_id);
-      if(countsRes.data) countsRes.data.forEach(l => { likeCounts[l.post_id] = (likeCounts[l.post_id]||0)+1; });
+      queries.push(sb.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds));
+      queries.push(sb.from('likes').select('post_id').in('post_id', postIds));
+    }
+    const results = await Promise.all(queries);
+    const profMap = {};
+    (results[0].data||[]).forEach(pr => { profMap[pr.id] = pr; });
+    posts.forEach(p => { p.profiles = profMap[p.user_id] || {}; });
+    if(currentUser){
+      if(results[1].data) myLikes = results[1].data.map(l => l.post_id);
+      if(results[2].data) results[2].data.forEach(l => { likeCounts[l.post_id] = (likeCounts[l.post_id]||0)+1; });
     }
 
     let html = '';
@@ -5048,22 +5070,16 @@ async function loadStories(){
       stories = [];
     }
 
-    // Load profiles for ALL followed users (not just those with stories)
+    // Load all needed profiles in a single query
     const followedIds = feedIds.filter(id => id !== myId);
+    const storyUserIds = (stories && stories.length > 0) ? [...new Set(stories.map(s => s.user_id))] : [];
+    const allNeededIds = [...new Set([...followedIds, ...storyUserIds])].filter(Boolean);
     let allFollowedProfiles = {};
-    if(followedIds.length > 0){
-      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', followedIds);
+    if(allNeededIds.length > 0){
+      const { data: profs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', allNeededIds);
       (profs||[]).forEach(pr => { allFollowedProfiles[pr.id] = pr; });
     }
-
-    // Also load profiles for story authors
     if(stories && stories.length > 0){
-      const storyUserIds = [...new Set(stories.map(s => s.user_id))];
-      const missingIds = storyUserIds.filter(id => !allFollowedProfiles[id] && id !== myId);
-      if(missingIds.length > 0){
-        const { data: profs2 } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', missingIds);
-        (profs2||[]).forEach(pr => { allFollowedProfiles[pr.id] = pr; });
-      }
       stories.forEach(s => { s.profiles = allFollowedProfiles[s.user_id] || {}; });
     }
 
