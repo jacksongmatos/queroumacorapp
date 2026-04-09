@@ -5,9 +5,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>QueroUmaCor v2</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" media="print" onload="this.media='all'" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <style>
 :root {
   --ink: #1a1a2e;
@@ -2865,7 +2865,7 @@ function showScreen(n){
   if(pp)pp.classList.remove('show');
   if(n==='chat-conv'){setTimeout(()=>{const b=document.getElementById('chat-body');if(b)b.scrollTop=b.scrollHeight;},150);}
   if(n==='chatconv'){setTimeout(()=>{const a=document.getElementById('msgs-area');if(a)a.scrollTop=a.scrollHeight;},150);}
-  if(n==='feed') loadFeed();
+  if(n==='feed' && (!_lastFeedLoad || Date.now()-_lastFeedLoad > 30000)) loadFeed();
   if(n==='mkt') { loadMktProducts(); updateCartBadge(); }
   if(n==='myprofile') loadMyProfileData();
   if(n==='chat'){ loadChatList(); const cb=document.getElementById('chat-badge-dot'); if(cb) cb.style.display='none'; }
@@ -4805,8 +4805,24 @@ function setPostType(type){
   }
 }
 
+let _lastFeedLoad = 0;
 async function loadFeed(){
-  await Promise.all([loadStories(), loadPosts()]);
+  _lastFeedLoad = Date.now();
+  // Show cached feed instantly while fetching fresh data
+  const cachedHtml = localStorage.getItem('feedCache');
+  const cachedStories = localStorage.getItem('storiesCache');
+  const container = document.getElementById('feed-posts-area');
+  const row = document.getElementById('stories-row');
+  if(cachedHtml && container && container.querySelector('.skel-post')) container.innerHTML = cachedHtml;
+  if(cachedStories && row) row.innerHTML = cachedStories;
+  // Fetch followingIds once, share with both
+  const feedIds = await getFollowingIds();
+  await Promise.all([loadStories(feedIds), loadPosts(feedIds)]);
+  // Save to cache for next load
+  try {
+    if(container) localStorage.setItem('feedCache', container.innerHTML);
+    if(row) localStorage.setItem('storiesCache', row.innerHTML);
+  } catch(e){}
 }
 
 let _followingIdsCache = null;
@@ -4828,11 +4844,11 @@ async function getFollowingIds(){
   }
 }
 
-async function loadPosts(){
+async function loadPosts(feedIds){
   try {
     const sb = getSupabase();
     if(!sb) return;
-    const feedIds = await getFollowingIds();
+    if(!feedIds) feedIds = await getFollowingIds();
     // Build query - if user has following list, filter by it; otherwise show all recent posts
     let query = sb.from('posts').select('*').neq('media_type', 'story');
     if(feedIds.length > 0) query = query.in('user_id', feedIds);
@@ -5052,14 +5068,14 @@ let currentStoryIndex = 0;
 let storyTimer = null;
 const STORY_DURATION = 5000; // 5 seconds per story like IG
 
-async function loadStories(){
+async function loadStories(feedIds){
   try {
     const sb = getSupabase();
     if(!sb) return;
     const myId = currentUser ? currentUser.id : null;
     // Load stories from last 24h (like IG) from followed users + own
     const since = new Date(Date.now() - 24*60*60*1000).toISOString();
-    const feedIds = await getFollowingIds();
+    if(!feedIds) feedIds = await getFollowingIds();
     // Build query - if user has following list, filter by it; otherwise show all recent stories
     let storyQuery = sb.from('posts').select('*').eq('media_type', 'story');
     if(feedIds.length > 0) storyQuery = storyQuery.in('user_id', feedIds);
