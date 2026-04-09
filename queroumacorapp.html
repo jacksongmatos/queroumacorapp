@@ -740,7 +740,7 @@ async function loadMyProfileData(){
   const sb = getSupabase();
   if(!sb) return;
   try {
-    const { data: prof } = await sb.from('profiles').select('name, tag, avatar_url, city, state, user_type, role, phone, specialties').eq('id', currentUser.id).single();
+    const { data: prof } = await sb.from('profiles').select('name, tag, avatar_url, city, state, user_type, role, phone, specialties, portal_access').eq('id', currentUser.id).single();
     const nameEl = document.getElementById('myprofile-name');
     const subEl = document.getElementById('myprofile-sub');
     const avatarEl = document.querySelector('#screen-feed .ph-avatar img, #screen-feed img[style*="border-radius"]');
@@ -773,6 +773,9 @@ async function loadMyProfileData(){
         storyAv.onerror = function(){ this.onerror=null; this.src=avatarFallback; };
         storyAv.src = avatarSrc;
       }
+      // Show/hide CRM portal link
+      const portalLink = document.getElementById('crm-portal-link');
+      if(portalLink) portalLink.style.display = prof.portal_access ? '' : 'none';
       // Set mode based on DB role
       if(role === 'pintor') setMode('pintor');
       else setMode('cliente');
@@ -1990,6 +1993,11 @@ window.addEventListener('DOMContentLoaded', () => { setTimeout(initAuth, 500); }
           <div style="font-size:28px;margin-bottom:6px;">🏆</div>
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Certificados</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">Formação</div>
+        </div>
+        <div id="crm-portal-link" onclick="window.open('https://queroumacor.com.br/queroumacor','_blank')" style="display:none;background:linear-gradient(135deg,var(--p1),var(--p4));border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
+          <div style="font-size:28px;margin-bottom:6px;">📊</div>
+          <div style="font-size:12px;font-weight:700;color:#fff;">CRM / Portal</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">Painel admin</div>
         </div>
       </div>
 
@@ -4790,17 +4798,21 @@ function setPostType(type){
 }
 
 async function loadFeed(){
-  await loadStories();
-  await loadPosts();
+  await Promise.all([loadStories(), loadPosts()]);
 }
 
+let _followingIdsCache = null;
+let _followingIdsCacheTime = 0;
 async function getFollowingIds(){
+  if(_followingIdsCache && Date.now() - _followingIdsCacheTime < 10000) return _followingIdsCache;
   const sb = getSupabase();
   if(!sb || !currentUser) return [];
   try {
     const { data } = await sb.from('follows').select('following_id').eq('follower_id', currentUser.id);
     const ids = (data || []).map(f => f.following_id);
     ids.push(currentUser.id);
+    _followingIdsCache = ids;
+    _followingIdsCacheTime = Date.now();
     return ids;
   } catch(e) {
     console.warn('getFollowingIds error:', e);
@@ -4840,27 +4852,37 @@ async function loadPosts(){
     }
     if(emptyEl) emptyEl.style.display = 'none';
 
-    // Load user's likes
+    // Load user's likes + like counts in parallel
     let myLikes = [];
+    let likeCounts = {};
+    const postIds = posts.map(p => p.id);
+    const savedPosts = JSON.parse(localStorage.getItem('savedPosts') || '[]');
     if(currentUser){
-      const postIds = posts.map(p => p.id);
-      const { data: likesData } = await sb.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds);
-      if(likesData) myLikes = likesData.map(l => l.post_id);
+      const [likesRes, countsRes] = await Promise.all([
+        sb.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds),
+        sb.from('likes').select('post_id').in('post_id', postIds)
+      ]);
+      if(likesRes.data) myLikes = likesRes.data.map(l => l.post_id);
+      if(countsRes.data) countsRes.data.forEach(l => { likeCounts[l.post_id] = (likeCounts[l.post_id]||0)+1; });
     }
 
     let html = '';
     posts.forEach(p => {
       const prof = p.profiles || {};
       let name = prof.name || 'Usuario';
-      if(name.includes('@')) name = name.split('@')[0]; // fallback if email stored as name
+      if(name.includes('@')) name = name.split('@')[0];
       const tag = prof.tag ? '@' + prof.tag : '';
       const avatar = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
       const time = getTimeAgo(p.created_at);
       const caption = p.caption || '';
       const liked = myLikes.includes(p.id);
-      const imgHtml = p.media_url ? '<img src="'+p.media_url+'" alt="" style="width:100%;display:block;object-fit:cover;">' : '';
-      const heartFill = liked ? 'var(--p4)' : 'none';
-      const heartStroke = liked ? 'var(--p4)' : 'var(--ink)';
+      const saved = savedPosts.includes(p.id);
+      const imgHtml = p.media_url ? '<img src="'+p.media_url+'" alt="" loading="lazy" style="width:100%;display:block;object-fit:cover;">' : '';
+      const likeCount = likeCounts[p.id] || 0;
+      const brushFill = liked ? 'var(--p4)' : 'none';
+      const brushStroke = liked ? 'var(--p4)' : 'var(--ink)';
+      const paletteFill = saved ? 'var(--p1)' : 'none';
+      const paletteStroke = saved ? 'var(--p1)' : 'var(--ink)';
 
       html += '<div class="mpost" data-post-id="'+p.id+'">';
       html += '<div class="mpost-head">';
@@ -4872,11 +4894,17 @@ async function loadPosts(){
       html += '</div>';
       if(imgHtml) html += '<div class="ba-wrap">'+imgHtml+'</div>';
       html += '<div class="mpost-actions">';
-      html += '<button class="act-btn" onclick="togglePostLike(this)"><svg viewBox="0 0 24 24" style="fill:'+heartFill+';stroke:'+heartStroke+';"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button>';
-      html += '<button class="act-btn" onclick="toast(\'Comentarios em breve\')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
-      html += '<button class="act-btn" onclick="sharePost(\''+p.id+'\')"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>';
-      html += '<button class="act-btn save-btn" onclick="toast(\'Salvo!\')"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button>';
+      // Pincel (like)
+      html += '<button class="act-btn" onclick="togglePostLike(this)"><svg viewBox="0 0 24 24" style="fill:'+brushFill+';stroke:'+brushStroke+';"><path d="M18.37 2.63a2.12 2.12 0 0 1 3 3L14 13l-4 1 1-4Z"/><path d="M9 3H4a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-5"/></svg></button>';
+      if(likeCount > 0) html += '<span class="like-count" style="font-size:12px;font-weight:700;color:var(--ink);margin-left:-8px;">'+likeCount+'</span>';
+      // Lata de tinta (comment)
+      html += '<button class="act-btn" onclick="toggleCommentInput(this)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="12" height="18" rx="1"/><path d="M15 3h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-3"/><line x1="9" y1="14" x2="9" y2="18"/></svg></button>';
+      // Rolo de pintura (share)
+      html += '<button class="act-btn" onclick="sharePost(\''+p.id+'\')"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="16" height="6" rx="2"/><path d="M10 9v3"/><path d="M10 12h4v8H10z"/></svg></button>';
+      // Paleta (save)
+      html += '<button class="act-btn save-btn" onclick="toggleSavePost(this)"><svg viewBox="0 0 24 24" style="fill:'+paletteFill+';stroke:'+paletteStroke+';"><circle cx="12" cy="12" r="10"/><circle cx="8" cy="9" r="1.5" fill="var(--p4)" stroke="none"/><circle cx="15" cy="8" r="1.5" fill="var(--p5)" stroke="none"/><circle cx="16" cy="13" r="1.5" fill="var(--p3)" stroke="none"/><circle cx="9" cy="14" r="1.5" fill="var(--p1)" stroke="none"/></svg></button>';
       html += '</div>';
+      if(likeCount > 0) html += '<div style="padding:0 14px 2px;font-size:12px;font-weight:700;color:var(--ink);">'+likeCount+' curtida'+(likeCount>1?'s':'')+'</div>';
       if(caption) html += '<div class="post-cap"><b>'+escapeHtml(name)+'</b> '+escapeHtml(caption)+'</div>';
       html += '<div class="post-time">'+time+'</div>';
       html += '</div>';
@@ -4908,6 +4936,20 @@ async function togglePostLike(btn){
     svg.style.stroke = 'var(--p4)';
   }
 
+  // Update like count display
+  const countEl = postEl ? postEl.querySelector('.mpost-actions .like-count') : null;
+  const countTextEl = postEl ? postEl.querySelector('.mpost-actions + div[style*="font-weight:700"]') : null;
+  let currentCount = countEl ? parseInt(countEl.textContent)||0 : 0;
+  currentCount += isLiked ? -1 : 1;
+  if(currentCount < 0) currentCount = 0;
+  if(countEl) countEl.textContent = currentCount > 0 ? currentCount : '';
+  // Update text below actions
+  const likeTextEl = postEl ? postEl.querySelector('div[style*="padding:0 14px 2px"]') : null;
+  if(likeTextEl){
+    if(currentCount > 0) likeTextEl.textContent = currentCount + ' curtida' + (currentCount>1?'s':'');
+    else likeTextEl.style.display = 'none';
+  }
+
   // Save to DB
   if(!postId) return;
   const sb = getSupabase();
@@ -4919,6 +4961,68 @@ async function togglePostLike(btn){
       await sb.from('likes').insert({ user_id: currentUser.id, post_id: postId });
     }
   } catch(e){ console.warn('togglePostLike error:', e); }
+}
+
+function toggleCommentInput(btn){
+  const postEl = btn.closest('.mpost');
+  if(!postEl) return;
+  let box = postEl.querySelector('.comment-input-box');
+  if(box){ box.style.display = box.style.display === 'none' ? 'flex' : 'none'; box.querySelector('input')?.focus(); return; }
+  box = document.createElement('div');
+  box.className = 'comment-input-box';
+  box.style.cssText = 'display:flex;padding:8px 14px 10px;gap:8px;align-items:center;border-top:1px solid var(--border);';
+  box.innerHTML = '<input type="text" placeholder="Adicionar comentario..." style="flex:1;border:1px solid var(--border);border-radius:20px;padding:8px 14px;font-size:13px;font-family:DM Sans,sans-serif;outline:none;background:var(--cream);">'
+    + '<button onclick="submitComment(this)" style="background:var(--p1);color:#fff;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif;">Enviar</button>';
+  const timeEl = postEl.querySelector('.post-time');
+  if(timeEl) postEl.insertBefore(box, timeEl);
+  else postEl.appendChild(box);
+  box.querySelector('input').focus();
+  box.querySelector('input').addEventListener('keydown', function(e){ if(e.key==='Enter') submitComment(box.querySelector('button')); });
+}
+
+async function submitComment(btn){
+  const box = btn.closest('.comment-input-box');
+  const input = box.querySelector('input');
+  const text = input.value.trim();
+  if(!text) return;
+  const postEl = box.closest('.mpost');
+  const postId = postEl ? postEl.dataset.postId : null;
+  input.value = '';
+  // Show comment in UI
+  let commentsArea = postEl.querySelector('.comments-area');
+  if(!commentsArea){
+    commentsArea = document.createElement('div');
+    commentsArea.className = 'comments-area';
+    commentsArea.style.cssText = 'padding:4px 14px 2px;';
+    postEl.insertBefore(commentsArea, box);
+  }
+  const userName = document.getElementById('myprofile-name')?.textContent || 'Voce';
+  const commentDiv = document.createElement('div');
+  commentDiv.style.cssText = 'font-size:13px;color:var(--ink);margin-bottom:4px;';
+  commentDiv.innerHTML = '<b>'+escapeHtml(userName)+'</b> '+escapeHtml(text);
+  commentsArea.appendChild(commentDiv);
+  toast('Comentario enviado!');
+}
+
+function toggleSavePost(btn){
+  const svg = btn.querySelector('svg');
+  const postEl = btn.closest('.mpost');
+  const postId = postEl ? postEl.dataset.postId : null;
+  if(!postId) return;
+  const isSaved = svg.style.fill === 'var(--p1)';
+  let savedPosts = JSON.parse(localStorage.getItem('savedPosts') || '[]');
+  if(isSaved){
+    svg.style.fill = 'none';
+    svg.style.stroke = 'var(--ink)';
+    savedPosts = savedPosts.filter(id => id !== postId);
+    toast('Removido dos salvos');
+  } else {
+    svg.style.fill = 'var(--p1)';
+    svg.style.stroke = 'var(--p1)';
+    savedPosts.push(postId);
+    toast('Salvo!');
+  }
+  localStorage.setItem('savedPosts', JSON.stringify(savedPosts));
 }
 
 function getTimeAgo(dateStr){
