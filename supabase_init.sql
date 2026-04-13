@@ -420,3 +420,257 @@ CREATE POLICY "Reviews viewable by everyone" ON public.reviews
 
 CREATE POLICY "Users can create reviews" ON public.reviews
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = reviewer_id);
+
+-- ============================================
+-- Quotes table (orçamentos)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.quotes (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  client_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  painter_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  title text,
+  service_type text,
+  area_m2 numeric,
+  address text,
+  description text,
+  proposed_date date,
+  price numeric,
+  status text DEFAULT 'pending',
+  lead_type text DEFAULT 'shared',
+  is_exclusive boolean DEFAULT false,
+  commission_pct numeric DEFAULT 10,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.quotes ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'quotes' AND policyname = 'Quotes are viewable by everyone'
+  ) THEN
+    CREATE POLICY "Quotes are viewable by everyone" ON public.quotes
+      FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'quotes' AND policyname = 'Users can insert own quotes'
+  ) THEN
+    CREATE POLICY "Users can insert own quotes" ON public.quotes
+      FOR INSERT TO authenticated WITH CHECK (auth.uid() = client_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'quotes' AND policyname = 'Users can update own quotes'
+  ) THEN
+    CREATE POLICY "Users can update own quotes" ON public.quotes
+      FOR UPDATE TO authenticated
+      USING (auth.uid() = client_id OR auth.uid() = painter_id)
+      WITH CHECK (auth.uid() = client_id OR auth.uid() = painter_id);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_quotes_client_id ON public.quotes(client_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_painter_id ON public.quotes(painter_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_status ON public.quotes(status);
+
+-- ============================================
+-- Checklists table (listas de tarefas)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.checklists (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  quote_id uuid,
+  title text,
+  items jsonb DEFAULT '[]'::jsonb,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.checklists ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'checklists' AND policyname = 'Users can manage own checklists'
+  ) THEN
+    CREATE POLICY "Users can manage own checklists" ON public.checklists
+      FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Jobs table (agenda de serviços)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.jobs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  painter_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  quote_id uuid,
+  client_name text,
+  service_type text,
+  address text,
+  scheduled_date date,
+  scheduled_time text,
+  status text DEFAULT 'agendado',
+  notes text,
+  revenue numeric DEFAULT 0,
+  material_cost numeric DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'jobs' AND policyname = 'Users can manage own jobs'
+  ) THEN
+    CREATE POLICY "Users can manage own jobs" ON public.jobs
+      FOR ALL TO authenticated USING (auth.uid() = painter_id) WITH CHECK (auth.uid() = painter_id);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_painter_id ON public.jobs(painter_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_date ON public.jobs(scheduled_date);
+
+-- ============================================
+-- Commissions table (comissões da plataforma)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.commissions (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  job_id uuid,
+  quote_id uuid,
+  painter_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  amount numeric,
+  pct numeric,
+  status text DEFAULT 'pending',
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.commissions ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'commissions' AND policyname = 'Users can view own commissions'
+  ) THEN
+    CREATE POLICY "Users can view own commissions" ON public.commissions
+      FOR SELECT TO authenticated USING (auth.uid() = painter_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'commissions' AND policyname = 'Platform can manage all commissions'
+  ) THEN
+    CREATE POLICY "Platform can manage all commissions" ON public.commissions
+      FOR ALL TO authenticated
+      USING (
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND portal_access = true)
+      )
+      WITH CHECK (
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND portal_access = true)
+      );
+  END IF;
+END $$;
+
+-- ============================================
+-- Points table (cashback / recompensas)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.points (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  amount integer,
+  type text,
+  source text,
+  reference_id uuid,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.points ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'points' AND policyname = 'Users can view own points'
+  ) THEN
+    CREATE POLICY "Users can view own points" ON public.points
+      FOR SELECT TO authenticated USING (auth.uid() = user_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'points' AND policyname = 'Users can insert own points'
+  ) THEN
+    CREATE POLICY "Users can insert own points" ON public.points
+      FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Referrals table (indicações pintor-a-pintor)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.referrals (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  referrer_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  referred_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  quote_id uuid,
+  status text DEFAULT 'pending',
+  bonus_points integer DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.referrals ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'referrals' AND policyname = 'Users can view own referrals'
+  ) THEN
+    CREATE POLICY "Users can view own referrals" ON public.referrals
+      FOR SELECT TO authenticated USING (auth.uid() = referrer_id OR auth.uid() = referred_id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Auto-responses table (respostas automáticas)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.auto_responses (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  trigger_type text,
+  message_template text,
+  is_active boolean DEFAULT true,
+  delay_minutes integer DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.auto_responses ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'auto_responses' AND policyname = 'Users can manage own auto responses'
+  ) THEN
+    CREATE POLICY "Users can manage own auto responses" ON public.auto_responses
+      FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- ============================================
+-- Follow-ups table (acompanhamentos agendados)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.follow_ups (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  quote_id uuid REFERENCES public.quotes(id) ON DELETE CASCADE,
+  painter_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  scheduled_at timestamptz,
+  message text,
+  status text DEFAULT 'pending',
+  sent_at timestamptz,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.follow_ups ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'follow_ups' AND policyname = 'Users can manage own follow ups'
+  ) THEN
+    CREATE POLICY "Users can manage own follow ups" ON public.follow_ups
+      FOR ALL TO authenticated USING (auth.uid() = painter_id) WITH CHECK (auth.uid() = painter_id);
+  END IF;
+END $$;

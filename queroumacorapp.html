@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" media="print" onload="this.media='all'" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
 <style>
 :root {
   --ink: #1a1a2e;
@@ -1977,20 +1978,30 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Meu Portfolio</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">Postar trabalhos</div>
         </div>
-        <div onclick="toast('Em breve: Meus Cursos')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
-          <div style="font-size:28px;margin-bottom:6px;">🎓</div>
-          <div style="font-size:12px;font-weight:700;color:var(--ink);">Meus Cursos</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Criar e vender</div>
+        <div onclick="openAiOrcamento()" style="background:linear-gradient(135deg,#8338ec,var(--p1));border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
+          <div style="font-size:28px;margin-bottom:6px;">🤖</div>
+          <div style="font-size:12px;font-weight:700;color:#fff;">Orçamento IA</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">PDF profissional</div>
         </div>
         <div onclick="showScreen('calc')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
           <div style="font-size:28px;margin-bottom:6px;">🧮</div>
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Calculadora</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Tinta e orçamento</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Tinta e material</div>
         </div>
-        <div onclick="openAiOrcamento()" style="background:linear-gradient(135deg,#8338ec,var(--p1));border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
-          <div style="font-size:28px;margin-bottom:6px;">🤖</div>
-          <div style="font-size:12px;font-weight:700;color:#fff;">Orçamento IA</div>
-          <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">Criar com AI</div>
+        <div onclick="showModal('agenda-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">📅</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Agenda</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Meus jobs</div>
+        </div>
+        <div onclick="showModal('checklist-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">✅</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Checklist</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Itens da obra</div>
+        </div>
+        <div onclick="showModal('lucro-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">💰</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Financeiro</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Lucro e comissão</div>
         </div>
         <div onclick="showScreen('chat')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
           <div style="font-size:28px;margin-bottom:6px;">💬</div>
@@ -2002,15 +2013,25 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
           <div style="font-size:12px;font-weight:700;color:#fff;">Chat IA</div>
           <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">Tire dúvidas</div>
         </div>
+        <div onclick="showModal('auto-resp-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">⚡</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Auto Resposta</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Mensagens auto</div>
+        </div>
         <div onclick="showScreen('mkt')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
           <div style="font-size:28px;margin-bottom:6px;">🛒</div>
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Loja</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Cali Colors</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Material + Cashback</div>
         </div>
-        <div onclick="toast('Em breve: Certificados')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
-          <div style="font-size:28px;margin-bottom:6px;">🏆</div>
-          <div style="font-size:12px;font-weight:700;color:var(--ink);">Certificados</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Formação</div>
+        <div onclick="showModal('ranking-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🏅</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Ranking</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Sua cidade</div>
+        </div>
+        <div onclick="showModal('referral-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🤝</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Indicações</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Ganhe pontos</div>
         </div>
         <div id="crm-portal-link" onclick="window.open('https://queroumacor.com.br/queroumacor','_blank')" style="display:none;background:linear-gradient(135deg,var(--p1),var(--p4));border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
           <div style="font-size:28px;margin-bottom:6px;">📊</div>
@@ -2105,6 +2126,16 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
           <div style="font-size:28px;margin-bottom:6px;">🧮</div>
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Calculadora</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">Quanto de tinta?</div>
+        </div>
+        <div onclick="showModal('ranking-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🏅</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Ranking</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Melhores pintores</div>
+        </div>
+        <div onclick="showModal('points-modal')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
+          <div style="font-size:28px;margin-bottom:6px;">🎁</div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink);">Meus Pontos</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Cashback</div>
         </div>
       </div>
 
@@ -2662,6 +2693,130 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
     <div class="pro-feat"><span class="pro-feat-icon">🤖</span>Orçamento gerado por IA</div>
     <div class="pro-feat"><span class="pro-feat-icon">💡</span>Chat IA para dúvidas técnicas</div>
     <button class="pro-cta" onclick="toast('PRO ativado! 🎉');closeModals()">Assinar Agora</button>
+  </div>
+</div>
+
+<!-- ══ AGENDA MODAL ══ -->
+<div class="overlay" id="agenda-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">📅 Agenda de Jobs</div>
+    <div id="agenda-list" style="margin-bottom:12px;"><div style="text-align:center;color:var(--muted);padding:20px;font-size:13px;">Nenhum job agendado</div></div>
+    <button onclick="showModal('agenda-add-modal');closeModals()" style="width:100%;padding:12px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">+ Novo Job</button>
+  </div>
+</div>
+<div class="overlay" id="agenda-add-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Novo Job</div>
+    <div class="auth-field" style="margin-bottom:10px;"><label class="auth-label">Cliente</label><input class="auth-input" id="job-cliente" placeholder="Nome do cliente"></div>
+    <div class="auth-field" style="margin-bottom:10px;"><label class="auth-label">Serviço</label><select class="auth-input" id="job-servico" style="padding:12px;"><option>Pintura residencial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada</option><option>Pintura comercial</option><option>Outro</option></select></div>
+    <div style="display:flex;gap:10px;margin-bottom:10px;"><div class="auth-field" style="flex:1;"><label class="auth-label">Data</label><input class="auth-input" type="date" id="job-data"></div><div class="auth-field" style="flex:1;"><label class="auth-label">Hora</label><input class="auth-input" type="time" id="job-hora"></div></div>
+    <div class="auth-field" style="margin-bottom:10px;"><label class="auth-label">Endereço</label><input class="auth-input" id="job-endereco" placeholder="Rua, bairro"></div>
+    <div style="display:flex;gap:10px;margin-bottom:10px;"><div class="auth-field" style="flex:1;"><label class="auth-label">Receita (R$)</label><input class="auth-input" type="number" id="job-receita" placeholder="0"></div><div class="auth-field" style="flex:1;"><label class="auth-label">Custo Material</label><input class="auth-input" type="number" id="job-custo" placeholder="0"></div></div>
+    <div class="auth-field" style="margin-bottom:12px;"><label class="auth-label">Notas</label><textarea class="auth-input" id="job-notas" rows="2" placeholder="Observações..." style="resize:none;"></textarea></div>
+    <button onclick="salvarJob()" style="width:100%;padding:12px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Salvar Job</button>
+  </div>
+</div>
+
+<!-- ══ CHECKLIST MODAL ══ -->
+<div class="overlay" id="checklist-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">✅ Checklist de Obra</div>
+    <div id="checklist-items" style="margin-bottom:12px;"></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;"><input class="auth-input" id="checklist-new" placeholder="Novo item..." style="flex:1;"><button onclick="addChecklistItem()" style="padding:10px 16px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">+</button></div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Templates rápidos:</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+      <button onclick="loadChecklistTemplate('pintura')" class="tag-btn" style="font-size:11px;padding:6px 10px;background:var(--cream);border:1px solid var(--border);border-radius:8px;cursor:pointer;">🎨 Pintura</button>
+      <button onclick="loadChecklistTemplate('textura')" class="tag-btn" style="font-size:11px;padding:6px 10px;background:var(--cream);border:1px solid var(--border);border-radius:8px;cursor:pointer;">🖌️ Textura</button>
+      <button onclick="loadChecklistTemplate('epoxi')" class="tag-btn" style="font-size:11px;padding:6px 10px;background:var(--cream);border:1px solid var(--border);border-radius:8px;cursor:pointer;">🏗️ Epóxi</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LUCRO / FINANCEIRO MODAL ══ -->
+<div class="overlay" id="lucro-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">💰 Financeiro</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+      <div style="background:linear-gradient(135deg,#2ec4b6,#0b8a78);border-radius:14px;padding:16px;color:#fff;"><div style="font-size:11px;opacity:.7;">RECEITA TOTAL</div><div id="fin-receita" style="font-size:22px;font-weight:800;font-family:Syne,sans-serif;">R$ 0</div></div>
+      <div style="background:linear-gradient(135deg,var(--p1),var(--p4));border-radius:14px;padding:16px;color:#fff;"><div style="font-size:11px;opacity:.7;">LUCRO LÍQUIDO</div><div id="fin-lucro" style="font-size:22px;font-weight:800;font-family:Syne,sans-serif;">R$ 0</div></div>
+      <div style="background:var(--white);border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.05);"><div style="font-size:11px;color:var(--muted);">CUSTOS MATERIAL</div><div id="fin-custos" style="font-size:18px;font-weight:800;color:var(--ink);">R$ 0</div></div>
+      <div style="background:var(--white);border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.05);"><div style="font-size:11px;color:var(--muted);">COMISSÕES</div><div id="fin-comissoes" style="font-size:18px;font-weight:800;color:var(--ink);">R$ 0</div></div>
+    </div>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px;">ÚLTIMOS JOBS</div>
+    <div id="fin-jobs-list" style="font-size:13px;color:var(--muted);text-align:center;padding:12px;">Nenhum job concluído</div>
+  </div>
+</div>
+
+<!-- ══ AUTO-RESPOSTA MODAL ══ -->
+<div class="overlay" id="auto-resp-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">⚡ Respostas Automáticas</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Configure mensagens automáticas para novos orçamentos e follow-ups.</div>
+    <div style="background:var(--white);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:13px;font-weight:700;">Novo Orçamento Recebido</span><label style="position:relative;width:40px;height:22px;"><input type="checkbox" id="ar-quote-on" checked style="display:none;"><span onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked" style="position:absolute;inset:0;background:var(--border);border-radius:11px;cursor:pointer;transition:.2s;"></span></label></div>
+      <textarea class="auth-input" id="ar-quote-msg" rows="2" style="resize:none;font-size:12px;">Olá! Obrigado pelo interesse. Recebi seu pedido de orçamento e entrarei em contato em breve! 🎨</textarea>
+    </div>
+    <div style="background:var(--white);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:13px;font-weight:700;">Follow-up (3 dias)</span><label style="position:relative;width:40px;height:22px;"><input type="checkbox" id="ar-followup-on" checked style="display:none;"><span onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked" style="position:absolute;inset:0;background:var(--border);border-radius:11px;cursor:pointer;transition:.2s;"></span></label></div>
+      <textarea class="auth-input" id="ar-followup-msg" rows="2" style="resize:none;font-size:12px;">Olá! Gostaria de saber se ainda precisa do serviço de pintura. Posso fazer uma visita para avaliar o local. 😊</textarea>
+    </div>
+    <div style="background:var(--white);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:13px;font-weight:700;">Nova Mensagem</span><label style="position:relative;width:40px;height:22px;"><input type="checkbox" id="ar-msg-on" style="display:none;"><span onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked" style="position:absolute;inset:0;background:var(--border);border-radius:11px;cursor:pointer;transition:.2s;"></span></label></div>
+      <textarea class="auth-input" id="ar-msg-msg" rows="2" style="resize:none;font-size:12px;">Olá! Vi sua mensagem. Retorno em breve!</textarea>
+    </div>
+    <button onclick="salvarAutoRespostas()" style="width:100%;padding:12px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Salvar Configurações</button>
+  </div>
+</div>
+
+<!-- ══ RANKING MODAL ══ -->
+<div class="overlay" id="ranking-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">🏅 Ranking de Pintores</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;"><input class="auth-input" id="ranking-city" placeholder="Digite sua cidade..." style="flex:1;" oninput="loadRanking()"><button onclick="loadRanking()" style="padding:10px 14px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;">Buscar</button></div>
+    <div id="ranking-list"><div style="text-align:center;color:var(--muted);padding:20px;font-size:13px;">Busque uma cidade para ver o ranking</div></div>
+  </div>
+</div>
+
+<!-- ══ REFERRAL / INDICAÇÃO MODAL ══ -->
+<div class="overlay" id="referral-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">🤝 Indicações entre Pintores</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Indique jobs que não pode atender e ganhe pontos quando o pintor indicado concluir.</div>
+    <div style="background:linear-gradient(135deg,#2ec4b6,var(--p1));border-radius:14px;padding:16px;color:#fff;margin-bottom:14px;"><div style="font-size:11px;opacity:.7;">SEUS PONTOS</div><div id="ref-pontos" style="font-size:28px;font-weight:800;font-family:Syne,sans-serif;">0</div><div style="font-size:11px;opacity:.7;margin-top:4px;">100 pts = R$10 cashback na loja</div></div>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px;">COMO FUNCIONA</div>
+    <div style="font-size:12px;color:var(--ink);margin-bottom:6px;">1. Receba um job que não pode atender</div>
+    <div style="font-size:12px;color:var(--ink);margin-bottom:6px;">2. Indique para outro pintor da rede</div>
+    <div style="font-size:12px;color:var(--ink);margin-bottom:6px;">3. Quando concluir, ganhe 50 pontos</div>
+    <div style="font-size:12px;color:var(--ink);margin-bottom:14px;">4. Troque pontos por cashback na loja</div>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px;">MINHAS INDICAÇÕES</div>
+    <div id="ref-list" style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">Nenhuma indicação ainda</div>
+  </div>
+</div>
+
+<!-- ══ PONTOS / CASHBACK MODAL ══ -->
+<div class="overlay" id="points-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">🎁 Meus Pontos</div>
+    <div style="background:linear-gradient(135deg,var(--p1),var(--p4));border-radius:14px;padding:20px;color:#fff;text-align:center;margin-bottom:14px;">
+      <div style="font-size:11px;opacity:.7;">SALDO DISPONÍVEL</div>
+      <div id="pts-saldo" style="font-size:34px;font-weight:800;font-family:Syne,sans-serif;">0 pts</div>
+      <div style="font-size:12px;opacity:.8;margin-top:4px;">= R$ <span id="pts-valor">0</span> em cashback</div>
+    </div>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px;">COMO GANHAR</div>
+    <div style="background:var(--white);border-radius:12px;padding:12px;margin-bottom:6px;box-shadow:0 2px 6px rgba(0,0,0,.04);font-size:12px;display:flex;justify-content:space-between;"><span>🛒 Compra na loja</span><span style="font-weight:700;color:var(--p1);">+5 pts/R$10</span></div>
+    <div style="background:var(--white);border-radius:12px;padding:12px;margin-bottom:6px;box-shadow:0 2px 6px rgba(0,0,0,.04);font-size:12px;display:flex;justify-content:space-between;"><span>⭐ Avaliar pintor</span><span style="font-weight:700;color:var(--p1);">+10 pts</span></div>
+    <div style="background:var(--white);border-radius:12px;padding:12px;margin-bottom:6px;box-shadow:0 2px 6px rgba(0,0,0,.04);font-size:12px;display:flex;justify-content:space-between;"><span>🤝 Indicar pintor</span><span style="font-weight:700;color:var(--p1);">+50 pts</span></div>
+    <div style="background:var(--white);border-radius:12px;padding:12px;margin-bottom:6px;box-shadow:0 2px 6px rgba(0,0,0,.04);font-size:12px;display:flex;justify-content:space-between;"><span>👥 Convidar amigo</span><span style="font-weight:700;color:var(--p1);">+20 pts</span></div>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);margin:14px 0 8px;">HISTÓRICO</div>
+    <div id="pts-historico" style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">Nenhuma movimentação</div>
   </div>
 </div>
 
@@ -3391,15 +3546,24 @@ function gerarOrcamentoIA(){
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
-      <button onclick="compartilharOrcamento()" style="flex:1;padding:12px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📤 Enviar ao cliente</button>
-      <button onclick="copiarOrcamento()" style="flex:1;padding:12px;background:var(--white);color:var(--ink);border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📋 Copiar texto</button>
+      <button onclick="gerarPDFOrcamento()" style="flex:1;padding:12px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📄 Baixar PDF</button>
+      <button onclick="compartilharOrcamento()" style="flex:1;padding:12px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📤 Enviar</button>
     </div>
+    <div id="ai-orc-materiais" style="margin-top:14px;"></div>
   `;
+
+  // Save data for PDF
+  const pItens = [];
+  prepItems.forEach(item=>pItens.push({desc:item,valor:'Incluso'}));
+  pItens.push({desc:'Tinta premium ('+litros+'L ≈ '+l18+' galões 18L)',valor:'R$ '+custoTinta.toLocaleString('pt-BR')});
+  pItens.push({desc:'Mão de obra ('+area+'m² × R$'+precoM2+'/m²)',valor:'R$ '+custoMaoObra.toLocaleString('pt-BR')});
+  _lastOrcData = {pintor:pintorName,cliente,servico,area,demaos:numDemaos,condicao:condicaoText,hoje,total,itens:pItens,obs:[obs,numDemaos+' demãos','Prazo: '+diasEstimados+' dias úteis','Garantia 1 ano'].filter(Boolean)};
 
   const resultEl = document.getElementById('ai-orc-result');
   resultEl.innerHTML = resultHtml;
   resultEl.style.display = 'block';
   resultEl.scrollIntoView({ behavior: 'smooth' });
+  loadMaterialSuggestions(litros);
 }
 
 function compartilharOrcamento(){
@@ -3412,11 +3576,318 @@ function compartilharOrcamento(){
   }
 }
 
+// ══ PDF GENERATION ══
+let _lastOrcData = {};
+function gerarPDFOrcamento(){
+  if(typeof jspdf==='undefined' && typeof window.jspdf==='undefined'){ toast('Carregando PDF...'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const d = _lastOrcData;
+  // Header
+  doc.setFillColor(26,26,46);
+  doc.rect(0,0,210,35,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(22); doc.setFont(undefined,'bold');
+  doc.text('ORCAMENTO',15,20);
+  doc.setFontSize(10); doc.setFont(undefined,'normal');
+  doc.text(d.hoje||'',195,15,{align:'right'});
+  doc.text('QueroUmaCor',195,22,{align:'right'});
+  // Info
+  doc.setTextColor(26,26,46);
+  let y=48;
+  doc.setFontSize(11); doc.setFont(undefined,'bold');
+  doc.text('Profissional: '+(d.pintor||''),15,y);
+  doc.text('Cliente: '+(d.cliente||''),120,y); y+=10;
+  doc.setFont(undefined,'normal'); doc.setFontSize(10);
+  doc.text('Servico: '+(d.servico||''),15,y); y+=8;
+  doc.text('Area: '+(d.area||0)+'m2  |  Demaos: '+(d.demaos||2)+'  |  Condicao: '+(d.condicao||''),15,y); y+=12;
+  // Itens
+  doc.setFont(undefined,'bold'); doc.setFontSize(11);
+  doc.text('ITENS',15,y); y+=8;
+  doc.setFont(undefined,'normal'); doc.setFontSize(9);
+  (d.itens||[]).forEach(item=>{ doc.text('• '+item.desc,15,y); doc.text(item.valor,190,y,{align:'right'}); y+=6; if(y>270){doc.addPage();y=20;} });
+  y+=6;
+  // Obs
+  doc.setFont(undefined,'bold'); doc.setFontSize(10);
+  doc.text('OBSERVACOES',15,y); y+=7;
+  doc.setFont(undefined,'normal'); doc.setFontSize(9);
+  (d.obs||[]).forEach(o=>{ doc.text('• '+o,15,y); y+=5; if(y>270){doc.addPage();y=20;} });
+  y+=10;
+  // Total
+  doc.setFillColor(245,240,235); doc.rect(10,y-4,190,18,'F');
+  doc.setFont(undefined,'bold'); doc.setFontSize(14);
+  doc.setTextColor(255,107,53);
+  doc.text('TOTAL: R$ '+(d.total||0).toLocaleString('pt-BR'),105,y+7,{align:'center'});
+  doc.save('orcamento-queroumacor.pdf');
+  toast('PDF gerado!');
+}
+
+// ══ MATERIAL LIST LINKED TO STORE ══
+async function loadMaterialSuggestions(litros){
+  const sb = getSupabase(); if(!sb) return;
+  const { data: products } = await sb.from('products').select('*').eq('category','tintas').eq('active',true).limit(6);
+  const el = document.getElementById('ai-orc-materiais');
+  if(!el || !products || products.length===0) return;
+  const l18 = Math.ceil(litros/18);
+  el.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px;">MATERIAL DA NOSSA LOJA</div>'
+    + products.map(p=>`<div style="display:flex;align-items:center;gap:10px;background:var(--white);border-radius:10px;padding:10px;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+      <div style="width:36px;height:36px;border-radius:8px;background:${p.color_hex||'#ccc'};flex-shrink:0;"></div>
+      <div style="flex:1;"><div style="font-size:12px;font-weight:700;">${escapeHtml(p.name)}</div><div style="font-size:10px;color:var(--muted);">${p.volume||'18L'} · ${p.line||''}</div></div>
+      <div style="text-align:right;"><div style="font-size:12px;font-weight:700;color:var(--p1);">R$ ${(p.price||0).toLocaleString('pt-BR')}</div>
+      <button onclick="addToCart('${p.id}','${escapeHtml(p.name)}',${p.price||0})" style="margin-top:4px;padding:4px 8px;background:var(--ink);color:#fff;border:none;border-radius:6px;font-size:9px;font-weight:700;cursor:pointer;">+ Carrinho</button></div>
+    </div>`).join('');
+}
+
 function copiarOrcamento(){
   const resultEl = document.getElementById('ai-orc-result');
   const text = resultEl?.innerText || '';
   navigator.clipboard.writeText(text).then(()=>toast('Orçamento copiado!')).catch(()=>toast('Erro ao copiar'));
 }
+
+// ══ AGENDA DE JOBS ══
+async function loadAgenda(){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  const { data: jobs } = await sb.from('jobs').select('*').eq('painter_id', currentUser.id).order('scheduled_date',{ascending:true}).limit(20);
+  const el = document.getElementById('agenda-list');
+  if(!jobs||jobs.length===0){ el.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px;">Nenhum job agendado</div>'; return; }
+  el.innerHTML = jobs.map(j=>{
+    const st = j.status==='concluido'?'#2ec4b6':j.status==='cancelado'?'#e74c3c':'var(--p1)';
+    return `<div style="background:var(--white);border-radius:12px;padding:14px;margin-bottom:8px;box-shadow:0 2px 6px rgba(0,0,0,.04);border-left:4px solid ${st};">
+      <div style="display:flex;justify-content:space-between;"><b style="font-size:13px;">${escapeHtml(j.client_name||'')}</b><span style="font-size:11px;color:var(--muted);">${j.scheduled_date||''} ${j.scheduled_time||''}</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">${escapeHtml(j.service_type||'')} · ${escapeHtml(j.address||'')}</div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <span style="font-size:11px;color:var(--ink);font-weight:600;">R$ ${(j.revenue||0).toLocaleString('pt-BR')}</span>
+        <span style="font-size:11px;color:var(--muted);">custo: R$ ${(j.material_cost||0).toLocaleString('pt-BR')}</span>
+        <span style="margin-left:auto;font-size:10px;font-weight:700;color:${st};text-transform:uppercase;">${j.status}</span>
+      </div>
+      ${j.status==='agendado'?`<div style="display:flex;gap:6px;margin-top:8px;"><button onclick="updateJobStatus('${j.id}','concluido')" style="flex:1;padding:6px;background:#2ec4b6;color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">✓ Concluir</button><button onclick="updateJobStatus('${j.id}','cancelado')" style="flex:1;padding:6px;background:var(--cream);color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">Cancelar</button></div>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function salvarJob(){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  const job = {
+    painter_id: currentUser.id,
+    client_name: document.getElementById('job-cliente').value.trim(),
+    service_type: document.getElementById('job-servico').value,
+    scheduled_date: document.getElementById('job-data').value||null,
+    scheduled_time: document.getElementById('job-hora').value||null,
+    address: document.getElementById('job-endereco').value.trim(),
+    revenue: parseFloat(document.getElementById('job-receita').value)||0,
+    material_cost: parseFloat(document.getElementById('job-custo').value)||0,
+    notes: document.getElementById('job-notas').value.trim()
+  };
+  if(!job.client_name){ toast('Informe o cliente'); return; }
+  const { error } = await sb.from('jobs').insert(job);
+  if(error){ toast('Erro: '+error.message); return; }
+  toast('Job salvo!'); closeModals(); loadAgenda();
+}
+
+async function updateJobStatus(jobId, status){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  await sb.from('jobs').update({status}).eq('id',jobId).eq('painter_id',currentUser.id);
+  toast(status==='concluido'?'Job concluído!':'Job cancelado'); loadAgenda(); loadFinanceiro();
+}
+
+// ══ CHECKLIST DE OBRA ══
+let _checklistItems = JSON.parse(localStorage.getItem('checklistItems')||'[]');
+const _checklistTemplates = {
+  pintura: ['Proteger pisos com lona','Fita crepe em rodapés e batentes','Lixar paredes (lixa 150)','Aplicar massa corrida','Lixar massa (lixa 220)','Aplicar selador','1ª demão de tinta','2ª demão de tinta','Retoques finais','Limpeza do local'],
+  textura: ['Proteger pisos e móveis','Preparar massa texturizada','Aplicar base/selador','Aplicar textura com desempenadeira','Aguardar secagem (4h)','Pintar sobre textura','Retoques','Limpeza'],
+  epoxi: ['Lixar piso','Limpar com desengraxante','Aplicar primer epóxi','Aguardar 12h secagem','1ª demão epóxi','2ª demão epóxi','Aguardar 7 dias cura total','Entrega']
+};
+
+function renderChecklist(){
+  const el = document.getElementById('checklist-items');
+  if(_checklistItems.length===0){ el.innerHTML='<div style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">Adicione itens ou use um template</div>'; return; }
+  el.innerHTML = _checklistItems.map((item,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+    <input type="checkbox" ${item.done?'checked':''} onchange="_checklistItems[${i}].done=this.checked;saveChecklist()" style="width:18px;height:18px;accent-color:var(--p1);">
+    <span style="flex:1;font-size:13px;${item.done?'text-decoration:line-through;color:var(--muted);':''}">${escapeHtml(item.text)}</span>
+    <span onclick="_checklistItems.splice(${i},1);saveChecklist();renderChecklist()" style="cursor:pointer;color:var(--muted);font-size:16px;">&times;</span>
+  </div>`).join('');
+}
+
+function addChecklistItem(){
+  const input = document.getElementById('checklist-new');
+  const text = input.value.trim(); if(!text) return;
+  _checklistItems.push({text, done:false}); input.value='';
+  saveChecklist(); renderChecklist();
+}
+
+function loadChecklistTemplate(type){
+  _checklistItems = (_checklistTemplates[type]||[]).map(t=>({text:t,done:false}));
+  saveChecklist(); renderChecklist();
+}
+
+function saveChecklist(){ localStorage.setItem('checklistItems', JSON.stringify(_checklistItems)); }
+
+// ══ FINANCEIRO / LUCRO ══
+async function loadFinanceiro(){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  const { data: jobs } = await sb.from('jobs').select('*').eq('painter_id', currentUser.id).eq('status','concluido');
+  let receita=0, custos=0;
+  (jobs||[]).forEach(j=>{ receita+=(j.revenue||0); custos+=(j.material_cost||0); });
+  const { data: comms } = await sb.from('commissions').select('amount').eq('painter_id', currentUser.id);
+  let comissoes=0; (comms||[]).forEach(c=>{ comissoes+=(c.amount||0); });
+  document.getElementById('fin-receita').textContent='R$ '+receita.toLocaleString('pt-BR');
+  document.getElementById('fin-custos').textContent='R$ '+custos.toLocaleString('pt-BR');
+  document.getElementById('fin-comissoes').textContent='R$ '+comissoes.toLocaleString('pt-BR');
+  document.getElementById('fin-lucro').textContent='R$ '+(receita-custos-comissoes).toLocaleString('pt-BR');
+  const listEl = document.getElementById('fin-jobs-list');
+  if(jobs&&jobs.length>0){
+    listEl.innerHTML = jobs.slice(0,5).map(j=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;"><span>${escapeHtml(j.client_name||'')} - ${escapeHtml(j.service_type||'')}</span><span style="font-weight:700;color:#2ec4b6;">R$ ${((j.revenue||0)-(j.material_cost||0)).toLocaleString('pt-BR')}</span></div>`).join('');
+  }
+}
+
+// ══ AUTO-RESPOSTAS ══
+async function salvarAutoRespostas(){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  const configs = [
+    { trigger_type:'new_quote', message_template: document.getElementById('ar-quote-msg').value, is_active: document.getElementById('ar-quote-on').checked, delay_minutes:0 },
+    { trigger_type:'follow_up', message_template: document.getElementById('ar-followup-msg').value, is_active: document.getElementById('ar-followup-on').checked, delay_minutes:4320 },
+    { trigger_type:'new_message', message_template: document.getElementById('ar-msg-msg').value, is_active: document.getElementById('ar-msg-on').checked, delay_minutes:0 }
+  ];
+  for(const c of configs){
+    await sb.from('auto_responses').upsert({ user_id: currentUser.id, ...c }, { onConflict:'user_id,trigger_type' });
+  }
+  toast('Respostas automáticas salvas!'); closeModals();
+}
+
+// ══ RANKING POR CIDADE ══
+async function loadRanking(){
+  const city = document.getElementById('ranking-city').value.trim().toLowerCase();
+  if(!city || city.length < 2) return;
+  const sb = getSupabase(); if(!sb) return;
+  const { data: painters } = await sb.from('profiles').select('id, name, tag, avatar_url, city, state, rating_avg, role').eq('role','pintor').ilike('city','%'+city+'%').order('rating_avg',{ascending:false,nullsFirst:false}).limit(20);
+  const el = document.getElementById('ranking-list');
+  if(!painters||painters.length===0){ el.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px;">Nenhum pintor encontrado nesta cidade</div>'; return; }
+  el.innerHTML = painters.map((p,i)=>{
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'<span style="font-size:12px;font-weight:700;color:var(--muted);">#'+(i+1)+'</span>';
+    const avatar = p.avatar_url||'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'P')+'&background=e8e2d9&color=1a1a2e&size=96';
+    const stars = p.rating_avg ? '⭐ '+(+p.rating_avg).toFixed(1) : 'Sem avaliação';
+    return `<div onclick="openUserProfile('${p.id}')" style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--white);border-radius:12px;margin-bottom:6px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.04);">
+      <div style="width:28px;text-align:center;">${medal}</div>
+      <img src="${avatar}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+      <div style="flex:1;"><div style="font-size:13px;font-weight:700;">${escapeHtml(p.name||'')}</div><div style="font-size:11px;color:var(--muted);">${p.tag?'@'+p.tag:''} · ${escapeHtml((p.city||'')+', '+(p.state||''))}</div></div>
+      <div style="font-size:12px;font-weight:600;color:var(--p1);">${stars}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══ INDICAÇÃO ENTRE PINTORES ══
+async function loadReferrals(){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  const { data: refs } = await sb.from('referrals').select('*').eq('referrer_id', currentUser.id).order('created_at',{ascending:false});
+  const { data: pts } = await sb.from('points').select('amount,type').eq('user_id', currentUser.id);
+  let total = 0; (pts||[]).forEach(p=>{ total += p.type==='earned'?(p.amount||0):-(p.amount||0); });
+  document.getElementById('ref-pontos').textContent = total;
+  const el = document.getElementById('ref-list');
+  if(!refs||refs.length===0) return;
+  el.innerHTML = refs.map(r=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;"><span>${r.status}</span><span style="color:var(--p1);font-weight:700;">+${r.bonus_points} pts</span></div>`).join('');
+}
+
+// ══ PONTOS / CASHBACK ══
+async function loadPoints(){
+  const sb = getSupabase(); if(!sb||!currentUser) return;
+  const { data: pts } = await sb.from('points').select('*').eq('user_id', currentUser.id).order('created_at',{ascending:false}).limit(20);
+  let saldo = 0; (pts||[]).forEach(p=>{ saldo += p.type==='earned'?(p.amount||0):-(p.amount||0); });
+  document.getElementById('pts-saldo').textContent = saldo+' pts';
+  document.getElementById('pts-valor').textContent = (saldo/10).toFixed(0);
+  const el = document.getElementById('pts-historico');
+  if(!pts||pts.length===0) return;
+  el.innerHTML = pts.map(p=>{
+    const sign = p.type==='earned'?'+':'-';
+    const color = p.type==='earned'?'#2ec4b6':'var(--p1)';
+    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;"><span>${escapeHtml(p.source||'')}</span><span style="color:${color};font-weight:700;">${sign}${p.amount} pts</span></div>`;
+  }).join('');
+}
+
+// ══ EARN POINTS HELPER ══
+async function earnPoints(userId, amount, source, refId){
+  const sb = getSupabase(); if(!sb) return;
+  try { await sb.from('points').insert({ user_id: userId, amount, type:'earned', source, reference_id: refId||null }); } catch(e){}
+}
+
+// ══ DISTRIBUIÇÃO DE LEADS ══
+async function distribuirLead(quoteId, serviceType, city){
+  const sb = getSupabase(); if(!sb) return;
+  // Find painters in same city, matching specialty, ordered by PRO first then rating
+  let query = sb.from('profiles').select('id, name, role, city, specialties, rating_avg, portal_access')
+    .eq('role','pintor').ilike('city','%'+(city||'')+'%')
+    .order('rating_avg',{ascending:false,nullsFirst:false}).limit(5);
+  const { data: painters } = await query;
+  if(!painters||painters.length===0) return;
+  // PRO painters get priority (sorted first)
+  painters.sort((a,b)=> (b.portal_access?1:0)-(a.portal_access?1:0));
+  // Assign to top painter as exclusive if PRO, shared otherwise
+  const topPainter = painters[0];
+  const isExclusive = topPainter.portal_access;
+  await sb.from('quotes').update({
+    painter_id: topPainter.id,
+    lead_type: isExclusive ? 'exclusive' : 'shared',
+    is_exclusive: isExclusive
+  }).eq('id', quoteId);
+  return topPainter;
+}
+
+// ══ PEDIR ORÇAMENTO VIA POST ══
+function pedirOrcamentoPost(painterId, painterName){
+  document.getElementById('orc-painter-id').value = painterId;
+  const nameEl = document.querySelector('#screen-orcamento .orc-painter-name');
+  if(nameEl) nameEl.textContent = painterName;
+  showScreen('orcamento');
+}
+
+// ══ LOJA CHECKOUT ══
+let _cart = JSON.parse(localStorage.getItem('shopCart')||'[]');
+function addToCart(productId, name, price){
+  const existing = _cart.find(c=>c.id===productId);
+  if(existing) existing.qty++;
+  else _cart.push({id:productId, name, price, qty:1});
+  localStorage.setItem('shopCart', JSON.stringify(_cart));
+  updateCartBadge();
+  toast(name+' adicionado ao carrinho!');
+}
+
+function updateCartBadge(){
+  const total = _cart.reduce((s,c)=>s+c.qty,0);
+  const badge = document.getElementById('cart-badge');
+  if(badge){ badge.textContent = total; badge.style.display = total>0?'flex':'none'; }
+}
+
+async function finalizarCompra(){
+  const sb = getSupabase(); if(!sb||!currentUser||_cart.length===0){ toast('Carrinho vazio'); return; }
+  const total = _cart.reduce((s,c)=>s+c.price*c.qty,0);
+  const { error } = await sb.from('orders').insert({
+    user_id: currentUser.id, items: _cart, total, status:'pending'
+  });
+  if(error){ toast('Erro ao finalizar'); return; }
+  // Award points (5 pts per R$10 spent)
+  const pontos = Math.floor(total/10)*5;
+  if(pontos > 0){
+    await sb.from('points').insert({ user_id: currentUser.id, amount: pontos, type:'earned', source:'purchase' });
+  }
+  _cart = []; localStorage.setItem('shopCart','[]'); updateCartBadge();
+  toast('Pedido realizado! +'+pontos+' pontos 🎉');
+}
+
+// ══ PUBLISH VIDEO (REELS) ══
+// Updated publishPost to handle video media_type
+function getMediaType(file){
+  if(!file) return 'image';
+  if(file.type && file.type.startsWith('video/')) return 'video';
+  const ext = file.name?.split('.').pop()?.toLowerCase();
+  if(['mp4','webm','mov','avi'].includes(ext)) return 'video';
+  return 'image';
+}
+
+// ══ MODAL LOADERS (called on open) ══
+(function(){
+  const _orig = showModal;
+  const _loaders = {'agenda-modal':loadAgenda,'checklist-modal':renderChecklist,'lucro-modal':loadFinanceiro,'referral-modal':loadReferrals,'points-modal':loadPoints};
+  showModal = function(id){ _orig(id); if(_loaders[id]) _loaders[id](); };
+})();
 
 // ══ CHAT SYSTEM ══
 let currentChat = null;
@@ -4405,7 +4876,7 @@ async function sendOrc(){
   btn.disabled = true;
   btn.querySelector('span').textContent = 'Enviando...';
 
-  const { error } = await sb.from('quotes').insert({
+  const { data: quoteData, error } = await sb.from('quotes').insert({
     client_id: session.user.id,
     painter_id: painterId || undefined,
     title: serviceType,
@@ -4414,8 +4885,9 @@ async function sendOrc(){
     address: address,
     description: description || null,
     proposed_date: proposedDate || null,
-    status: 'pending'
-  });
+    status: 'pending',
+    lead_type: painterId ? 'exclusive' : 'shared'
+  }).select('id').single();
 
   btn.disabled = false;
   btn.querySelector('span').textContent = '📩 Enviar Solicitação';
@@ -4424,6 +4896,10 @@ async function sendOrc(){
     console.error('sendOrc error:', error);
     toast('❌ Erro ao enviar: ' + error.message);
   } else {
+    // Auto-distribute lead if no specific painter
+    if(!painterId && quoteData) distribuirLead(quoteData.id, serviceType, address);
+    // Award points for quote request
+    if(typeof earnPoints==='function') earnPoints(session.user.id, 5, 'quote_request');
     toast('✅ Solicitação enviada com sucesso!');
     // Clear form
     document.getElementById('orc-service-type').selectedIndex = 0;
@@ -5206,7 +5682,8 @@ async function loadPosts(feedIds){
       const caption = p.caption || '';
       const liked = myLikes.includes(p.id);
       const saved = savedPosts.includes(p.id);
-      const imgHtml = p.media_url ? '<img src="'+p.media_url+'" alt="" loading="lazy" style="width:100%;display:block;object-fit:cover;">' : '';
+      const isVideo = p.media_url && (p.media_url.includes('.mp4') || p.media_url.includes('.webm') || p.media_url.includes('.mov') || p.media_type === 'video');
+      const imgHtml = p.media_url ? (isVideo ? '<video src="'+p.media_url+'" controls playsinline preload="metadata" style="width:100%;display:block;object-fit:cover;max-height:500px;"></video>' : '<img src="'+p.media_url+'" alt="" loading="lazy" style="width:100%;display:block;object-fit:cover;">') : '';
       const likeCount = likeCounts[p.id] || 0;
       const brushFill = liked ? 'var(--p4)' : 'none';
       const brushStroke = liked ? 'var(--p4)' : 'var(--ink)';
@@ -5252,6 +5729,10 @@ async function loadPosts(feedIds){
         html += '</div>';
       }
       html += '<div class="post-time">'+time+'</div>';
+      // Quote button (only on other painters' posts)
+      if(currentUser && p.user_id !== currentUser.id){
+        html += '<div style="padding:6px 14px 12px;"><button onclick="pedirOrcamentoPost(\''+p.user_id+'\',\''+escapeHtml(name)+'\')" style="width:100%;padding:10px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif;">📋 Pedir Orçamento</button></div>';
+      }
       html += '</div>';
     });
     container.innerHTML = html;
@@ -5780,7 +6261,7 @@ async function publishPost(){
       user_id: session.user.id,
       caption: content || null,
       media_url: imageUrl,
-      media_type: type === 'story' ? 'story' : 'image',
+      media_type: type === 'story' ? 'story' : (postFile && getMediaType(postFile) === 'video' ? 'video' : 'image'),
       created_at: new Date().toISOString()
     }).select();
 
