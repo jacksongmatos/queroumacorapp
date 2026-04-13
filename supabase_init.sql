@@ -185,6 +185,79 @@ BEGIN
 END $$;
 
 -- ============================================
+-- Comments table (post comments)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.comments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  post_id uuid REFERENCES public.posts(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  text text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'comments' AND policyname = 'Comments are viewable by everyone'
+  ) THEN
+    CREATE POLICY "Comments are viewable by everyone" ON public.comments FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'comments' AND policyname = 'Users can insert own comments'
+  ) THEN
+    CREATE POLICY "Users can insert own comments" ON public.comments
+      FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'comments' AND policyname = 'Users can delete own comments'
+  ) THEN
+    CREATE POLICY "Users can delete own comments" ON public.comments
+      FOR DELETE TO authenticated USING (auth.uid() = user_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'comments' AND policyname = 'Post owners can delete comments'
+  ) THEN
+    CREATE POLICY "Post owners can delete comments" ON public.comments
+      FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM public.posts WHERE id = post_id AND user_id = auth.uid())
+      );
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_comments_post_id ON public.comments(post_id);
+
+-- ============================================
+-- Saved posts table (bookmarks)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.saved_posts (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  post_id uuid REFERENCES public.posts(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, post_id)
+);
+
+ALTER TABLE public.saved_posts ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'saved_posts' AND policyname = 'Users can view own saved posts'
+  ) THEN
+    CREATE POLICY "Users can view own saved posts" ON public.saved_posts
+      FOR SELECT TO authenticated USING (auth.uid() = user_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'saved_posts' AND policyname = 'Users can manage own saved posts'
+  ) THEN
+    CREATE POLICY "Users can manage own saved posts" ON public.saved_posts
+      FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- ============================================
 -- Storage: ensure 'posts' bucket exists
 -- ============================================
 INSERT INTO storage.buckets (id, name, public)
