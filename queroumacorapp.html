@@ -1987,10 +1987,20 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Calculadora</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">Tinta e orçamento</div>
         </div>
+        <div onclick="openAiOrcamento()" style="background:linear-gradient(135deg,#8338ec,var(--p1));border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
+          <div style="font-size:28px;margin-bottom:6px;">🤖</div>
+          <div style="font-size:12px;font-weight:700;color:#fff;">Orçamento IA</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">Criar com AI</div>
+        </div>
         <div onclick="showScreen('chat')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
           <div style="font-size:28px;margin-bottom:6px;">💬</div>
           <div style="font-size:12px;font-weight:700;color:var(--ink);">Mensagens</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">Clientes e loja</div>
+        </div>
+        <div onclick="openAiChat()" style="background:linear-gradient(135deg,#2ec4b6,#8338ec);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.1);">
+          <div style="font-size:28px;margin-bottom:6px;">💡</div>
+          <div style="font-size:12px;font-weight:700;color:#fff;">Chat IA</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.8);margin-top:2px;">Tire dúvidas</div>
         </div>
         <div onclick="showScreen('mkt')" style="background:var(--white);border-radius:16px;padding:16px 10px;text-align:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06);">
           <div style="font-size:28px;margin-bottom:6px;">🛒</div>
@@ -2649,7 +2659,101 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
     <div class="pro-feat"><span class="pro-feat-icon">✓</span>Badge verificado no perfil</div>
     <div class="pro-feat"><span class="pro-feat-icon">📊</span>Estatísticas avançadas do perfil</div>
     <div class="pro-feat"><span class="pro-feat-icon">🎓</span>Acesso a cursos exclusivos</div>
+    <div class="pro-feat"><span class="pro-feat-icon">🤖</span>Orçamento gerado por IA</div>
+    <div class="pro-feat"><span class="pro-feat-icon">💡</span>Chat IA para dúvidas técnicas</div>
     <button class="pro-cta" onclick="toast('PRO ativado! 🎉');closeModals()">Assinar Agora</button>
+  </div>
+</div>
+
+<div class="overlay" id="ai-chat-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;display:flex;flex-direction:column;">
+    <div class="sheet-handle"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#2ec4b6,#8338ec);display:flex;align-items:center;justify-content:center;font-size:18px;">💡</div>
+      <div>
+        <div class="sheet-title" style="margin:0;font-size:16px;">Assistente IA</div>
+        <div style="font-size:11px;color:var(--muted);">Dúvidas sobre pintura, materiais, técnicas...</div>
+      </div>
+      <div style="margin-left:auto;background:linear-gradient(135deg,#8338ec,var(--p1));color:#fff;font-size:9px;font-weight:700;padding:3px 8px;border-radius:12px;">PRO</div>
+    </div>
+    <div id="ai-chat-msgs" style="flex:1;overflow-y:auto;padding:8px 0;min-height:200px;max-height:50vh;">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#2ec4b6,#8338ec);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">💡</div>
+        <div style="background:var(--cream);border-radius:14px;padding:10px 14px;font-size:13px;color:var(--ink);max-width:85%;">Olá! Sou seu assistente de pintura. Posso ajudar com:<br><br>🎨 <b>Técnicas</b> - texturas, efeitos, acabamentos<br>🪣 <b>Materiais</b> - qual tinta usar, rendimento<br>💰 <b>Preços</b> - como precificar serviços<br>📐 <b>Cálculos</b> - quantidade de material<br><br>Como posso ajudar?</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border);">
+      <input type="text" id="ai-chat-input" placeholder="Pergunte algo..." style="flex:1;border:1px solid var(--border);border-radius:20px;padding:10px 16px;font-size:13px;font-family:DM Sans,sans-serif;outline:none;background:var(--cream);" onkeydown="if(event.key==='Enter')sendAiChat()">
+      <button onclick="sendAiChat()" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#2ec4b6,#8338ec);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ai-orc-modal" onclick="closeModals()">
+  <div class="sheet" onclick="event.stopPropagation()" style="max-height:90vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div style="display:flex;align-items:center;gap:10px;"><div class="sheet-title" style="flex:1;">🤖 Orçamento com IA</div><div style="background:linear-gradient(135deg,#8338ec,var(--p1));color:#fff;font-size:9px;font-weight:700;padding:3px 8px;border-radius:12px;">PRO</div></div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Preencha os dados e a IA gera um orçamento profissional completo.</div>
+    <div class="auth-field" style="margin-bottom:12px;">
+      <label class="auth-label">Cliente</label>
+      <input class="auth-input" type="text" id="ai-orc-cliente" placeholder="Nome do cliente">
+    </div>
+    <div class="auth-field" style="margin-bottom:12px;">
+      <label class="auth-label">Tipo de serviço</label>
+      <select class="auth-input" id="ai-orc-servico" style="padding:12px;">
+        <option value="Pintura residencial interna">Pintura residencial interna</option>
+        <option value="Pintura residencial externa">Pintura residencial externa</option>
+        <option value="Pintura comercial">Pintura comercial</option>
+        <option value="Textura / Grafiato">Textura / Grafiato</option>
+        <option value="Piso Epóxi">Piso Epóxi</option>
+        <option value="Fachada externa">Fachada externa</option>
+        <option value="Pintura de teto">Pintura de teto</option>
+        <option value="Efeito marmorizado">Efeito marmorizado</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <div class="auth-field" style="flex:1;">
+        <label class="auth-label">Área (m²)</label>
+        <input class="auth-input" type="number" id="ai-orc-area" placeholder="Ex: 80">
+      </div>
+      <div class="auth-field" style="flex:1;">
+        <label class="auth-label">Cômodos</label>
+        <input class="auth-input" type="number" id="ai-orc-comodos" placeholder="Ex: 4">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <div class="auth-field" style="flex:1;">
+        <label class="auth-label">Demãos</label>
+        <select class="auth-input" id="ai-orc-demaos" style="padding:12px;">
+          <option value="2">2 demãos</option>
+          <option value="1">1 demão</option>
+          <option value="3">3 demãos</option>
+        </select>
+      </div>
+      <div class="auth-field" style="flex:1;">
+        <label class="auth-label">Condição</label>
+        <select class="auth-input" id="ai-orc-condicao" style="padding:12px;">
+          <option value="1">Parede nova</option>
+          <option value="1.2">Parede antiga</option>
+          <option value="1.5">Concreto/tijolo</option>
+          <option value="0.8">Teto liso</option>
+        </select>
+      </div>
+    </div>
+    <div class="auth-field" style="margin-bottom:12px;">
+      <label class="auth-label">Valor mão de obra (R$/m²)</label>
+      <input class="auth-input" type="number" id="ai-orc-preco" placeholder="Ex: 25" step="0.5">
+    </div>
+    <div class="auth-field" style="margin-bottom:12px;">
+      <label class="auth-label">Observações (opcional)</label>
+      <textarea class="auth-input" id="ai-orc-obs" placeholder="Paredes com infiltração, cores específicas, preparação necessária..." rows="2" style="resize:none;"></textarea>
+    </div>
+    <button onclick="gerarOrcamentoIA()" style="width:100%;padding:14px;background:linear-gradient(135deg,#8338ec,var(--p1));color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:10px;">
+      ✨ Gerar Orçamento com IA
+    </button>
+    <div id="ai-orc-result" style="display:none;margin-top:12px;"></div>
   </div>
 </div>
 
@@ -3129,6 +3233,189 @@ function calcTinta(){
   document.getElementById('cr-val').textContent=litros+'L';
   document.getElementById('cr-latas').textContent=`≈ ${l36} latas 3,6L  ou  ${l18} galão 18L`;
   res.style.display='block';
+}
+
+// ══ AI FEATURES (PRO) ══
+function checkProAccess(){
+  // TODO: integrate with real PRO subscription check
+  // For now, show pro-modal if not pro
+  // return false to block, true to allow
+  return true; // temporary: allow all while testing
+}
+
+function openAiOrcamento(){
+  if(!checkProAccess()){ showModal('pro-modal'); return; }
+  showModal('ai-orc-modal');
+}
+
+function openAiChat(){
+  if(!checkProAccess()){ showModal('pro-modal'); return; }
+  showModal('ai-chat-modal');
+}
+
+// AI Chat - knowledge base for painting professionals
+const _aiKnowledge = {
+  'tinta':    'Para paredes internas, recomendo tinta acrílica acetinada (melhor custo-benefício). Para áreas úmidas, use tinta acrílica semi-brilho. Para fachadas, tinta elastomérica. Rendimento médio: 10-12m²/L por demão.',
+  'textura':  'Texturas mais pedidas: Grafiato (rolo texturizado), Marmorato (efeito mármore com espátula), Cimento Queimado (2-3 demãos de massa + verniz). Preço médio: R$35-60/m² dependendo da técnica.',
+  'preco':    'Valores médios de mão de obra: Pintura simples R$18-25/m², Textura R$35-60/m², Epóxi R$50-80/m², Fachada R$25-40/m². Sempre inclua material + mão de obra + deslocamento no orçamento.',
+  'epoxi':    'Piso epóxi: lixar o piso, aplicar primer epóxi, 2-3 demãos de epóxi (intervalo de 12h). Rendimento: 4-6m²/L. Cura total: 7 dias. Preço médio: R$50-80/m² com material.',
+  'rendimento':'Tinta acrílica: 10-12m²/L. Massa corrida: 4-6m²/L. Selador: 8-10m²/L. Textura: 2-4m²/L. Sempre compre 10% a mais como margem de segurança.',
+  'preparo':  'Preparação é 70% do resultado! 1) Limpe a parede. 2) Lixe com lixa 150. 3) Aplique massa corrida nas imperfeições. 4) Lixe novamente com 220. 5) Aplique selador. 6) Pinte com rolo de lã.',
+  'cor':      'Tendências: tons terrosos (terracota, argila), verde-salvia, azul petróleo. Para ambientes pequenos: cores claras ampliam. Para destaque: parede accent em tom mais escuro. Sempre teste uma amostra antes!',
+  'ferramenta':'Kit básico: rolo de lã 23cm, trincha 2" e 3", bandeja, fita crepe, lona plástica, espátula, lixa 150 e 220, escada. Para textura: desempenadeira de aço e espátula de plástico.',
+  'infiltracao':'Antes de pintar parede com infiltração: 1) Resolva a causa da infiltração. 2) Raspe a área afetada. 3) Aplique impermeabilizante. 4) Massa corrida após secar. 5) Selador. 6) Pintura. Sem resolver a causa, volta sempre.',
+  'calculo':  'Cálculo rápido: meça comprimento × altura de cada parede. Subtraia portas (1.6m²) e janelas (2.4m²). Multiplique pelo número de demãos. Divida pelo rendimento da tinta (10m²/L). Adicione 10% de margem.'
+};
+
+function sendAiChat(){
+  const input = document.getElementById('ai-chat-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  const msgsEl = document.getElementById('ai-chat-msgs');
+
+  // Add user message
+  msgsEl.innerHTML += '<div style="display:flex;gap:8px;margin-bottom:12px;justify-content:flex-end;"><div style="background:var(--ink);color:#fff;border-radius:14px;padding:10px 14px;font-size:13px;max-width:85%;">'+escapeHtml(text)+'</div></div>';
+
+  // Generate AI response
+  const query = text.toLowerCase();
+  let response = '';
+
+  // Match against knowledge base
+  for(const [key, answer] of Object.entries(_aiKnowledge)){
+    if(query.includes(key) || query.includes(key.replace('a','á').replace('e','é'))){
+      response = answer;
+      break;
+    }
+  }
+  // Fallback matches
+  if(!response){
+    if(query.match(/quanto|valor|cobr|preci/)) response = _aiKnowledge['preco'];
+    else if(query.match(/quant|litro|galao|lata/)) response = _aiKnowledge['rendimento'];
+    else if(query.match(/prepar|lixa|massa|antes/)) response = _aiKnowledge['preparo'];
+    else if(query.match(/umid|mofo|infiltr|vazam/)) response = _aiKnowledge['infiltracao'];
+    else if(query.match(/qual tinta|melhor tinta|tipo.*tinta/)) response = _aiKnowledge['tinta'];
+    else if(query.match(/calcul|medir|medid|area/)) response = _aiKnowledge['calculo'];
+    else if(query.match(/tend|cor|tom|paleta/)) response = _aiKnowledge['cor'];
+    else if(query.match(/ferrament|rolo|pincel|trincha/)) response = _aiKnowledge['ferramenta'];
+    else response = 'Posso ajudar com dúvidas sobre tintas, texturas, preços, preparação de paredes, cálculo de material, ferramentas e mais. Tente perguntar algo específico! 🎨';
+  }
+
+  // Add AI response with small delay
+  setTimeout(() => {
+    msgsEl.innerHTML += '<div style="display:flex;gap:8px;margin-bottom:12px;"><div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#2ec4b6,#8338ec);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">💡</div><div style="background:var(--cream);border-radius:14px;padding:10px 14px;font-size:13px;color:var(--ink);max-width:85%;">'+response+'</div></div>';
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }, 500);
+
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+function gerarOrcamentoIA(){
+  const cliente = document.getElementById('ai-orc-cliente').value.trim() || 'Cliente';
+  const servico = document.getElementById('ai-orc-servico').value;
+  const area = parseFloat(document.getElementById('ai-orc-area').value) || 0;
+  const comodos = parseInt(document.getElementById('ai-orc-comodos').value) || 0;
+  const numDemaos = parseInt(document.getElementById('ai-orc-demaos').value) || 2;
+  const fator = parseFloat(document.getElementById('ai-orc-condicao').value) || 1;
+  const precoM2 = parseFloat(document.getElementById('ai-orc-preco').value) || 0;
+  const obs = document.getElementById('ai-orc-obs').value.trim();
+
+  if(area <= 0){ toast('Informe a área em m²'); return; }
+  if(precoM2 <= 0){ toast('Informe o valor por m²'); return; }
+
+  // Cálculos
+  const litros = Math.ceil((area * fator * numDemaos) / 11 * 1.1);
+  const l18 = Math.ceil(litros / 18);
+  const l36 = Math.ceil(litros / 3.6);
+  const custoTinta = l18 * 320; // estimativa R$320/galão 18L premium
+  const custoMaoObra = area * precoM2;
+  const total = custoTinta + custoMaoObra;
+
+  const pintorName = document.getElementById('myprofile-name')?.textContent || 'Pintor';
+  const hoje = new Date().toLocaleDateString('pt-BR');
+
+  // Condição por extenso
+  const condicaoMap = {'1':'Parede nova / massa corrida','1.2':'Parede antiga (demão extra)','1.5':'Concreto / tijolo aparente','0.8':'Teto liso'};
+  const condicaoText = condicaoMap[String(fator)] || 'Parede nova';
+
+  // Gerar itens detalhados
+  let itensHtml = '';
+  // Preparação
+  const prepItems = [];
+  if(fator >= 1.2) prepItems.push('Raspagem e lixamento de parede antiga');
+  if(fator >= 1.5) prepItems.push('Aplicação de selador para concreto/tijolo');
+  prepItems.push('Proteção de pisos e mobília com lona');
+  prepItems.push('Fita crepe em rodapés, batentes e interruptores');
+  if(fator >= 1.2) prepItems.push('Massa corrida para correção de imperfeições');
+  prepItems.forEach(item => {
+    itensHtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;"><span>'+item+'</span><span style="color:var(--muted);">Incluso</span></div>';
+  });
+
+  // Materiais
+  itensHtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;"><span>Tinta premium ('+litros+'L ≈ '+l18+' galões 18L)</span><span style="font-weight:600;">R$ '+custoTinta.toLocaleString('pt-BR')+'</span></div>';
+  itensHtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;"><span>Lixa, massa, selador, fita crepe</span><span style="color:var(--muted);">Incluso</span></div>';
+
+  // Mão de obra
+  const diasEstimados = Math.ceil(area / 40); // ~40m²/dia
+  itensHtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;"><span>Mão de obra ('+area+'m² × R$'+precoM2+'/m²)</span><span style="font-weight:600;">R$ '+custoMaoObra.toLocaleString('pt-BR')+'</span></div>';
+
+  // Observações da IA
+  let aiNotes = '';
+  if(obs) aiNotes += '<div style="font-size:12px;color:var(--ink);margin-bottom:4px;">• '+escapeHtml(obs)+'</div>';
+  aiNotes += '<div style="font-size:12px;color:var(--ink);margin-bottom:4px;">• Prazo estimado: '+diasEstimados+' dia'+(diasEstimados>1?'s':'') + ' úteis</div>';
+  aiNotes += '<div style="font-size:12px;color:var(--ink);margin-bottom:4px;">• '+numDemaos+' demão'+(numDemaos>1?'s':'')+' de tinta para acabamento perfeito</div>';
+  aiNotes += '<div style="font-size:12px;color:var(--ink);margin-bottom:4px;">• Condição: '+condicaoText+'</div>';
+  aiNotes += '<div style="font-size:12px;color:var(--ink);margin-bottom:4px;">• Garantia de 1 ano na mão de obra</div>';
+  if(comodos > 0) aiNotes += '<div style="font-size:12px;color:var(--ink);margin-bottom:4px;">• '+comodos+' cômodo'+(comodos>1?'s':'')+' inclusos no serviço</div>';
+
+  const resultHtml = `
+    <div style="background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,.08);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <div style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:var(--ink);">ORÇAMENTO</div>
+          <div style="font-size:11px;color:var(--muted);">${hoje}</div>
+        </div>
+        <div style="background:linear-gradient(135deg,#8338ec,var(--p1));color:#fff;font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;">IA ✨</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:14px;padding-bottom:14px;border-bottom:2px solid var(--border);">
+        <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Profissional</div><div style="font-size:13px;font-weight:700;">${escapeHtml(pintorName)}</div></div>
+        <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Cliente</div><div style="font-size:13px;font-weight:700;">${escapeHtml(cliente)}</div></div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Serviço: ${escapeHtml(servico)}</div>
+      <div style="margin-bottom:14px;">${itensHtml}</div>
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Observações</div>
+      <div style="margin-bottom:14px;">${aiNotes}</div>
+      <div style="background:var(--cream);border-radius:12px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:14px;font-weight:700;color:var(--ink);">TOTAL</div>
+        <div style="font-size:22px;font-weight:800;color:var(--p1);font-family:Syne,sans-serif;">R$ ${total.toLocaleString('pt-BR')}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="compartilharOrcamento()" style="flex:1;padding:12px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📤 Enviar ao cliente</button>
+      <button onclick="copiarOrcamento()" style="flex:1;padding:12px;background:var(--white);color:var(--ink);border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📋 Copiar texto</button>
+    </div>
+  `;
+
+  const resultEl = document.getElementById('ai-orc-result');
+  resultEl.innerHTML = resultHtml;
+  resultEl.style.display = 'block';
+  resultEl.scrollIntoView({ behavior: 'smooth' });
+}
+
+function compartilharOrcamento(){
+  const resultEl = document.getElementById('ai-orc-result');
+  const text = resultEl?.innerText || '';
+  if(navigator.share){
+    navigator.share({ title:'Orçamento - QueroUmaCor', text: text }).catch(()=>{});
+  } else {
+    navigator.clipboard.writeText(text).then(()=>toast('Orçamento copiado!')).catch(()=>toast('Erro ao copiar'));
+  }
+}
+
+function copiarOrcamento(){
+  const resultEl = document.getElementById('ai-orc-result');
+  const text = resultEl?.innerText || '';
+  navigator.clipboard.writeText(text).then(()=>toast('Orçamento copiado!')).catch(()=>toast('Erro ao copiar'));
 }
 
 // ══ CHAT SYSTEM ══
