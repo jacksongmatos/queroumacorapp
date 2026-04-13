@@ -2596,10 +2596,12 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
 <div class="overlay" id="post-opts-modal" onclick="closeModals()">
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
-    <div class="sheet-opt" onclick="toast('Compartilhado!');closeModals()"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Compartilhar</div>
-    <div class="sheet-opt" onclick="toast('Salvo!');closeModals()"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>Salvar</div>
-    <div class="sheet-opt" onclick="toast('Link copiado!');closeModals()"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Copiar link</div>
-    <div class="sheet-opt danger" onclick="toast('Denúncia enviada');closeModals()"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Denunciar</div>
+    <div class="sheet-opt" onclick="shareCurrentPost();closeModals()"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Compartilhar</div>
+    <div class="sheet-opt" onclick="saveCurrentPost();closeModals()"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>Salvar</div>
+    <div class="sheet-opt" onclick="copyCurrentPostLink();closeModals()"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Copiar link</div>
+    <div id="opt-delete-comments" class="sheet-opt danger" style="display:none" onclick="deletePostComments();closeModals()"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="10" x2="15" y2="10"/></svg>Apagar comentarios</div>
+    <div id="opt-delete-post" class="sheet-opt danger" style="display:none" onclick="deleteCurrentPost();closeModals()"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Deletar post</div>
+    <div class="sheet-opt danger" onclick="toast('Denuncia enviada');closeModals()"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Denunciar</div>
   </div>
 </div>
 
@@ -2692,6 +2694,9 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
       <div id="story-viewer-name" style="color:#fff;font-size:13px;font-weight:600;"></div>
       <div id="story-viewer-time" style="color:rgba(255,255,255,.6);font-size:11px;"></div>
     </div>
+    <button id="story-delete-btn" onclick="deleteCurrentStory()" style="display:none;background:none;border:none;cursor:pointer;padding:6px;" title="Deletar story">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#ff4444" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+    </button>
     <button onclick="closeStoryViewer()" style="background:none;border:none;cursor:pointer;padding:6px;">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
@@ -4913,7 +4918,7 @@ async function loadPosts(feedIds){
       html += '<div class="post-meta"><span class="post-uname">'+escapeHtml(name)+'</span>';
       if(tag) html += ' <span class="post-city">'+escapeHtml(tag)+'</span>';
       html += '</div>';
-      html += '<span class="post-dots" onclick="event.stopPropagation();showModal(\'post-opts-modal\')">···</span>';
+      html += '<span class="post-dots" onclick="event.stopPropagation();openPostOpts(\''+p.id+'\',\''+p.user_id+'\')">···</span>';
       html += '</div>';
       if(imgHtml) html += '<div class="ba-wrap">'+imgHtml+'</div>';
       html += '<div class="mpost-actions">';
@@ -5046,6 +5051,91 @@ function toggleSavePost(btn){
     toast('Salvo!');
   }
   localStorage.setItem('savedPosts', JSON.stringify(savedPosts));
+}
+
+// Post options modal
+let _currentOptPostId = null;
+let _currentOptUserId = null;
+
+function openPostOpts(postId, userId){
+  _currentOptPostId = postId;
+  _currentOptUserId = userId;
+  const isOwn = currentUser && currentUser.id === userId;
+  document.getElementById('opt-delete-post').style.display = isOwn ? 'flex' : 'none';
+  document.getElementById('opt-delete-comments').style.display = isOwn ? 'flex' : 'none';
+  showModal('post-opts-modal');
+}
+
+function shareCurrentPost(){
+  if(_currentOptPostId) sharePost(_currentOptPostId);
+}
+
+function saveCurrentPost(){
+  const postEl = document.querySelector('.mpost[data-post-id="'+_currentOptPostId+'"]');
+  if(postEl){
+    const saveBtn = postEl.querySelector('.save-btn');
+    if(saveBtn) toggleSavePost(saveBtn);
+  } else { toast('Salvo!'); }
+}
+
+function copyCurrentPostLink(){
+  const url = window.location.origin + '/?post=' + _currentOptPostId;
+  navigator.clipboard.writeText(url).then(()=>toast('Link copiado!')).catch(()=>toast('Erro ao copiar'));
+}
+
+async function deleteCurrentPost(){
+  if(!_currentOptPostId || !currentUser) return;
+  if(!confirm('Tem certeza que deseja deletar este post?')) return;
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    // Delete likes first
+    await sb.from('likes').delete().eq('post_id', _currentOptPostId);
+    // Delete the post
+    const { error } = await sb.from('posts').delete().eq('id', _currentOptPostId).eq('user_id', currentUser.id);
+    if(error){ toast('Erro ao deletar: ' + error.message); return; }
+    // Remove from DOM
+    const postEl = document.querySelector('.mpost[data-post-id="'+_currentOptPostId+'"]');
+    if(postEl) postEl.remove();
+    toast('Post deletado!');
+    _currentOptPostId = null;
+  } catch(e){ toast('Erro ao deletar'); console.warn(e); }
+}
+
+function deletePostComments(){
+  if(!_currentOptPostId) return;
+  const postEl = document.querySelector('.mpost[data-post-id="'+_currentOptPostId+'"]');
+  if(!postEl) return;
+  const commentsArea = postEl.querySelector('.comments-area');
+  if(commentsArea){ commentsArea.remove(); toast('Comentarios apagados!'); }
+  else { toast('Nenhum comentario para apagar'); }
+}
+
+// Story delete
+async function deleteCurrentStory(){
+  if(!currentUser) return;
+  const group = storyGroups[currentStoryGroup];
+  if(!group || group.user_id !== currentUser.id) return;
+  const story = group.stories[currentStoryIndex];
+  if(!story) return;
+  if(!confirm('Deletar este story?')) return;
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const { error } = await sb.from('posts').delete().eq('id', story.id).eq('user_id', currentUser.id);
+    if(error){ toast('Erro ao deletar story'); return; }
+    // Remove from group
+    group.stories.splice(currentStoryIndex, 1);
+    if(group.stories.length === 0){
+      storyGroups.splice(currentStoryGroup, 1);
+      closeStoryViewer();
+      loadStories();
+    } else {
+      if(currentStoryIndex >= group.stories.length) currentStoryIndex = group.stories.length - 1;
+      showStory(currentStoryGroup, currentStoryIndex);
+    }
+    toast('Story deletado!');
+  } catch(e){ toast('Erro ao deletar story'); console.warn(e); }
 }
 
 function getTimeAgo(dateStr){
@@ -5218,6 +5308,10 @@ function renderCurrentStory(){
   document.getElementById('story-viewer-avatar').src = p.avatar_url || 'https://i.pravatar.cc/150?img=68';
   document.getElementById('story-viewer-name').textContent = p.name || 'User';
   document.getElementById('story-viewer-time').textContent = getTimeAgo(s.created_at);
+
+  // Show delete button only for own stories
+  const delBtn = document.getElementById('story-delete-btn');
+  if(delBtn) delBtn.style.display = (currentUser && g.user_id === currentUser.id) ? 'block' : 'none';
 
   // Progress bars
   const barContainer = document.getElementById('story-progress-bar');
