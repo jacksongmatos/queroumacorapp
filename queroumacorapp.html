@@ -778,12 +778,15 @@ async function loadMyProfileData(){
       const role = prof.role || prof.user_type || 'cliente';
       if(nameEl) nameEl.textContent = name;
       if(subEl){
-        const parts = [];
-        if(tag) parts.push('@' + tag);
-        if(city) parts.push(city);
         const roleLabels = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',automotivo:'Pintor Automotivo',cliente:'Cliente'};
-        if(roleLabels[role] && role !== 'cliente') parts.push(roleLabels[role]);
-        subEl.textContent = parts.length > 0 ? parts.join(' · ') : 'Configure seu perfil';
+        const roleColors = {pintor:'#ff6b35',grafiteiro:'#8338ec',automotivo:'#2ec4b6',cliente:'rgba(255,255,255,.4)'};
+        let subHtml = '';
+        if(tag) subHtml += '@' + escapeHtml(tag);
+        if(city) subHtml += (subHtml?' · ':'') + escapeHtml(city);
+        if(roleLabels[role]){
+          subHtml += ' <span style="display:inline-block;background:'+(roleColors[role]||'var(--muted)')+';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:4px;vertical-align:middle;">'+roleLabels[role]+'</span>';
+        }
+        subEl.innerHTML = subHtml || 'Configure seu perfil';
       }
       // Update myprofile avatar
       const avatarFallback = 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
@@ -1423,18 +1426,7 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
           </div>
           <div class="auth-field">
             <label class="auth-label">Especialidades (selecione até 5)</label>
-            <div class="spec-select-grid">
-              <div class="spec-chip sel" onclick="toggleSpec(this)">Residencial</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Comercial</div>
-              <div class="spec-chip sel" onclick="toggleSpec(this)">Textura</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Grafiato</div>
-              <div class="spec-chip sel" onclick="toggleSpec(this)">Piso Epóxi</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Fachada</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Degradê</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Stencil</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Industrial</div>
-              <div class="spec-chip" onclick="toggleSpec(this)">Caiação</div>
-            </div>
+            <div class="spec-select-grid" id="spec-grid"></div>
           </div>
           <div class="auth-field">
             <label class="auth-label">Raio de atendimento</label>
@@ -4719,6 +4711,7 @@ function signupNext(step){
   if(step===3){
     document.getElementById('s3-pintor').style.display=isProfessionalRole(selectedRole)?'block':'none';
     document.getElementById('s3-cliente').style.display=selectedRole==='cliente'?'block':'none';
+    if(isProfessionalRole(selectedRole)) loadSpecsForRole(selectedRole);
   }
   document.getElementById('screen-signup').querySelector('.auth-screen').scrollTop=0;
 }
@@ -4741,6 +4734,19 @@ async function doSignup(){
 
   doRegisterSupabase(name,email,pw,role,tag);
 }
+const _roleSpecs = {
+  pintor: ['Residencial','Comercial','Textura','Grafiato','Piso Epóxi','Fachada','Degradê','Stencil','Industrial','Caiação'],
+  grafiteiro: ['Grafite Artístico','Mural Decorativo','Painel Comercial','Arte Urbana','Lettering','Realismo','Abstrato','3D / Ilusão','Stencil Urbano','Lambe-lambe'],
+  automotivo: ['Pintura Automotiva','Funilaria','Envelopamento','Polimento','Cristalização','Customização','Aerografia','Restauração','Martelinho de Ouro','PPF / Película']
+};
+
+function loadSpecsForRole(role){
+  const grid = document.getElementById('spec-grid');
+  if(!grid) return;
+  const specs = _roleSpecs[role] || _roleSpecs['pintor'];
+  grid.innerHTML = specs.map((s,i) => '<div class="spec-chip'+(i<2?' sel':'')+'" onclick="toggleSpec(this)">'+s+'</div>').join('');
+}
+
 function toggleSpec(el){el.classList.toggle('sel');}
 const _proRoles = ['pintor','grafiteiro','automotivo'];
 function isProfessionalRole(r){ return _proRoles.includes(r); }
