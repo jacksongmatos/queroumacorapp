@@ -753,7 +753,7 @@ function autoDetectRole(){
   if(!currentUser) return;
   const meta = currentUser.user_metadata || {};
   const userType = meta.user_type || meta.role || 'cliente';
-  if(userType === 'pintor') setMode('pintor');
+  if(isProfessionalRole(userType)) setMode(userType);
   else setMode('cliente');
   // Load full profile from DB
   loadMyProfileData();
@@ -781,7 +781,8 @@ async function loadMyProfileData(){
         const parts = [];
         if(tag) parts.push('@' + tag);
         if(city) parts.push(city);
-        if(role === 'pintor') parts.push('Pintor');
+        const roleLabels = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',funileiro:'Funileiro',cliente:'Cliente'};
+        if(roleLabels[role] && role !== 'cliente') parts.push(roleLabels[role]);
         subEl.textContent = parts.length > 0 ? parts.join(' · ') : 'Configure seu perfil';
       }
       // Update myprofile avatar
@@ -802,7 +803,7 @@ async function loadMyProfileData(){
       const portalLink = document.getElementById('crm-portal-link');
       if(portalLink) portalLink.style.display = prof.portal_access ? '' : 'none';
       // Set mode based on DB role
-      if(role === 'pintor') setMode('pintor');
+      if(isProfessionalRole(role)) setMode(role);
       else setMode('cliente');
     } else {
       // Fallback to user_metadata
@@ -1082,7 +1083,7 @@ function searchPeople(query){
     container.innerHTML=data.map(p=>{
       const isFollowing=followingIds.includes(p.id);
       const isSelf=currentUser&&currentUser.id===p.id;
-      const isPintor=(p.role==='pintor'||p.user_type==='pintor');
+      const isPintor=isProfessionalRole(p.role)||isProfessionalRole(p.user_type);
       const roleBadge=isPintor?'<span style="background:var(--ink);color:var(--p1);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.3px;margin-left:5px;">PINTOR</span>':'';
       const avatarUrl=p.avatar_url||'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'?')+'&background=e8e2d9&color=1a1a2e&size=96';
       const tagDisplay=p.tag?'@'+p.tag:'';
@@ -1116,7 +1117,8 @@ async function openUserProfile(userId){
     const name = prof.name || 'Usuario';
     const avatar = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=200';
     const location = (prof.city||'')+(prof.state?' · '+prof.state:'');
-    const role = (prof.role||prof.user_type||'cliente')==='pintor' ? 'Pintor' : 'Cliente';
+    const _rl = prof.role||prof.user_type||'cliente';
+    const role = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',funileiro:'Funileiro',cliente:'Cliente'}[_rl]||'Cliente';
     if(nameEl) nameEl.textContent = name;
     if(bioEl) bioEl.textContent = (prof.tag?'@'+prof.tag+' · ':'')+role+(location?' · '+location:'');
     if(avatarEl) avatarEl.src = avatar;
@@ -1323,16 +1325,26 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
       <div id="signup-step1" style="display:none;">
         <div class="auth-title">Voce e…</div>
         <div class="auth-sub">Escolha como vai usar o QueroUmaCor</div>
-        <div class="role-selector">
+        <div class="role-selector" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div class="role-card active" id="role-pintor" onclick="selectRole('pintor')">
             <div class="role-card-icon">🖌️</div>
-            <div class="role-card-label">Sou Pintor</div>
-            <div class="role-card-sub">Quero mostrar meus trabalhos e receber clientes</div>
+            <div class="role-card-label">Pintor</div>
+            <div class="role-card-sub">Pintura residencial e comercial</div>
+          </div>
+          <div class="role-card" id="role-grafiteiro" onclick="selectRole('grafiteiro')">
+            <div class="role-card-icon">🎨</div>
+            <div class="role-card-label">Grafiteiro / Muralista</div>
+            <div class="role-card-sub">Arte urbana, murais e painéis</div>
+          </div>
+          <div class="role-card" id="role-funileiro" onclick="selectRole('funileiro')">
+            <div class="role-card-icon">🚗</div>
+            <div class="role-card-label">Funileiro</div>
+            <div class="role-card-sub">Pintura automotiva e funilaria</div>
           </div>
           <div class="role-card" id="role-cliente" onclick="selectRole('cliente')">
             <div class="role-card-icon">🏠</div>
-            <div class="role-card-label">Sou Cliente</div>
-            <div class="role-card-sub">Quero encontrar pintores e pedir orçamentos</div>
+            <div class="role-card-label">Cliente</div>
+            <div class="role-card-sub">Encontrar profissionais e pedir orçamentos</div>
           </div>
         </div>
         <button class="auth-btn" onclick="signupNext(2)">Continuar →</button>
@@ -1907,7 +1919,7 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
     </div>
     <input type="hidden" id="orc-painter-id" value="">
     <div class="fg"><label class="fl">Tipo de serviço</label>
-      <select id="orc-service-type" class="fs"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></select>
+      <select id="orc-service-type" class="fs"><optgroup label="Pintura"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></optgroup><optgroup label="Grafite / Mural"><option>Grafite artístico</option><option>Mural decorativo</option><option>Painel comercial</option><option>Arte urbana</option></optgroup><optgroup label="Funilaria"><option>Pintura automotiva</option><option>Funilaria e reparo</option><option>Envelopamento</option><option>Polimento e cristalização</option></optgroup></select>
     </div>
     <div class="frow">
       <div class="fg"><label class="fl">Metragem (m²)</label><input id="orc-area" type="number" class="fi" placeholder="Ex: 80"></div>
@@ -3759,7 +3771,7 @@ async function loadRanking(){
   const city = document.getElementById('ranking-city').value.trim().toLowerCase();
   if(!city || city.length < 2) return;
   const sb = getSupabase(); if(!sb) return;
-  const { data: painters } = await sb.from('profiles').select('id, name, tag, avatar_url, city, state, rating_avg, role').eq('role','pintor').ilike('city','%'+city+'%').order('rating_avg',{ascending:false,nullsFirst:false}).limit(20);
+  const { data: painters } = await sb.from('profiles').select('id, name, tag, avatar_url, city, state, rating_avg, role').in('role',['pintor','grafiteiro','funileiro']).ilike('city','%'+city+'%').order('rating_avg',{ascending:false,nullsFirst:false}).limit(20);
   const el = document.getElementById('ranking-list');
   if(!painters||painters.length===0){ el.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px;">Nenhum pintor encontrado nesta cidade</div>'; return; }
   el.innerHTML = painters.map((p,i)=>{
@@ -3814,7 +3826,7 @@ async function distribuirLead(quoteId, serviceType, city){
   const sb = getSupabase(); if(!sb) return;
   // Find painters in same city, matching specialty, ordered by PRO first then rating
   let query = sb.from('profiles').select('id, name, role, city, specialties, rating_avg, portal_access')
-    .eq('role','pintor').ilike('city','%'+(city||'')+'%')
+    .in('role',['pintor','grafiteiro','funileiro']).ilike('city','%'+(city||'')+'%')
     .order('rating_avg',{ascending:false,nullsFirst:false}).limit(5);
   const { data: painters } = await query;
   if(!painters||painters.length===0) return;
@@ -4015,7 +4027,7 @@ function renderConvList(container, convMap, myId){
   container.innerHTML = convList.map(([convId, c]) => {
     const name = c.name || 'Usuario';
     const avatar = c.avatar || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96';
-    const isPintor = c.role === 'pintor';
+    const isPintor = isProfessionalRole(c.role);
     const is3way = c.is3way || false;
     const preview = c.lastMsg || '';
     const isMine = c.lastMsgFrom === 'me';
@@ -4072,7 +4084,7 @@ async function searchNewChatUsers(query){
     }
     container.innerHTML = filtered.map(p => {
       const avatar = p.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(p.name||'?')+'&background=e8e2d9&color=1a1a2e&size=96';
-      const isPintor = p.role === 'pintor' || p.user_type === 'pintor';
+      const isPintor = isProfessionalRole(p.role) || isProfessionalRole(p.user_type);
       return `<div onclick="startNewChat('${p.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;">
         <img src="${avatar}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
         <div style="flex:1;"><div style="font-size:14px;font-weight:700;">${escapeHtml(p.name||'Sem nome')}</div><div style="font-size:12px;color:var(--muted);">${p.tag ? '@'+p.tag : ''}</div></div>
@@ -4138,7 +4150,7 @@ async function startNewChat(userId){
       chatData[convId].participants = [{
         img: prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96',
         name: name,
-        role: (prof.role === 'pintor' || prof.user_type === 'pintor') ? 'Pintor' : 'Usuario'
+        role: isProfessionalRole(prof.role||prof.user_type) ? ({pintor:'Pintor',grafiteiro:'Grafiteiro',funileiro:'Funileiro'}[prof.role||prof.user_type]||'Profissional') : 'Usuario'
       }];
     }
   } catch(e){}
@@ -4528,7 +4540,7 @@ async function handleRealtimeMsg(payload){
               type: 'direct',
               name: prof.name || 'Usuario',
               sub: prof.tag ? '@' + prof.tag : '',
-              participants: [{img: prof.avatar_url || '', name: prof.name || 'Usuario', role: prof.role === 'pintor' ? 'Pintor' : 'Usuario'}],
+              participants: [{img: prof.avatar_url || '', name: prof.name || 'Usuario', role: isProfessionalRole(prof.role) ? ({pintor:'Pintor',grafiteiro:'Grafiteiro',funileiro:'Funileiro'}[prof.role]||'Profissional') : 'Usuario'}],
               messages: []
             };
           }
@@ -4614,8 +4626,10 @@ function openChatConversation(userId, userName){
 let selectedRole='pintor';
 function selectRole(r){
   selectedRole=r;
-  document.getElementById('role-pintor').classList.toggle('active',r==='pintor');
-  document.getElementById('role-cliente').classList.toggle('active',r==='cliente');
+  ['pintor','grafiteiro','funileiro','cliente'].forEach(role=>{
+    const el=document.getElementById('role-'+role);
+    if(el) el.classList.toggle('active',r===role);
+  });
 }
 let validatedInviteCode = null;
 
@@ -4662,7 +4676,7 @@ function signupNext(step){
     if(dot)dot.classList.toggle('active',s===step);
   });
   if(step===3){
-    document.getElementById('s3-pintor').style.display=selectedRole==='pintor'?'block':'none';
+    document.getElementById('s3-pintor').style.display=isProfessionalRole(selectedRole)?'block':'none';
     document.getElementById('s3-cliente').style.display=selectedRole==='cliente'?'block':'none';
   }
   document.getElementById('screen-signup').querySelector('.auth-screen').scrollTop=0;
@@ -4687,16 +4701,26 @@ async function doSignup(){
   doRegisterSupabase(name,email,pw,role,tag);
 }
 function toggleSpec(el){el.classList.toggle('sel');}
+const _proRoles = ['pintor','grafiteiro','funileiro'];
+function isProfessionalRole(r){ return _proRoles.includes(r); }
+
 function setMode(mode){
   currentMode=mode;
   const modePintor=document.getElementById('mode-pintor');
   const modeCliente=document.getElementById('mode-cliente');
-  if(modePintor) modePintor.classList.toggle('active',mode==='pintor');
+  const isPro = isProfessionalRole(mode);
+  if(modePintor) modePintor.classList.toggle('active',isPro);
   if(modeCliente) modeCliente.classList.toggle('active',mode==='cliente');
-  document.getElementById('view-pintor').style.display=mode==='pintor'?'block':'none';
+  document.getElementById('view-pintor').style.display=isPro?'block':'none';
   document.getElementById('view-cliente').style.display=mode==='cliente'?'block':'none';
+  // Update grid title per role
+  const gridTitle = document.querySelector('#view-pintor > div > div:first-child');
+  if(gridTitle && isPro){
+    const titles = {pintor:'Meu Negócio',grafiteiro:'Meu Estúdio',funileiro:'Minha Oficina'};
+    gridTitle.textContent = titles[mode]||'Meu Negócio';
+  }
   const fab=document.getElementById('post-fab');
-  if(fab)fab.style.display=mode==='pintor'?'flex':'none';
+  if(fab)fab.style.display=isPro?'flex':'none';
   document.getElementById('scroll-area').scrollTop=0;
 }
 
