@@ -3894,6 +3894,39 @@ async function finalizarCompra(){
 
 // ══ PUBLISH VIDEO (REELS) ══
 // Updated publishPost to handle video media_type
+// ══ CONTENT MODERATION ══
+const _blockedWords = [
+  'pornografia','nudez','nude','nudes','sexo','xxx','drogas','maconha','cocaina',
+  'racismo','racista','nazismo','nazi','hitler','terrorismo','terrorista',
+  'matar','assassinar','estupro','pedofilia','pedofilo',
+  'arma','revolver','pistola','fuzil','traficante','trafico',
+  'suicide','suicidio','se matar'
+];
+const _suspectWords = [
+  'puta','caralho','foda','merda','viado','sapatao','corno',
+  'idiota','imbecil','retardado','lixo humano','vagabundo'
+];
+
+function moderateContent(text){
+  if(!text) return { approved: true, reason: null };
+  const lower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  // Check blocked words - auto-reject
+  for(const word of _blockedWords){
+    const w = word.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    if(lower.includes(w)) return { approved: false, reason: 'blocked:'+word };
+  }
+  // Check suspect words - send to review
+  for(const word of _suspectWords){
+    const w = word.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    if(lower.includes(w)) return { approved: false, reason: 'suspect:'+word };
+  }
+  // Check for URLs/links (spam prevention)
+  if(lower.match(/https?:\/\/|www\.|\.com\.br|bit\.ly|t\.me/)){
+    return { approved: false, reason: 'link_detected' };
+  }
+  return { approved: true, reason: null };
+}
+
 function getMediaType(file){
   if(!file) return 'image';
   if(file.type && file.type.startsWith('video/')) return 'video';
@@ -5672,6 +5705,8 @@ async function loadPosts(feedIds){
     if(!feedIds) feedIds = await getFollowingIds();
     // Build query - if user has following list, filter by it; otherwise show all recent posts
     let query = sb.from('posts').select('*').neq('media_type', 'story');
+    // Only show approved posts (or posts without status for backwards compat)
+    query = query.or('status.eq.approved,status.is.null');
     if(feedIds.length > 0) query = query.in('user_id', feedIds);
     query = query.order('created_at', { ascending: false }).limit(30);
     let { data: posts, error } = await query;
@@ -6311,11 +6346,16 @@ async function publishPost(){
       imageUrl = urlData.publicUrl;
     }
 
+    // Content moderation check
+    const modResult = moderateContent(content);
+    const postStatus = modResult.approved ? 'approved' : 'pending';
+
     const { data: insertData, error: insertErr } = await sb.from('posts').insert({
       user_id: session.user.id,
       caption: content || null,
       media_url: imageUrl,
       media_type: type === 'story' ? 'story' : (postFile && getMediaType(postFile) === 'video' ? 'video' : 'image'),
+      status: postStatus,
       created_at: new Date().toISOString()
     }).select();
 
@@ -6326,7 +6366,11 @@ async function publishPost(){
       console.error('Post insert error:', insertErr);
       toast('Erro ao publicar: ' + (insertErr.message || JSON.stringify(insertErr)));
     } else {
-      toast(type === 'story' ? 'Story publicado!' : 'Post publicado!');
+      if(postStatus === 'pending'){
+        toast('Post enviado para revisão antes de ser publicado.');
+      } else {
+        toast(type === 'story' ? 'Story publicado!' : 'Post publicado!');
+      }
       closeModals();
       document.getElementById('post-text-input').value = '';
       clearPostImages();

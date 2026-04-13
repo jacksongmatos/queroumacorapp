@@ -1359,6 +1359,84 @@ const ClientesList = () => {
   );
 };
 
+const Moderacao = () => {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('pending');
+
+  const fetchPosts = async () => {
+    setLoading(true);
+    let query = window._sb.from('posts').select('*, profiles!user_id(name, tag, avatar_url, role)').order('created_at', { ascending: false }).limit(50);
+    if(filter === 'pending') query = query.eq('status','pending');
+    else if(filter === 'rejected') query = query.eq('status','rejected');
+    const { data } = await query;
+    setPosts(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchPosts(); }, [filter]);
+
+  const updateStatus = async (id, status) => {
+    await window._sb.from('posts').update({ status }).eq('id', id);
+    fetchPosts();
+  };
+
+  const deletePost = async (id) => {
+    if(!confirm('Deletar permanentemente?')) return;
+    await window._sb.from('likes').delete().eq('post_id', id);
+    await window._sb.from('comments').delete().eq('post_id', id);
+    await window._sb.from('posts').delete().eq('id', id);
+    fetchPosts();
+  };
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+        {['pending','rejected','all'].map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{ padding:'8px 16px', borderRadius:8, border: filter===f?'2px solid '+C.p1:'1.5px solid '+C.border, background: filter===f?'rgba(255,107,53,0.08)':'#fff', color: filter===f?C.p1:C.ink, fontWeight:700, fontSize:12, cursor:'pointer' }}>
+            {f==='pending'?'⏳ Pendentes':f==='rejected'?'❌ Rejeitados':'📋 Todos'}
+          </button>
+        ))}
+      </div>
+      {loading && <div style={{ color:C.muted, padding:20 }}>Carregando...</div>}
+      {!loading && posts.length===0 && <div style={{ color:C.muted, padding:20, textAlign:'center' }}>Nenhum post {filter==='pending'?'pendente':'encontrado'} 🎉</div>}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:12 }}>
+        {posts.map(p => {
+          const prof = p.profiles || {};
+          const isVideo = p.media_url && (p.media_url.includes('.mp4') || p.media_type === 'video');
+          return (
+            <div key={p.id} style={{ background:C.white, borderRadius:14, overflow:'hidden', boxShadow:'0 2px 10px rgba(0,0,0,0.06)', border: p.status==='pending'?'2px solid #f0ad4e':p.status==='rejected'?'2px solid #e74c3c':'1px solid '+C.border }}>
+              {p.media_url && (isVideo ?
+                <video src={p.media_url} controls style={{ width:'100%', maxHeight:200, objectFit:'cover' }} /> :
+                <img src={p.media_url} style={{ width:'100%', maxHeight:200, objectFit:'cover' }} />
+              )}
+              <div style={{ padding:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <img src={prof.avatar_url || 'https://ui-avatars.com/api/?name=U&size=32'} style={{ width:28, height:28, borderRadius:'50%', objectFit:'cover' }} />
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700 }}>{prof.name || 'User'}</div>
+                    <div style={{ fontSize:10, color:C.muted }}>{prof.tag ? '@'+prof.tag : ''} · {prof.role || 'cliente'}</div>
+                  </div>
+                  <span style={{ marginLeft:'auto', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, background: p.status==='approved'?'#d4edda':p.status==='rejected'?'#f8d7da':'#fff3cd', color: p.status==='approved'?'#155724':p.status==='rejected'?'#721c24':'#856404' }}>
+                    {p.status==='approved'?'Aprovado':p.status==='rejected'?'Rejeitado':'Pendente'}
+                  </span>
+                </div>
+                {p.caption && <div style={{ fontSize:12, color:C.ink, marginBottom:8 }}>{p.caption}</div>}
+                <div style={{ fontSize:10, color:C.muted, marginBottom:10 }}>{new Date(p.created_at).toLocaleString('pt-BR')}</div>
+                <div style={{ display:'flex', gap:6 }}>
+                  {p.status !== 'approved' && <button onClick={() => updateStatus(p.id, 'approved')} style={{ flex:1, padding:'6px 10px', background:'#28a745', color:'#fff', border:'none', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer' }}>✓ Aprovar</button>}
+                  {p.status !== 'rejected' && <button onClick={() => updateStatus(p.id, 'rejected')} style={{ flex:1, padding:'6px 10px', background:'#ffc107', color:'#333', border:'none', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer' }}>✗ Rejeitar</button>}
+                  <button onClick={() => deletePost(p.id)} style={{ padding:'6px 10px', background:'#dc3545', color:'#fff', border:'none', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer' }}>🗑</button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const AvaliacoesList = () => {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1719,6 +1797,7 @@ const PAGES_DEF = [
   { id:'camisetas', icon:'👕', label:'Camisetas Personalizadas', section:'LOJA', component:<Camisetas /> },
   { id:'cursos', icon:'📚', label:'Cursos', section:'LOJA', component:<CursosList /> },
   { id:'marketing', icon:'📣', label:'Marketing / Ads', section:'LOJA', component:<MarketingPage /> },
+  { id:'moderacao', icon:'🛡️', label:'Moderação', section:'PRINCIPAL', component:<Moderacao /> },
   { id:'analytics', icon:'📈', label:'Analytics', section:'DADOS', component:<Analytics /> },
   { id:'avaliacoes', icon:'⭐', label:'Avaliações', section:'DADOS', component:<AvaliacoesList /> },
 ];

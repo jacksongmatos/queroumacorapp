@@ -87,6 +87,12 @@ BEGIN
   BEGIN ALTER TABLE public.profiles ADD COLUMN portal_access boolean DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 
+-- Add status column to posts for content moderation
+DO $$
+BEGIN
+  BEGIN ALTER TABLE public.posts ADD COLUMN status text DEFAULT 'approved'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+END $$;
+
 -- ============================================
 -- Profiles table - ensure read/write works
 -- ============================================
