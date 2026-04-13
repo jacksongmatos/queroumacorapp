@@ -91,6 +91,9 @@ END $$;
 DO $$
 BEGIN
   BEGIN ALTER TABLE public.posts ADD COLUMN status text DEFAULT 'approved'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.posts ADD COLUMN for_sale boolean DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.posts ADD COLUMN price numeric; EXCEPTION WHEN duplicate_column THEN NULL; END;
+  BEGIN ALTER TABLE public.posts ADD COLUMN art_type text; EXCEPTION WHEN duplicate_column THEN NULL; END;
 END $$;
 
 -- ============================================

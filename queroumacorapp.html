@@ -2947,6 +2947,27 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
       <button onclick="clearPostImages()" style="margin-top:6px;background:none;border:none;color:var(--p4);font-size:12px;font-weight:600;cursor:pointer;">Remover imagem</button>
     </div>
     <textarea id="post-text-input" placeholder="Escreva algo..." style="width:100%;border:1.5px solid var(--border);border-radius:12px;padding:12px;font-size:14px;font-family:'DM Sans',sans-serif;height:60px;resize:none;outline:none;margin-bottom:12px"></textarea>
+    <!-- Sale fields (grafiteiro only) -->
+    <div id="post-sale-fields" style="display:none;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);">
+          <input type="checkbox" id="post-for-sale" onchange="document.getElementById('post-price-wrap').style.display=this.checked?'flex':'none'" style="width:18px;height:18px;accent-color:var(--p1);">
+          🖼️ Vender esta obra
+        </label>
+      </div>
+      <div id="post-price-wrap" style="display:none;gap:10px;align-items:center;">
+        <div style="flex:1;"><input class="auth-input" type="number" id="post-price" placeholder="Preço (R$)" step="0.01" style="width:100%;"></div>
+        <div style="flex:1;">
+          <select class="auth-input" id="post-art-type" style="padding:12px;width:100%;">
+            <option>Tela / Quadro</option>
+            <option>Mural sob encomenda</option>
+            <option>Print / Impressão</option>
+            <option>Adesivo / Sticker</option>
+            <option>Arte digital</option>
+          </select>
+        </div>
+      </div>
+    </div>
     <button id="post-publish-btn" onclick="publishPost()" style="width:100%;padding:13px;background:var(--ink);color:#fff;border:none;border-radius:12px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Publicar</button>
   </div>
 </div>
@@ -3853,6 +3874,29 @@ function pedirOrcamentoPost(painterId, painterName){
 
 // ══ LOJA CHECKOUT ══
 let _cart = JSON.parse(localStorage.getItem('shopCart')||'[]');
+async function comprarObra(postId, artistName, price, artType){
+  if(!currentUser){ toast('Faça login para comprar'); return; }
+  if(!confirm('Comprar "'+artType+'" de '+artistName+' por R$ '+price.toLocaleString('pt-BR')+'?')) return;
+  const sb = getSupabase(); if(!sb) return;
+  const { error } = await sb.from('orders').insert({
+    user_id: currentUser.id,
+    items: [{id:postId, name:artType+' - '+artistName, price, qty:1, type:'artwork'}],
+    total: price,
+    status: 'pending'
+  });
+  if(error){ toast('Erro ao comprar: '+error.message); return; }
+  // Award points
+  const pts = Math.floor(price/10)*5;
+  if(pts > 0) earnPoints(currentUser.id, pts, 'artwork_purchase');
+  toast('Compra realizada! O artista será notificado. +'+pts+' pontos 🎨');
+}
+
+function openChatWithUser(userId){
+  // Navigate to chat with this user
+  showScreen('chat');
+  setTimeout(()=>{ if(typeof openChat==='function') openChat(userId); },300);
+}
+
 function addToCart(productId, name, price){
   const existing = _cart.find(c=>c.id===productId);
   if(existing) existing.qty++;
@@ -5641,6 +5685,9 @@ function setPostType(type){
     postBtn.style.background = 'var(--ink)'; postBtn.style.color = '#fff';
     storyBtn.style.background = 'var(--white)'; storyBtn.style.color = 'var(--ink)';
   }
+  // Show sale fields for grafiteiro on post type
+  const saleFields = document.getElementById('post-sale-fields');
+  if(saleFields) saleFields.style.display = (type==='post' && currentMode==='grafiteiro') ? 'block' : 'none';
 }
 
 let _lastFeedLoad = 0;
@@ -5793,7 +5840,9 @@ async function loadPosts(feedIds){
       html += '</div>';
       html += '<span class="post-dots" onclick="event.stopPropagation();openPostOpts(\''+p.id+'\',\''+p.user_id+'\')">···</span>';
       html += '</div>';
-      if(imgHtml) html += '<div class="ba-wrap">'+imgHtml+'</div>';
+      if(imgHtml) html += '<div class="ba-wrap" style="position:relative;">'+imgHtml
+        +(p.for_sale?'<div style="position:absolute;top:12px;right:12px;background:linear-gradient(135deg,#8338ec,var(--p1));color:#fff;font-size:11px;font-weight:800;padding:5px 12px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,.3);">🖼️ À VENDA · R$ '+(p.price||0).toLocaleString('pt-BR')+'</div>':'')
+        +'</div>';
       html += '<div class="mpost-actions">';
       // Pincel (like)
       html += '<button class="act-btn" onclick="togglePostLike(this)"><svg viewBox="0 0 24 24" style="fill:'+brushFill+';stroke:'+brushStroke+';"><path d="M18.37 2.63a2.12 2.12 0 0 1 3 3L14 13l-4 1 1-4Z"/><path d="M9 3H4a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-5"/></svg></button>';
@@ -5824,8 +5873,15 @@ async function loadPosts(feedIds){
         html += '</div>';
       }
       html += '<div class="post-time">'+time+'</div>';
-      // Quote button (only on other painters' posts)
-      if(currentUser && p.user_id !== currentUser.id){
+      // Buy button for art/sale posts
+      if(p.for_sale && p.price > 0 && currentUser && p.user_id !== currentUser.id){
+        html += '<div style="padding:6px 14px 4px;display:flex;gap:8px;">';
+        html += '<button onclick="comprarObra(\''+p.id+'\',\''+escapeHtml(name)+'\','+p.price+',\''+escapeHtml(p.art_type||'Obra')+'\')" style="flex:1;padding:10px;background:linear-gradient(135deg,#8338ec,var(--p1));color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif;">🛒 Comprar · R$ '+p.price.toLocaleString('pt-BR')+'</button>';
+        html += '<button onclick="openChatWithUser(\''+p.user_id+'\')" style="padding:10px 14px;background:var(--white);color:var(--ink);border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">💬</button>';
+        html += '</div>';
+      }
+      // Quote button (only on other professionals' posts)
+      if(!p.for_sale && currentUser && p.user_id !== currentUser.id && isProfessionalRole(prof.role)){
         html += '<div style="padding:6px 14px 12px;"><button onclick="pedirOrcamentoPost(\''+p.user_id+'\',\''+escapeHtml(name)+'\')" style="width:100%;padding:10px;background:var(--p1);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif;">📋 Pedir Orçamento</button></div>';
       }
       html += '</div>';
@@ -6356,12 +6412,20 @@ async function publishPost(){
     const modResult = moderateContent(content);
     const postStatus = modResult.approved ? 'approved' : 'pending';
 
+    // Sale data (grafiteiro)
+    const forSale = document.getElementById('post-for-sale')?.checked || false;
+    const price = forSale ? (parseFloat(document.getElementById('post-price')?.value) || 0) : 0;
+    const artType = forSale ? (document.getElementById('post-art-type')?.value || '') : '';
+
     const { data: insertData, error: insertErr } = await sb.from('posts').insert({
       user_id: session.user.id,
       caption: content || null,
       media_url: imageUrl,
       media_type: type === 'story' ? 'story' : (postFile && getMediaType(postFile) === 'video' ? 'video' : 'image'),
       status: postStatus,
+      for_sale: forSale,
+      price: price > 0 ? price : null,
+      art_type: artType || null,
       created_at: new Date().toISOString()
     }).select();
 
