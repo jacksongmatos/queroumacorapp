@@ -4871,26 +4871,41 @@ async function loadPosts(feedIds){
     }
     if(emptyEl) emptyEl.style.display = 'none';
 
-    // Load profiles, user likes, and like counts ALL in parallel
+    // Load profiles, likes, comments, saved_posts ALL in parallel
     const userIds = [...new Set(posts.map(p => p.user_id))];
     const postIds = posts.map(p => p.id);
-    const savedPosts = JSON.parse(localStorage.getItem('savedPosts') || '[]');
     let myLikes = [];
     let likeCounts = {};
+    let savedPosts = [];
+    let commentsMap = {};
     const queries = [
-      sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds)
+      sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds),
+      sb.from('comments').select('id, post_id, user_id, text, created_at').in('post_id', postIds).order('created_at', { ascending: true })
     ];
     if(currentUser){
       queries.push(sb.from('likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds));
       queries.push(sb.from('likes').select('post_id').in('post_id', postIds));
+      queries.push(sb.from('saved_posts').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds));
     }
     const results = await Promise.all(queries);
     const profMap = {};
     (results[0].data||[]).forEach(pr => { profMap[pr.id] = pr; });
     posts.forEach(p => { p.profiles = profMap[p.user_id] || {}; });
+    // Map comments by post_id
+    (results[1].data||[]).forEach(c => {
+      if(!commentsMap[c.post_id]) commentsMap[c.post_id] = [];
+      commentsMap[c.post_id].push(c);
+    });
+    // Collect all comment user_ids to resolve names
+    const commentUserIds = [...new Set((results[1].data||[]).map(c => c.user_id).filter(id => !profMap[id]))];
+    if(commentUserIds.length > 0){
+      const { data: cProfs } = await sb.from('profiles').select('id, name, tag, avatar_url').in('id', commentUserIds);
+      (cProfs||[]).forEach(pr => { profMap[pr.id] = pr; });
+    }
     if(currentUser){
-      if(results[1].data) myLikes = results[1].data.map(l => l.post_id);
-      if(results[2].data) results[2].data.forEach(l => { likeCounts[l.post_id] = (likeCounts[l.post_id]||0)+1; });
+      if(results[2].data) myLikes = results[2].data.map(l => l.post_id);
+      if(results[3].data) results[3].data.forEach(l => { likeCounts[l.post_id] = (likeCounts[l.post_id]||0)+1; });
+      if(results[4].data) savedPosts = results[4].data.map(s => s.post_id);
     }
 
     let html = '';
@@ -4933,6 +4948,22 @@ async function loadPosts(feedIds){
       html += '</div>';
       if(likeCount > 0) html += '<div style="padding:0 14px 2px;font-size:12px;font-weight:700;color:var(--ink);">'+likeCount+' curtida'+(likeCount>1?'s':'')+'</div>';
       if(caption) html += '<div class="post-cap"><b>'+escapeHtml(name)+'</b> '+escapeHtml(caption)+'</div>';
+      // Render persisted comments
+      const postComments = commentsMap[p.id] || [];
+      if(postComments.length > 0){
+        html += '<div class="comments-area" style="padding:4px 14px 2px;">';
+        postComments.forEach(c => {
+          const cp = profMap[c.user_id] || {};
+          let cName = cp.name || 'Usuario';
+          if(cName.includes('@')) cName = cName.split('@')[0];
+          const canDelete = currentUser && (currentUser.id === c.user_id || currentUser.id === p.user_id);
+          const delBtn = canDelete ? ' <span onclick="deleteComment(this,\''+c.id+'\')" style="cursor:pointer;color:var(--muted);font-size:16px;padding:2px 4px;" title="Apagar">&times;</span>' : '';
+          html += '<div data-comment-id="'+c.id+'" style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);margin-bottom:4px;">';
+          html += '<span style="flex:1"><b>'+escapeHtml(cName)+'</b> '+escapeHtml(c.text)+'</span>'+delBtn;
+          html += '</div>';
+        });
+        html += '</div>';
+      }
       html += '<div class="post-time">'+time+'</div>';
       html += '</div>';
     });
@@ -5014,43 +5045,71 @@ async function submitComment(btn){
   if(!text) return;
   const postEl = box.closest('.mpost');
   const postId = postEl ? postEl.dataset.postId : null;
+  if(!postId || !currentUser) return;
   input.value = '';
-  // Show comment in UI
-  let commentsArea = postEl.querySelector('.comments-area');
-  if(!commentsArea){
-    commentsArea = document.createElement('div');
-    commentsArea.className = 'comments-area';
-    commentsArea.style.cssText = 'padding:4px 14px 2px;';
-    postEl.insertBefore(commentsArea, box);
-  }
-  const userName = document.getElementById('myprofile-name')?.textContent || 'Voce';
-  const commentDiv = document.createElement('div');
-  commentDiv.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);margin-bottom:4px;';
-  commentDiv.innerHTML = '<span style="flex:1"><b>'+escapeHtml(userName)+'</b> '+escapeHtml(text)+'</span>'
-    + '<span onclick="this.parentElement.remove()" style="cursor:pointer;color:var(--muted);font-size:16px;padding:2px 4px;" title="Apagar">&times;</span>';
-  commentsArea.appendChild(commentDiv);
-  toast('Comentario enviado!');
+  btn.disabled = true;
+  const sb = getSupabase();
+  if(!sb) return;
+  try {
+    const { data: comment, error } = await sb.from('comments').insert({ post_id: postId, user_id: currentUser.id, text: text }).select('id').single();
+    if(error){ toast('Erro ao comentar'); btn.disabled = false; return; }
+    // Show comment in UI
+    let commentsArea = postEl.querySelector('.comments-area');
+    if(!commentsArea){
+      commentsArea = document.createElement('div');
+      commentsArea.className = 'comments-area';
+      commentsArea.style.cssText = 'padding:4px 14px 2px;';
+      postEl.insertBefore(commentsArea, box);
+    }
+    const userName = document.getElementById('myprofile-name')?.textContent || 'Voce';
+    const commentDiv = document.createElement('div');
+    commentDiv.setAttribute('data-comment-id', comment.id);
+    commentDiv.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);margin-bottom:4px;';
+    commentDiv.innerHTML = '<span style="flex:1"><b>'+escapeHtml(userName)+'</b> '+escapeHtml(text)+'</span>'
+      + '<span onclick="deleteComment(this,\''+comment.id+'\')" style="cursor:pointer;color:var(--muted);font-size:16px;padding:2px 4px;" title="Apagar">&times;</span>';
+    commentsArea.appendChild(commentDiv);
+  } catch(e){ toast('Erro ao comentar'); console.warn(e); }
+  btn.disabled = false;
 }
 
-function toggleSavePost(btn){
+async function deleteComment(el, commentId){
+  if(!currentUser) return;
+  const sb = getSupabase();
+  if(!sb) return;
+  const commentEl = el.closest('[data-comment-id]');
+  try {
+    const { error } = await sb.from('comments').delete().eq('id', commentId);
+    if(error){ toast('Erro ao apagar'); return; }
+    if(commentEl) commentEl.remove();
+  } catch(e){ toast('Erro ao apagar'); console.warn(e); }
+}
+
+async function toggleSavePost(btn){
   const svg = btn.querySelector('svg');
   const postEl = btn.closest('.mpost');
   const postId = postEl ? postEl.dataset.postId : null;
-  if(!postId) return;
+  if(!postId || !currentUser) return;
+  const sb = getSupabase();
+  if(!sb) return;
   const isSaved = svg.style.fill === 'var(--p1)';
-  let savedPosts = JSON.parse(localStorage.getItem('savedPosts') || '[]');
+  // Toggle UI immediately
   if(isSaved){
     svg.style.fill = 'none';
     svg.style.stroke = 'var(--ink)';
-    savedPosts = savedPosts.filter(id => id !== postId);
     toast('Removido dos salvos');
   } else {
     svg.style.fill = 'var(--p1)';
     svg.style.stroke = 'var(--p1)';
-    savedPosts.push(postId);
     toast('Salvo!');
   }
-  localStorage.setItem('savedPosts', JSON.stringify(savedPosts));
+  // Save to DB
+  try {
+    if(isSaved){
+      await sb.from('saved_posts').delete().eq('user_id', currentUser.id).eq('post_id', postId);
+    } else {
+      await sb.from('saved_posts').insert({ user_id: currentUser.id, post_id: postId });
+    }
+  } catch(e){ console.warn('toggleSavePost error:', e); }
 }
 
 // Post options modal
@@ -5088,8 +5147,12 @@ async function deleteCurrentPost(){
   const sb = getSupabase();
   if(!sb) return;
   try {
-    // Delete likes first
-    await sb.from('likes').delete().eq('post_id', _currentOptPostId);
+    // Delete related data first
+    await Promise.all([
+      sb.from('likes').delete().eq('post_id', _currentOptPostId),
+      sb.from('comments').delete().eq('post_id', _currentOptPostId),
+      sb.from('saved_posts').delete().eq('post_id', _currentOptPostId)
+    ]);
     // Delete the post
     const { error } = await sb.from('posts').delete().eq('id', _currentOptPostId).eq('user_id', currentUser.id);
     if(error){ toast('Erro ao deletar: ' + error.message); return; }
