@@ -781,7 +781,7 @@ async function loadMyProfileData(){
         const parts = [];
         if(tag) parts.push('@' + tag);
         if(city) parts.push(city);
-        const roleLabels = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',funileiro:'Funileiro',cliente:'Cliente'};
+        const roleLabels = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',automotivo:'Pintor Automotivo',cliente:'Cliente'};
         if(roleLabels[role] && role !== 'cliente') parts.push(roleLabels[role]);
         subEl.textContent = parts.length > 0 ? parts.join(' · ') : 'Configure seu perfil';
       }
@@ -1118,7 +1118,7 @@ async function openUserProfile(userId){
     const avatar = prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=200';
     const location = (prof.city||'')+(prof.state?' · '+prof.state:'');
     const _rl = prof.role||prof.user_type||'cliente';
-    const role = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',funileiro:'Funileiro',cliente:'Cliente'}[_rl]||'Cliente';
+    const role = {pintor:'Pintor',grafiteiro:'Grafiteiro/Muralista',automotivo:'Pintor Automotivo',cliente:'Cliente'}[_rl]||'Cliente';
     if(nameEl) nameEl.textContent = name;
     if(bioEl) bioEl.textContent = (prof.tag?'@'+prof.tag+' · ':'')+role+(location?' · '+location:'');
     if(avatarEl) avatarEl.src = avatar;
@@ -1336,10 +1336,10 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
             <div class="role-card-label">Grafiteiro / Muralista</div>
             <div class="role-card-sub">Arte urbana, murais e painéis</div>
           </div>
-          <div class="role-card" id="role-funileiro" onclick="selectRole('funileiro')">
+          <div class="role-card" id="role-automotivo" onclick="selectRole('automotivo')">
             <div class="role-card-icon">🚗</div>
-            <div class="role-card-label">Funileiro</div>
-            <div class="role-card-sub">Pintura automotiva e funilaria</div>
+            <div class="role-card-label">Pintor Automotivo</div>
+            <div class="role-card-sub">Pintura automotiva, funilaria e envelopamento</div>
           </div>
           <div class="role-card" id="role-cliente" onclick="selectRole('cliente')">
             <div class="role-card-icon">🏠</div>
@@ -1497,6 +1497,14 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
       <span class="story-name" id="my-story-name">Seu story</span>
     </div>
     <!-- Dynamic stories loaded here -->
+  </div>
+
+  <!-- Feed filter tabs -->
+  <div id="feed-filters" style="display:flex;gap:8px;padding:10px 14px;overflow-x:auto;background:var(--cream);border-bottom:1px solid var(--border);">
+    <button class="feed-filter active" onclick="setFeedFilter(this,'')" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--ink);background:var(--ink);color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">Todos</button>
+    <button class="feed-filter" onclick="setFeedFilter(this,'pintor')" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--ink);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">🖌️ Pintura</button>
+    <button class="feed-filter" onclick="setFeedFilter(this,'grafiteiro')" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--ink);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">🎨 Grafite</button>
+    <button class="feed-filter" onclick="setFeedFilter(this,'automotivo')" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--ink);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">🚗 Automotivo</button>
   </div>
 
   <!-- Feed posts area -->
@@ -1919,7 +1927,7 @@ window.addEventListener('DOMContentLoaded', () => { initAuth(); });
     </div>
     <input type="hidden" id="orc-painter-id" value="">
     <div class="fg"><label class="fl">Tipo de serviço</label>
-      <select id="orc-service-type" class="fs"><optgroup label="Pintura"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></optgroup><optgroup label="Grafite / Mural"><option>Grafite artístico</option><option>Mural decorativo</option><option>Painel comercial</option><option>Arte urbana</option></optgroup><optgroup label="Funilaria"><option>Pintura automotiva</option><option>Funilaria e reparo</option><option>Envelopamento</option><option>Polimento e cristalização</option></optgroup></select>
+      <select id="orc-service-type" class="fs"><optgroup label="Pintura"><option>Pintura residencial</option><option>Pintura comercial</option><option>Textura / Grafiato</option><option>Piso Epóxi</option><option>Fachada externa</option></optgroup><optgroup label="Grafite / Mural"><option>Grafite artístico</option><option>Mural decorativo</option><option>Painel comercial</option><option>Arte urbana</option></optgroup><optgroup label="Automotivo"><option>Pintura automotiva</option><option>Funilaria e reparo</option><option>Envelopamento</option><option>Polimento e cristalização</option></optgroup></select>
     </div>
     <div class="frow">
       <div class="fg"><label class="fl">Metragem (m²)</label><input id="orc-area" type="number" class="fi" placeholder="Ex: 80"></div>
@@ -3771,7 +3779,7 @@ async function loadRanking(){
   const city = document.getElementById('ranking-city').value.trim().toLowerCase();
   if(!city || city.length < 2) return;
   const sb = getSupabase(); if(!sb) return;
-  const { data: painters } = await sb.from('profiles').select('id, name, tag, avatar_url, city, state, rating_avg, role').in('role',['pintor','grafiteiro','funileiro']).ilike('city','%'+city+'%').order('rating_avg',{ascending:false,nullsFirst:false}).limit(20);
+  const { data: painters } = await sb.from('profiles').select('id, name, tag, avatar_url, city, state, rating_avg, role').in('role',['pintor','grafiteiro','automotivo']).ilike('city','%'+city+'%').order('rating_avg',{ascending:false,nullsFirst:false}).limit(20);
   const el = document.getElementById('ranking-list');
   if(!painters||painters.length===0){ el.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px;">Nenhum pintor encontrado nesta cidade</div>'; return; }
   el.innerHTML = painters.map((p,i)=>{
@@ -3826,7 +3834,7 @@ async function distribuirLead(quoteId, serviceType, city){
   const sb = getSupabase(); if(!sb) return;
   // Find painters in same city, matching specialty, ordered by PRO first then rating
   let query = sb.from('profiles').select('id, name, role, city, specialties, rating_avg, portal_access')
-    .in('role',['pintor','grafiteiro','funileiro']).ilike('city','%'+(city||'')+'%')
+    .in('role',['pintor','grafiteiro','automotivo']).ilike('city','%'+(city||'')+'%')
     .order('rating_avg',{ascending:false,nullsFirst:false}).limit(5);
   const { data: painters } = await query;
   if(!painters||painters.length===0) return;
@@ -4150,7 +4158,7 @@ async function startNewChat(userId){
       chatData[convId].participants = [{
         img: prof.avatar_url || 'https://ui-avatars.com/api/?name='+encodeURIComponent(name)+'&background=e8e2d9&color=1a1a2e&size=96',
         name: name,
-        role: isProfessionalRole(prof.role||prof.user_type) ? ({pintor:'Pintor',grafiteiro:'Grafiteiro',funileiro:'Funileiro'}[prof.role||prof.user_type]||'Profissional') : 'Usuario'
+        role: isProfessionalRole(prof.role||prof.user_type) ? ({pintor:'Pintor',grafiteiro:'Grafiteiro',automotivo:'Pintor Automotivo'}[prof.role||prof.user_type]||'Profissional') : 'Usuario'
       }];
     }
   } catch(e){}
@@ -4540,7 +4548,7 @@ async function handleRealtimeMsg(payload){
               type: 'direct',
               name: prof.name || 'Usuario',
               sub: prof.tag ? '@' + prof.tag : '',
-              participants: [{img: prof.avatar_url || '', name: prof.name || 'Usuario', role: isProfessionalRole(prof.role) ? ({pintor:'Pintor',grafiteiro:'Grafiteiro',funileiro:'Funileiro'}[prof.role]||'Profissional') : 'Usuario'}],
+              participants: [{img: prof.avatar_url || '', name: prof.name || 'Usuario', role: isProfessionalRole(prof.role) ? ({pintor:'Pintor',grafiteiro:'Grafiteiro',automotivo:'Pintor Automotivo'}[prof.role]||'Profissional') : 'Usuario'}],
               messages: []
             };
           }
@@ -4626,7 +4634,7 @@ function openChatConversation(userId, userName){
 let selectedRole='pintor';
 function selectRole(r){
   selectedRole=r;
-  ['pintor','grafiteiro','funileiro','cliente'].forEach(role=>{
+  ['pintor','grafiteiro','automotivo','cliente'].forEach(role=>{
     const el=document.getElementById('role-'+role);
     if(el) el.classList.toggle('active',r===role);
   });
@@ -4701,7 +4709,7 @@ async function doSignup(){
   doRegisterSupabase(name,email,pw,role,tag);
 }
 function toggleSpec(el){el.classList.toggle('sel');}
-const _proRoles = ['pintor','grafiteiro','funileiro'];
+const _proRoles = ['pintor','grafiteiro','automotivo'];
 function isProfessionalRole(r){ return _proRoles.includes(r); }
 
 function setMode(mode){
@@ -4716,7 +4724,7 @@ function setMode(mode){
   // Update grid title per role
   const gridTitle = document.querySelector('#view-pintor > div > div:first-child');
   if(gridTitle && isPro){
-    const titles = {pintor:'Meu Negócio',grafiteiro:'Meu Estúdio',funileiro:'Minha Oficina'};
+    const titles = {pintor:'Meu Negócio',grafiteiro:'Meu Estúdio',automotivo:'Minha Garagem'};
     gridTitle.textContent = titles[mode]||'Meu Negócio';
   }
   const fab=document.getElementById('post-fab');
@@ -5597,6 +5605,28 @@ function setPostType(type){
 }
 
 let _lastFeedLoad = 0;
+let _feedRoleFilter = '';
+
+function setFeedFilter(btn, role){
+  _feedRoleFilter = role;
+  document.querySelectorAll('.feed-filter').forEach(b=>{
+    b.style.background = '#fff'; b.style.color = 'var(--ink)'; b.style.borderColor = 'var(--border)';
+    b.classList.remove('active');
+  });
+  btn.style.background = 'var(--ink)'; btn.style.color = '#fff'; btn.style.borderColor = 'var(--ink)';
+  btn.classList.add('active');
+  // Re-filter posts without reloading from DB
+  filterFeedPosts();
+}
+
+function filterFeedPosts(){
+  const posts = document.querySelectorAll('#feed-posts-area .mpost');
+  posts.forEach(p=>{
+    if(!_feedRoleFilter){ p.style.display = ''; return; }
+    const role = p.dataset.authorRole || '';
+    p.style.display = (role === _feedRoleFilter) ? '' : 'none';
+  });
+}
 async function loadFeed(){
   _lastFeedLoad = Date.now();
   // Show cached feed instantly while fetching fresh data
@@ -5666,7 +5696,7 @@ async function loadPosts(feedIds){
     let savedPosts = [];
     let commentsMap = {};
     const queries = [
-      sb.from('profiles').select('id, name, tag, avatar_url').in('id', userIds),
+      sb.from('profiles').select('id, name, tag, avatar_url, role').in('id', userIds),
       sb.from('comments').select('id, post_id, user_id, text, created_at').in('post_id', postIds).order('created_at', { ascending: true })
     ];
     if(currentUser){
@@ -5714,7 +5744,7 @@ async function loadPosts(feedIds){
       const paletteFill = saved ? 'var(--p1)' : 'none';
       const paletteStroke = saved ? 'var(--p1)' : 'var(--ink)';
 
-      html += '<div class="mpost" data-post-id="'+p.id+'">';
+      html += '<div class="mpost" data-post-id="'+p.id+'" data-author-role="'+(prof.role||'')+'">';
       html += '<div class="mpost-head">';
       html += '<div class="av-ring"><div class="av-inner"><img src="'+avatar+'" alt=""></div></div>';
       html += '<div class="post-meta"><span class="post-uname">'+escapeHtml(name)+'</span>';
