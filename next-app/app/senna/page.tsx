@@ -6,6 +6,8 @@ import { SennaChat } from './SennaChat';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Senna | QueroUmaCor',
   description:
     'Assistente IA pra funileiro e pintor automotivo — PU 2K, primer, verniz, lanternagem, polimento. Chat por texto ou voz.',

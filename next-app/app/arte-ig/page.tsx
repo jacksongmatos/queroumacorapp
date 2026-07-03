@@ -15,6 +15,8 @@ import { AiArtStudio } from './AiArtStudio';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Arte pra Instagram | QueroUmaCor',
   description:
     'Sua foto vira post estilizado pro Instagram com a IA Seu Zé — escolha o estilo, gere e poste.',

@@ -13,6 +13,8 @@ import { ChatList } from './ChatList';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Chat | QueroUmaCor',
   description: 'Suas conversas com clientes, pintores e a loja Cali Colors.',
 };

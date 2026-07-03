@@ -12,6 +12,8 @@ import { QuoteWizard } from './QuoteWizard';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Orçamento IA | QueroUmaCor',
   description:
     'Gere um orçamento de pintura completo com sugestão de escopo e preço pelo Seu Zé.',

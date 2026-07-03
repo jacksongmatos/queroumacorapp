@@ -12,6 +12,8 @@ import { PipelineKanban } from './PipelineKanban';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Meus Orçamentos | QueroUmaCor',
   description:
     'Pipeline de orçamentos do pintor — kanban de status: a orçar, enviado, aprovado, em execução, concluído.',

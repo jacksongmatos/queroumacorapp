@@ -15,6 +15,8 @@ import { LogoStudio } from './LogoStudio';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Gerador de Logo IA | QueroUmaCor',
   description:
     'Gere seu logo profissional com a IA Seu Zé — 4 variants, escolha o seu, aplique na camiseta e salve no perfil.',

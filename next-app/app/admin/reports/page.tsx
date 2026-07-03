@@ -11,6 +11,8 @@ import { requireAdminServer } from '@/lib/auth-server';
 export const runtime = 'edge';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Denúncias | QueroUmaCor Admin',
   description: 'Modera denúncias de conteúdo enviadas por usuários.',
 };

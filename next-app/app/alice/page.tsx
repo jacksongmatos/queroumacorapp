@@ -6,6 +6,8 @@ import { AliceChat } from './AliceChat';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Alice Codessi | QueroUmaCor',
   description:
     'Designer de interiores virtual da Cali Colors. Tire dúvidas sobre cores, paletas, estilos de ambiente. Chat por texto ou voz.',

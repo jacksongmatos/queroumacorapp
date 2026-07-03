@@ -14,6 +14,8 @@ import { requireAdminServer } from '@/lib/auth-server';
 export const runtime = 'edge';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Fila de revisão de mídia | QueroUmaCor Admin',
   description:
     'Mídias enviadas pelos usuários que foram flagadas pela moderação automática.',

@@ -11,6 +11,8 @@ export const runtime = 'edge';
 interface Params { id: string }
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Editar produto | QueroUmaCor Admin',
 };
 

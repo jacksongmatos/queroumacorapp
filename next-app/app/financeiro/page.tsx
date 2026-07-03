@@ -16,6 +16,8 @@ import { AppShell } from '@/components/AppShell';
 import { MaquininhaCard } from '@/components/MaquininhaCard';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Financeiro | QueroUmaCor',
   description:
     'Controle de lucro do pintor — entradas, custos, lucro mensal e análise IA.',

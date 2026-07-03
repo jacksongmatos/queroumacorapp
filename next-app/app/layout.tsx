@@ -40,6 +40,12 @@ export const metadata: Metadata = {
   title: 'QueroUmaCor',
   description: 'A plataforma dos pintores profissionais',
   manifest: '/manifest.webmanifest',
+  // Default explícito: páginas são indexáveis. Páginas autenticadas
+  // (chat, perfil próprio, dashboards, admin) sobrescrevem com
+  // `robots: { index: false }` no próprio page.tsx. Obs.: preview deploys
+  // (*.pages.dev) ganham `X-Robots-Tag: noindex` do Cloudflare Pages —
+  // isso é infra, não vem daqui, e não afeta queroumacor.com.br.
+  robots: { index: true, follow: true },
   // Ícones servidos como assets estáticos em /public — `app/icon.png` virou
   // route dinâmica pro @cloudflare/next-on-pages e estourava build sem
   // `export const runtime = 'edge'`. Manter em /public evita o problema.

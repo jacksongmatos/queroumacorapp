@@ -16,6 +16,8 @@ import { CrmList } from './CrmList';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Reativar Clientes | QueroUmaCor',
   description:
     'Lembre clientes antigos com mensagens personalizadas — recurso PRO.',

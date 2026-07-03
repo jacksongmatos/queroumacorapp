@@ -13,6 +13,8 @@ import { PortfolioSection } from './PortfolioSection';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Perfil | QueroUmaCor',
   description: 'Seu perfil, ferramentas de negócio e configurações.',
 };

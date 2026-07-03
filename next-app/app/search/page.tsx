@@ -6,6 +6,8 @@ import { SearchResults } from './SearchResults';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Buscar | QueroUmaCor',
   description:
     'Encontre pintores, posts e produtos da loja com busca por palavra-chave.',

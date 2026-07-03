@@ -16,6 +16,8 @@ import { EditRaioForm } from './EditRaioForm';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Editar perfil | QueroUmaCor',
   description:
     'Edite seus dados, foto, especialidades e raio de atendimento.',

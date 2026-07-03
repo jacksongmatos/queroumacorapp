@@ -7,6 +7,8 @@ import { AppShell } from '@/components/AppShell';
 import { NotesView } from './NotesView';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Anotações | QueroUmaCor',
   description: 'Lembretes, medidas e recados de obra.',
 };

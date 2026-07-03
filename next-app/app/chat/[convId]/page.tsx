@@ -11,6 +11,8 @@ import { AppShell } from '@/components/AppShell';
 export const runtime = 'edge';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Conversa | QueroUmaCor',
 };
 

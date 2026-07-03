@@ -13,6 +13,8 @@ import { AppShell } from '@/components/AppShell';
 import { CartView } from './CartView';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Minha Lista de Pedido | Loja Cali Colors',
   description: 'Revise seus itens e envie sua lista para a Cali Colors.',
 };

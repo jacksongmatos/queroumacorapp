@@ -6,6 +6,8 @@ import { AppShell } from '@/components/AppShell';
 import { AvaliarView } from './AvaliarView';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Avaliar serviço | QueroUmaCor',
   description: 'Avalie o pintor após a conclusão do serviço.',
 };

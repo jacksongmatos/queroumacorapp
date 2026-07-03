@@ -14,6 +14,8 @@ import { AgendaCalendar } from './AgendaCalendar';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Minha Agenda | QueroUmaCor',
   description:
     'Calendário de obras agendadas — gerencie projetos por dia, status e otimize sua rota.',

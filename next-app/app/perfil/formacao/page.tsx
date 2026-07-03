@@ -17,6 +17,8 @@ import { CoursesSection } from './CoursesSection';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Formação & Cursos | QueroUmaCor',
   description:
     'Cadastre suas formações, especializações e cursos pra mostrar no seu perfil.',

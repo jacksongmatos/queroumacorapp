@@ -10,6 +10,8 @@ import { requireAdminServer } from '@/lib/auth-server';
 export const runtime = 'edge';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Interesse em features | QueroUmaCor Admin',
   description: 'Métrica de cliques em features "em breve" (Maquininha etc.).',
 };

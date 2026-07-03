@@ -6,6 +6,8 @@ import { FeChat } from './FeChat';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Fê | QueroUmaCor',
   description:
     'Assistente IA pra grafiteiro e muralista — spray, técnica, mural, preço, legalidade. Chat por texto ou voz.',

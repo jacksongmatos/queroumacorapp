@@ -8,6 +8,8 @@ import { AppShell } from '@/components/AppShell';
 import { PontosView } from './PontosView';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Meus Pontos | QueroUmaCor',
   description: 'Saldo de pontos e troca por mês PRO extra.',
 };

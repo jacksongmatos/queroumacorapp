@@ -12,6 +12,8 @@ import { AppShell } from '@/components/AppShell';
 import { PreviewView } from './PreviewView';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Pré-visualização do perfil | QueroUmaCor',
   description: 'Veja como outros usuários veem seu perfil público.',
 };

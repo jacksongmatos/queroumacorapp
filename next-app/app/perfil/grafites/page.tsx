@@ -7,6 +7,8 @@ import { AppShell } from '@/components/AppShell';
 import { ArtLibrary } from './ArtLibrary';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Minhas artes | QueroUmaCor',
   description: 'Biblioteca de referências pra projetar em AR na parede.',
 };

@@ -13,6 +13,8 @@ import { requireAdminServer } from '@/lib/auth-server';
 export const runtime = 'edge';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Feature Flags | QueroUmaCor Admin',
   description: 'Gerencia rollout de features experimentais.',
 };

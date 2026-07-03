@@ -2,7 +2,11 @@ import type { Metadata } from 'next';
 import { OrderConfirmView } from './OrderConfirmView';
 
 export const runtime = 'edge';
-export const metadata: Metadata = { title: 'Pedido Confirmado — Cali Colors' };
+export const metadata: Metadata = {
+  title: 'Pedido Confirmado — Cali Colors',
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
+};
 
 export default async function OrderConfirmPage({
   params,

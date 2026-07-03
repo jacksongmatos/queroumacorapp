@@ -10,6 +10,8 @@ import { Composer } from './Composer';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Publicar | QueroUmaCor',
   description:
     'Compartilhe seu trabalho — foto ou vídeo + legenda. Use a IA pra ganhar tempo.',

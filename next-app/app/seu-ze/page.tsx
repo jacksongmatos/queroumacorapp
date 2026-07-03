@@ -14,6 +14,8 @@ import { SeuZeChat } from './SeuZeChat';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Seu Zé | QueroUmaCor',
   description:
     'Assistente IA para pintores — tire dúvidas, pergunte sobre preço, técnicas, materiais e ferramentas. Chat por texto ou voz.',

@@ -5,6 +5,8 @@ import { AppShell } from '@/components/AppShell';
 import { BlockedList } from './BlockedList';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Bloqueados | QueroUmaCor',
 };
 

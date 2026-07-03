@@ -13,6 +13,8 @@ import { NotificationsList } from './NotificationsList';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Notificações | QueroUmaCor',
   description: 'Suas curtidas, comentários, novos seguidores e avisos do app.',
 };

@@ -18,6 +18,8 @@ import { PedidosList } from './PedidosList';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Pedidos | QueroUmaCor',
   description: 'Suas compras na loja Cali Colors — status, total e rastreio.',
 };

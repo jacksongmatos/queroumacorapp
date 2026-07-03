@@ -19,6 +19,8 @@ import { LeadsList } from './LeadsList';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
+  // Página autenticada — fora do índice de busca.
+  robots: { index: false, follow: false },
   title: 'Leads | QueroUmaCor',
   description:
     'Oportunidades de obra pra pintores — compre acesso aos contatos.',
