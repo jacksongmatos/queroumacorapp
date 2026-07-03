@@ -29,6 +29,8 @@ jobs:
           npm install --prefix next-app
 
       - name: Build Next.js web app
+        env:
+          CAPACITOR_BUILD: 'true'
         run: |
           cd next-app
           npm run build
