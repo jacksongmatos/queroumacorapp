@@ -28,6 +28,11 @@ jobs:
           npm install
           npm install --prefix next-app
 
+      - name: Build Next.js web app
+        run: |
+          cd next-app
+          npm run build
+
       - name: Add Capacitor iOS platform
         run: |
           rm -rf ios
