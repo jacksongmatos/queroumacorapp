@@ -4,18 +4,10 @@
 
 import { withSentryConfig } from '@sentry/nextjs';
 
-const isCapacitorBuild = process.env.CAPACITOR_BUILD === 'true';
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-
-  ...(isCapacitorBuild && {
-    output: 'export',
-    distDir: 'out',
-    images: { unoptimized: true },
-  }),
 
   env: {
     NEXT_PUBLIC_SUPABASE_URL:
@@ -32,31 +24,40 @@ const nextConfig = {
       '',
   },
 
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: false },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 
-  ...(!isCapacitorBuild && {
-    async rewrites() {
-      return [
-        { source: '/api/v1/:path*', destination: '/api/:path*' },
-        { source: '/portal', destination: '/portal/index.html' },
-      ];
-    },
-    async headers() {
-      const noCache = [{ key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' }];
-      return [
-        { source: '/(.*)', headers: [
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+
+  async rewrites() {
+    return [
+      { source: '/api/v1/:path*', destination: '/api/:path*' },
+      { source: '/portal', destination: '/portal/index.html' },
+    ];
+  },
+
+  async headers() {
+    const noCache = [
+      { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+    ];
+    return [
+      {
+        source: '/(.*)',
+        headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
           { key: 'X-Frame-Options', value: 'DENY' },
-        ]},
-        { source: '/portal', headers: noCache },
-        { source: '/portal/', headers: noCache },
-        { source: '/portal/index.html', headers: noCache },
-      ];
-    },
-  }),
+        ],
+      },
+      { source: '/portal', headers: noCache },
+      { source: '/portal/', headers: noCache },
+      { source: '/portal/index.html', headers: noCache },
+    ];
+  },
 
   experimental: {
     serverActions: { allowedOrigins: ['localhost:3000', 'queroumacor.com.br', '*.queroumacor.com.br'] },
