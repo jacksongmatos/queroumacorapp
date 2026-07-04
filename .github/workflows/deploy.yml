@@ -46,4 +46,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: next-app
-          command: pages deploy .vercel/output/static --project-name=queroumacorapp --branch=main --commit-dirty=true
+          command: pages deploy .vercel/output/static --project-name=queroumacor-next --branch=main --commit-dirty=true
