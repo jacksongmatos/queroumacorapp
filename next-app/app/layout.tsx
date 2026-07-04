@@ -97,7 +97,7 @@ export default function RootLayout({
             Web Inspector. Toca no botao flutuante pra abrir o console. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){function loadEruda(){if(window.__erudaLoaded)return;window.__erudaLoaded=true;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/eruda';s.onload=function(){window.eruda&&window.eruda.init();};document.body.appendChild(s);}function check(){if(window.Capacitor){loadEruda();}}check();document.addEventListener('DOMContentLoaded',check);window.addEventListener('load',check);setTimeout(check,1000);})();`,
+            __html: `(function(){function loadEruda(){if(window.__erudaLoaded)return;window.__erudaLoaded=true;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/eruda';s.onload=function(){window.eruda&&window.eruda.init();};document.body.appendChild(s);}function check(){try{loadEruda();}catch(e){}}check();document.addEventListener('DOMContentLoaded',check);window.addEventListener('load',check);setTimeout(check,1000);})();`,
           }}
         />
       </head>
@@ -108,6 +108,11 @@ export default function RootLayout({
             QueryProvider fica DENTRO do AuthProvider pra que hooks que
             consomem ambos (useNotifications etc.) tenham acesso ao user no
             queryKey/enabled sem ordem de inicialização ambígua. */}
+        <div
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999999, background: 'red', color: 'white', padding: '4px 8px', fontSize: '12px', fontFamily: 'monospace' }}
+        >
+          DEBUG BUILD 6 static HTML render OK
+        </div>
         <ServiceWorkerRegister />
         <AuthProvider>
           <QueryProvider>
