@@ -17,8 +17,9 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'br.com.queroumacor.app',
   appName: 'QueroUmaCor',
-  webDir: 'next-app/out',
+  webDir: 'next-app/.next/static',
   server: {
+    url: 'https://queroumacor.com.br',
     cleartext: false,
     androidScheme: 'https',
     iosScheme: 'https',
