@@ -92,6 +92,14 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`,
           }}
         />
+        {/* Eruda: console de DevTools mobile, ativa so dentro do app nativo
+            (Capacitor) pra debugar o WebView sem precisar de Mac/Safari
+            Web Inspector. Toca no botao flutuante pra abrir o console. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){function loadEruda(){if(window.__erudaLoaded)return;window.__erudaLoaded=true;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/eruda';s.onload=function(){window.eruda&&window.eruda.init();};document.body.appendChild(s);}function check(){if(window.Capacitor){loadEruda();}}check();document.addEventListener('DOMContentLoaded',check);window.addEventListener('load',check);setTimeout(check,1000);})();`,
+          }}
+        />
       </head>
       <body>
         {/* AuthProvider envolve toda a árvore — substitui o `currentUser` global
