@@ -1,9 +1,11 @@
 name: Deploy to Cloudflare Pages
 
+# Disparo MANUAL apenas. O deploy automático de produção é feito pelo build
+# nativo do Cloudflare Pages (Git integration, env vars do painel CF). Este
+# workflow rodava também em push pra main e competia com ele pelo slot de
+# production do projeto queroumacor-next — quem terminasse por último vencia,
+# com env vars de fontes diferentes (GitHub Secrets vs painel CF).
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
