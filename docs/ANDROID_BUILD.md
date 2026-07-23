@@ -10,6 +10,99 @@ manter atualizado.
 > até primeiro upload no internal testing: **~4-6h de trabalho do operador**
 > (a maior parte é espera de propagação DNS/assetlinks + review Google).
 
+> **⚠️ Target API 36 (2026-07-23):** o Google Play exige `targetSdkVersion`
+> 36 (Android 16) até **31/08/2026** para updates de apps existentes. O
+> Bubblewrap mais recente (1.24.1) ainda gera o projeto com target 35 —
+> ver seção **"Target API level 36"** abaixo para o procedimento manual.
+
+---
+
+## Target API level 36 (obrigatório até 31/08/2026)
+
+O `targetSdkVersion` **não fica neste repo** — ele é gerado pelo template
+do Bubblewrap no projeto Android local (`~/queroumacor-android/`). O
+`twa-manifest.json` só controla `minSdkVersion`; não existe campo de
+target SDK nele.
+
+Estado do template do Bubblewrap **1.24.1** (última release, set/2025 —
+verificado em 2026-07-23):
+
+| Item                | Valor no template | Serve pra API 36? |
+| ------------------- | ----------------- | ----------------- |
+| `compileSdkVersion` | **36**            | ✅ já pronto      |
+| `targetSdkVersion`  | **35**            | ❌ precisa editar |
+| AGP                 | 8.9.1             | ✅ (mínimo p/ SDK 36) |
+| Gradle wrapper      | 8.11.1            | ✅                |
+
+Ou seja: AGP e Gradle já suportam compilar com API 36; a única mudança
+necessária é o `targetSdkVersion` no projeto gerado.
+
+### Procedimento
+
+1. Atualize o CLI e regenere o projeto a partir do `twa-manifest.json`
+   deste repo (garante template com compileSdk 36 + AGP 8.9.1):
+
+   ```bash
+   npm install -g @bubblewrap/cli@latest   # >= 1.24.1
+   cd ~/queroumacor-android
+   bubblewrap update
+   ```
+
+2. Edite `app/build.gradle` do projeto gerado trocando o target:
+
+   ```bash
+   sed -i 's/targetSdkVersion 35/targetSdkVersion 36/' app/build.gradle
+   ```
+
+   (ou edite manualmente: `android { defaultConfig { targetSdkVersion 36 } }`)
+
+3. Bump de versão pro novo upload no Play (no `twa-manifest.json` deste
+   repo + re-rodar `bubblewrap update`, ou direto no `build.gradle`):
+   `appVersionCode` +1 e `appVersion` novo (ex.: `1.0.1`).
+
+4. Build assinado e upload:
+
+   ```bash
+   bubblewrap build
+   ```
+
+5. Suba o `app-release-bundle.aab` no Play Console e confirme na página
+   do release que o target API level aparece como **36**.
+
+> **PEGADINHA:** `bubblewrap update` **regenera o `app/build.gradle` a
+> partir do template** e desfaz a edição do passo 2. Sempre que rodar
+> `update`, reaplique o `sed` antes do `build`. Quando sair uma release
+> do Bubblewrap com target 36 no template (acompanhar
+> <https://github.com/GoogleChromeLabs/bubblewrap/releases>), esse passo
+> manual morre.
+
+### Impacto Android 15 → 16 (target 35 → 36) num TWA
+
+Quase toda a UI do QueroUmaCor roda dentro do Chrome (TWA), então a
+superfície de breaking changes é mínima, mas registre-se:
+
+- **Layouts adaptativos (telas ≥ 600dp)**: Android 16 passa a ignorar
+  restrições de orientação/resize (`screenOrientation`, aspect ratio)
+  em tablets/foldables para apps target 36. Nosso manifest usa
+  `orientation: default` — sem impacto.
+- **Predictive back** vira default (animação de voltar do sistema).
+  Navegação de back dentro do TWA é do Chrome — sem código nosso.
+  Manter `android-browser-helper` atualizado (o template 1.24.1 já usa
+  versão compatível).
+- **Edge-to-edge**: o opt-out (`windowOptOutEdgeToEdgeEnforcement`)
+  deixa de funcionar em target 36. O conteúdo é renderizado pelo
+  Chrome, que já trata insets; afeta no máximo a splash screen do
+  launcher — cosmético.
+- **16 KB page size**: exigência do Play só para apps com código nativo
+  (NDK). TWA não tem `.so` próprio — sem ação.
+- **Play Billing Library**: prazo paralelo do Google (31/08/2026) exige
+  PBL 8+ em updates **se o app usar billing**. O flag
+  `playBilling.enabled: true` no `twa-manifest.json` embute a lib de
+  billing do android-browser-helper (que embrulha uma PBL antiga).
+  Como hoje NÃO vendemos digital goods dentro do app (PRO é ativação
+  manual — compliance Apple 3.1.3(e)), avaliar desligar o flag ou
+  confirmar que a versão embutida cumpre o prazo antes do upload.
+
 ---
 
 ## Pré-requisitos
