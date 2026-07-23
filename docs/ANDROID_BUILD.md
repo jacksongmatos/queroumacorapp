@@ -96,12 +96,13 @@ superfície de breaking changes é mínima, mas registre-se:
 - **16 KB page size**: exigência do Play só para apps com código nativo
   (NDK). TWA não tem `.so` próprio — sem ação.
 - **Play Billing Library**: prazo paralelo do Google (31/08/2026) exige
-  PBL 8+ em updates **se o app usar billing**. O flag
-  `playBilling.enabled: true` no `twa-manifest.json` embute a lib de
-  billing do android-browser-helper (que embrulha uma PBL antiga).
-  Como hoje NÃO vendemos digital goods dentro do app (PRO é ativação
-  manual — compliance Apple 3.1.3(e)), avaliar desligar o flag ou
-  confirmar que a versão embutida cumpre o prazo antes do upload.
+  PBL 8+ em updates **se o app usar billing**. Como hoje NÃO vendemos
+  digital goods dentro do app (PRO é ativação manual — compliance Apple
+  3.1.3(e)), o flag `playBilling.enabled` foi desligado no
+  `twa-manifest.json` (2026-07-23) — o build não embute mais a lib de
+  billing do android-browser-helper e o prazo de PBL não se aplica.
+  Se voltarem a vender digital goods no app, religar o flag e conferir
+  que a versão embutida embrulha PBL 8+.
 
 ---
 
@@ -325,8 +326,11 @@ exótico, mas avisa pendência.
   que `packageId` casa entre TWA e PWA, e que a página
   `https://queroumacor.com.br/manifest.webmanifest` tenha
   `related_applications` apontando pro app Android.
-- Feature flag `playBilling.enabled: true` já está em
-  `twa-manifest.json`.
+- Feature flag `playBilling.enabled` está **desligado** no
+  `twa-manifest.json` desde 2026-07-23 (app não vende digital goods
+  internamente — PRO é ativação manual). Religar quando/se o checkout
+  in-app voltar, observando o prazo de Play Billing Library vigente
+  (PBL 8+ a partir de 31/08/2026).
 - Detalhes da estratégia de cobrança (Mercado Pago vs. Play Billing,
   qual usar onde) vão estar em `docs/BILLING_STRATEGY.md` (outro
   trabalho em paralelo).
