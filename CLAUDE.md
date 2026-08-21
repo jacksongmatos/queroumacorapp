@@ -51,6 +51,20 @@
     lock de scroll deixou de ser `overflow:hidden` no body (que mataria o
     scroll programático) e virou `preventDefault` em touchmove/wheel;
     (2) acima de 10 passos as bolinhas de progresso viram barra + "3 de 21".
+- **Composer: venda só pra profissional + story sem legenda IA — 2026-08-21.**
+  `canMarkPostForSale` em `lib/policies.ts` (nega `role='cliente'`, libera o
+  resto inclusive role vazio, admin sempre pode) esconde o "Marcar como
+  venda" do `Composer`; `CaptionInput` ganhou prop `showGenerate` e o botão
+  "✨ Gerar legenda (IA)" some na aba Story (story expira em 24h e a chamada
+  consome cota de IA). O payload do publish reconfere a permissão em vez de
+  confiar no state — o `forSale` sobrevivia a troca de aba/autosave/deep-link
+  `?forSale=1` e vazava `for_sale=true` pra story.
+  - **PENDENTE (D1 no BACKLOG.md): a regra é SÓ no cliente.** O INSERT em
+    `posts` vai do browser direto pro Supabase; nada no banco impede um
+    cliente de gravar `for_sale=true` com o token dele. Falta trigger BEFORE
+    INSERT/UPDATE (ou WITH CHECK na policy) zerando `for_sale`/`price`/
+    `art_type` quando o autor tem `role='cliente'`. Impacto baixo (anúncio
+    falso, não escalada de acesso) — mas está aberto, não esquecer.
 - **Login social Google + Apple (2026-06-18).** OAuth via Supabase.
   `AuthProvider.signInWithGoogle()`/`signInWithApple()` chamam
   `supabase.auth.signInWithOAuth({ provider })` com
