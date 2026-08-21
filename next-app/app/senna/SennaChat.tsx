@@ -163,7 +163,11 @@ export function SennaChat() {
   return (
     <section
       className="bg-white rounded-2xl border border-[color:var(--color-border)] flex flex-col"
-      style={{ height: 'min(70vh, 600px)' }}
+      // `dvh` pelo mesmo motivo do AppShell (barra do Safari), e o
+      // `maxHeight: 100%` impede que o painel passe do espaço que o pai
+      // dá — em bottom-sheet ou tela curta, era isso que empurrava o
+      // campo de digitar pra fora da vista.
+      style={{ height: 'min(70dvh, 600px)', maxHeight: '100%' }}
       onPointerDownCapture={fireGreeting}
       onKeyDownCapture={fireGreeting}
     >
@@ -379,7 +383,7 @@ export function SennaChat() {
             style={{
               width: '100%',
               maxWidth: 460,
-              maxHeight: 'calc(100vh - 80px)',
+              maxHeight: 'calc(100dvh - 80px)',
               borderRadius: 16,
               overflow: 'hidden',
             }}

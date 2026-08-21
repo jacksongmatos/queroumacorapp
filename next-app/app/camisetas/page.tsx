@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function CamisetasPage() {
   return (
-    <AppShell><div className="min-h-screen p-4 max-w-3xl mx-auto">
+    <AppShell><div className="min-h-full p-4 max-w-3xl mx-auto">
       <header className="flex items-start justify-between mb-6 gap-4">
         <div>
           <h1

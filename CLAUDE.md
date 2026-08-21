@@ -1,5 +1,28 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Corte de tela no iPhone — 4 causas corrigidas (2026-08-21).**
+  - **Zoom automático do iOS**: campo com `font-size < 16px` faz o Safari
+    ampliar ao focar; o viewport de layout fica maior que a tela e o
+    conteúdo "corta" (bolha de chat sumindo pela direita, campo de digitar
+    fora de vista). Regra no fim do `globals.css`, escopada em
+    `@media (pointer: coarse)`, força 16px em input/textarea/select
+    (checkbox/radio/range de fora). Desktop mantém `text-sm`. **Não usar
+    `maximum-scale=1` no meta viewport** — iOS moderno ignora e mataria o
+    pinch-zoom de acessibilidade.
+  - **`100vh` no `AppShell`**: no Safari do iPhone o `vh` conta a área atrás
+    das barras do navegador, então BottomNav/composer nasciam abaixo da
+    dobra. Virou `height: 100dvh` inline (classe `h-screen` fica de
+    fallback). **Preferir `dvh` em qualquer altura de tela cheia daqui pra
+    frente.**
+  - **Personas de IA** (Alice/Seu Zé/Fê/Senna): `height: min(70vh, 600px)`
+    virou `min(70dvh, 600px)` + `maxHeight: 100%` — sem o teto, o painel
+    estourava o espaço do bottom-sheet e empurrava o campo de digitar pra
+    fora. Modal de histórico: `calc(100vh - 80px)` → `100dvh`.
+  - **`min-h-screen` dentro do AppShell** (19 pages): forçava 100vh de
+    altura dentro de um `<main>` que já é menor que isso (TopNav +
+    BottomNav), criando scroll fantasma e jogando o fim do conteúdo sob a
+    barra. Virou `min-h-full`. Páginas `/admin/*` (fora do AppShell)
+    seguem com `min-h-screen`, corretamente.
 - **Tour guiado da 1ª abertura (coach marks) — 2026-08-21.** `components/
   AppTour.tsx` escurece a tela, abre um "buraco" de luz em cima de um botão
   real da navegação e mostra um balão explicando pra que ele serve (tom

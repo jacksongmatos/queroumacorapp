@@ -41,7 +41,7 @@ function ChatListFallback() {
 export default function ChatPage() {
   return (
     <AppShell>
-      <div className="min-h-screen p-4 max-w-2xl mx-auto">
+      <div className="min-h-full p-4 max-w-2xl mx-auto">
         <h1
           className="text-3xl font-bold mb-4"
           style={{ fontFamily: 'var(--font-display)' }}
