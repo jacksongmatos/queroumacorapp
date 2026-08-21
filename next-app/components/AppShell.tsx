@@ -10,6 +10,8 @@
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './AuthProvider';
+import { useProfile } from '@/lib/hooks/useProfile';
+import { isProfileComplete } from '@/lib/profileCompletion';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
@@ -41,6 +43,7 @@ export function AppShell({
   requireAuth = true,
 }: AppShellProps) {
   const { user, loading } = useAuth();
+  const { profile, loading: profileLoading, error: profileError } = useProfile();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -55,9 +58,33 @@ export function AppShell({
     router.replace(`/login${next}`);
   }, [requireAuth, loading, user, pathname, router]);
 
+  // Cadastro pela metade (Google/Apple): quem entra por OAuth nasce sem
+  // categoria e sem @tag. O /completar-perfil existe pra isso, mas era a
+  // ÚNICA chance de preencher — se o redirect do provedor não pousasse lá
+  // (Redirect URL fora da allowlist do Supabase manda pro Site URL) ou se a
+  // pessoa fechasse a aba no meio, ela seguia usando o app sem @tag pra
+  // sempre: não aparecia na busca e não tinha link de perfil.
+  //
+  // Aqui o app volta a pedir os dados na próxima abertura, quantas vezes for
+  // preciso. Só redireciona com o profile REALMENTE carregado — erro de rede
+  // ou query em voo não pode expulsar ninguém da tela.
+  const incomplete =
+    requireAuth &&
+    !loading &&
+    !!user &&
+    !profileLoading &&
+    !profileError &&
+    !isProfileComplete(profile);
+
+  useEffect(() => {
+    if (!incomplete) return;
+    if (pathname === '/completar-perfil') return;
+    router.replace('/completar-perfil');
+  }, [incomplete, pathname, router]);
+
   // Enquanto resolve auth ou enquanto o redirect dispara, não renderiza o
   // conteúdo privado (evita flash de tela protegida pra deslogado).
-  if (requireAuth && (loading || !user)) {
+  if (requireAuth && (loading || !user || incomplete)) {
     return (
       <div className="min-h-screen flex items-center justify-center p-8">
         <div className="text-[color:var(--color-muted)] text-sm">Carregando…</div>

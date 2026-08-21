@@ -115,6 +115,17 @@
   serve pra isso (tag é readonly lá e não tem seletor de categoria).
   Lembrete: no Supabase, as Redirect URLs precisam cobrir
   `/completar-perfil` (recomendado wildcard `…/**` + preview pages.dev).
+  - **Guard de cadastro incompleto (2026-08-21).** O `/completar-perfil` era
+    a ÚNICA chance de preencher categoria + @tag: se o redirect do provedor
+    não pousasse lá (Redirect URL fora da allowlist manda pro Site URL) ou a
+    pessoa fechasse a aba, ficava com perfil pela metade pra sempre — sem
+    @tag não aparece na busca nem tem link de perfil. Apareceram vários no
+    `/portal` (Clientes com @TAG "—"). Agora o `AppShell` refaz o pedido:
+    `isProfileComplete` (`lib/profileCompletion.ts`, regra compartilhada com
+    o formulário) + `router.replace('/completar-perfil')`, e a tela privada
+    não renderiza enquanto isso. **Só redireciona com o profile carregado
+    sem erro** — query em voo ou falha de rede NÃO expulsam ninguém.
+    Usuários antigos sem tag são pegos na próxima abertura.
 - **Compliance Apple 3.1.3(e) — loja sem pagamento no app (2026-06-18).**
   A loja Cali Colors NÃO processa pagamento dentro do app: o cliente só
   monta a "Lista de Pedido" e a loja fecha a venda fora do app (WhatsApp).

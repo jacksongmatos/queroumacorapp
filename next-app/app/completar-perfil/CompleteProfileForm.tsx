@@ -15,6 +15,8 @@ import { useProfile } from '@/lib/hooks/useProfile';
 import { checkTagAvailability } from '@/lib/services/signup';
 import { tagSchema, calculateAge, MIN_AGE } from '@/lib/schemas';
 import type { UserRole } from '@/lib/types';
+// Mesma regra usada pelo guard do AppShell — uma definição só de "completo".
+import { isProfileComplete } from '@/lib/profileCompletion';
 
 // Limite superior do date picker: hoje − MIN_AGE anos (UX; a validação real é
 // no submit via calculateAge).
@@ -37,13 +39,6 @@ const ROLES: RoleOption[] = [
   { value: 'automotivo', icon: '🚗', label: 'Estética Automotiva' },
   { value: 'cliente', icon: '🏠', label: 'Cliente' },
 ];
-
-function isComplete(profile: { user_type?: unknown; role?: unknown; tag?: unknown; username?: unknown } | null): boolean {
-  if (!profile) return false;
-  const hasCategory = !!(profile.user_type || profile.role);
-  const hasTag = !!(profile.tag || profile.username);
-  return hasCategory && hasTag;
-}
 
 export function CompleteProfileForm() {
   const router = useRouter();
@@ -70,7 +65,7 @@ export function CompleteProfileForm() {
     '';
 
   const ready = !authLoading && !profileLoading;
-  const complete = useMemo(() => isComplete(profile), [profile]);
+  const complete = useMemo(() => isProfileComplete(profile), [profile]);
 
   // Prefill do nome (do perfil ou dos metadados do provedor) uma vez.
   useEffect(() => {
