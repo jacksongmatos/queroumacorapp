@@ -88,3 +88,57 @@ main::-webkit-scrollbar,
   width: 0;
   height: 0;
 }
+
+/* ─── Tour guiado (coach marks) ────────────────────────────────────────────
+   Suporte visual do <AppTour>. O holofote em si é inline-style (top/left/
+   width/height são calculados em JS); aqui ficam só as animações, que não
+   dependem de valor dinâmico.
+
+   `.tour-ring` é o anel laranja que pulsa em volta do botão destacado —
+   `inset: -4px` + `border-radius: inherit` faz ele acompanhar o recorte.
+   `.tour-balloon-in` é a entrada do balão a cada passo (o componente troca
+   a `key` por passo, então a animação toca de novo em cada avanço). */
+.tour-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid var(--color-p1);
+  animation: tourRing 1.8s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes tourRing {
+  0%   { opacity: .85; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(1.22); }
+  100% { opacity: 0;   transform: scale(1.22); }
+}
+
+.tour-balloon-fade {
+  animation: tourBalloonFade .28s ease-out both;
+}
+
+@keyframes tourBalloonFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* O `transform` do balão externo é usado pra ancoragem (translateY(-100%)
+   quando ele fica acima do alvo), então a animação de escala/slide mora
+   num wrapper interno — senão o keyframe sobrescreveria a ancoragem e o
+   balão pularia de lugar no meio da animação. */
+.tour-balloon-in {
+  animation: tourBalloonIn .34s cubic-bezier(.34, 1.4, .64, 1) both;
+}
+
+@keyframes tourBalloonIn {
+  from { transform: scale(.93) translateY(6px); }
+  to   { transform: scale(1) translateY(0); }
+}
+
+/* Sem animação quando o sistema pede movimento reduzido. O componente já
+   corta as transições em JS; isto cobre as classes CSS. */
+@media (prefers-reduced-motion: reduce) {
+  .tour-ring { animation: none; }
+  .tour-balloon-in { animation: none; }
+  .tour-balloon-fade { animation: none; }
+}

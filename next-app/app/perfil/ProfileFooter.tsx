@@ -8,6 +8,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { useDialog } from '@/components/Dialog';
 import { PushOptIn } from '@/components/PushOptIn';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { startTour } from '@/lib/tour/storage';
 
 export function ProfileFooter() {
   const { signOut } = useAuth();
@@ -28,6 +29,24 @@ export function ProfileFooter() {
     <div className="px-3.5 pt-5 pb-8 space-y-3">
       <PushOptIn />
       <ThemeToggle />
+      {/* Reabre o tour guiado dos botões do app (o mesmo que roda sozinho na
+          primeira abertura). Como TopNav/BottomNav também estão montados
+          aqui, o tour roda direto nesta tela, sem precisar ir pro feed. */}
+      <button
+        type="button"
+        onClick={() => startTour()}
+        className="flex items-center justify-between w-full px-4 py-3 rounded-xl bg-white border border-[color:var(--color-border)] text-sm font-semibold text-[color:var(--color-ink)]"
+      >
+        <span className="flex items-center gap-2">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          Ver tutorial de novo
+        </span>
+        <span className="text-[color:var(--color-muted)]">→</span>
+      </button>
       <Link
         href="/perfil/bloqueados"
         className="flex items-center justify-between w-full px-4 py-3 rounded-xl bg-white border border-[color:var(--color-border)] text-sm font-semibold text-[color:var(--color-ink)]"

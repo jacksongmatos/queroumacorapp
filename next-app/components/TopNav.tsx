@@ -103,6 +103,7 @@ export function TopNav({ proStatus }: TopNavProps) {
           <>
         <Link
           href="/pro"
+          data-tour="nav-plano"
           className="flex items-center text-xs font-extrabold px-3 py-1.5 rounded-full bg-white/15 text-white tracking-widest cursor-pointer border-none"
           style={{ fontFamily: 'var(--font-display)' }}
           aria-label="Ver plano PRO"
@@ -112,6 +113,7 @@ export function TopNav({ proStatus }: TopNavProps) {
 
         <Link
           href="/chat"
+          data-tour="nav-chat"
           aria-label={
             unreadChat > 0 ? `Chat (${unreadChat} não lidas)` : 'Chat'
           }

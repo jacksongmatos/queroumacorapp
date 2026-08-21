@@ -13,6 +13,7 @@ import { useAuth } from './AuthProvider';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
+import { AppTour } from './AppTour';
 import type { ReactNode } from 'react';
 
 interface AppShellProps {
@@ -80,6 +81,10 @@ export function AppShell({
         {children}
       </main>
       {!hideBottomNav && <BottomNav />}
+      {/* Tour guiado da primeira abertura. Fica no shell pra ter TopNav e
+          BottomNav já montados na hora de medir os alvos; ele mesmo decide
+          quando abrir (só em /feed, só uma vez — ver AppTour.tsx). */}
+      <AppTour />
     </div>
   );
 }

@@ -1,5 +1,30 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Tour guiado da 1ª abertura (coach marks) — 2026-08-21.** `components/
+  AppTour.tsx` escurece a tela, abre um "buraco" de luz em cima de um botão
+  real da navegação e mostra um balão explicando pra que ele serve (tom
+  simples, PT-BR). Tocar em qualquer lugar (ou no balão / "Próximo") avança;
+  "Sair do tutorial" e `Esc` fecham. Roteiro em `lib/tour/steps.ts` (9 passos:
+  boas-vindas → Início → Mensagens → Buscar → Loja → Avisos → Perfil → Plano
+  → fim), geometria pura testável em `lib/tour/position.ts`, flag
+  `app_tour_seen_v1` em `lib/tour/storage.ts`.
+  - Os alvos são marcados com `data-tour="nav-*"` no `BottomNav` (feed/
+    search/loja/notif/perfil) e no `TopNav` (chat/plano). **Se mexer nesses
+    componentes, preservar os `data-tour`** — sem eles o passo é pulado.
+  - Montado no `AppShell` (precisa de TopNav+BottomNav na tela pra medir).
+    Auto-abre SÓ em `/feed`, SÓ logado e SÓ uma vez por dispositivo. Passos
+    cujo alvo não existe são pulados automaticamente.
+  - O holofote é `box-shadow: 0 0 0 9999px preto` numa div vazia; animar
+    top/left/width/height faz a luz "voar" entre os botões. Keyframes
+    (`.tour-ring`, `.tour-balloon-in/-fade`) no fim do `globals.css`.
+    Respeita `prefers-reduced-motion`.
+  - Rever depois: botão "Ver tutorial de novo" no `ProfileFooter` (chama
+    `startTour()`), roda ali mesmo no `/perfil`.
+  - `components/OnboardingModal.tsx` + `lib/hooks/useOnboarding.ts` foram
+    **deletados** — eram um modal de 5 passos que nunca chegou a ser
+    renderizado em lugar nenhum, e virou duplicata deste tour.
+  - `vitest.config.ts` ganhou `plugins: [react()]` pra rodar testes de
+    componente (`.test.tsx`, com `// @vitest-environment jsdom`).
 - **Login social Google + Apple (2026-06-18).** OAuth via Supabase.
   `AuthProvider.signInWithGoogle()`/`signInWithApple()` chamam
   `supabase.auth.signInWithOAuth({ provider })` com
