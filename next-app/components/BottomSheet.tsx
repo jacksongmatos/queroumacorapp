@@ -45,29 +45,33 @@ export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetP
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full mx-auto bg-white hide-scrollbar"
+        className="relative w-full mx-auto bg-white flex flex-col"
         style={{
           maxWidth: 430,
-          maxHeight: '92vh',
+          // `dvh` e não `vh`: no Safari do iPhone o `vh` inclui a área atrás
+          // das barras do navegador, então o rodapé do sheet (o botão de
+          // ação) nascia fora da vista.
+          maxHeight: '92dvh',
           borderRadius: '20px 20px 0 0',
           boxShadow: '0 -8px 30px rgba(0,0,0,.3)',
           animation: 'bsSlideUp 220ms cubic-bezier(.32,.72,0,1)',
-          overflowY: 'auto',
-          paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
-        {/* Handle bar fino + X pequeno no canto superior direito.
-            Vanilla mostra só a barrinha; aqui adicionamos o X discreto
-            pra acessibilidade (Esc + click backdrop também fecham). */}
+        {/* Cabeçalho FIXO (handle + X). Antes o X era `absolute` dentro do
+            container que rolava: em sheet com conteúdo longo (Publicar,
+            Orçamento) ele subia junto com o conteúdo e sumia da tela — não
+            dava pra fechar sem Esc/backdrop. Agora o cabeçalho é um irmão
+            do corpo rolável, então o X fica sempre visível. */}
         <div
-          aria-hidden="true"
-          className="sticky top-0 z-10 flex items-center justify-center"
+          className="relative flex-shrink-0 flex items-center justify-center"
           style={{
             background: 'var(--color-white)',
             padding: '10px 14px 6px',
+            borderRadius: '20px 20px 0 0',
           }}
         >
           <span
+            aria-hidden="true"
             className="rounded-full"
             style={{
               width: 40,
@@ -75,34 +79,46 @@ export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetP
               background: 'rgba(0,0,0,.18)',
             }}
           />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="absolute"
+            style={{
+              top: 6,
+              right: 12,
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'rgba(0,0,0,.07)',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--color-ink)" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="6" y1="18" x2="18" y2="6" />
+            </svg>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Fechar"
-          className="absolute z-20"
+
+        {/* Corpo rolável. O padding de baixo soma a safe area pra que o
+            último botão não fique embaixo da barrinha do iPhone. */}
+        <div
+          className="hide-scrollbar"
           style={{
-            top: 10,
-            right: 12,
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: 'rgba(0,0,0,.07)',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            padding: '4px 18px 24px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom))',
           }}
         >
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--color-ink)" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="6" y1="18" x2="18" y2="6" />
-          </svg>
-        </button>
-
-        <div style={{ padding: '4px 18px 24px' }}>{children}</div>
+          {children}
+        </div>
       </div>
       <style>{`
         @keyframes bsFade { from { opacity: 0; } to { opacity: 1; } }
