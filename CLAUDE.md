@@ -98,6 +98,17 @@
     função `is_portal_admin()` (usada nas policies de RLS de ~13 tabelas)
     referencia `is_admin` na migration que a criou — se estiver mesmo assim
     no banco, está quebrada em runtime. Checar com `SELECT is_portal_admin();`
+- **Portal: mexeu no `app.js`, refaz o `integrity` (2026-08-21).** O
+  `public/portal/index.html` carrega os scripts com Subresource Integrity
+  (`integrity="sha384-…"`). Se o arquivo muda e o hash não, o navegador
+  **se recusa a executar** — sem erro na tela, o portal fica eternamente em
+  "Carregando Portal Cali Colors…". Aconteceu ao corrigir a URL da API
+  dentro do `app.js`. Receita: `openssl dgst -sha384 -binary
+  public/portal/app.js | openssl base64 -A`, colar no `integrity` e bumpar
+  o `?v=`. **E editar também o `app.jsx`** — ele é o FONTE do `app.js`
+  compilado; corrigir só o compilado some na próxima compilação. O teste
+  `__tests__/portalApiRoutes.test.ts` agora confere o hash do index contra
+  o arquivo real (e varre `.jsx` junto com `.js`).
 - **Portal admin chama `/api/admin/users` (2026-08-21).** "Habilitar PRO" e
   "Promover" davam `HTTP 404`: o `public/portal/app.js` (estático, chama a
   API por string) ainda apontava pra `/api/admin-users`, nome da antiga
