@@ -15,9 +15,20 @@
 //   - Passos sem alvo (boas-vindas / fim) usam um recorte de área zero no
 //     centro: tela toda escura e cartão centralizado.
 //
-// Auto-abre só em `/feed` (a home do app logado) e só se a flag
-// `app_tour_seen_v1` não estiver no localStorage. Pular ou terminar grava a
-// flag. `startTour()` (botão no perfil) reabre quando o usuário quiser.
+// O componente é reaproveitado por DOIS tours (props `tour`/`steps`/`autoPath`):
+//   - navegação: auto-abre em `/feed`, flag `app_tour_seen_v1` (default);
+//   - ferramentas do perfil: auto-abre em `/perfil`, flag `profile_tour_seen_v1`,
+//     montado dentro do <BusinessGrid> (é onde os tiles vivem).
+//
+// Auto-abre só na rota do tour, só pra usuário logado e só se a flag não
+// estiver no localStorage. Pular ou terminar grava a flag. `startTour(id)`
+// (botões no perfil) reabre quando o usuário quiser.
+//
+// Tour com alvo fora da tela (o grid do perfil é comprido e rola): antes de
+// mostrar o balão o passo puxa o alvo pro meio da viewport com
+// `scrollIntoView`. Por isso o scroll do usuário é travado por
+// `preventDefault` no overlay em vez de `overflow:hidden` no body — com o
+// body travado o scroll programático também morreria.
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,7 +41,13 @@ import {
   sameRect,
   type Rect,
 } from '@/lib/tour/position';
-import { hasSeenTour, markTourSeen, TOUR_START_EVENT } from '@/lib/tour/storage';
+import {
+  hasSeenTour,
+  markTourSeen,
+  tourFromEvent,
+  TOUR_START_EVENT,
+  type TourId,
+} from '@/lib/tour/storage';
 
 /** Escuridão do overlay. Alto o bastante pra focar, baixo pra manter contexto. */
 const DIM = 0.74;
@@ -38,6 +55,10 @@ const DIM = 0.74;
 const MEASURE_MS = 250;
 /** Espera depois do login/mount pra layout assentar antes de abrir. */
 const AUTOSTART_DELAY_MS = 800;
+/** Acima de N passos as bolinhas de progresso viram barra + "3 de 21". */
+const DOTS_MAX_STEPS = 10;
+/** Respiro mínimo do alvo até a borda da tela antes de rolar até ele. */
+const SCROLL_MARGIN = 120;
 
 function measure(selector: string): Rect | null {
   const el = document.querySelector(selector);
@@ -47,7 +68,20 @@ function measure(selector: string): Rect | null {
   return { top: b.top, left: b.left, width: b.width, height: b.height };
 }
 
-export function AppTour() {
+export interface AppTourProps {
+  /** Qual tour este componente representa (flag + evento de reabertura). */
+  tour?: TourId;
+  /** Roteiro. Default: os botões da navegação. */
+  steps?: ReadonlyArray<TourStep>;
+  /** Rota onde ele pode se auto-abrir na primeira vez. */
+  autoPath?: string;
+}
+
+export function AppTour({
+  tour = 'nav',
+  steps: script = TOUR_STEPS,
+  autoPath = '/feed',
+}: AppTourProps = {}) {
   const { user, loading } = useAuth();
   const pathname = usePathname();
 
@@ -66,21 +100,21 @@ export function AppTour() {
   // ── abrir / fechar ────────────────────────────────────────────────────────
 
   const open = useCallback(() => {
-    const visible = resolveVisibleSteps(TOUR_STEPS, (sel) => measure(sel) !== null);
+    const visible = resolveVisibleSteps(script, (sel) => measure(sel) !== null);
     // Só dois cartões centralizados e nenhum botão pra destacar (tela sem
     // navegação): não vale a pena abrir.
     if (visible.filter((s) => s.selector !== null).length === 0) return;
     setIndex(0);
     setRect(null);
     setSteps(visible);
-  }, []);
+  }, [script]);
 
   const close = useCallback(() => {
-    markTourSeen();
+    markTourSeen(tour);
     setSteps(null);
     setIndex(0);
     setRect(null);
-  }, []);
+  }, [tour]);
 
   const next = useCallback(() => {
     if (!steps) return;
@@ -95,22 +129,23 @@ export function AppTour() {
   useEffect(() => {
     if (autoStarted.current || active) return;
     if (loading || !user) return;
-    if (pathname !== '/feed') return;
-    if (hasSeenTour()) return;
+    if (pathname !== autoPath) return;
+    if (hasSeenTour(tour)) return;
     autoStarted.current = true;
     const t = setTimeout(open, AUTOSTART_DELAY_MS);
     return () => clearTimeout(t);
-  }, [active, loading, user, pathname, open]);
+  }, [active, loading, user, pathname, autoPath, tour, open]);
 
   // Reabertura manual (botão "Ver tutorial de novo" no perfil).
   useEffect(() => {
-    const onStart = () => {
+    const onStart = (event: Event) => {
+      if (tourFromEvent(event) !== tour) return;
       autoStarted.current = true;
       open();
     };
     window.addEventListener(TOUR_START_EVENT, onStart);
     return () => window.removeEventListener(TOUR_START_EVENT, onStart);
-  }, [open]);
+  }, [open, tour]);
 
   // ── medição do alvo + viewport ────────────────────────────────────────────
 
@@ -171,15 +206,36 @@ export function AppTour() {
     if (active) primaryBtnRef.current?.focus();
   }, [active, index]);
 
-  // Trava o scroll do body enquanto o tour está aberto.
+  // Trava o scroll DO USUÁRIO enquanto o tour está aberto — sem congelar o
+  // documento. `overflow:hidden` no body também mataria o `scrollIntoView`
+  // que o passo usa pra puxar tile fora da dobra; comendo o gesto (touch e
+  // roda do mouse) o efeito visual é o mesmo e o scroll programático segue
+  // funcionando.
   useEffect(() => {
     if (!active) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const block = (e: Event) => e.preventDefault();
+    const opts: AddEventListenerOptions = { passive: false };
+    document.addEventListener('touchmove', block, opts);
+    document.addEventListener('wheel', block, opts);
     return () => {
-      document.body.style.overflow = previous;
+      document.removeEventListener('touchmove', block, opts);
+      document.removeEventListener('wheel', block, opts);
     };
   }, [active]);
+
+  // Alvo fora da dobra (grid de ferramentas do perfil rola muito): traz o
+  // tile pro meio da tela antes de acender o holofote. Só rola quando o alvo
+  // está mesmo perto da borda, pra não sacudir a tela à toa.
+  useEffect(() => {
+    if (!active || !step?.selector) return;
+    const el = document.querySelector(step.selector);
+    if (!el || typeof el.scrollIntoView !== 'function') return;
+    const b = el.getBoundingClientRect();
+    const tooHigh = b.top < SCROLL_MARGIN;
+    const tooLow = b.top + b.height > window.innerHeight - SCROLL_MARGIN;
+    if (!tooHigh && !tooLow) return;
+    el.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, [active, step, reduceMotion]);
 
   const spot = useMemo(() => computeSpotlight(rect, viewport), [rect, viewport]);
   const balloon = useMemo(() => computeBalloon(rect, viewport), [rect, viewport]);
@@ -292,19 +348,42 @@ export function AppTour() {
           </div>
         </div>
 
-        {/* Progresso em bolinhas — o texto "N de M" fica no aria-label do botão. */}
-        <div className="flex justify-center gap-1.5 mt-4 mb-3" aria-hidden="true">
-          {steps.map((s, i) => (
-            <span
-              key={s.id}
-              className="h-1.5 rounded-full transition-all duration-300"
-              style={{
-                width: i === index ? 18 : 6,
-                background: i === index ? 'var(--color-p1)' : 'var(--color-border)',
-              }}
-            />
-          ))}
-        </div>
+        {/* Progresso. Tour curto (navegação) = bolinhas. Tour comprido (uma
+            ferramenta por passo) = barra + "3 de 21", porque 20 bolinhas não
+            cabem no balão e viram poeira visual. O texto "N de M" também vai
+            no aria-label do botão primário nos dois casos. */}
+        {steps.length <= DOTS_MAX_STEPS ? (
+          <div className="flex justify-center gap-1.5 mt-4 mb-3" aria-hidden="true">
+            {steps.map((s, i) => (
+              <span
+                key={s.id}
+                className="h-1.5 rounded-full transition-all duration-300"
+                style={{
+                  width: i === index ? 18 : 6,
+                  background: i === index ? 'var(--color-p1)' : 'var(--color-border)',
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 mt-4 mb-3" aria-hidden="true">
+            <div
+              className="h-1.5 rounded-full flex-1 overflow-hidden"
+              style={{ background: 'var(--color-border)' }}
+            >
+              <span
+                className="block h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${((index + 1) / steps.length) * 100}%`,
+                  background: 'var(--color-p1)',
+                }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold text-[color:var(--color-muted)] tabular-nums shrink-0">
+              {index + 1} de {steps.length}
+            </span>
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-3">
           <button

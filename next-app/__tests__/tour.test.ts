@@ -3,7 +3,8 @@
 // montado aqui.
 
 import { describe, it, expect } from 'vitest';
-import { TOUR_STEPS, resolveVisibleSteps } from '@/lib/tour/steps';
+import { readFileSync } from 'node:fs';
+import { TOUR_STEPS, PROFILE_TOUR_STEPS, resolveVisibleSteps } from '@/lib/tour/steps';
 import {
   computeBalloon,
   computeSpotlight,
@@ -149,5 +150,83 @@ describe('sameRect', () => {
   it('trata null como estado próprio', () => {
     expect(sameRect(null, null)).toBe(true);
     expect(sameRect(null, { top: 0, left: 0, width: 1, height: 1 })).toBe(false);
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tour 2 — ferramentas do perfil (um passo por tile do BusinessGrid).
+
+/** Lê as chaves `sheet` de um array de tiles direto do fonte do grid. */
+function tileKeysFrom(source: string, arrayName: string): string[] {
+  const start = source.indexOf(`const ${arrayName}`);
+  if (start === -1) throw new Error(`${arrayName} não encontrado no BusinessGrid`);
+  const end = source.indexOf('\n];', start);
+  const block = source.slice(start, end);
+  return [...block.matchAll(/sheet:\s*'([^']+)'/g)].map((m) => m[1]);
+}
+
+const GRID_SOURCE = readFileSync(
+  new URL('../app/perfil/BusinessGrid.tsx', import.meta.url),
+  'utf8',
+);
+const GRID_TILES = [
+  ...tileKeysFrom(GRID_SOURCE, 'ROLE_TILES'),
+  ...tileKeysFrom(GRID_SOURCE, 'TILES'),
+];
+
+describe('PROFILE_TOUR_STEPS', () => {
+  it('abre e fecha com cartões centralizados (sem alvo)', () => {
+    expect(PROFILE_TOUR_STEPS[0].selector).toBeNull();
+    expect(PROFILE_TOUR_STEPS[PROFILE_TOUR_STEPS.length - 1].selector).toBeNull();
+  });
+
+  it('não tem ids duplicados e todo passo tem título e texto', () => {
+    const ids = PROFILE_TOUR_STEPS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const s of PROFILE_TOUR_STEPS) {
+      expect(s.title.length).toBeGreaterThan(0);
+      expect(s.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('não colide com os ids do tour de navegação', () => {
+    const navIds = new Set(TOUR_STEPS.map((s) => s.id));
+    for (const s of PROFILE_TOUR_STEPS) expect(navIds.has(s.id)).toBe(false);
+  });
+
+  it('tem exatamente um passo para cada tile do BusinessGrid', () => {
+    const stepTargets = PROFILE_TOUR_STEPS.filter((s) => s.selector !== null).map(
+      (s) => s.selector!.replace('[data-tour="tile-', '').replace('"]', ''),
+    );
+    // Nenhum tile fica sem explicação…
+    expect([...GRID_TILES].sort()).toEqual([...stepTargets].sort());
+    // …e a ordem dos passos segue a ordem de render do grid (papel primeiro).
+    expect(stepTargets).toEqual(GRID_TILES);
+  });
+
+  it('só aponta para seletores de tile', () => {
+    for (const s of PROFILE_TOUR_STEPS) {
+      if (s.selector !== null) expect(s.selector).toMatch(/^\[data-tour="tile-[a-z-]+"\]$/);
+    }
+  });
+
+  it('pintor vê só os passos das ferramentas que tem na tela', () => {
+    // Grid de um pintor: sem tiles de grafiteiro/cliente, persona = Seu Zé.
+    const painterTiles = new Set(
+      GRID_TILES.filter(
+        (t) => !['grafites', 'arte-venda', 'avaliar', 'alice', 'fe', 'senna'].includes(t),
+      ).map((t) => `[data-tour="tile-${t}"]`),
+    );
+    const visible = resolveVisibleSteps(PROFILE_TOUR_STEPS, (sel) => painterTiles.has(sel));
+    const ids = visible.map((s) => s.id);
+
+    expect(ids[0]).toBe('p-welcome');
+    expect(ids[ids.length - 1]).toBe('p-done');
+    expect(ids).toContain('p-seu-ze');
+    expect(ids).toContain('p-orcamento');
+    expect(ids).not.toContain('p-grafites');
+    expect(ids).not.toContain('p-avaliar');
+    expect(ids).not.toContain('p-alice');
   });
 });

@@ -25,6 +25,32 @@
     renderizado em lugar nenhum, e virou duplicata deste tour.
   - `vitest.config.ts` ganhou `plugins: [react()]` pra rodar testes de
     componente (`.test.tsx`, com `// @vitest-environment jsdom`).
+- **Tour 2 — ferramentas do Perfil (1 passo por tile) — 2026-08-21.** Mesmo
+  `<AppTour>`, agora parametrizado por props (`tour` / `steps` / `autoPath`).
+  Roteiro `PROFILE_TOUR_STEPS` em `lib/tour/steps.ts`: boas-vindas + um passo
+  explicando CADA quadradinho do `BusinessGrid` (AR Grafite, Arte pra venda,
+  Avaliar, Pedidos, Orçamento, Orçamentos, Pontos, Portfolio, Calculadora,
+  Agenda, Reativar clientes, Financeiro, Anotações, Arte pra IG, Camisetas,
+  Formação, Seu Zé, Alice, Fê, Senna) + fim.
+  - Alvos: `data-tour={`tile-${tile.sheet}`}` no botão do `BusinessCard` —
+    derivado da chave `sheet`, então **tile novo no grid = passo novo no
+    steps.ts** (o teste `__tests__/tour.test.ts` lê o fonte do BusinessGrid
+    e QUEBRA se faltar/sobrar passo; é de propósito).
+  - Como os tiles são condicionais ao papel, cada usuário só vê os passos
+    das ferramentas que tem — pintor não vê AR Grafite, cliente não vê
+    Financeiro, cada papel vê só a sua persona de IA. Quem filtra é o
+    `resolveVisibleSteps` (alvo ausente = passo pulado).
+  - Montado dentro do `BusinessGrid` (não no AppShell) porque é lá que os
+    alvos existem. Auto-abre em `/perfil`, flag própria
+    `profile_tour_seen_v1` — independente da flag do tour de navegação.
+  - Rever depois: botão "Ver tutorial das ferramentas" no `ProfileFooter`
+    (`startTour('profile')`). O evento de start virou `CustomEvent` com
+    `detail.tour`, então cada instância do AppTour só responde ao seu.
+  - Dois detalhes que o tour comprido exigiu: (1) o passo dá
+    `scrollIntoView({block:'center'})` no tile fora da dobra — por isso o
+    lock de scroll deixou de ser `overflow:hidden` no body (que mataria o
+    scroll programático) e virou `preventDefault` em touchmove/wheel;
+    (2) acima de 10 passos as bolinhas de progresso viram barra + "3 de 21".
 - **Login social Google + Apple (2026-06-18).** OAuth via Supabase.
   `AuthProvider.signInWithGoogle()`/`signInWithApple()` chamam
   `supabase.auth.signInWithOAuth({ provider })` com

@@ -22,7 +22,8 @@ vi.mock('@/components/AuthProvider', () => ({
 }));
 
 import { AppTour } from '@/components/AppTour';
-import { TOUR_STEPS } from '@/lib/tour/steps';
+import { TOUR_STEPS, PROFILE_TOUR_STEPS } from '@/lib/tour/steps';
+import { startTour } from '@/lib/tour/storage';
 
 const NAV_IDS = ['nav-feed', 'nav-chat', 'nav-search', 'nav-loja', 'nav-notif', 'nav-perfil', 'nav-plano'];
 
@@ -180,5 +181,180 @@ describe('AppTour', () => {
     expect(titles).toContain(byId.perfil);
     expect(titles).not.toContain(byId.chat);
     expect(titles).not.toContain(byId.loja);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tour 2 — ferramentas do perfil. Mesmo componente, outra flag/rota/roteiro.
+
+/** Monta tiles falsos com rect não-nulo, imitando o BusinessGrid. */
+function mountTiles(sheets: string[]) {
+  for (const [i, sheet] of sheets.entries()) {
+    const el = document.createElement('button');
+    el.setAttribute('data-tour', `tile-${sheet}`);
+    el.getBoundingClientRect = () =>
+      ({ top: 200 + i * 100, left: 12, width: 110, height: 92, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    // jsdom não implementa scrollIntoView.
+    el.scrollIntoView = () => {};
+    document.body.appendChild(el);
+  }
+}
+
+const PAINTER_TILES = ['pedidos', 'orcamento', 'pontos', 'seu-ze'];
+
+function renderProfileTour() {
+  return render(
+    <AppTour tour="profile" steps={PROFILE_TOUR_STEPS} autoPath="/perfil" />,
+  );
+}
+
+function stepTitle(id: string): string {
+  const step = PROFILE_TOUR_STEPS.find((s) => s.id === id);
+  if (!step) throw new Error(`passo ${id} não existe`);
+  return step.title;
+}
+
+describe('AppTour — ferramentas do perfil', () => {
+  beforeEach(() => {
+    mockPathname.value = '/perfil';
+  });
+
+  it('abre sozinho na primeira visita ao /perfil', async () => {
+    mountTiles(PAINTER_TILES);
+    renderProfileTour();
+    await openTour();
+
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByText(stepTitle('p-welcome'))).toBeTruthy();
+  });
+
+  it('explica um tile por passo, na ordem do grid', async () => {
+    mountTiles(PAINTER_TILES);
+    renderProfileTour();
+    await openTour();
+
+    const titles: string[] = [];
+    for (let i = 0; i < PROFILE_TOUR_STEPS.length + 2; i++) {
+      const dialog = screen.queryByRole('dialog');
+      if (!dialog) break;
+      titles.push(screen.getByRole('heading').textContent ?? '');
+      await act(async () => {
+        fireEvent.click(dialog);
+      });
+    }
+
+    expect(titles).toEqual([
+      stepTitle('p-welcome'),
+      stepTitle('p-pedidos'),
+      stepTitle('p-orcamento'),
+      stepTitle('p-pontos'),
+      stepTitle('p-seu-ze'),
+      stepTitle('p-done'),
+    ]);
+  });
+
+  it('pula os tiles que o papel do usuário não tem', async () => {
+    mountTiles(['grafites', 'arte-venda', 'fe']); // grafiteiro
+    renderProfileTour();
+    await openTour();
+
+    const titles: string[] = [];
+    for (let i = 0; i < PROFILE_TOUR_STEPS.length + 2; i++) {
+      const dialog = screen.queryByRole('dialog');
+      if (!dialog) break;
+      titles.push(screen.getByRole('heading').textContent ?? '');
+      await act(async () => {
+        fireEvent.click(dialog);
+      });
+    }
+
+    expect(titles).toContain(stepTitle('p-grafites'));
+    expect(titles).toContain(stepTitle('p-fe'));
+    expect(titles).not.toContain(stepTitle('p-seu-ze'));
+    expect(titles).not.toContain(stepTitle('p-financeiro'));
+  });
+
+  it('rola até o tile que está fora da dobra antes de destacar', async () => {
+    // 1º tile visível (top 200), 2º lá embaixo (top 2000, viewport 844).
+    mountTiles(['pedidos', 'orcamento']);
+    const tiles = Array.from(document.querySelectorAll('[data-tour]')) as HTMLElement[];
+    tiles[1].getBoundingClientRect = () =>
+      ({ top: 2000, left: 12, width: 110, height: 92, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    const scrolled: string[] = [];
+    for (const el of tiles) {
+      el.scrollIntoView = () => {
+        scrolled.push(el.getAttribute('data-tour') ?? '');
+      };
+    }
+
+    renderProfileTour();
+    await openTour();
+    expect(scrolled).toEqual([]); // boas-vindas: sem alvo, sem scroll
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('dialog')); // → tile-pedidos (na dobra)
+    });
+    expect(scrolled).toEqual([]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('dialog')); // → tile-orcamento (fora)
+    });
+    expect(scrolled).toEqual(['tile-orcamento']);
+  });
+
+  it('mostra "N de M" em vez de bolinhas quando o tour é comprido', async () => {
+    // 12 tiles + boas-vindas + fim = 14 passos → passa do limite das bolinhas.
+    mountTiles([
+      'pedidos', 'orcamento', 'orcamentos', 'pontos', 'portfolio', 'calculadora',
+      'agenda', 'crm', 'financeiro', 'notes', 'arte-ig', 'camisetas',
+    ]);
+    renderProfileTour();
+    await openTour();
+
+    expect(screen.getByText('1 de 14')).toBeTruthy();
+  });
+
+  it('tem flag própria: ter visto o tour da navegação não pula o do perfil', async () => {
+    window.localStorage.setItem('app_tour_seen_v1', '1');
+    mountTiles(PAINTER_TILES);
+    renderProfileTour();
+    await openTour();
+
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('não reabre depois de terminado, e o botão do perfil reabre', async () => {
+    mountTiles(PAINTER_TILES);
+    const { unmount } = renderProfileTour();
+    await openTour();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Sair do tutorial'));
+    });
+
+    unmount();
+    renderProfileTour();
+    await openTour();
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // "Ver tutorial das ferramentas" → startTour('profile')
+    await act(async () => {
+      startTour('profile');
+    });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('startTour("nav") não abre o tour do perfil (e vice-versa)', async () => {
+    mountNav();
+    mountTiles(PAINTER_TILES);
+    window.localStorage.setItem('profile_tour_seen_v1', '1');
+    renderProfileTour();
+    await openTour();
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await act(async () => {
+      startTour('nav');
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

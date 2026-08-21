@@ -47,6 +47,25 @@ export function ProfileFooter() {
         </span>
         <span className="text-[color:var(--color-muted)]">→</span>
       </button>
+      {/* Reabre o tour das ferramentas do grid "Meu Negócio" (o que roda
+          sozinho na primeira visita ao perfil). Os alvos são os tiles logo
+          acima nesta mesma tela, então abre na hora. */}
+      <button
+        type="button"
+        onClick={() => startTour('profile')}
+        className="flex items-center justify-between w-full px-4 py-3 rounded-xl bg-white border border-[color:var(--color-border)] text-sm font-semibold text-[color:var(--color-ink)]"
+      >
+        <span className="flex items-center gap-2">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+          Ver tutorial das ferramentas
+        </span>
+        <span className="text-[color:var(--color-muted)]">→</span>
+      </button>
       <Link
         href="/perfil/bloqueados"
         className="flex items-center justify-between w-full px-4 py-3 rounded-xl bg-white border border-[color:var(--color-border)] text-sm font-semibold text-[color:var(--color-ink)]"
