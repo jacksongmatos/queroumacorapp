@@ -839,8 +839,25 @@ const ProdutosList = () => {
   const inputStyle = { width:'100%', padding:'8px 12px', borderRadius:8, border:'1px solid '+C.border, fontSize:13, outline:'none' };
   const labelStyle = { fontSize:12, color:C.muted, marginBottom:4, display:'block' };
 
+  const closeForm = () => { setShowForm(false); setEditing(null); };
+
+  // Esc fecha a gaveta — o formulário é modal-ish (fica por cima da lista),
+  // então a saída pelo teclado tem que existir.
+  useEffect(() => {
+    if(!showForm) return;
+    const onKey = e => { if(e.key === 'Escape') closeForm(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showForm]);
+
+  // Largura da gaveta. A lista ganha esse respiro à direita enquanto ela
+  // está aberta, pra nenhum card de produto ficar escondido embaixo.
+  const DRAWER_W = 460;
+
   return (
-    <div>
+    // `paddingRight` empurra a lista enquanto a gaveta está aberta: sem isso
+    // a última coluna de produtos fica atrás dela.
+    <div style={{ paddingRight: showForm ? DRAWER_W + 24 : 0, transition:'padding-right .2s ease' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
         <div style={{ fontWeight:700, color:C.ink, fontSize:18 }}>🎨 Produtos / Tintas</div>
         <div style={{ display:'flex', gap:10, alignItems:'center' }}>
@@ -849,20 +866,28 @@ const ProdutosList = () => {
       </div>
 
       {showForm && (
-        <div style={{ background:C.white, borderRadius:14, padding:20, marginBottom:20, boxShadow:'0 4px 16px rgba(0,0,0,0.08)', border:'2px solid '+C.p1 }}>
-          <div style={{ fontWeight:700, fontSize:15, marginBottom:14 }}>{editing ? 'Editar Produto' : 'Novo Produto'}</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+        <div style={{ position:'fixed', top:0, right:0, bottom:0, width:DRAWER_W, maxWidth:'100%', background:C.white, boxShadow:'-10px 0 34px rgba(0,0,0,.16)', borderLeft:'3px solid '+C.p1, zIndex:900, display:'flex', flexDirection:'column', animation:'drawerIn .22s cubic-bezier(.32,.72,0,1)' }}>
+          {/* Cabeçalho fixo: o título e o X não somem quando o formulário
+              rola. Antes o formulário era um card no TOPO da página — ao
+              descer pra procurar a cor na lista, ele sumia de vista. */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'16px 20px', borderBottom:'1px solid '+C.border, flexShrink:0 }}>
+            <div style={{ fontWeight:700, fontSize:15 }}>{editing ? 'Editar Produto' : 'Novo Produto'}</div>
+            <button onClick={closeForm} aria-label="Fechar" title="Fechar (Esc)" style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'rgba(0,0,0,.06)', color:C.ink, fontSize:20, lineHeight:1, cursor:'pointer' }}>×</button>
+          </div>
+          {/* Corpo rolável — só os campos rolam. */}
+          <div style={{ flex:1, overflowY:'auto', padding:20 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
             <div><label style={labelStyle}>Nome *</label><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={inputStyle} placeholder="Terracota Premium" /></div>
             <div><label style={labelStyle}>Código</label><input value={form.code} onChange={e=>setForm({...form,code:e.target.value})} style={inputStyle} placeholder="CC-TT-001" /></div>
             <div><label style={labelStyle}>Categoria</label><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={inputStyle}><option value="tintas">Tintas</option><option value="texturas">Texturas</option><option value="epoxi">Epóxi</option><option value="acessorios">Acessórios</option></select></div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
             <div><label style={labelStyle}>Volume</label><input value={form.volume} onChange={e=>setForm({...form,volume:e.target.value})} style={inputStyle} placeholder="18L" /></div>
             <div><label style={labelStyle}>Preço (R$)</label><input value={form.price} onChange={e=>setForm({...form,price:e.target.value})} style={inputStyle} placeholder="289.00" /></div>
             <div><label style={labelStyle}>Estoque</label><input type="number" value={form.stock} onChange={e=>setForm({...form,stock:e.target.value})} style={inputStyle} /></div>
             <div><label style={labelStyle}>Badge</label><input value={form.badge} onChange={e=>setForm({...form,badge:e.target.value})} style={inputStyle} placeholder="-10%, NOVO" /></div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
             <div><label style={labelStyle}>Cor (hex)</label><div style={{ display:'flex', gap:6 }}><input type="color" value={form.color_hex} onChange={e=>setForm({...form,color_hex:e.target.value})} style={{ width:40, height:34, border:'none', cursor:'pointer' }} /><input value={form.color_hex} onChange={e=>setForm({...form,color_hex:e.target.value})} style={{...inputStyle, flex:1}} /></div></div>
             <div><label style={labelStyle}>Gradiente (opcional)</label><input value={form.color_gradient} onChange={e=>setForm({...form,color_gradient:e.target.value})} style={inputStyle} placeholder="#c4956a,#d4a870" /></div>
             <div><label style={labelStyle}>Linha</label><input value={form.line} onChange={e=>setForm({...form,line:e.target.value})} style={inputStyle} placeholder="Linha Premium" /></div>
@@ -886,16 +911,18 @@ const ProdutosList = () => {
               {form.image_url && <button type="button" onClick={()=>setForm({...form,image_url:''})} style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'6px 12px', fontSize:12, cursor:'pointer', color:C.muted }}>Remover</button>}
             </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
             <div><label style={labelStyle}>Rendimento</label><input value={form.rendimento} onChange={e=>setForm({...form,rendimento:e.target.value})} style={inputStyle} placeholder="~10m²/L" /></div>
             <div><label style={labelStyle}>Demãos</label><input value={form.demaos} onChange={e=>setForm({...form,demaos:e.target.value})} style={inputStyle} placeholder="2" /></div>
             <div><label style={labelStyle}>Secagem</label><input value={form.secagem} onChange={e=>setForm({...form,secagem:e.target.value})} style={inputStyle} placeholder="2h" /></div>
           </div>
           <div style={{ marginBottom:12 }}><label style={labelStyle}>Descrição</label><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} style={{...inputStyle, minHeight:60}} placeholder="Tinta premium com acabamento fosco..." /></div>
-          <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+          </div>
+          {/* Rodapé fixo: Salvar sempre ao alcance, sem rolar até o fim. */}
+          <div style={{ display:'flex', gap:10, alignItems:'center', padding:'14px 20px', borderTop:'1px solid '+C.border, background:C.white, flexShrink:0 }}>
             <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13 }}><input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})} /> Ativo</label>
             <div style={{ flex:1 }}></div>
-            <button onClick={()=>{ setShowForm(false); setEditing(null); }} style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'8px 18px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
+            <button onClick={closeForm} style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'8px 18px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
             <button onClick={saveProduct} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:8, padding:'8px 24px', fontSize:13, fontWeight:700, cursor:'pointer' }}>{editing ? 'Salvar' : 'Criar Produto'}</button>
           </div>
         </div>

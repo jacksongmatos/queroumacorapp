@@ -1758,568 +1758,635 @@ const ProdutosList = () => {
     marginBottom: 4,
     display: 'block'
   };
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 20
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 700,
-      color: C.ink,
-      fontSize: 18
-    }
-  }, "\uD83C\uDFA8 Produtos / Tintas"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 10,
-      alignItems: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setEditing(null);
-      setForm({
-        name: '',
-        code: '',
-        category: 'tintas',
-        volume: '18L',
-        price: '',
-        color_hex: '#c0622d',
-        color_gradient: '',
-        image_url: '',
-        stock: 0,
-        badge: '',
-        description: '',
-        line: 'Linha Premium',
-        rendimento: '~10m²/L',
-        demaos: '2',
-        secagem: '2h',
-        active: true
-      });
-      setShowForm(true);
-    },
-    style: {
-      background: C.p1,
-      color: '#fff',
-      border: 'none',
-      borderRadius: 10,
-      padding: '8px 20px',
-      fontSize: 13,
-      fontWeight: 700,
-      cursor: 'pointer'
-    }
-  }, "+ Novo Produto"))), showForm && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.white,
-      borderRadius: 14,
-      padding: 20,
-      marginBottom: 20,
-      boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-      border: '2px solid ' + C.p1
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 700,
-      fontSize: 15,
-      marginBottom: 14
-    }
-  }, editing ? 'Editar Produto' : 'Novo Produto'), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 12,
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Nome *"), /*#__PURE__*/React.createElement("input", {
-    value: form.name,
-    onChange: e => setForm({
-      ...form,
-      name: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "Terracota Premium"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "C\xF3digo"), /*#__PURE__*/React.createElement("input", {
-    value: form.code,
-    onChange: e => setForm({
-      ...form,
-      code: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "CC-TT-001"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Categoria"), /*#__PURE__*/React.createElement("select", {
-    value: form.category,
-    onChange: e => setForm({
-      ...form,
-      category: e.target.value
-    }),
-    style: inputStyle
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "tintas"
-  }, "Tintas"), /*#__PURE__*/React.createElement("option", {
-    value: "texturas"
-  }, "Texturas"), /*#__PURE__*/React.createElement("option", {
-    value: "epoxi"
-  }, "Ep\xF3xi"), /*#__PURE__*/React.createElement("option", {
-    value: "acessorios"
-  }, "Acess\xF3rios")))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr 1fr',
-      gap: 12,
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Volume"), /*#__PURE__*/React.createElement("input", {
-    value: form.volume,
-    onChange: e => setForm({
-      ...form,
-      volume: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "18L"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Pre\xE7o (R$)"), /*#__PURE__*/React.createElement("input", {
-    value: form.price,
-    onChange: e => setForm({
-      ...form,
-      price: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "289.00"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Estoque"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: form.stock,
-    onChange: e => setForm({
-      ...form,
-      stock: e.target.value
-    }),
-    style: inputStyle
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Badge"), /*#__PURE__*/React.createElement("input", {
-    value: form.badge,
-    onChange: e => setForm({
-      ...form,
-      badge: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "-10%, NOVO"
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 12,
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Cor (hex)"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "color",
-    value: form.color_hex,
-    onChange: e => setForm({
-      ...form,
-      color_hex: e.target.value
-    }),
-    style: {
-      width: 40,
-      height: 34,
-      border: 'none',
-      cursor: 'pointer'
-    }
-  }), /*#__PURE__*/React.createElement("input", {
-    value: form.color_hex,
-    onChange: e => setForm({
-      ...form,
-      color_hex: e.target.value
-    }),
-    style: {
-      ...inputStyle,
-      flex: 1
-    }
-  }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Gradiente (opcional)"), /*#__PURE__*/React.createElement("input", {
-    value: form.color_gradient,
-    onChange: e => setForm({
-      ...form,
-      color_gradient: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "#c4956a,#d4a870"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Linha"), /*#__PURE__*/React.createElement("input", {
-    value: form.line,
-    onChange: e => setForm({
-      ...form,
-      line: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "Linha Premium"
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Foto do produto (opcional \u2014 sobrep\xF5e a cor)"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 10,
-      alignItems: 'center'
-    }
-  }, form.image_url && /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 48,
-      height: 48,
-      borderRadius: 8,
-      background: 'center/cover no-repeat url(' + form.image_url + ')',
-      border: '1px solid ' + C.border,
-      flexShrink: 0
-    }
-  }), /*#__PURE__*/React.createElement("input", {
-    type: "file",
-    accept: "image/*",
-    onChange: async e => {
-      const f = e.target.files && e.target.files[0];
-      if (!f) return;
-      try {
-        setAiBusy('Enviando foto...');
-        const path = 'products/' + Date.now() + '-' + f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const {
-          error
-        } = await supa.storage.from('posts').upload(path, f, {
-          upsert: true
-        });
-        if (error) throw error;
-        const {
-          data
-        } = supa.storage.from('posts').getPublicUrl(path);
-        setForm(fm => ({
-          ...fm,
-          image_url: data && data.publicUrl || ''
-        }));
-      } catch (err) {
-        alert('Erro ao enviar foto: ' + (err.message || err));
-      }
-      setAiBusy('');
-    },
-    style: {
-      fontSize: 12,
-      flex: 1
-    }
-  }), form.image_url && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setForm({
-      ...form,
-      image_url: ''
-    }),
-    style: {
-      background: 'none',
-      border: '1px solid ' + C.border,
-      borderRadius: 8,
-      padding: '6px 12px',
-      fontSize: 12,
-      cursor: 'pointer',
-      color: C.muted
-    }
-  }, "Remover"))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 12,
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Rendimento"), /*#__PURE__*/React.createElement("input", {
-    value: form.rendimento,
-    onChange: e => setForm({
-      ...form,
-      rendimento: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "~10m\xB2/L"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Dem\xE3os"), /*#__PURE__*/React.createElement("input", {
-    value: form.demaos,
-    onChange: e => setForm({
-      ...form,
-      demaos: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "2"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Secagem"), /*#__PURE__*/React.createElement("input", {
-    value: form.secagem,
-    onChange: e => setForm({
-      ...form,
-      secagem: e.target.value
-    }),
-    style: inputStyle,
-    placeholder: "2h"
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: labelStyle
-  }, "Descri\xE7\xE3o"), /*#__PURE__*/React.createElement("textarea", {
-    value: form.description,
-    onChange: e => setForm({
-      ...form,
-      description: e.target.value
-    }),
-    style: {
-      ...inputStyle,
-      minHeight: 60
-    },
-    placeholder: "Tinta premium com acabamento fosco..."
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 10,
-      alignItems: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6,
-      fontSize: 13
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: form.active,
-    onChange: e => setForm({
-      ...form,
-      active: e.target.checked
-    })
-  }), " Ativo"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1
-    }
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setShowForm(false);
-      setEditing(null);
-    },
-    style: {
-      background: 'none',
-      border: '1px solid ' + C.border,
-      borderRadius: 8,
-      padding: '8px 18px',
-      fontSize: 13,
-      cursor: 'pointer',
-      color: C.muted
-    }
-  }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
-    onClick: saveProduct,
-    style: {
-      background: C.p1,
-      color: '#fff',
-      border: 'none',
-      borderRadius: 8,
-      padding: '8px 24px',
-      fontSize: 13,
-      fontWeight: 700,
-      cursor: 'pointer'
-    }
-  }, editing ? 'Salvar' : 'Criar Produto'))), !loading && products.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 18
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    value: busca,
-    onChange: e => setBusca(e.target.value),
-    placeholder: "\uD83D\uDD0E Buscar produto...",
-    style: {
-      ...inputStyle,
-      marginBottom: 12
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setMenuFilter('all'),
-    style: {
-      border: '1px solid ' + (menuFilter === 'all' ? C.p1 : C.border),
-      background: menuFilter === 'all' ? C.p1 : 'transparent',
-      color: menuFilter === 'all' ? '#fff' : C.ink,
-      borderRadius: 20,
-      padding: '6px 14px',
-      fontSize: 12,
-      fontWeight: 600,
-      cursor: 'pointer'
-    }
-  }, "Todos ", /*#__PURE__*/React.createElement("b", null, "(", totalItens, ")")), orderedKeys.map(k => /*#__PURE__*/React.createElement("button", {
-    key: k,
-    onClick: () => setMenuFilter(k),
-    style: {
-      border: '1px solid ' + (menuFilter === k ? C.p1 : C.border),
-      background: menuFilter === k ? C.p1 : 'transparent',
-      color: menuFilter === k ? '#fff' : C.ink,
-      borderRadius: 20,
-      padding: '6px 14px',
-      fontSize: 12,
-      fontWeight: 600,
-      cursor: 'pointer'
-    }
-  }, MENU_LABEL[k], " ", /*#__PURE__*/React.createElement("b", null, "(", grouped[k].length, ")"))))), loading ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: 'center',
-      padding: 40,
-      color: C.muted
-    }
-  }, "Carregando produtos...") : products.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: 'center',
-      padding: 40,
-      color: C.muted
-    }
-  }, "Nenhum produto cadastrado. Clique em \"+ Novo Produto\" para come\xE7ar.") : orderedKeys.filter(cat => menuFilter === 'all' || menuFilter === cat).map(cat => {
-    const items = grouped[cat].filter(p => !qLower || (p.name || '').toLowerCase().includes(qLower) || (p.code || '').toLowerCase().includes(qLower));
-    if (items.length === 0) return null;
-    return /*#__PURE__*/React.createElement("div", {
-      key: cat,
+  const closeForm = () => {
+    setShowForm(false);
+    setEditing(null);
+  };
+
+  // Esc fecha a gaveta — o formulário é modal-ish (fica por cima da lista),
+  // então a saída pelo teclado tem que existir.
+  useEffect(() => {
+    if (!showForm) return;
+    const onKey = e => {
+      if (e.key === 'Escape') closeForm();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showForm]);
+
+  // Largura da gaveta. A lista ganha esse respiro à direita enquanto ela
+  // está aberta, pra nenhum card de produto ficar escondido embaixo.
+  const DRAWER_W = 460;
+  return (
+    /*#__PURE__*/
+    // `paddingRight` empurra a lista enquanto a gaveta está aberta: sem isso
+    // a última coluna de produtos fica atrás dela.
+    React.createElement("div", {
       style: {
-        marginBottom: 24
+        paddingRight: showForm ? DRAWER_W + 24 : 0,
+        transition: 'padding-right .2s ease'
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 14,
-        fontWeight: 700,
-        color: C.muted,
-        marginBottom: 10,
-        textTransform: 'uppercase',
-        letterSpacing: .5
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20
       }
-    }, MENU_LABEL[cat] || cat, " ", /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement("div", {
       style: {
-        color: C.p1
+        fontWeight: 700,
+        color: C.ink,
+        fontSize: 18
       }
-    }, "(", grouped[cat].length, ")")), /*#__PURE__*/React.createElement("div", {
+    }, "\uD83C\uDFA8 Produtos / Tintas"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        alignItems: 'center'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setEditing(null);
+        setForm({
+          name: '',
+          code: '',
+          category: 'tintas',
+          volume: '18L',
+          price: '',
+          color_hex: '#c0622d',
+          color_gradient: '',
+          image_url: '',
+          stock: 0,
+          badge: '',
+          description: '',
+          line: 'Linha Premium',
+          rendimento: '~10m²/L',
+          demaos: '2',
+          secagem: '2h',
+          active: true
+        });
+        setShowForm(true);
+      },
+      style: {
+        background: C.p1,
+        color: '#fff',
+        border: 'none',
+        borderRadius: 10,
+        padding: '8px 20px',
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: 'pointer'
+      }
+    }, "+ Novo Produto"))), showForm && /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: DRAWER_W,
+        maxWidth: '100%',
+        background: C.white,
+        boxShadow: '-10px 0 34px rgba(0,0,0,.16)',
+        borderLeft: '3px solid ' + C.p1,
+        zIndex: 900,
+        display: 'flex',
+        flexDirection: 'column',
+        animation: 'drawerIn .22s cubic-bezier(.32,.72,0,1)'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        padding: '16px 20px',
+        borderBottom: '1px solid ' + C.border,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, editing ? 'Editar Produto' : 'Novo Produto'), /*#__PURE__*/React.createElement("button", {
+      onClick: closeForm,
+      "aria-label": "Fechar",
+      title: "Fechar (Esc)",
+      style: {
+        width: 36,
+        height: 36,
+        borderRadius: '50%',
+        border: 'none',
+        background: 'rgba(0,0,0,.06)',
+        color: C.ink,
+        fontSize: 20,
+        lineHeight: 1,
+        cursor: 'pointer'
+      }
+    }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        overflowY: 'auto',
+        padding: 20
+      }
+    }, /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'grid',
-        gridTemplateColumns: 'repeat(3,1fr)',
-        gap: 16
+        gridTemplateColumns: '1fr 1fr',
+        gap: 12,
+        marginBottom: 12
       }
-    }, items.map(p => {
-      const bg = p.image_url ? 'center/cover no-repeat url(' + p.image_url + ')' : productBg(p);
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Nome *"), /*#__PURE__*/React.createElement("input", {
+      value: form.name,
+      onChange: e => setForm({
+        ...form,
+        name: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "Terracota Premium"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "C\xF3digo"), /*#__PURE__*/React.createElement("input", {
+      value: form.code,
+      onChange: e => setForm({
+        ...form,
+        code: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "CC-TT-001"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Categoria"), /*#__PURE__*/React.createElement("select", {
+      value: form.category,
+      onChange: e => setForm({
+        ...form,
+        category: e.target.value
+      }),
+      style: inputStyle
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "tintas"
+    }, "Tintas"), /*#__PURE__*/React.createElement("option", {
+      value: "texturas"
+    }, "Texturas"), /*#__PURE__*/React.createElement("option", {
+      value: "epoxi"
+    }, "Ep\xF3xi"), /*#__PURE__*/React.createElement("option", {
+      value: "acessorios"
+    }, "Acess\xF3rios")))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 12,
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Volume"), /*#__PURE__*/React.createElement("input", {
+      value: form.volume,
+      onChange: e => setForm({
+        ...form,
+        volume: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "18L"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Pre\xE7o (R$)"), /*#__PURE__*/React.createElement("input", {
+      value: form.price,
+      onChange: e => setForm({
+        ...form,
+        price: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "289.00"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Estoque"), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: form.stock,
+      onChange: e => setForm({
+        ...form,
+        stock: e.target.value
+      }),
+      style: inputStyle
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Badge"), /*#__PURE__*/React.createElement("input", {
+      value: form.badge,
+      onChange: e => setForm({
+        ...form,
+        badge: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "-10%, NOVO"
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 12,
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Cor (hex)"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "color",
+      value: form.color_hex,
+      onChange: e => setForm({
+        ...form,
+        color_hex: e.target.value
+      }),
+      style: {
+        width: 40,
+        height: 34,
+        border: 'none',
+        cursor: 'pointer'
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      value: form.color_hex,
+      onChange: e => setForm({
+        ...form,
+        color_hex: e.target.value
+      }),
+      style: {
+        ...inputStyle,
+        flex: 1
+      }
+    }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Gradiente (opcional)"), /*#__PURE__*/React.createElement("input", {
+      value: form.color_gradient,
+      onChange: e => setForm({
+        ...form,
+        color_gradient: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "#c4956a,#d4a870"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Linha"), /*#__PURE__*/React.createElement("input", {
+      value: form.line,
+      onChange: e => setForm({
+        ...form,
+        line: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "Linha Premium"
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Foto do produto (opcional \u2014 sobrep\xF5e a cor)"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        alignItems: 'center'
+      }
+    }, form.image_url && /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 48,
+        height: 48,
+        borderRadius: 8,
+        background: 'center/cover no-repeat url(' + form.image_url + ')',
+        border: '1px solid ' + C.border,
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "file",
+      accept: "image/*",
+      onChange: async e => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        try {
+          setAiBusy('Enviando foto...');
+          const path = 'products/' + Date.now() + '-' + f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const {
+            error
+          } = await supa.storage.from('posts').upload(path, f, {
+            upsert: true
+          });
+          if (error) throw error;
+          const {
+            data
+          } = supa.storage.from('posts').getPublicUrl(path);
+          setForm(fm => ({
+            ...fm,
+            image_url: data && data.publicUrl || ''
+          }));
+        } catch (err) {
+          alert('Erro ao enviar foto: ' + (err.message || err));
+        }
+        setAiBusy('');
+      },
+      style: {
+        fontSize: 12,
+        flex: 1
+      }
+    }), form.image_url && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setForm({
+        ...form,
+        image_url: ''
+      }),
+      style: {
+        background: 'none',
+        border: '1px solid ' + C.border,
+        borderRadius: 8,
+        padding: '6px 12px',
+        fontSize: 12,
+        cursor: 'pointer',
+        color: C.muted
+      }
+    }, "Remover"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 12,
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Rendimento"), /*#__PURE__*/React.createElement("input", {
+      value: form.rendimento,
+      onChange: e => setForm({
+        ...form,
+        rendimento: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "~10m\xB2/L"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Dem\xE3os"), /*#__PURE__*/React.createElement("input", {
+      value: form.demaos,
+      onChange: e => setForm({
+        ...form,
+        demaos: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "2"
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Secagem"), /*#__PURE__*/React.createElement("input", {
+      value: form.secagem,
+      onChange: e => setForm({
+        ...form,
+        secagem: e.target.value
+      }),
+      style: inputStyle,
+      placeholder: "2h"
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("label", {
+      style: labelStyle
+    }, "Descri\xE7\xE3o"), /*#__PURE__*/React.createElement("textarea", {
+      value: form.description,
+      onChange: e => setForm({
+        ...form,
+        description: e.target.value
+      }),
+      style: {
+        ...inputStyle,
+        minHeight: 60
+      },
+      placeholder: "Tinta premium com acabamento fosco..."
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        alignItems: 'center',
+        padding: '14px 20px',
+        borderTop: '1px solid ' + C.border,
+        background: C.white,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement("label", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 13
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: form.active,
+      onChange: e => setForm({
+        ...form,
+        active: e.target.checked
+      })
+    }), " Ativo"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: closeForm,
+      style: {
+        background: 'none',
+        border: '1px solid ' + C.border,
+        borderRadius: 8,
+        padding: '8px 18px',
+        fontSize: 13,
+        cursor: 'pointer',
+        color: C.muted
+      }
+    }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+      onClick: saveProduct,
+      style: {
+        background: C.p1,
+        color: '#fff',
+        border: 'none',
+        borderRadius: 8,
+        padding: '8px 24px',
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: 'pointer'
+      }
+    }, editing ? 'Salvar' : 'Criar Produto'))), !loading && products.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 18
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: busca,
+      onChange: e => setBusca(e.target.value),
+      placeholder: "\uD83D\uDD0E Buscar produto...",
+      style: {
+        ...inputStyle,
+        marginBottom: 12
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setMenuFilter('all'),
+      style: {
+        border: '1px solid ' + (menuFilter === 'all' ? C.p1 : C.border),
+        background: menuFilter === 'all' ? C.p1 : 'transparent',
+        color: menuFilter === 'all' ? '#fff' : C.ink,
+        borderRadius: 20,
+        padding: '6px 14px',
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: 'pointer'
+      }
+    }, "Todos ", /*#__PURE__*/React.createElement("b", null, "(", totalItens, ")")), orderedKeys.map(k => /*#__PURE__*/React.createElement("button", {
+      key: k,
+      onClick: () => setMenuFilter(k),
+      style: {
+        border: '1px solid ' + (menuFilter === k ? C.p1 : C.border),
+        background: menuFilter === k ? C.p1 : 'transparent',
+        color: menuFilter === k ? '#fff' : C.ink,
+        borderRadius: 20,
+        padding: '6px 14px',
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: 'pointer'
+      }
+    }, MENU_LABEL[k], " ", /*#__PURE__*/React.createElement("b", null, "(", grouped[k].length, ")"))))), loading ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: 'center',
+        padding: 40,
+        color: C.muted
+      }
+    }, "Carregando produtos...") : products.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: 'center',
+        padding: 40,
+        color: C.muted
+      }
+    }, "Nenhum produto cadastrado. Clique em \"+ Novo Produto\" para come\xE7ar.") : orderedKeys.filter(cat => menuFilter === 'all' || menuFilter === cat).map(cat => {
+      const items = grouped[cat].filter(p => !qLower || (p.name || '').toLowerCase().includes(qLower) || (p.code || '').toLowerCase().includes(qLower));
+      if (items.length === 0) return null;
       return /*#__PURE__*/React.createElement("div", {
-        key: p.id,
+        key: cat,
         style: {
-          background: C.white,
-          borderRadius: 12,
-          padding: 16,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-          opacity: p.active === false ? 0.5 : 1,
-          position: 'relative'
-        }
-      }, p.badge && /*#__PURE__*/React.createElement("div", {
-        style: {
-          position: 'absolute',
-          top: 8,
-          left: 8,
-          background: p.badge === 'NOVO' ? C.p1 : '#e63946',
-          color: '#fff',
-          fontSize: 10,
-          fontWeight: 700,
-          padding: '2px 8px',
-          borderRadius: 10,
-          zIndex: 1
-        }
-      }, p.badge), /*#__PURE__*/React.createElement("div", {
-        style: {
-          width: '100%',
-          height: 60,
-          borderRadius: 8,
-          background: bg,
-          marginBottom: 12
-        }
-      }), /*#__PURE__*/React.createElement("div", {
-        style: {
-          fontWeight: 600,
-          fontSize: 14
-        }
-      }, p.name), /*#__PURE__*/React.createElement("div", {
-        style: {
-          fontSize: 11,
-          color: C.muted
-        }
-      }, p.code, p.code && p.volume ? ' · ' : '', p.volume), /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginTop: 6
+          marginBottom: 24
         }
       }, /*#__PURE__*/React.createElement("div", {
         style: {
+          fontSize: 14,
           fontWeight: 700,
+          color: C.muted,
+          marginBottom: 10,
+          textTransform: 'uppercase',
+          letterSpacing: .5
+        }
+      }, MENU_LABEL[cat] || cat, " ", /*#__PURE__*/React.createElement("span", {
+        style: {
           color: C.p1
         }
-      }, "R$ ", Number(p.price || 0).toFixed(2).replace('.', ',')), /*#__PURE__*/React.createElement("div", {
+      }, "(", grouped[cat].length, ")")), /*#__PURE__*/React.createElement("div", {
         style: {
-          fontSize: 11,
-          color: p.stock <= 5 ? '#e63946' : '#2e7d32'
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3,1fr)',
+          gap: 16
         }
-      }, p.stock, " unid")), /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: 'flex',
-          gap: 6,
-          marginTop: 10
-        }
-      }, /*#__PURE__*/React.createElement("button", {
-        onClick: () => editProduct(p),
-        style: {
-          flex: 1,
-          background: C.cream,
-          border: 'none',
-          borderRadius: 8,
-          padding: '6px',
-          fontSize: 12,
-          cursor: 'pointer',
-          fontWeight: 600,
-          color: C.ink
-        }
-      }, "Editar"), /*#__PURE__*/React.createElement("button", {
-        "aria-label": "Excluir produto",
-        onClick: () => deleteProduct(p.id),
-        style: {
-          background: 'none',
-          border: '1px solid #e6394644',
-          borderRadius: 8,
-          padding: '6px 10px',
-          fontSize: 12,
-          cursor: 'pointer',
-          color: '#e63946'
-        }
-      }, "\xD7")));
-    })));
-  }));
+      }, items.map(p => {
+        const bg = p.image_url ? 'center/cover no-repeat url(' + p.image_url + ')' : productBg(p);
+        return /*#__PURE__*/React.createElement("div", {
+          key: p.id,
+          style: {
+            background: C.white,
+            borderRadius: 12,
+            padding: 16,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+            opacity: p.active === false ? 0.5 : 1,
+            position: 'relative'
+          }
+        }, p.badge && /*#__PURE__*/React.createElement("div", {
+          style: {
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            background: p.badge === 'NOVO' ? C.p1 : '#e63946',
+            color: '#fff',
+            fontSize: 10,
+            fontWeight: 700,
+            padding: '2px 8px',
+            borderRadius: 10,
+            zIndex: 1
+          }
+        }, p.badge), /*#__PURE__*/React.createElement("div", {
+          style: {
+            width: '100%',
+            height: 60,
+            borderRadius: 8,
+            background: bg,
+            marginBottom: 12
+          }
+        }), /*#__PURE__*/React.createElement("div", {
+          style: {
+            fontWeight: 600,
+            fontSize: 14
+          }
+        }, p.name), /*#__PURE__*/React.createElement("div", {
+          style: {
+            fontSize: 11,
+            color: C.muted
+          }
+        }, p.code, p.code && p.volume ? ' · ' : '', p.volume), /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: 6
+          }
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            fontWeight: 700,
+            color: C.p1
+          }
+        }, "R$ ", Number(p.price || 0).toFixed(2).replace('.', ',')), /*#__PURE__*/React.createElement("div", {
+          style: {
+            fontSize: 11,
+            color: p.stock <= 5 ? '#e63946' : '#2e7d32'
+          }
+        }, p.stock, " unid")), /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: 'flex',
+            gap: 6,
+            marginTop: 10
+          }
+        }, /*#__PURE__*/React.createElement("button", {
+          onClick: () => editProduct(p),
+          style: {
+            flex: 1,
+            background: C.cream,
+            border: 'none',
+            borderRadius: 8,
+            padding: '6px',
+            fontSize: 12,
+            cursor: 'pointer',
+            fontWeight: 600,
+            color: C.ink
+          }
+        }, "Editar"), /*#__PURE__*/React.createElement("button", {
+          "aria-label": "Excluir produto",
+          onClick: () => deleteProduct(p.id),
+          style: {
+            background: 'none',
+            border: '1px solid #e6394644',
+            borderRadius: 8,
+            padding: '6px 10px',
+            fontSize: 12,
+            cursor: 'pointer',
+            color: '#e63946'
+          }
+        }, "\xD7")));
+      })));
+    }))
+  );
 };
 const Camisetas = () => {
   const [cor, setCor] = useState('#1a1a2e');

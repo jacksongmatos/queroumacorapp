@@ -29,12 +29,14 @@
 </script>
 <script src="/portal/react.production.min.js?v=18.3.1" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="/portal/react-dom.production.min.js?v=18.3.1" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
-<script src="/portal/app.js?v=20260821a" defer integrity="sha384-iCLFwZH50JuPRVopkK5RN3wgUBXfdIYR+qL3XpKRPfNT39LSfhO+tCdxw2Q2v8cG" crossorigin="anonymous"></script>
+<script src="/portal/app.js?v=20260821b" defer integrity="sha384-N+TKV0VWnaCsjW42YZdBoohPAfT3oLSVwmIFd6b2AVyEFlL97kTef7dmDvScuskY" crossorigin="anonymous"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'DM Sans', sans-serif; background: #f7f3ee; min-height:100vh; }
 #root { min-height:100vh; }
 .loading { display:flex; align-items:center; justify-content:center; height:100vh; font-size:18px; color:#666; }
+/* Gaveta lateral do formulário de produto (entra deslizando pela direita). */
+@keyframes drawerIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
 </style>
 </head>
 <body>
