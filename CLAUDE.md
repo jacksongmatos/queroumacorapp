@@ -98,6 +98,19 @@
     função `is_portal_admin()` (usada nas policies de RLS de ~13 tabelas)
     referencia `is_admin` na migration que a criou — se estiver mesmo assim
     no banco, está quebrada em runtime. Checar com `SELECT is_portal_admin();`
+- **Portal: formulário de produto virou gaveta lateral (2026-08-21).** Era
+  um card no TOPO da lista — ao rolar pra achar a cor/produto, ele sumia de
+  vista. Agora é `position:fixed` colado na direita (460px, altura cheia),
+  com cabeçalho fixo (título + X, `Esc` fecha), corpo rolável só dos campos
+  e rodapé fixo com Ativo/Cancelar/Salvar. A lista ganha `paddingRight`
+  enquanto a gaveta está aberta pra nenhum card ficar embaixo dela; os grids
+  do form caíram de 3-4 pra 2 colunas por causa da largura. Keyframe
+  `drawerIn` no `<style>` do `index.html`.
+  - **Como recompilar o portal** (o `app.js` commitado é reproduzível byte a
+    byte a partir do `app.jsx`): `@babel/core` + `@babel/preset-react`
+    (`runtime: 'classic'`), `generatorOpts: { jsescOption: { minimal: false } }`,
+    `compact: false`, e o arquivo final SEM quebra de linha no fim. Depois
+    refazer o `integrity` (ver item abaixo).
 - **Portal: mexeu no `app.js`, refaz o `integrity` (2026-08-21).** O
   `public/portal/index.html` carrega os scripts com Subresource Integrity
   (`integrity="sha384-…"`). Se o arquivo muda e o hash não, o navegador
