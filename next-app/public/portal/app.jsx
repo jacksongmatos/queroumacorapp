@@ -251,11 +251,12 @@ const CreateAppUserForm = ({ onCreated, defaultRole }) => {
 
 // O update direto em profiles de outra pessoa falha silenciosamente
 // por RLS (unica policy de UPDATE e auth.uid() = id). Por isso tudo
-// vai pelo endpoint /api/admin-users com service role.
+// vai pelo endpoint /api/admin/users com service role.
+// (era /api/admin-users no Cloudflare Function; virou rota Next em app/api/admin/users)
 const adminUsers = async (payload) => {
   const { data: { session } } = await supa.auth.getSession();
   if (!session) { alert('Sessao expirada. Entre novamente.'); return false; }
-  const r = await fetch('/api/admin-users', {
+  const r = await fetch('/api/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ accessToken: session.access_token, ...payload })
