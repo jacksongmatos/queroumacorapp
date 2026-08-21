@@ -36,6 +36,8 @@ import {
   type CreatePostMediaType,
 } from '@/lib/services/posts';
 import { getMediaType, parseBRL } from '@/lib/utils';
+import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
+import { canMarkPostForSale } from '@/lib/policies';
 
 // Tipos de arte aceitos quando for_sale=true. Alinha com o select que o
 // vanilla mostra no post-art-type (grafiteiro: fachada/mural/etc).
@@ -98,6 +100,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const publish = usePublishPost();
+  const policyUser = usePolicyUser();
 
   // ?forSale=1 vem de deep-links tipo "Arte pra venda → Publicar nova arte".
   // Pré-marca o toggle pra evitar 1 click — autosave assume depois.
@@ -113,6 +116,11 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
   const [artType, setArtType] = useState<string>(ART_TYPES[0].value);
   // S5: link externo opcional pra story (CTA "ver mais" no viewer).
   const [linkUrl, setLinkUrl] = useState('');
+
+  const isStory = postType === 'story';
+  // "Marcar como venda": só profissional (cliente não anuncia serviço) e
+  // nunca em story (story some em 24h; venda é post permanente).
+  const canSell = canMarkPostForSale(policyUser) && !isStory;
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [genLoading, setGenLoading] = useState(false);
@@ -230,16 +238,21 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
           ? 'video'
           : 'image';
 
-    const price = forSale ? parseBRL(priceText) : 0;
+    // `forSale` sobrevive a trocas de aba e ao autosave/deep-link ?forSale=1,
+    // então o valor que VAI pro banco é reconferido contra a permissão atual
+    // — sem isso um cliente (ou um story) publicaria com preço via estado
+    // remanescente, mesmo com o toggle fora da tela.
+    const forSaleFinal = forSale && canSell;
+    const price = forSaleFinal ? parseBRL(priceText) : 0;
 
     const linkUrlTrim = linkUrl.trim();
     publish.publishAsync({
       files,
       caption: caption.trim(),
       mediaType,
-      forSale,
-      price: forSale ? price : null,
-      artType: forSale ? artType : null,
+      forSale: forSaleFinal,
+      price: forSaleFinal ? price : null,
+      artType: forSaleFinal ? artType : null,
       linkUrl: mediaType === 'story' && linkUrlTrim ? linkUrlTrim : null,
     })
       .then(() => {
@@ -266,6 +279,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
     files,
     caption,
     forSale,
+    canSell,
     priceText,
     artType,
     router,
@@ -381,6 +395,10 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         onGenerate={handleGenerateCaption}
         isGenerating={genLoading}
         canGenerate={files.length > 0}
+        // Legenda por IA é coisa de post: o story é conteúdo rápido, some em
+        // 24h e a legenda ali é enfeite — não vale gastar chamada de IA (que
+        // ainda por cima conta na cota mensal do usuário).
+        showGenerate={!isStory}
         disabled={submitting}
       />
 
@@ -394,7 +412,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
       ) : null}
 
       {/* S5: link externo só faz sentido em story (CTA "ver mais"). */}
-      {postType === 'story' ? (
+      {isStory ? (
         <div className="rounded-2xl border border-[color:var(--color-border)] bg-white p-4">
           <label htmlFor="story-link" className="block text-sm font-semibold mb-2">
             Link "ver mais" (opcional)
@@ -414,8 +432,9 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         </div>
       ) : null}
 
-      {/* "Para venda" — só faz sentido fora de story */}
-      {postType !== 'story' ? (
+      {/* "Para venda" — fora de story e só pra quem presta serviço
+          (ver canMarkPostForSale). Cliente não vê o toggle. */}
+      {canSell ? (
         <div className="rounded-2xl border border-[color:var(--color-border)] bg-white p-4">
           <label className="flex items-center gap-3 cursor-pointer select-none">
             <input
