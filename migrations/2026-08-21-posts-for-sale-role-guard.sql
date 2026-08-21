@@ -14,10 +14,17 @@
 --   - mesmo padrão do `protect_profile_columns` (Wave 3), que reverte o
 --     campo protegido em vez de abortar a transação.
 --
--- Paridade com o cliente: admin (is_admin / role='admin' / portal_access)
--- passa, igual ao `canMarkPostForSale`. Role vazio TAMBÉM passa — contas
--- antigas ficaram sem `role` e não podem regredir (mesma regra por exclusão
--- do TS: nega só quem é explicitamente 'cliente').
+-- Paridade com o cliente: admin passa, igual ao `canMarkPostForSale`. Role
+-- vazio TAMBÉM passa — contas antigas ficaram sem `role` e não podem
+-- regredir (mesma regra por exclusão do TS: nega só quem é explicitamente
+-- 'cliente').
+--
+-- Leitura via `to_jsonb(p)` em vez de `p.is_admin` / `p.portal_access`
+-- direto: a v1 desta migration quebrou com "column p.is_admin does not
+-- exist" (a coluna existe no código legado e nas migrations antigas, mas não
+-- na tabela real hoje). Com jsonb, coluna ausente vira chave ausente → NULL
+-- → `IS TRUE` = false, e o SQL roda em qualquer variação do schema sem
+-- precisar auditar antes. Custo: só nas linhas que trazem campo de venda.
 --
 -- Perf: o SELECT em profiles só roda quando a linha traz algo de venda —
 -- post normal (a esmagadora maioria) não paga nada.
@@ -45,11 +52,18 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT LOWER(COALESCE(p.role, p.user_type, '')),
-         (p.is_admin IS TRUE OR p.role = 'admin' OR p.portal_access IS TRUE)
+  SELECT LOWER(COALESCE(j ->> 'role', j ->> 'user_type', '')),
+         (
+           j ->> 'role' = 'admin'
+           OR (j ->> 'is_admin')::boolean IS TRUE
+           OR (j ->> 'portal_access')::boolean IS TRUE
+         )
     INTO v_role, v_is_admin
-    FROM public.profiles p
-   WHERE p.id = NEW.user_id;
+    FROM (
+      SELECT to_jsonb(p) AS j
+        FROM public.profiles p
+       WHERE p.id = NEW.user_id
+    ) t;
 
   IF COALESCE(v_is_admin, false) THEN
     RETURN NEW;
@@ -79,11 +93,13 @@ CREATE TRIGGER trg_enforce_post_for_sale_role
 
 SELECT COUNT(*) AS posts_de_cliente_marcados_como_venda
   FROM public.posts po
-  JOIN public.profiles p ON p.id = po.user_id
+  JOIN LATERAL (SELECT to_jsonb(p) AS j
+                  FROM public.profiles p
+                 WHERE p.id = po.user_id) t ON TRUE
  WHERE po.for_sale IS TRUE
-   AND LOWER(COALESCE(p.role, p.user_type, '')) = 'cliente'
-   AND p.is_admin IS NOT TRUE
-   AND p.portal_access IS NOT TRUE;
+   AND LOWER(COALESCE(t.j ->> 'role', t.j ->> 'user_type', '')) = 'cliente'
+   AND (t.j ->> 'is_admin')::boolean IS NOT TRUE
+   AND (t.j ->> 'portal_access')::boolean IS NOT TRUE;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 4) OPCIONAL — limpar o histórico. Rode SÓ se o passo 3 acusar linhas e
@@ -92,9 +108,9 @@ SELECT COUNT(*) AS posts_de_cliente_marcados_como_venda
 --
 -- UPDATE public.posts po
 --    SET for_sale = false, price = NULL, art_type = NULL
---   FROM public.profiles p
---  WHERE p.id = po.user_id
+--   FROM (SELECT p.id, to_jsonb(p) AS j FROM public.profiles p) t
+--  WHERE t.id = po.user_id
 --    AND po.for_sale IS TRUE
---    AND LOWER(COALESCE(p.role, p.user_type, '')) = 'cliente'
---    AND p.is_admin IS NOT TRUE
---    AND p.portal_access IS NOT TRUE;
+--    AND LOWER(COALESCE(t.j ->> 'role', t.j ->> 'user_type', '')) = 'cliente'
+--    AND (t.j ->> 'is_admin')::boolean IS NOT TRUE
+--    AND (t.j ->> 'portal_access')::boolean IS NOT TRUE;
