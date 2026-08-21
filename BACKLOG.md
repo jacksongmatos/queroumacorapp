@@ -69,15 +69,17 @@ O2 dashboard feature_interest (Sprint 4), O3 dashboard reports (Sprint 3), B7 We
 
 ---
 
-## 🗄️ Integridade de dados (regra só no cliente — falta no banco)
+## 🗄️ Integridade de dados (regra de negócio no banco)
 
-Casos em que a regra de negócio existe só no frontend: o app impede, mas
-quem chamar o Supabase direto com o próprio token passa por cima. Fechar
-exige trigger ou policy de RLS.
+### ✅ Já feitos
 
-| # | Item | Esforço | Notas |
-|---|---|---|---|
-| D1 | **`posts.for_sale` sem trava no banco** | Pequeno | `canMarkPostForSale` (lib/policies.ts) esconde o "Marcar como venda" de quem tem `role='cliente'`, e o Composer reconfere na hora de publicar — mas o INSERT em `posts` vai direto do browser pro Supabase e nada no banco checa o papel do autor. Um cliente pode gravar `for_sale=true` + `price` por fora. Fix: trigger BEFORE INSERT/UPDATE em `posts` zerando `for_sale`/`price`/`art_type` quando o `profiles.role` do autor for `cliente` (mesma forma do `protect_profile_columns`), ou WITH CHECK na policy de INSERT. Impacto hoje: baixo (anúncio falso de venda, não escalada de acesso). **SQL pronto em `/migrations/2026-08-21-posts-for-sale-role-guard.sql` — falta o usuário rodar no SQL Editor** |
+D1 `posts.for_sale` travado por trigger (SQL Wave 34, 2026-08-21) — cliente
+não grava mais `for_sale`/`price`/`art_type` nem chamando o Supabase direto,
+e os 3 posts antigos que violavam a regra foram limpos.
+
+Casos em que a regra de negócio existe só no frontend entram aqui: o app
+impede, mas quem chamar o Supabase direto com o próprio token passa por
+cima. Fechar exige trigger ou policy de RLS.
 
 ---
 

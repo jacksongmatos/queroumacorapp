@@ -59,12 +59,22 @@
   consome cota de IA). O payload do publish reconfere a permissão em vez de
   confiar no state — o `forSale` sobrevivia a troca de aba/autosave/deep-link
   `?forSale=1` e vazava `for_sale=true` pra story.
-  - **PENDENTE (D1 no BACKLOG.md): a regra é SÓ no cliente.** O INSERT em
-    `posts` vai do browser direto pro Supabase; nada no banco impede um
-    cliente de gravar `for_sale=true` com o token dele. Falta trigger BEFORE
-    INSERT/UPDATE (ou WITH CHECK na policy) zerando `for_sale`/`price`/
-    `art_type` quando o autor tem `role='cliente'`. Impacto baixo (anúncio
-    falso, não escalada de acesso) — mas está aberto, não esquecer.
+  - **SQL Wave 34 (2026-08-21) — D1 FECHADO, JÁ EXECUTADO no Supabase.** A
+    regra também vive no banco: trigger `trg_enforce_post_for_sale_role`
+    (BEFORE INSERT OR UPDATE em `posts`) zera `for_sale`/`price`/`art_type`
+    quando o autor tem `role='cliente'` — admin e role vazio passam, igual
+    ao `canMarkPostForSale`. Os 3 posts antigos que violavam foram limpos
+    (só a marcação de venda; os posts seguem no feed). Migration em
+    `/migrations/2026-08-21-posts-for-sale-role-guard.sql`.
+  - **Pegadinha do schema:** `profiles.is_admin` NÃO existe na tabela real,
+    apesar de aparecer no código legado e em migrations antigas (a v1 desta
+    migration quebrou com 42703 por causa disso). Por isso a função lê a
+    linha do autor via `to_jsonb(p) ->> 'campo'`: coluna ausente vira chave
+    ausente → NULL, em vez de abortar. **Usar esse padrão em qualquer SQL
+    novo que toque colunas de admin do `profiles`.** Suspeita aberta: a
+    função `is_portal_admin()` (usada nas policies de RLS de ~13 tabelas)
+    referencia `is_admin` na migration que a criou — se estiver mesmo assim
+    no banco, está quebrada em runtime. Checar com `SELECT is_portal_admin();`
 - **Login social Google + Apple (2026-06-18).** OAuth via Supabase.
   `AuthProvider.signInWithGoogle()`/`signInWithApple()` chamam
   `supabase.auth.signInWithOAuth({ provider })` com
