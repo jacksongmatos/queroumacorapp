@@ -23,11 +23,14 @@ interface NavItem {
   requiresAuth?: boolean;
   /** Rótulo curto pro prompt de cadastro (ex.: "ver seu perfil"). */
   gateAction?: string;
+  /** Marcador lido pelo <AppTour> pra saber qual botão destacar. */
+  tourId: string;
 }
 
 const ITEMS: NavItem[] = [
   {
     href: '/feed',
+    tourId: 'nav-feed',
     label: 'Feed',
     match: (p) => p === '/feed' || p === '/',
     icon: (
@@ -39,6 +42,7 @@ const ITEMS: NavItem[] = [
   },
   {
     href: '/search',
+    tourId: 'nav-search',
     label: 'Buscar',
     match: (p) => p.startsWith('/search') || p.startsWith('/explore'),
     icon: (
@@ -50,6 +54,7 @@ const ITEMS: NavItem[] = [
   },
   {
     href: '/loja',
+    tourId: 'nav-loja',
     label: 'Loja',
     match: (p) => p.startsWith('/loja'),
     icon: (
@@ -62,6 +67,7 @@ const ITEMS: NavItem[] = [
   },
   {
     href: '/notificacoes',
+    tourId: 'nav-notif',
     label: 'Notificações',
     requiresAuth: true,
     gateAction: 'ver suas notificações',
@@ -75,6 +81,7 @@ const ITEMS: NavItem[] = [
   },
   {
     href: '/perfil',
+    tourId: 'nav-perfil',
     label: 'Perfil',
     requiresAuth: true,
     gateAction: 'acessar seu perfil',
@@ -112,6 +119,7 @@ export function BottomNav() {
           <Link
             key={item.href}
             href={item.href}
+            data-tour={item.tourId}
             onClick={(e) => {
               // Visitante tocando numa aba de área logada → abre cadastro.
               if (item.requiresAuth && !requireAuth(item.gateAction)) {

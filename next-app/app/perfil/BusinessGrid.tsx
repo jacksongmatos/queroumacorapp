@@ -10,6 +10,8 @@ import { useRouter } from 'next/navigation';
 import { BottomSheet } from '@/components/BottomSheet';
 import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
 import { isAdmin } from '@/lib/policies';
+import { AppTour } from '@/components/AppTour';
+import { PROFILE_TOUR_STEPS } from '@/lib/tour/steps';
 
 // Lazy-load das views pra não inchar o JS inicial do /perfil. Cada modal
 // só baixa o chunk quando o user abre. Mesma técnica que vanilla aplicava
@@ -261,6 +263,13 @@ export function BusinessGrid() {
         ))}
       </div>
 
+      {/* Tour 2 — explica um por um os quadradinhos acima. Auto-abre na
+          primeira visita ao /perfil e é reaberto pelo botão "Ver tutorial das
+          ferramentas" no ProfileFooter. Fica aqui (e não no AppShell) porque
+          os alvos `data-tour="tile-*"` são justamente estes tiles: montado
+          junto, o tour nunca abre numa tela onde não há nada pra destacar. */}
+      <AppTour tour="profile" steps={PROFILE_TOUR_STEPS} autoPath="/perfil" />
+
       <BottomSheet
         open={!!openSheet}
         onClose={() => setOpenSheet(null)}
@@ -311,6 +320,10 @@ function BusinessCard({ tile, onOpen }: BusinessCardProps) {
     <button
       type="button"
       onClick={onOpen}
+      // Alvo do tour de ferramentas (`lib/tour/steps.ts` → PROFILE_TOUR_STEPS).
+      // A chave `sheet` é o id estável do tile, então o roteiro casa 1:1 com
+      // o que está na tela — inclusive os tiles condicionais ao papel.
+      data-tour={`tile-${tile.sheet}`}
       className="rounded-2xl p-4 text-center shadow-sm flex flex-col items-center justify-center relative cursor-pointer"
       style={{
         background,
