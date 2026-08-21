@@ -98,6 +98,14 @@
     função `is_portal_admin()` (usada nas policies de RLS de ~13 tabelas)
     referencia `is_admin` na migration que a criou — se estiver mesmo assim
     no banco, está quebrada em runtime. Checar com `SELECT is_portal_admin();`
+- **Portal admin chama `/api/admin/users` (2026-08-21).** "Habilitar PRO" e
+  "Promover" davam `HTTP 404`: o `public/portal/app.js` (estático, chama a
+  API por string) ainda apontava pra `/api/admin-users`, nome da antiga
+  Cloudflare Function — na migração pro Next a rota virou
+  `app/api/admin/users/route.ts`. As `action` (promote/revoke/set_pro/
+  set_role/verify) e o `accessToken` no body já batiam; era só o caminho.
+  Teste `__tests__/portalApiRoutes.test.ts` lê o fonte do portal e quebra se
+  alguma URL de API não tiver `route.ts` — o type-check não pega string.
 - **Login social Google + Apple (2026-06-18).** OAuth via Supabase.
   `AuthProvider.signInWithGoogle()`/`signInWithApple()` chamam
   `supabase.auth.signInWithOAuth({ provider })` com
