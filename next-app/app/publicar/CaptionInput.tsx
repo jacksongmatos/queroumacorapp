@@ -18,6 +18,8 @@ export interface CaptionInputProps {
   onGenerate: () => void;
   isGenerating: boolean;
   canGenerate: boolean;       // false se não há mídia selecionada
+  /** false esconde o botão de IA por completo (story não gera legenda). */
+  showGenerate?: boolean;
   disabled?: boolean;
   maxLength?: number;
 }
@@ -28,6 +30,7 @@ export function CaptionInput({
   onGenerate,
   isGenerating,
   canGenerate,
+  showGenerate = true,
   disabled,
   maxLength = 2000,
 }: CaptionInputProps) {
@@ -59,7 +62,10 @@ export function CaptionInput({
       <div className="flex items-center justify-between gap-3">
         {/* Botão fica habilitado mesmo sem mídia pra poder dar FEEDBACK no
             clique (antes ficava disabled e o tap não retornava nada — BUG 6).
-            Sem mídia, o clique mostra um toast orientando a selecionar. */}
+            Sem mídia, o clique mostra um toast orientando a selecionar.
+            `showGenerate=false` (story) tira o botão da tela; o contador de
+            caracteres continua, encostado à direita pelo `ml-auto`. */}
+        {showGenerate ? (
         <button
           type="button"
           onClick={() => {
@@ -81,9 +87,10 @@ export function CaptionInput({
         >
           {isGenerating ? 'Gerando…' : '✨ Gerar legenda (IA)'}
         </button>
+        ) : null}
         <span
           className={
-            'text-xs ' +
+            'text-xs ml-auto ' +
             (near
               ? 'text-[color:var(--color-p1)] font-semibold'
               : 'text-[color:var(--color-muted)]')
@@ -93,7 +100,7 @@ export function CaptionInput({
           {len}/{maxLength}
         </span>
       </div>
-      {!canGenerate ? (
+      {showGenerate && !canGenerate ? (
         <p className="text-xs text-[color:var(--color-muted)] -mt-1">
           Selecione uma foto ou vídeo primeiro para gerar a legenda com IA.
         </p>

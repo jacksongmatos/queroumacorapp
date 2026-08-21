@@ -15,6 +15,7 @@ import {
   canCreatePost,
   canSendMessage,
   canViewAdminPanel,
+  canMarkPostForSale,
   requireOrThrow,
 } from '../lib/policies';
 import { AuthorizationError } from '../lib/errors';
@@ -167,5 +168,31 @@ describe('Policies — requireOrThrow', () => {
   });
   it('throws default message', () => {
     expect(() => requireOrThrow(false)).toThrow(/Acesso negado/);
+  });
+});
+
+describe('canMarkPostForSale', () => {
+  it('nega pra cliente (quem contrata não anuncia serviço)', () => {
+    expect(canMarkPostForSale({ id: 'u1', role: 'cliente' })).toBe(false);
+    expect(canMarkPostForSale({ id: 'u1', role: 'CLIENTE' })).toBe(false);
+  });
+
+  it('permite pros papéis profissionais', () => {
+    for (const role of ['pintor', 'grafiteiro', 'automotivo', 'funileiro']) {
+      expect(canMarkPostForSale({ id: 'u1', role })).toBe(true);
+    }
+  });
+
+  it('permite quando o papel está vazio (contas antigas não regridem)', () => {
+    expect(canMarkPostForSale({ id: 'u1' })).toBe(true);
+    expect(canMarkPostForSale({ id: 'u1', role: null })).toBe(true);
+  });
+
+  it('admin sempre pode, mesmo marcado como cliente', () => {
+    expect(canMarkPostForSale({ id: 'u1', role: 'cliente', is_admin: true })).toBe(true);
+  });
+
+  it('deslogado não pode', () => {
+    expect(canMarkPostForSale(null)).toBe(false);
   });
 });

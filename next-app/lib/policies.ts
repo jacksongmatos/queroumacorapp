@@ -42,6 +42,17 @@ export function isAdmin(user: MaybeUser): boolean {
   );
 }
 
+// "Marcar como venda" no composer é de quem PRESTA serviço, não de quem
+// contrata: cliente publica foto de obra pra mostrar/pedir indicação, não
+// pra anunciar preço. Regra por exclusão (e não lista de papéis permitidos)
+// porque `role` fica vazio em contas antigas e no fluxo de signup antigo —
+// nesses casos o toggle continua aparecendo, como sempre apareceu.
+export function canMarkPostForSale(user: MaybeUser): boolean {
+  if (!user) return false;
+  if (isAdmin(user)) return true;
+  return (user.role || '').toLowerCase() !== 'cliente';
+}
+
 // Edita próprio perfil; admin edita qualquer um (moderação/correção).
 export function canEditProfile(
   user: MaybeUser,
