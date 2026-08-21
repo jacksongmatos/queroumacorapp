@@ -66,7 +66,14 @@ export function AppShell({
   }
 
   return (
-    <div className="flex flex-col w-full max-w-[430px] mx-auto h-screen bg-[color:var(--color-bg)] relative overflow-hidden" style={{ minHeight: '100dvh' }}>
+    // Altura em `dvh`, não `vh`: no Safari do iPhone o `100vh` conta a área
+    // ATRÁS das barras do navegador, então a régua fica maior que o espaço
+    // visível e o rodapé do app (BottomNav, campo de digitar do chat) nasce
+    // abaixo da dobra. `h-screen` fica como fallback pra browser sem dvh.
+    <div
+      className="flex flex-col w-full max-w-[430px] mx-auto h-screen bg-[color:var(--color-bg)] relative overflow-hidden"
+      style={{ height: '100dvh' }}
+    >
       <RealtimeBindings />
       {!hideTopNav && <TopNav proStatus={proStatus} />}
       <main

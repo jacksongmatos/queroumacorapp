@@ -142,3 +142,23 @@ main::-webkit-scrollbar,
   .tour-balloon-in { animation: none; }
   .tour-balloon-fade { animation: none; }
 }
+
+/* ───────────────────────────────────────────────────────────────────────
+   iOS: campo com fonte < 16px faz o Safari dar ZOOM automático ao focar.
+   O zoom aumenta o viewport de layout além da largura da tela, e aí a
+   tela "corta" — a bolha de mensagem enviada some pela direita, o campo
+   de digitar sai de vista por baixo. Não é bug de layout: é o navegador
+   ampliando. A única forma confiável de evitar (o `maximum-scale=1` do
+   meta viewport é ignorado no iOS moderno, e ainda mataria o pinch-zoom
+   de quem precisa) é garantir 16px nos campos.
+
+   Escopo em `pointer: coarse` pra não engordar os inputs no desktop, onde
+   o `text-sm` do design continua valendo. Checkbox/radio ficam de fora —
+   font-size neles não dispara zoom e mexer estraga o alinhamento. */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

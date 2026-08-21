@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 
 export default function OrcamentosPage() {
   return (
-    <AppShell><div className="min-h-screen p-4 max-w-6xl mx-auto">
+    <AppShell><div className="min-h-full p-4 max-w-6xl mx-auto">
       <h1
         className="text-3xl font-bold mb-2"
         style={{ fontFamily: 'var(--font-display)' }}
