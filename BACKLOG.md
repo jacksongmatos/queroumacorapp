@@ -77,7 +77,7 @@ exige trigger ou policy de RLS.
 
 | # | Item | Esforço | Notas |
 |---|---|---|---|
-| D1 | **`posts.for_sale` sem trava no banco** | Pequeno | `canMarkPostForSale` (lib/policies.ts) esconde o "Marcar como venda" de quem tem `role='cliente'`, e o Composer reconfere na hora de publicar — mas o INSERT em `posts` vai direto do browser pro Supabase e nada no banco checa o papel do autor. Um cliente pode gravar `for_sale=true` + `price` por fora. Fix: trigger BEFORE INSERT/UPDATE em `posts` zerando `for_sale`/`price`/`art_type` quando o `profiles.role` do autor for `cliente` (mesma forma do `protect_profile_columns`), ou WITH CHECK na policy de INSERT. Impacto hoje: baixo (anúncio falso de venda, não escalada de acesso) |
+| D1 | **`posts.for_sale` sem trava no banco** | Pequeno | `canMarkPostForSale` (lib/policies.ts) esconde o "Marcar como venda" de quem tem `role='cliente'`, e o Composer reconfere na hora de publicar — mas o INSERT em `posts` vai direto do browser pro Supabase e nada no banco checa o papel do autor. Um cliente pode gravar `for_sale=true` + `price` por fora. Fix: trigger BEFORE INSERT/UPDATE em `posts` zerando `for_sale`/`price`/`art_type` quando o `profiles.role` do autor for `cliente` (mesma forma do `protect_profile_columns`), ou WITH CHECK na policy de INSERT. Impacto hoje: baixo (anúncio falso de venda, não escalada de acesso). **SQL pronto em `/migrations/2026-08-21-posts-for-sale-role-guard.sql` — falta o usuário rodar no SQL Editor** |
 
 ---
 
