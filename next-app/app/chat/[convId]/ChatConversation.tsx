@@ -265,12 +265,22 @@ export function ChatConversation({ convId }: ChatConversationProps) {
   // Banner aparece quando: viewer é pintor + conv não é 3-way + outro lado
   // existe (não é a própria loja). Vanilla também checa que não é convId
   // pra/da própria loja — convMeta.isStore cobre isso.
+  // O convite NÃO depende mais de `convMeta`. Ele vem do cache da lista de
+  // conversas, que só existe se a pessoa passou pela lista antes — abrir a
+  // conversa direto (link, notificação, ou conversa recém-criada, que é
+  // justamente quando se quer chamar a loja) deixava `convMeta` undefined e
+  // o convite simplesmente não aparecia. No celular esse é o caminho comum.
+  //
+  // O que realmente importa: sou profissional, a loja ainda não está aqui, e
+  // o outro lado não é a própria loja (chamar a Cali Colors pra dentro do
+  // chat com a Cali Colors não faz sentido). `convMeta?.isStore` continua
+  // valendo como sinal extra enquanto o `storeId` não resolveu.
   const showAddStoreBanner =
     isPainter &&
     !is3way &&
-    !!convMeta &&
-    !convMeta.isStore &&
-    !!otherId;
+    !!otherId &&
+    otherId !== storeId &&
+    !convMeta?.isStore;
 
   if (authLoading) {
     return (
