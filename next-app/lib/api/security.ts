@@ -17,7 +17,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { assertProductionEnvs } from './env-check';
-import { getSupabaseServiceKey, getSupabaseUrl, getSupabaseAnonKey } from './env';
+import { getRuntimeEnv, getSupabaseServiceKey } from './env';
 // `isAdminEmail` é implementada em `admin-config.ts` (cache + validação
 // no startup, R-H6). Re-exportada abaixo pra manter o contrato existente
 // (chamadores já importam de `lib/api/security`).
@@ -65,21 +65,21 @@ export function serviceErrorResponse(err: ServiceError): NextResponse {
  * no Next preferimos fail-fast a fallback hardcoded.
  */
 export function getSupabaseUrl(): string {
-  const url = process.env.SUPABASE_URL;
+  const url = getRuntimeEnv('SUPABASE_URL') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
   if (!url) throw new ServiceError(ERR_UNAVAILABLE, 503);
   return url.replace(/\/$/, '');
 }
 
 export function getSupabaseAnonKey(): string {
-  const key = process.env.SUPABASE_ANON_KEY;
+  const key = getRuntimeEnv('SUPABASE_ANON_KEY') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
   if (!key) throw new ServiceError(ERR_UNAVAILABLE, 503);
   return key;
 }
 
 export function getServiceKey(): string | undefined {
   return (
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_KEY ||
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
+    getRuntimeEnv('SUPABASE_SERVICE_KEY') ||
     getSupabaseServiceKey()
   );
 }
