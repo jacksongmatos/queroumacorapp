@@ -110,6 +110,12 @@ export function AppShell({
             ? 'env(safe-area-inset-bottom)'
             : 'calc(68px + env(safe-area-inset-bottom))',
           WebkitOverflowScrolling: 'touch',
+          // Este `<main>` é o ÚNICO scroller da tela (a raiz é 100dvh +
+          // overflow hidden). Sem `contain`, ao chegar no topo o resto do
+          // gesto encadeia no scroller raiz e o Chrome dispara o
+          // pull-to-refresh: arrastar pra voltar ao topo recarregava o app
+          // no meio do caminho. Ver comentário em globals.css.
+          overscrollBehaviorY: 'contain',
         }}
       >
         {children}

@@ -162,3 +162,28 @@ main::-webkit-scrollbar,
     font-size: 16px;
   }
 }
+
+/* ───────────────────────────────────────────────────────────────────────
+   Android/Chromium: "não consigo rolar pra cima, aparece o ícone de
+   recarregar". É o PULL-TO-REFRESH do navegador, não um bug de layout.
+
+   O app é um shell de altura fixa (AppShell = 100dvh, overflow hidden) e
+   quem rola de verdade é o `<main>` interno. Só que, por padrão
+   (`overscroll-behavior: auto`), quando um scroller aninhado chega no topo
+   o resto do gesto ENCADEIA no scroller raiz — e overscroll pra baixo na
+   raiz é exatamente o gatilho do pull-to-refresh. Resultado: quem estava
+   no fim da tela e arrastava pra voltar ao topo via o app recarregar no
+   meio do caminho, perder a posição e cair no topo de novo. Parecia
+   "travado".
+
+   `overscroll-behavior-y: contain` corta o encadeamento: o gesto morre no
+   scroller que o recebeu. Vai na raiz (mata o pull-to-refresh do
+   navegador de uma vez) e no `<main>` do AppShell (impede o
+   encadeamento na origem). Não afeta o scroll normal.
+
+   Não trocar por `overflow: hidden` no body — mataria o scroll
+   programático (scrollIntoView do tour, âncora de comentário). */
+html,
+body {
+  overscroll-behavior-y: contain;
+}
