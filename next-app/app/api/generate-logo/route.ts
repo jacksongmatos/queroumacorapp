@@ -9,6 +9,7 @@ import {
   serviceErrorResponse,
 } from '@/lib/api/security';
 import { generateLogo } from '@/lib/api/_services/generate-logo';
+import { persistBrandLogos } from '@/lib/api/_services/brand-logos';
 
 export const runtime = 'edge';
 
@@ -39,7 +40,17 @@ export async function POST(request: NextRequest) {
   try {
     const result = await generateLogo({ name: body?.name, style: body?.style });
     await recordAiUsage({ userId: g.userId, feature: 'generate_logo' });
-    return NextResponse.json(result);
+    // A IA devolve base64. Materializa em arquivo no Storage e registra em
+    // `brand_logos` — é o que sobrevive à sessão e o que o /portal lê pra
+    // saber qual pintor pediu qual estampa. Best-effort: se falhar, `urls`
+    // volta como veio da IA e a tela funciona igual.
+    const urls = await persistBrandLogos({
+      userId: g.userId,
+      images: result.urls,
+      promptName: typeof body?.name === 'string' ? body.name : undefined,
+      promptStyle: typeof body?.style === 'string' ? body.style : undefined,
+    });
+    return NextResponse.json({ ...result, urls });
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
     console.warn('generate-logo crash:', e instanceof Error ? e.message : e);

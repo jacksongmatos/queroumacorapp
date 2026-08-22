@@ -26,6 +26,7 @@ import {
   uploadLogo,
   type GenerateLogoInput,
 } from '@/lib/services/aiLogo';
+import { fetchMyBrandLogos, type BrandLogo } from '@/lib/services/brandLogos';
 
 // Preço da 2ª+ geração em BRL. Bate com AI_LOGO_REGEN_PRICE_BRL do vanilla
 // (modules/ai-logo.js linha 66). Mantemos exportado pra UI mostrar no botão.
@@ -48,6 +49,11 @@ export interface UseAiLogoResult {
   genCount: number;
   // Loading da query do logo salvo.
   loadingSaved: boolean;
+  // Histórico de logos do pintor (gerados + enviados), mais novos primeiro.
+  // Vive em `brand_logos` — sobrevive a fechar o app, e é a MESMA lista que
+  // a loja vê na tela Camisetas do /portal.
+  history: BrandLogo[];
+  loadingHistory: boolean;
   // Gera variants via /api/generate-logo. Atualiza `variants` + `selectedIndex=0`.
   generate: (input: GenerateLogoInput) => Promise<string[]>;
   isGenerating: boolean;
@@ -84,6 +90,21 @@ export function useAiLogo(): UseAiLogoResult {
     staleTime: 5 * 60_000,
   });
 
+  // Histórico persistido. As linhas de IA são inseridas pelo servidor
+  // (`/api/generate-logo`), as de upload pelo próprio cliente — por isso a
+  // query é invalidada depois de generate/upload/save.
+  const historyQuery = useQuery<BrandLogo[], Error>({
+    queryKey: ['brand-logos', user?.id],
+    queryFn: () => fetchMyBrandLogos(user!.id),
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+
+  const invalidateLogos = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ['business-logo', user?.id] });
+    qc.invalidateQueries({ queryKey: ['brand-logos', user?.id] });
+  }, [qc, user?.id]);
+
   const generateMutation = useMutation<string[], Error, GenerateLogoInput>({
     mutationFn: (input) => generateLogos(input),
     onSuccess: (urls) => {
@@ -93,6 +114,8 @@ export function useAiLogo(): UseAiLogoResult {
       // novamente · R$ 1,99". Backend tem seu próprio contador (gateProAI
       // rate limit), então o state local só é hint visual.
       setGenCount((c) => c + 1);
+      // O servidor acabou de gravar as variantes em `brand_logos`.
+      invalidateLogos();
     },
   });
 
@@ -103,7 +126,7 @@ export function useAiLogo(): UseAiLogoResult {
     },
     onSuccess: () => {
       // Invalida o cache do savedLogo pra refetchar o valor canônico do banco.
-      qc.invalidateQueries({ queryKey: ['business-logo', user?.id] });
+      invalidateLogos();
     },
   });
 
@@ -114,7 +137,7 @@ export function useAiLogo(): UseAiLogoResult {
     },
     onSuccess: () => {
       // uploadLogo já salva em profiles.business_logo_url internamente.
-      qc.invalidateQueries({ queryKey: ['business-logo', user?.id] });
+      invalidateLogos();
     },
   });
 
@@ -145,6 +168,8 @@ export function useAiLogo(): UseAiLogoResult {
     isFirstFree: genCount === 0,
     genCount,
     loadingSaved: savedQuery.isLoading,
+    history: historyQuery.data ?? [],
+    loadingHistory: historyQuery.isLoading,
     generate: generateMutation.mutateAsync,
     isGenerating: generateMutation.isPending,
     generateError: generateMutation.error ?? null,

@@ -1,5 +1,33 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Logos do app aparecem no /portal (Camisetas) — 2026-08-22.** Antes, o que
+  o pintor gerava com o Seu Zé ("Gerar Logo") era uma **data URL base64** de
+  ~1.5MB que só existia no state da tela; as 2 variantes não escolhidas
+  sumiam e a loja não tinha como saber qual arte estampar. Agora
+  `/api/generate-logo` materializa cada imagem no bucket `posts`
+  (`<userId>/logos/<uuid>.png`, via service_role) e grava uma linha em
+  `brand_logos` com dono + prompt. O upload "Já tenho meu logo" faz o mesmo
+  pelo cliente (`lib/services/brandLogos.ts`) e o path deixou de ser fixo
+  (`business_logo.<ext>` com upsert apagava o arquivo antigo e invalidava o
+  histórico).
+  - **Persistir é best-effort**: se o storage/insert falhar, a rota devolve as
+    data URLs da IA como antes — nunca custar ao pintor o logo recém-gerado.
+  - `/portal` → "Camisetas Personalizadas" ganhou a galeria "Logos dos
+    pintores": foto + nome/@tag/telefone/cidade + prompt + badge IA/Enviado +
+    "★ logo atual" (comparando com `profiles.business_logo_url`), busca,
+    filtro por fonte, "Usar na camiseta" (entra no mockup e no Gerar Pedido)
+    e atalho de WhatsApp. Query em 2 passos (sem embed PostgREST), igual
+    Pedidos da Loja.
+  - No app, a tela Camisetas ganhou "🗂️ Meus logos" — o mesmo histórico,
+    tocar aplica o logo no perfil.
+  - **SQL Wave 37 — PENDENTE de rodar**:
+    `/migrations/2026-08-22-brand-logos.sql`. Cria `brand_logos` (RLS
+    owner + `is_portal_admin()` pra SELECT), índice único
+    `(user_id, md5(image_url))` pra retry não duplicar, backfill do
+    `business_logo_url` atual e **recria `cleanup_orphan_media()`** — a
+    versão da Wave 5 considerava órfão TODO arquivo do bucket `posts` sem
+    post, o que incluía os logos.
+
 - **Push com o app fechado — TUDO codado, NADA ligado (2026-08-22).** Service
   worker (`public/sw.js`, handlers `push` + `notificationclick`), rota
   `/api/push-notify` e o componente `PushOptIn` já existem. O que falta é
