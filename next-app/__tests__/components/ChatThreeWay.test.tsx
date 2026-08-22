@@ -78,6 +78,20 @@ describe('ChatConversation — 3-way', () => {
     expect(screen.getByText(/\+ Cali Colors/)).toBeTruthy();
   });
 
+  it('convite aparece mesmo sem a conversa estar no cache da lista', () => {
+    // Abrir a conversa direto (link/notificação/conversa nova) deixa a lista
+    // vazia — era esse o caso em que o convite sumia no celular.
+    state.conversations = [];
+    render(<ChatConversation convId={CONV_ID} />);
+    expect(screen.getByText('Adicione a Cali Colors ao chat')).toBeTruthy();
+  });
+
+  it('não convida a loja pra dentro do chat com a própria loja', () => {
+    state.conversations = [];
+    render(<ChatConversation convId="pintor-1_loja-1" />);
+    expect(screen.queryByText('Adicione a Cali Colors ao chat')).toBeNull();
+  });
+
   it('cliente nunca vê o convite pra chamar a loja', () => {
     mockProfile.profile = { role: 'cliente' };
     render(<ChatConversation convId={CONV_ID} />);
