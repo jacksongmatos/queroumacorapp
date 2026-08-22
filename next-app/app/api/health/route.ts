@@ -11,6 +11,9 @@
 //     (setar via Cloudflare Pages build env quando portarmos o deploy).
 
 import { NextResponse, type NextRequest } from 'next/server';
+// No edge do Cloudflare a env-var só existe no request context — process.env
+// volta vazio. Ver lib/api/env.ts.
+import { getRuntimeEnv } from '@/lib/api/env';
 
 export const runtime = 'edge';
 
@@ -22,12 +25,19 @@ const SUPABASE_TIMEOUT_MS = 2000;
 const BUILD_MARKER = 'brand-logos-2026-08-22';
 
 export async function GET(request: NextRequest) {
-  const supabaseUrl = process.env.SUPABASE_URL;
+  // Lia `process.env.SUPABASE_URL` direto e por isso reportava
+  // `supabase:false` mesmo com o banco de pé: no edge a var não está em
+  // process.env, e o projeto define `NEXT_PUBLIC_SUPABASE_URL`, não
+  // `SUPABASE_URL`. Mesma resolução que o resto da API usa.
+  const supabaseUrl =
+    getRuntimeEnv('SUPABASE_URL') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const anonKey =
+    getRuntimeEnv('SUPABASE_ANON_KEY') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
   let supabaseLive = false;
   if (supabaseUrl) {
     try {
       const res = await fetch(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/`, {
-        headers: process.env.SUPABASE_ANON_KEY ? { apikey: process.env.SUPABASE_ANON_KEY } : {},
+        headers: anonKey ? { apikey: anonKey } : {},
         signal: AbortSignal.timeout(SUPABASE_TIMEOUT_MS),
       });
       // 401/404 são respostas válidas (Supabase respondeu). Só "false"
@@ -47,8 +57,8 @@ export async function GET(request: NextRequest) {
       status: 'ok',
       time: new Date().toISOString(),
       app: 'queroumacorapp',
-      region: process.env.VERCEL_REGION || process.env.CF_REGION || 'unknown',
-      version: process.env.NEXT_PUBLIC_APP_VERSION || 'dev',
+      region: getRuntimeEnv('VERCEL_REGION') || getRuntimeEnv('CF_REGION') || 'unknown',
+      version: getRuntimeEnv('NEXT_PUBLIC_APP_VERSION') || 'dev',
       build: BUILD_MARKER,
       supabase: supabaseLive,
       request_id: requestId,
