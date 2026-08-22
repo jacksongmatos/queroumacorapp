@@ -42,6 +42,13 @@ describe('pull-to-refresh (overscroll)', () => {
     expect(appShell).toMatch(/height:\s*'100dvh'/);
   });
 
+  it('o AppShell liga o guard de toque no mesmo scroller', () => {
+    // Camada 2: o CSS cobre o encadeamento; o hook cobre o gesto que nasce
+    // com o scroller já no topo (o que sobrava no arrasto rápido).
+    expect(appShell).toMatch(/useNoPullToRefresh\(scrollRef\)/);
+    expect(appShell).toMatch(/<main[\s\S]{0,80}ref=\{scrollRef\}/);
+  });
+
   it('não trava o scroll com overflow:hidden no body', () => {
     // O tour usa scrollIntoView; travar o body mataria o scroll programático.
     const rules = stripComments(css);

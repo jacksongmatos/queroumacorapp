@@ -7,11 +7,12 @@
 // Páginas de auth (/login, /signup, /) NÃO usam AppShell.
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { isProfileComplete } from '@/lib/profileCompletion';
+import { useNoPullToRefresh } from '@/lib/hooks/useNoPullToRefresh';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
@@ -46,6 +47,12 @@ export function AppShell({
   const { profile, loading: profileLoading, error: profileError } = useProfile();
   const router = useRouter();
   const pathname = usePathname();
+  const scrollRef = useRef<HTMLElement>(null);
+
+  // Pull-to-refresh do navegador: o CSS (`overscroll-behavior-y: contain`)
+  // corta o encadeamento do gesto; este hook cancela o toque que NASCE com o
+  // scroller já no topo, que era o caso que sobrava no arrasto rápido.
+  useNoPullToRefresh(scrollRef);
 
   // Acesso sem conta REMOVIDO: telas privadas (requireAuth=true) exigem login —
   // visitante deslogado é mandado pro /login (com ?next pra voltar após logar).
@@ -104,6 +111,7 @@ export function AppShell({
       <RealtimeBindings />
       {!hideTopNav && <TopNav proStatus={proStatus} />}
       <main
+        ref={scrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden"
         style={{
           paddingBottom: hideBottomNav
