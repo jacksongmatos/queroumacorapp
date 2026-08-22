@@ -1,5 +1,26 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Push com o app fechado — TUDO codado, NADA ligado (2026-08-22).** Service
+  worker (`public/sw.js`, handlers `push` + `notificationclick`), rota
+  `/api/push-notify` e o componente `PushOptIn` já existem. O que falta é
+  configuração, em 4 passos: (1) gerar VAPID (`npx web-push
+  generate-vapid-keys`); (2) 4 envs no CF Pages Production —
+  `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (**plain text**, é lida no build),
+  `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `PUSH_INTERNAL_SECRET` — e refazer o
+  deploy; (3) rodar `/migrations/2026-06-11-push-subscriptions.sql` +
+  os 2 inserts em `app_settings` (`push_notify_url`, `push_internal_secret`,
+  este igual ao do CF); (4) cada aparelho toca "Ativar notificações" no
+  perfil. **Sem a env pública o `PushOptIn` retorna null** — é por isso que a
+  opção "não aparece" no celular.
+  - **SQL Wave 36 — PENDENTE.** O gatilho de push escuta `notifications`, e
+    só `likes`/`comments` criavam linha lá: **mensagem de chat não gerava
+    notificação nenhuma**, então nunca viraria push. Migration em
+    `/migrations/2026-08-22-notify-on-message.sql` cria
+    `trg_notify_on_message` (agrupa rajada: pula se já há aviso não lido do
+    mesmo remetente nos últimos 5 min; `EXCEPTION WHEN OTHERS` pra falha em
+    notificar nunca derrubar o INSERT da mensagem) e recria
+    `dispatch_push_on_notification` mandando `type='message'` pro `/chat`.
+  - iOS: só 16.4+ e **só em modo PWA** (Adicionar à Tela de Início).
 - **Edge do Cloudflare: secret NÃO chega em `process.env` (2026-08-22).**
   Descoberto depurando o portal admin em produção. As variáveis do painel do
   Pages só existem no request context, publicado no symbol global
