@@ -81,8 +81,20 @@ export function ShirtCustomizer() {
       return;
     }
     try {
-      await generate({ name: logoText.trim(), style: logoStyle.trim() || undefined });
-      showToast('Logos gerados!', 'success');
+      const { urls, archived } = await generate({
+        name: logoText.trim(),
+        style: logoStyle.trim() || undefined,
+      });
+      // `archived` diz quantas o servidor guardou no acervo (o que a loja vê).
+      // -1 = backend antigo, que não informa; aí não prometemos nada.
+      if (archived >= 0 && archived < urls.length) {
+        showToast(
+          `${urls.length} logos gerados, mas não deu pra salvar no acervo. Use agora e avise a loja.`,
+          'info',
+        );
+      } else {
+        showToast('Logos gerados e salvos!', 'success');
+      }
     } catch (e) {
       showToast((e as Error).message || 'Erro ao gerar logo', 'error');
     }

@@ -211,7 +211,8 @@ describe('generateLogos', () => {
       slogan: 'cores que vivem',
       style: 'flat',
     });
-    expect(out).toEqual(urls);
+    // `archived` = -1 quando o backend não informa (build antigo da rota).
+    expect(out).toEqual({ urls, archived: -1 });
 
     // Verifica payload do POST.
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -234,6 +235,12 @@ describe('generateLogos', () => {
     expect(parsed.name).toBe('Cali Colors');
     expect(parsed.slogan).toBe('cores que vivem');
     expect(parsed.style).toBe('flat');
+  });
+
+  it('propaga `archived` do backend (quantas foram pro acervo)', async () => {
+    mockFetchJSON({ urls: ['https://cdn/a.png'], archived: 1 });
+    const out = await generateLogos({ name: 'Cali Colors' });
+    expect(out.archived).toBe(1);
   });
 
   it('HTTP 401 com error body → NetworkError com a message do backend', async () => {

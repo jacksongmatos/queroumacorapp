@@ -38,9 +38,18 @@ export interface GenerateLogoInput {
 // como string[]; outros campos (model, prompt) são metadata pra debug.
 interface GenerateLogoResponse {
   urls: string[];
+  // Quantas das imagens foram arquivadas em `brand_logos` pelo servidor.
+  // Ausente em builds antigos da rota — por isso o parse tolera undefined.
+  archived?: number;
   model?: string;
   prompt?: string;
   error?: string;
+}
+
+export interface GenerateLogosResult {
+  urls: string[];
+  /** Quantas viraram arquivo + linha no acervo. -1 = servidor não informou. */
+  archived: number;
 }
 
 /**
@@ -57,7 +66,7 @@ interface GenerateLogoResponse {
  */
 export async function generateLogos(
   input: GenerateLogoInput,
-): Promise<string[]> {
+): Promise<GenerateLogosResult> {
   const name = (input.name || '').trim();
   if (!name) throw new ValidationError('Digite o nome do logo');
 
@@ -105,7 +114,10 @@ export async function generateLogos(
     throw new NetworkError('Resposta inválida do servidor');
   }
 
-  return body.urls;
+  return {
+    urls: body.urls,
+    archived: typeof body.archived === 'number' ? body.archived : -1,
+  };
 }
 
 /**

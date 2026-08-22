@@ -25,6 +25,7 @@ import {
   saveLogo,
   uploadLogo,
   type GenerateLogoInput,
+  type GenerateLogosResult,
 } from '@/lib/services/aiLogo';
 import { fetchMyBrandLogos, type BrandLogo } from '@/lib/services/brandLogos';
 
@@ -55,7 +56,9 @@ export interface UseAiLogoResult {
   history: BrandLogo[];
   loadingHistory: boolean;
   // Gera variants via /api/generate-logo. Atualiza `variants` + `selectedIndex=0`.
-  generate: (input: GenerateLogoInput) => Promise<string[]>;
+  // Devolve também quantas o servidor arquivou (pra UI dizer se o acervo
+  // recebeu ou não).
+  generate: (input: GenerateLogoInput) => Promise<GenerateLogosResult>;
   isGenerating: boolean;
   generateError: Error | null;
   // Seleciona um variant da lista atual.
@@ -105,9 +108,13 @@ export function useAiLogo(): UseAiLogoResult {
     qc.invalidateQueries({ queryKey: ['brand-logos', user?.id] });
   }, [qc, user?.id]);
 
-  const generateMutation = useMutation<string[], Error, GenerateLogoInput>({
+  const generateMutation = useMutation<
+    GenerateLogosResult,
+    Error,
+    GenerateLogoInput
+  >({
     mutationFn: (input) => generateLogos(input),
-    onSuccess: (urls) => {
+    onSuccess: ({ urls }) => {
       setVariants(urls);
       setSelectedIndex(urls.length > 0 ? 0 : null);
       // Conta IMEDIATAMENTE no client pra UI atualizar o botão "Gerar

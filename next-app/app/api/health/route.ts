@@ -16,6 +16,11 @@ export const runtime = 'edge';
 
 const SUPABASE_TIMEOUT_MS = 2000;
 
+// Marcador do build. Serve pra responder "o deploy já subiu?" sem depender
+// de env-var nenhuma: basta abrir /api/health e comparar com o que o repo
+// tem. Bumpar a cada feature cujo deploy a gente precise confirmar.
+const BUILD_MARKER = 'brand-logos-2026-08-22';
+
 export async function GET(request: NextRequest) {
   const supabaseUrl = process.env.SUPABASE_URL;
   let supabaseLive = false;
@@ -44,6 +49,7 @@ export async function GET(request: NextRequest) {
       app: 'queroumacorapp',
       region: process.env.VERCEL_REGION || process.env.CF_REGION || 'unknown',
       version: process.env.NEXT_PUBLIC_APP_VERSION || 'dev',
+      build: BUILD_MARKER,
       supabase: supabaseLive,
       request_id: requestId,
     },
