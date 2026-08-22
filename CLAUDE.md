@@ -1,5 +1,48 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **WebView: "erro 500 e não abre mais" / "sem internet" — 4 causas
+  corrigidas (2026-08-22).** Sintomas: no Android, sair e voltar (ou no meio
+  do uso) dava 500 e o app não abria mais; no iOS, "não tem internet" ao
+  tentar conectar.
+  - **Cache envenenado (a causa do 500 permanente).** O `sw.js` gravava a
+    resposta de NAVEGAÇÃO sem olhar o status: um 500 passageiro do Cloudflare
+    virava conteúdo permanente do cache e voltava a cada falha de rede — e o
+    WebView do Android SEMPRE falha por um instante ao voltar do background
+    (rádio ainda subindo). Internet boa, erro vindo do disco. Agora
+    `isCacheable()` (só 200, não-redirecionado, não-opaco) barra a escrita,
+    `matchUsable()` nunca devolve resposta de erro guardada, e o último
+    recurso é uma página "Sem conexão" gerada na hora com botão de recarregar.
+    **`CACHE_VERSION` foi pra `quc-v3` — é o bump que limpa os caches já
+    envenenados de quem está preso hoje** (o `activate` apaga toda chave fora
+    da versão). Bumpar de novo em qualquer mudança de estratégia do SW.
+  - **Sem retentativa.** Navegação agora repete UMA vez (600ms) em falha de
+    rede e em 5xx. Cobre a retomada do WebView e cold start ruim do edge.
+    `install` também deixou de ser all-or-nothing (`addAll` → puts tolerantes):
+    um asset 404 abortava o install inteiro e o SW nunca ativava.
+  - **`getSession()` sem teto = "Carregando…" eterno.** Não é só leitura de
+    localStorage — com token vencido ele faz refresh pela rede, e no WebView
+    esse fetch fica pendurado pra sempre quando o sistema congela a tela.
+    Como `loading` só virava false no `.then`, o `AppShell` ficava travado.
+    Agora corre contra `SESSION_TIMEOUT_MS` (8s), refaz a leitura em
+    `visibilitychange`/`online`/`pageshow`, e o `/login` redireciona sozinho
+    se a sessão chegar depois. **Qualquer await de rede no caminho de boot
+    precisa de timeout — no WebView promessa pendurada não rejeita.**
+  - **iOS: App-Bound Domains sem o Supabase.** `WKAppBoundDomains` +
+    `limitsNavigationsToAppBoundDomains: true` fazem a WKWebView SÓ enxergar
+    os domínios da lista, que tinha só `queroumacor.com.br`. Requisição
+    bloqueada chega no JS como falha de rede genérica → `errors-friendly.ts`
+    traduz pra "Sem conexão. Verifique sua internet". Supabase adicionado ao
+    plist e ao `allowNavigation`. Limite da Apple: 10 domínios.
+  - **Pendências conhecidas (não corrigidas aqui):** (1) `webDir` aponta pra
+    `next-app/.next/static`, que NÃO é web build (sem `index.html`) — não
+    existe bundle local de fallback, então sem rede na abertura o app não tem
+    uma tela sequer pra mostrar; (2) login Google/Apple navega a própria
+    WebView pro provedor — o Google recusa OAuth em WebView embarcada
+    (`disallowed_useragent`) e o App-Bound Domains do iOS bloqueia a
+    navegação; o certo é `@capacitor/browser` + deep link de callback.
+  - Testes em `next-app/__tests__/sw.test.ts` (11): carregam o `sw.js` num
+    escopo falso e travam a regra "erro nunca entra nem sai do cache".
+
 - **Logos do app aparecem no /portal (Camisetas) — 2026-08-22.** Antes, o que
   o pintor gerava com o Seu Zé ("Gerar Logo") era uma **data URL base64** de
   ~1.5MB que só existia no state da tela; as 2 variantes não escolhidas

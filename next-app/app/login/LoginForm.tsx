@@ -7,7 +7,7 @@
 //  - sucesso redireciona pra `/feed` (vanilla: `showScreen('feed')` em
 //    head.js:1008 após doLoginSupabase);
 //  - reset de senha vive em rota separada (`/reset-password`) — ver TODO.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -48,8 +48,18 @@ export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeNext(searchParams.get('next'));
-  const { signIn } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // Já logado nesta tela = chegou aqui por engano. Acontece quando o
+  // AuthProvider destrava por timeout (WebView que voltou do background com a
+  // rede ainda fria) e manda pro /login antes da sessão terminar de resolver:
+  // segundos depois o onAuthStateChange entrega o usuário e, sem este efeito,
+  // a pessoa ficaria encarando o formulário de login já estando autenticada.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    router.replace(next);
+  }, [authLoading, user, next, router]);
   const [showPw, setShowPw] = useState(false);
   const {
     register,
