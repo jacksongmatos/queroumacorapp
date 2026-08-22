@@ -117,7 +117,13 @@ export async function persistBrandLogos(
   args: PersistBrandLogosArgs
 ): Promise<string[]> {
   const { userId, images, promptName, promptStyle } = args;
-  if (!userId || images.length === 0) return images;
+  if (images.length === 0) return images;
+  if (!userId) {
+    // Não deveria acontecer (o gate de auth roda antes), mas se acontecer a
+    // arte some sem deixar rastro — daí o alerta em vez de return mudo.
+    reportLoss('sem userId — geração não arquivada', { images: images.length });
+    return images;
+  }
 
   const serviceKey = getServiceKey();
   if (!serviceKey) {

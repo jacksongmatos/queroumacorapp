@@ -50,7 +50,11 @@ export async function POST(request: NextRequest) {
       promptName: typeof body?.name === 'string' ? body.name : undefined,
       promptStyle: typeof body?.style === 'string' ? body.style : undefined,
     });
-    return NextResponse.json({ ...result, urls });
+    // `archived` = quantas das 3 viraram arquivo+linha. Serve de sonda:
+    // dá pra ver na resposta se o arquivamento está funcionando sem abrir o
+    // banco (foi o que faltou pra diagnosticar o 1º deploy).
+    const archived = urls.filter((u) => u.includes('/logos/')).length;
+    return NextResponse.json({ ...result, urls, archived });
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
     console.warn('generate-logo crash:', e instanceof Error ? e.message : e);
