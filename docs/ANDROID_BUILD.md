@@ -309,6 +309,61 @@ repo (PWA Next.js) não roda Bubblewrap.
 
 ---
 
+## Wrapper WebView: desligar o pull-to-refresh nativo (2026-08-22)
+
+> Aplica-se ao AAB WebView que está em teste hoje — que **não sai deste
+> repo**: o `package.json` só tem `@capacitor/ios`, não existe pasta
+> `android/`, e o caminho TWA acima é scaffold. Quem mantiver o projeto
+> Android precisa aplicar isto lá.
+
+**Sintoma:** arrastar o dedo pra baixo mostra o círculo de recarregar e a
+tela reinicia — em QUALQUER posição da página, não só no topo. Só no app;
+pelo Chrome o mesmo site rola normal.
+
+**Causa:** o projeto Android envolve a WebView num `SwipeRefreshLayout`.
+Ele decide se dispara chamando `canChildScrollUp()`, que pergunta à WebView
+se o documento ainda pode subir — e a resposta é SEMPRE não, porque **a
+WebView nunca rola**: o app é um shell de `100dvh` com `overflow:hidden` e
+quem rola é o `<main>` por dentro do HTML (ver `components/AppShell.tsx`).
+Pro nativo o documento está no topo o tempo todo, então o gesto de
+recarregar fica armado em toda a tela. Arrasto lento a WebView consome
+primeiro; arrasto rápido passa do touch slop e o nativo intercepta antes.
+
+**Nada de CSS ou JS resolve** — o `SwipeRefreshLayout` intercepta o toque
+antes de a WebView receber. O lado web já faz a sua parte para navegador
+comum (`overscroll-behavior-y: contain` + o guard `useNoPullToRefresh`), e
+é por isso que no Chrome não acontece.
+
+**Correção**, no projeto Android:
+
+```bash
+grep -rn "SwipeRefresh" app/src/main/
+```
+
+- Achou no layout (`activity_main.xml` e afins): remova o
+  `<androidx.swiperefreshlayout.widget.SwipeRefreshLayout>` deixando a
+  `WebView` como filha direta do container.
+- Prefere manter o layout: desabilite na Activity.
+
+```kotlin
+findViewById<SwipeRefreshLayout>(R.id.swipeRefresh).isEnabled = false
+```
+
+```java
+((SwipeRefreshLayout) findViewById(R.id.swipeRefresh)).setEnabled(false);
+```
+
+Gerado por painel (Median/GoNative/WebIntoApp e similares): a opção
+costuma se chamar "Pull to refresh" e vem LIGADA por padrão — desmarque e
+regenere o AAB.
+
+**Só reintroduzir o gesto** se antes o scroll passar a ser do documento em
+vez do `<main>` — aí o `canChildScrollUp()` volta a responder a verdade.
+É reforma no `AppShell` (TopNav/BottomNav fixos dependem do scroller
+interno), não vale só por isso.
+
+---
+
 ## Checklist final antes de ir pro Production
 
 - [ ] Keystore guardada em cofre (com senha)
@@ -329,3 +384,5 @@ repo (PWA Next.js) não roda Bubblewrap.
 - [ ] Versão semantic: bumpou `appVersion` + `appVersionCode` no
       `twa-manifest.json`
 - [ ] Release notes em pt-BR escritas
+- [ ] Pull-to-refresh nativo desligado no wrapper WebView (ver seção
+      acima) — com ele ligado, qualquer arrasto pra baixo recarrega a tela
