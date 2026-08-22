@@ -1,72 +1,82 @@
-import { getRequestContext } from '@cloudflare/next-on-pages';
+// env.ts — leitura de variáveis de ambiente no edge do Cloudflare Pages.
+//
+// O ponto central: os secrets definidos no painel do Pages NÃO chegam em
+// `process.env` no edge. Eles vivem só no request context, que o runtime
+// publica num symbol global. Confirmado depurando o portal admin em
+// produção.
+//
+// Lemos esse symbol DIRETO, sem importar `@cloudflare/next-on-pages`: o
+// entrypoint daquele pacote faz `require('server-only')`, que não está
+// instalado, e isso derrubava a carga de ~40 arquivos de teste com
+// "Cannot find module 'server-only'" (197 testes) — a suíte inteira que
+// toca `security.ts` parava de rodar.
+//
+// Fora de um request handler (build, dev local, vitest) o symbol não
+// existe e caímos em `process.env`, que é onde as variáveis estão nesses
+// contextos.
+//
+// Use estas funções — nunca `process.env` direto — pra qualquer secret ou
+// configuração lida em runtime.
+
+/** Symbol onde o runtime do Cloudflare publica o contexto da request. */
+const CF_REQUEST_CONTEXT = Symbol.for('__cloudflare-request-context__');
+
+interface CloudflareRequestContext {
+  env?: Record<string, unknown>;
+}
 
 /**
- * Runtime environment variable accessor for Cloudflare Pages.
-  * 
-   * In Cloudflare Pages edge runtime, environment variables must be accessed via
-    * getRequestContext().env, not process.env. This helper provides a fallback to
-     * process.env for local development and build time.
-      * 
-       * Always use this function (or specialized helpers below) instead of reading
-        * process.env directly for secrets and runtime configuration.
-         */
-         export function getRuntimeEnv(key: string): string | undefined {
-           try {
-               const { env } = getRequestContext();
-                   const value = env?.[key as keyof typeof env];
-                       if (value !== undefined) return String(value);
-                         } catch {
-                             // getRequestContext() throws outside request handlers — fallback to process.env
-                               }
-                                 return process.env[key];
-                                 }
+ * Lê uma variável de ambiente. Prioridade: contexto da request do
+ * Cloudflare (única fonte no edge) → `process.env` (build/dev/testes).
+ */
+export function getRuntimeEnv(key: string): string | undefined {
+  try {
+    const ctx = (globalThis as Record<symbol, unknown>)[CF_REQUEST_CONTEXT] as
+      | CloudflareRequestContext
+      | undefined;
+    const value = ctx?.env?.[key];
+    if (value !== undefined && value !== null) return String(value);
+  } catch {
+    // Qualquer coisa estranha no globalThis não pode derrubar a leitura —
+    // o fallback abaixo resolve.
+  }
+  return process.env[key];
+}
 
-                                 /**
-                                  * Get Supabase service role key (sensitive secret).
-                                   * Only use in server-side code with proper authorization checks.
-                                    */
-                                    export function getSupabaseServiceKey(): string | undefined {
-                                      return getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY');
-                                      }
+/**
+ * Chave service role do Supabase (secret sensível). Só em código
+ * server-side, e sempre depois de checar autorização.
+ */
+export function getSupabaseServiceKey(): string | undefined {
+  return getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY');
+}
 
-                                      /**
-                                       * Get OpenAI API key.
-                                        */
-                                        export function getOpenAiKey(): string | undefined {
-                                          return getRuntimeEnv('OPENAI_API_KEY');
-                                          }
+/** Chave da OpenAI. */
+export function getOpenAiKey(): string | undefined {
+  return getRuntimeEnv('OPENAI_API_KEY');
+}
 
-                                          /**
-                                           * Get Google Gemini API key.
-                                            */
-                                            export function getGeminiKey(): string | undefined {
-                                              return getRuntimeEnv('GEMINI_API_KEY');
-                                              }
+/** Chave do Google Gemini. */
+export function getGeminiKey(): string | undefined {
+  return getRuntimeEnv('GEMINI_API_KEY');
+}
 
-                                              /**
-                                               * Get MercadoPago access token.
-                                                */
-                                                export function getMercadoPagoToken(): string | undefined {
-                                                  return getRuntimeEnv('MP_ACCESS_TOKEN');
-                                                  }
+/** Access token do Mercado Pago. */
+export function getMercadoPagoToken(): string | undefined {
+  return getRuntimeEnv('MP_ACCESS_TOKEN');
+}
 
-                                                  /**
-                                                   * Get MercadoPago webhook secret.
-                                                    */
-                                                    export function getMercadoPagoWebhookSecret(): string | undefined {
-                                                      return getRuntimeEnv('MP_WEBHOOK_SECRET');
-                                                      }
+/** Secret usado pra validar o webhook do Mercado Pago. */
+export function getMercadoPagoWebhookSecret(): string | undefined {
+  return getRuntimeEnv('MP_WEBHOOK_SECRET');
+}
 
-                                                      /**
-                                                       * Get Supabase anonymous key (public key, safe to expose).
-                                                        */
-                                                        export function getSupabaseAnonKey(): string | undefined {
-                                                          return getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
-                                                          }
+/** Chave anônima do Supabase (pública, pode aparecer no client). */
+export function getSupabaseAnonKey(): string | undefined {
+  return getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+}
 
-                                                          /**
-                                                           * Get Supabase URL.
-                                                            */
-                                                            export function getSupabaseUrl(): string | undefined {
-                                                              return getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
-                                                              }
+/** URL do projeto Supabase. */
+export function getSupabaseUrl(): string | undefined {
+  return getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
+}

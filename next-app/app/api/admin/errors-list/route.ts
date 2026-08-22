@@ -15,11 +15,14 @@ import {
 } from '@/lib/api/security';
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import { listErrors } from '@/lib/api/_services/admin-errors-list';
+// No edge do Cloudflare a env-var só existe dentro do request handler —
+// `process.env` volta vazio aqui. Ver lib/api/env.ts.
+import { getRuntimeEnv } from '@/lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!getServiceKey() || !process.env.ADMIN_EMAILS) {
+  if (!getServiceKey() || !getRuntimeEnv('ADMIN_EMAILS')) {
     return jsonResponse({ error: 'Dashboard admin não configurado (faltam env vars)' }, 503);
   }
   let body: Record<string, unknown>;

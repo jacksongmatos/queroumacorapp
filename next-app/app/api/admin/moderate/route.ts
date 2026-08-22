@@ -16,11 +16,14 @@ import {
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import { moderateAction, type ModerateAction } from '@/lib/api/_services/admin-moderate';
 import { logAuditEvent } from '@/lib/api/audit';
+// No edge do Cloudflare a env-var só existe dentro do request handler —
+// `process.env` volta vazio aqui. Ver lib/api/env.ts.
+import { getRuntimeEnv } from '@/lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!getServiceKey() || !process.env.ADMIN_EMAILS) {
+  if (!getServiceKey() || !getRuntimeEnv('ADMIN_EMAILS')) {
     return jsonResponse({ error: 'Moderação admin não configurada' }, 503);
   }
   let body: { action?: unknown; postId?: unknown; accessToken?: unknown };

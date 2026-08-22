@@ -30,13 +30,16 @@ const MAX_JSON_BYTES = 6 * 1024 * 1024;
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import { uploadStyleRef } from '@/lib/api/_services/upload-style-ref';
 import { logAuditEvent } from '@/lib/api/audit';
+// No edge do Cloudflare a env-var só existe dentro do request handler —
+// `process.env` volta vazio aqui. Ver lib/api/env.ts.
+import { getRuntimeEnv } from '@/lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, { endpoint: 'upload-style-ref', limit: 20 });
   if (limited) return limited;
-  if (!process.env.ADMIN_EMAILS) {
+  if (!getRuntimeEnv('ADMIN_EMAILS')) {
     return jsonResponse({ error: 'ADMIN_EMAILS não configurado' }, 503);
   }
   const contentType = request.headers.get('content-type') || '';
