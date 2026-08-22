@@ -7,7 +7,7 @@
 // match com o padrão do vanilla, que mantinha tudo em `_admin.js`.
 
 import { ServiceError, getSupabaseUrl } from '../security';
-
+import { getRuntimeEnv } from '../env';
 export { isAdminEmail, ensureAdminEmail, getServiceKey } from '../security';
 
 const AUTH_TIMEOUT_MS = 10000;
@@ -25,10 +25,10 @@ export async function verifyAdminToken(
   if (!accessToken) throw new ServiceError('sem token', 401);
   const supaUrl = getSupabaseUrl();
   const anonKey =
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
+    getRuntimeEnv('SUPABASE_ANON_KEY') ||
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY') ||
     '';
 
   let res: Response;
@@ -40,7 +40,7 @@ export async function verifyAdminToken(
   } catch {
     throw new ServiceError('falha ao validar token', 401);
   }
-  if (!res.ok) throw new ServiceError('token inválido', 401);
+  if (!res.ok) throw new ServiceError('token inválido (auth ' + res.status + ': ' + (await res.text()).slice(0, 120) + ')', 401);
   const data = (await res.json()) as { id?: string; email?: string };
   return {
     callerId: data?.id || '',

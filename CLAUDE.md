@@ -1,5 +1,24 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Edge do Cloudflare: secret NÃO chega em `process.env` (2026-08-22).**
+  Descoberto depurando o portal admin em produção. As variáveis do painel do
+  Pages só existem no request context, publicado no symbol global
+  `Symbol.for('__cloudflare-request-context__')`. **Ler sempre por
+  `getRuntimeEnv()` (`lib/api/env.ts`), nunca `process.env` direto**, pra
+  qualquer secret/config de runtime — ele tenta o symbol e cai pro
+  `process.env` (build, dev, vitest).
+  - `env.ts` NÃO pode importar `@cloudflare/next-on-pages`: o entrypoint faz
+    `require('server-only')`, pacote não instalado, e isso derruba a CARGA de
+    ~40 arquivos de teste ("Cannot find module 'server-only'" → 197 testes a
+    mais quebrados). Lemos o symbol na mão.
+  - Corolário que causou o 403 do portal: nada que dependa de env pode ser
+    lido no MODULE-LOAD — no boot não existe request, logo não existe env.
+    `admin-config.ts` parseava `ADMIN_EMAILS` no boot e o cache nascia
+    sempre vazio → `isAdminEmail()` sempre false → "não autorizado (email
+    não admin)". Virou preguiçoso (parse na 1ª chamada).
+  - Baseline da suíte: **11 falhas / 1079 testes** (mocks de supabase +
+    matchers de categoria, pré-existentes). Se passar disso, algo do edge
+    voltou a quebrar a carga dos testes.
 - **Chat 3-way (cliente + pintor + loja) — 2026-08-22.** Não existe tabela de
   conversas: tudo é `messages` com `conversation_id` texto (`uuidA_uuidB`
   ordenado no 1:1, prefixo `3way:` quando criado por essa via,

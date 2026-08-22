@@ -1,15 +1,18 @@
-// admin-config.ts — cache de `ADMIN_EMAILS` lido uma vez por cold-start.
+// admin-config.ts — cache de `ADMIN_EMAILS`, preenchido na PRIMEIRA chamada
+// de `isAdminEmail` (não no module-load).
 //
 // Motivação (R-H6 do REMEDIATION_PLAN):
 //   - `security.ts` parseava `ADMIN_EMAILS` a cada chamada de `isAdminEmail`,
-//     o que é desperdício (rota admin chama N vezes por request) e impede
-//     validação no startup. Caching aqui transforma `isAdminEmail` em
-//     `Set.has` O(1) e centraliza a parsing/validação.
-//   - Em produção, emitimos `console.error` se a env-var estiver
-//     ausente/vazia — combinado com `assertProductionEnvs` no
-//     `security.ts`, deixa rastro óbvio de misconfig sem derrubar o edge
-//     inteiro (size=0 garante que nenhum email vira admin sem precisar
-//     bloquear o boot).
+//     o que é desperdício (rota admin chama N vezes por request). Caching
+//     aqui transforma `isAdminEmail` em `Set.has` O(1) e centraliza a
+//     parsing/validação.
+//
+// Por que preguiçoso e não no module-load: no edge do Cloudflare Pages as
+// variáveis de ambiente só existem DENTRO de um request handler — no
+// module-load não há contexto de request pra ler. Com o parse no boot, o
+// cache nascia sempre vazio e `isAdminEmail()` respondia false pra todo
+// mundo; era exatamente o 403 "não autorizado (email não admin)" que o
+// portal dava. Ver `getRuntimeEnv` em `./env`.
 //
 // Formato esperado: comma-separated, com ou sem espaços. Entradas
 // inválidas (sem `@` ou sem TLD) são ignoradas com warn — preferimos
@@ -20,10 +23,12 @@
 // imutáveis por cold-start. Quando o operador roda re-deploy com nova
 // lista, novos edge workers leem a versão nova.
 
+import { getRuntimeEnv } from './env';
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function parseAdminEmails(): Set<string> {
-  const raw = (process.env.ADMIN_EMAILS || '')
+  const raw = (getRuntimeEnv('ADMIN_EMAILS') || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
@@ -38,43 +43,49 @@ function parseAdminEmails(): Set<string> {
   return new Set(valid);
 }
 
-const ADMIN_EMAILS_CACHE = parseAdminEmails();
+let ADMIN_EMAILS_CACHE: Set<string> | null = null;
 
-// Boot-time validation só em produção. `assertProductionEnvs()` no
-// `security.ts` cobre as envs Supabase obrigatórias; aqui só logamos —
-// throw aqui derruba TODO request edge, e preferimos size=0 (= nenhum
-// admin) a downtime total. Em vitest skipa via VITEST flags.
-if (
-  process.env.NODE_ENV === 'production' &&
-  ADMIN_EMAILS_CACHE.size === 0 &&
-  process.env.VITEST !== 'true' &&
-  !process.env.VITEST_WORKER_ID
-) {
-  console.error(
-    '[admin-config] ADMIN_EMAILS ausente/vazio em produção — ' +
-      'nenhum email será reconhecido como admin via env. Painéis admin ' +
-      'continuam acessíveis pra profiles.portal_access=true (auth-server).',
-  );
+/**
+ * Preenche o cache na primeira chamada. O aviso de misconfig sai daqui (e
+ * não do module-load) pelo mesmo motivo do parse: no edge, é dentro do
+ * request que dá pra saber se a env existe. Loga uma vez só — throw
+ * derrubaria TODO request edge, e um Set vazio (= nenhum admin via env) é
+ * melhor que downtime total. Em vitest o aviso é suprimido.
+ */
+function getCache(): Set<string> {
+  if (ADMIN_EMAILS_CACHE) return ADMIN_EMAILS_CACHE;
+  ADMIN_EMAILS_CACHE = parseAdminEmails();
+  if (
+    process.env.NODE_ENV === 'production' &&
+    ADMIN_EMAILS_CACHE.size === 0 &&
+    process.env.VITEST !== 'true' &&
+    !process.env.VITEST_WORKER_ID
+  ) {
+    console.error(
+      '[admin-config] ADMIN_EMAILS ausente/vazio em produção — ' +
+        'nenhum email será reconhecido como admin via env. Painéis admin ' +
+        'continuam acessíveis pra profiles.portal_access=true (auth-server).',
+    );
+  }
+  return ADMIN_EMAILS_CACHE;
 }
 
 /**
- * Checa se `email` está em `ADMIN_EMAILS` (case-insensitive). Lê do cache
- * inicializado no module-load — O(1).
+ * Checa se `email` está em `ADMIN_EMAILS` (case-insensitive). O(1) depois
+ * da primeira chamada.
  */
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  return ADMIN_EMAILS_CACHE.has(email.toLowerCase());
+  return getCache().has(email.toLowerCase());
 }
 
 /**
  * Resetar cache para testes. Uso:
  *   __resetAdminEmailsCacheForTests({ raw: 'a@b.co,c@d.co' });
  *
- * Sem `raw` apenas re-lê `process.env.ADMIN_EMAILS` atual.
+ * Sem `raw` apenas re-lê `ADMIN_EMAILS` atual.
  */
 export function __resetAdminEmailsCacheForTests(opts?: { raw?: string }): void {
   if (opts?.raw !== undefined) process.env.ADMIN_EMAILS = opts.raw;
-  const fresh = parseAdminEmails();
-  ADMIN_EMAILS_CACHE.clear();
-  for (const e of fresh) ADMIN_EMAILS_CACHE.add(e);
+  ADMIN_EMAILS_CACHE = parseAdminEmails();
 }
