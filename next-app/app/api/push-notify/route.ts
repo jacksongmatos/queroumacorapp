@@ -20,6 +20,10 @@
 import type { NextRequest } from 'next/server';
 import { checkRateLimit, jsonResponse, rateLimitResponse } from '@/lib/api/security';
 import { pushNotifySchema } from '@/lib/api/schemas/push-notify';
+// No edge do Cloudflare os secrets do painel NÃO estão em `process.env` —
+// só no request context. Ver lib/api/env.ts.
+import { getRuntimeEnv, getSupabaseUrl } from '@/lib/api/env';
+import { getServiceKey } from '@/lib/api/security';
 
 export const runtime = 'edge';
 
@@ -43,7 +47,7 @@ const ENDPOINT_TIMEOUT_MS = 8000;
 
 export async function POST(request: NextRequest): Promise<Response> {
   // ─── 1) Auth interno (constant-time-ish compare) ─────────────────────────
-  const internalSecret = process.env.PUSH_INTERNAL_SECRET;
+  const internalSecret = getRuntimeEnv('PUSH_INTERNAL_SECRET');
   if (!internalSecret) {
     // Sem secret configurado — fail closed pra evitar abuso.
     return jsonResponse({ ok: false, error: 'push_disabled' }, 503);
@@ -100,19 +104,21 @@ export async function POST(request: NextRequest): Promise<Response> {
   };
 
   // ─── 4) VAPID config ──────────────────────────────────────────────────────
-  const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY;
-  const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
-  const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:loja@calicolors.com.br';
+  const vapidPublic =
+    getRuntimeEnv('NEXT_PUBLIC_VAPID_PUBLIC_KEY') || getRuntimeEnv('VAPID_PUBLIC_KEY');
+  const vapidPrivate = getRuntimeEnv('VAPID_PRIVATE_KEY');
+  const vapidSubject = getRuntimeEnv('VAPID_SUBJECT') || 'mailto:loja@calicolors.com.br';
   if (!vapidPublic || !vapidPrivate) {
     return jsonResponse({ ok: false, error: 'vapid_not_configured' }, 503);
   }
 
   // ─── 5) Lê subscriptions via service_role ────────────────────────────────
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE;
+  // `getSupabaseUrl()` lê `NEXT_PUBLIC_SUPABASE_URL`, que é o nome que o
+  // projeto realmente usa — a versão anterior procurava `SUPABASE_URL`, que
+  // nunca existiu, então esta rota respondia 503 mesmo com tudo configurado.
+  // `getServiceKey()` cobre os três nomes possíveis da service role.
+  const supabaseUrl = getSupabaseUrl() || getRuntimeEnv('SUPABASE_URL');
+  const serviceKey = getServiceKey();
   if (!supabaseUrl || !serviceKey) {
     return jsonResponse({ ok: false, error: 'supabase_not_configured' }, 503);
   }
