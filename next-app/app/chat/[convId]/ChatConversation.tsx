@@ -47,7 +47,6 @@ export function ChatConversation({ convId }: ChatConversationProps) {
   const { user, loading: authLoading } = useAuth();
   const { profile } = useProfile();
   const qc = useQueryClient();
-  const is3way = is3WayConvId(convId);
   const [addingStore, setAddingStore] = useState(false);
 
   // Detecta se eu sou pintor (profissional) — só pintor pode adicionar
@@ -102,6 +101,7 @@ export function ChatConversation({ convId }: ChatConversationProps) {
     [conversations, convId],
   );
 
+
   // Fallback do header pra conversa NOVA (sem histórico → não está no cache de
   // useConversations → convMeta undefined). Sem isso o header ficava preso em
   // "Carregando…" e o avatar em "?" (BUG33). Busca o peer direto.
@@ -119,7 +119,10 @@ export function ChatConversation({ convId }: ChatConversationProps) {
         .maybeSingle();
       return (data as { name: string | null; avatar_url: string | null; tag: string | null } | null) ?? null;
     },
-    enabled: !convMeta && !!otherId && !is3way,
+    // Aqui o que importa é o FORMATO do convId (o strip do prefixo muda o
+    // otherId), não se a loja entrou na conversa — por isso a checagem do
+    // prefixo direto, e não o `is3way` derivado mais abaixo.
+    enabled: !convMeta && !!otherId && !is3WayConvId(convId),
     staleTime: 5 * 60_000,
   });
   // Nome/avatar/tag resolvidos: convMeta (cache da lista) tem prioridade;
@@ -130,6 +133,21 @@ export function ChatConversation({ convId }: ChatConversationProps) {
 
   // Mensagens da conversa.
   const { messages, loading, error } = useMessages(convId);
+
+  // 3-way por TRÊS sinais, em ordem de disponibilidade:
+  //   1. prefixo `3way:` no convId (conversas criadas por essa via);
+  //   2. `convMeta.is3way`, que a lista deriva do marker __STORE_ADDED__;
+  //   3. qualquer mensagem `type='store'` já carregada aqui.
+  // Antes só o (1) valia, e como `handleAddStore` insere o marker SEM trocar
+  // o convId, a tela nunca percebia a loja: o cabeçalho não virava
+  // "+ Cali Colors" e o convite continuava na tela, dando pra adicionar a
+  // loja de novo e duplicar a saudação. O (3) faz a tela virar na hora,
+  // sem esperar o cache da lista revalidar.
+  const hasStoreMessage = useMemo(
+    () => messages.some((m) => m.type === 'store'),
+    [messages],
+  );
+  const is3way = is3WayConvId(convId) || Boolean(convMeta?.is3way) || hasStoreMessage;
 
   // Send + Upload.
   const sendHook = useSendMessage(convId, otherId);

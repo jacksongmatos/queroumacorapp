@@ -7,7 +7,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import { useConversations } from '@/lib/hooks/useChat';
+import { useCalicolorsId, useConversations, useNewChat } from '@/lib/hooks/useChat';
+import { showToast } from '@/lib/toast';
 import { useChatRealtime } from '@/lib/hooks/useChatRealtime';
 import { useArchivedConvs } from '@/lib/hooks/useArchivedConvs';
 import { ConversationItem } from './ConversationItem';
@@ -64,6 +65,22 @@ export function ChatList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+
+  // "Falar com a Cali Colors": atalho pra abrir (ou criar) a conversa com a
+  // loja direto da lista. Antes só existia a ABA "Cali Colors", que filtra
+  // conversas já existentes — quem nunca tinha falado com a loja precisava
+  // adivinhar o nome dela na busca do "+".
+  const { id: storeId, loading: storeLoading } = useCalicolorsId();
+  const { start: startChat, creating: startingChat } = useNewChat();
+
+  async function abrirChatDaLoja() {
+    if (!storeId) {
+      showToast('Não consegui localizar a loja agora. Tente de novo.', 'error');
+      return;
+    }
+    const convId = await startChat({ otherId: storeId });
+    if (convId) router.push(`/chat/${encodeURIComponent(convId)}`);
+  }
 
   // Realtime global — 1 subscription pra TODAS as conversas. Hook é idempotente.
   useChatRealtime(user?.id ?? null);
@@ -161,6 +178,16 @@ export function ChatList() {
           title="Auto-resposta"
         >
           ⚡ Auto
+        </button>
+        <button
+          type="button"
+          onClick={abrirChatDaLoja}
+          disabled={storeLoading || startingChat || !storeId}
+          className="flex-shrink-0 px-3 h-9 rounded-full bg-white border border-[color:var(--color-border)] text-xs font-bold text-[color:var(--color-ink)] disabled:opacity-40"
+          aria-label="Falar com a Cali Colors"
+          title="Abrir conversa com a loja"
+        >
+          🎨 Loja
         </button>
         <button
           type="button"
