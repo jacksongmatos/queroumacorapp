@@ -25,8 +25,8 @@ export async function verifyAdminToken(
   if (!accessToken) throw new ServiceError('sem token', 401);
   const supaUrl = getSupabaseUrl();
   const anonKey =
-    getRuntimeEnv('SUPABASE_ANON_KEY') ||
     getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
+    getRuntimeEnv('SUPABASE_ANON_KEY') ||
     getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
     getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY') ||
     '';
@@ -40,7 +40,7 @@ export async function verifyAdminToken(
   } catch {
     throw new ServiceError('falha ao validar token', 401);
   }
-  if (!res.ok) throw new ServiceError('token inválido', 401);
+  if (!res.ok) throw new ServiceError('token inválido (auth ' + res.status + ': ' + (await res.text()).slice(0, 120) + ')', 401);
   const data = (await res.json()) as { id?: string; email?: string };
   return {
     callerId: data?.id || '',
