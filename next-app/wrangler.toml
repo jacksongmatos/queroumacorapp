@@ -22,6 +22,8 @@ pages_build_output_dir = ".vercel/output/static"
 NEXT_PUBLIC_SUPABASE_URL = "https://uwqebaqweehiljsqkifm.supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3cWViYXF3ZWVoaWxqc3FraWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjYzMjgsImV4cCI6MjA4OTgwMjMyOH0.yp-z4iMifiOV3ftLVIHOFEQBLcMBdU8VFok7VKlSFg8"
 NEXT_PUBLIC_SENTRY_DSN = "https://e19aa766953a6e70aeb09a52ea1046a7@o4511481806716928.ingest.us.sentry.io/4511482011189249"
+NEXT_PUBLIC_VAPID_PUBLIC_KEY = "BGQI6K-7dVPeAEIoICoNVN3iM11WYgULjGgNc4I3_dfywulmlNmvYYKmHx99N8sREfJzVwvTy-COFSyyOHbAIdA"
+VAPID_SUBJECT = "mailto:loja@calicolors.com.br"
 
 # ─── KV binding ───────────────────────────────────────────────────────────
 # KV binding pra cache de cidades IBGE foi configurado no PAINEL CF Pages
