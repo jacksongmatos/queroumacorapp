@@ -81,7 +81,11 @@ function makeFakeClient(resp: { data?: unknown; error?: unknown } = {}) {
 
 function install(resp: { data?: unknown; error?: unknown } = {}) {
   const { client, spies } = makeFakeClient(resp);
-  __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+  // `unknown` no meio: o fake só implementa o pedaço da chain que o service
+  // usa, então o cast direto pro SupabaseClient não tipa.
+  __setSupabaseForTests(
+    client as unknown as Parameters<typeof __setSupabaseForTests>[0],
+  );
   return spies;
 }
 
