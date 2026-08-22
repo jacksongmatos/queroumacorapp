@@ -1,5 +1,31 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Chat 3-way (cliente + pintor + loja) — 2026-08-22.** Não existe tabela de
+  conversas: tudo é `messages` com `conversation_id` texto (`uuidA_uuidB`
+  ordenado no 1:1, prefixo `3way:` quando criado por essa via,
+  `store_calicolors_<uuid>` na conversa direta com a loja). A loja entra pelo
+  banner dentro da conversa (só profissional vê — `isPainter` no
+  `ChatConversation`), que insere `__STORE_ADDED__` (type=system, marcador) +
+  saudação (type=store). O `/portal` → "Chats 3-Way" lista agrupando por
+  `conversation_id` e responde com type=store.
+  - **Fix 1 — a tela não percebia a loja.** `is3way` olhava só o prefixo do
+    convId, mas adicionar a loja NÃO troca o convId. Resultado: cabeçalho
+    nunca virava "+ Cali Colors" e o convite continuava na tela (dava pra
+    adicionar de novo e duplicar a saudação). Agora deriva de 3 sinais:
+    prefixo, `convMeta.is3way` (marcador) ou qualquer mensagem `type='store'`
+    já carregada. `findOrCreate3WayWithStore` segue sem caller (código morto).
+  - **Fix 2 — atalho "🎨 Loja" na lista de conversas** (`ChatList`), que abre
+    ou cria a conversa direta com a loja. Antes só existia a ABA "Cali
+    Colors", que FILTRA conversas existentes — quem nunca tinha falado com a
+    loja precisava adivinhar o nome dela na busca do "+".
+  - **SQL Wave 35 — PENDENTE de rodar.** A policy de SELECT em `messages`
+    liberava só sender/receiver, e a loja responde escolhendo UM destinatário
+    → o terceiro não via a mensagem. A policy nova acrescenta participante
+    ESTRUTURAL: `POSITION(auth.uid()::text IN conversation_id) > 0`. **Não usar
+    a regra "tem mensagem sua nessa conversa"** — o convId é derivado de UUIDs
+    públicos, então qualquer um poderia inserir uma mensagem na conversa
+    alheia e passar a ler o histórico. Migration em
+    `/migrations/2026-08-22-messages-conversation-visibility.sql`.
 - **Corte de tela no iPhone — 4 causas corrigidas (2026-08-21).**
   - **Zoom automático do iOS**: campo com `font-size < 16px` faz o Safari
     ampliar ao focar; o viewport de layout fica maior que a tela e o
