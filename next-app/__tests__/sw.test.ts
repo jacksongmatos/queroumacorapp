@@ -207,7 +207,7 @@ describe('service worker — navegação', () => {
 
   it('não serve um erro guardado por uma versão antiga do SW', async () => {
     // Simula o cache envenenado da v2: um 500 gravado como documento.
-    const poisoned = await h.cacheStorage.open('quc-v2-static');
+    const poisoned = await h.cacheStorage.open('quc-v3-static');
     await poisoned.put(`${ORIGIN}/feed`, html('500 do cloudflare', 500));
 
     h.queue.set(`${ORIGIN}/feed`, ['network-error', 'network-error']);
@@ -218,7 +218,7 @@ describe('service worker — navegação', () => {
   });
 
   it('serve a cópia boa do cache quando a rede cai', async () => {
-    const cache = await h.cacheStorage.open('quc-v3-static');
+    const cache = await h.cacheStorage.open('quc-v4-static');
     await cache.put(`${ORIGIN}/feed`, html('<p>feed offline</p>'));
 
     h.queue.set(`${ORIGIN}/feed`, ['network-error', 'network-error']);
@@ -228,10 +228,10 @@ describe('service worker — navegação', () => {
   });
 
   it('activate apaga os caches de versões anteriores', async () => {
-    await h.cacheStorage.open('quc-v2-static');
     await h.cacheStorage.open('quc-v3-static');
+    await h.cacheStorage.open('quc-v4-static');
     await h.runActivate();
-    expect(await h.cacheStorage.keys()).toEqual(['quc-v3-static']);
+    expect(await h.cacheStorage.keys()).toEqual(['quc-v4-static']);
   });
 });
 

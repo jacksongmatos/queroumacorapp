@@ -25,8 +25,14 @@
 //      recarregar — nunca um 500 congelado.
 // Bump de CACHE_VERSION (v2 → v3) é o que limpa os caches já envenenados de
 // quem está preso hoje: o `activate` apaga toda chave que não é da versão.
+//
+// v3 → v4 (2026-08-22): purga pareamento HTML↔CSS velho. A navegação é
+// network-first, mas quando a rede pisca no retorno do background o SW serve
+// o HTML guardado — que aponta pros bundles de uma build ANTERIOR, servidos
+// cache-first de `/_next/static/`. O aparelho fica com um app inteiro de uma
+// versão passada e correção nova nenhuma chega. O bump zera essa combinação.
 
-const CACHE_VERSION = 'quc-v3';
+const CACHE_VERSION = 'quc-v4';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const IMG_CACHE = `${CACHE_VERSION}-img`;
