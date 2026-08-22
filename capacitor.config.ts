@@ -17,15 +17,29 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'br.com.queroumacor.app',
   appName: 'QueroUmaCor',
+  // ATENÇÃO: `.next/static` NÃO é um web build — não tem `index.html`. Como o
+  // app carrega tudo de `server.url`, isso passa despercebido no dia a dia,
+  // mas significa que NÃO existe bundle local de fallback: sem rede no
+  // momento da abertura, a WebView não tem uma única tela pra mostrar e o
+  // usuário só vê o erro de conexão do sistema. Enquanto for assim, o app
+  // depende 100% da rede pra abrir.
   webDir: 'next-app/.next/static',
   server: {
     url: 'https://queroumacor.com.br',
     cleartext: false,
     androidScheme: 'https',
     iosScheme: 'https',
+    // Domínios que a WebView pode navegar/carregar. O que fica de fora é
+    // BLOQUEADO no iOS (App-Bound Domains, ver `WKAppBoundDomains` no
+    // Info.plist) — e uma requisição bloqueada chega no JS como falha de
+    // rede genérica, que o app traduz pra "Sem conexão. Verifique sua
+    // internet": o usuário lê "sem internet" com a internet funcionando.
+    // Por isso o Supabase (banco + auth + storage, de onde vem TODO o dado
+    // do app) precisa estar listado explicitamente.
     allowNavigation: [
       'queroumacor.com.br',
       '*.queroumacor.com.br',
+      'uwqebaqweehiljsqkifm.supabase.co',
     ],
   },
   ios: {
