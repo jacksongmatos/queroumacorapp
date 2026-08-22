@@ -33,6 +33,8 @@ import {
   type SafeErrorPayload,
 } from '@/lib/api/log-error-helpers';
 import { logErrorSchema } from '@/lib/api/schemas/log-error';
+// Secrets no edge do Cloudflare só existem no request context. Ver lib/api/env.ts.
+import { getRuntimeEnv } from '@/lib/api/env';
 
 export const runtime = 'edge';
 
@@ -110,11 +112,16 @@ function extractIp(request: NextRequest | Request): string {
 }
 
 async function insertErrorRow(safe: SafeErrorPayload): Promise<void> {
+  // Lia tudo de `process.env` direto: no edge do Cloudflare os secrets não
+  // estão lá (só no request context), e o projeto define
+  // `NEXT_PUBLIC_SUPABASE_URL`, não `SUPABASE_URL` — então esse fail-open
+  // disparava SEMPRE em produção e a tabela `errors` nunca recebia nada.
   const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_KEY;
-  const supabaseUrl = process.env.SUPABASE_URL;
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY') ||
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
+    getRuntimeEnv('SUPABASE_SERVICE_KEY');
+  const supabaseUrl =
+    getRuntimeEnv('SUPABASE_URL') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
   if (!serviceKey || !supabaseUrl) return; // fail-open
 
   const row = {

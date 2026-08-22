@@ -13,7 +13,8 @@
 // Contrato de falha: NUNCA derruba a geração. Se o upload ou o insert
 // falharem, devolvemos a imagem original (data URL) pro cliente e a tela
 // segue funcionando como antes — o pintor não perde o logo que acabou de
-// gerar por causa de um 500 do storage.
+// gerar por causa de um 500 do storage. Mas falha silenciosa é perda
+// invisível, então toda falha é reportada (ver `reportLoss`).
 
 import * as Sentry from '@sentry/nextjs';
 import { getServiceKey, getSupabaseUrl } from '../security';
@@ -26,36 +27,6 @@ const BUCKET = 'posts';
 // é barato perto de perder o arquivo.
 const RETRY_DELAY_MS = 300;
 
-async function withRetry<T>(
-  label: string,
-  fn: () => Promise<T | null>
-): Promise<T | null> {
-  const first = await fn();
-  if (first !== null) return first;
-  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-  const second = await fn();
-  if (second === null) reportLoss(label);
-  return second;
-}
-
-/**
- * Persistência é best-effort — mas silenciosa ela vira perda invisível.
- * Manda pro Sentry pra alguém ver que logos estão deixando de ser
- * arquivados. Fail-safe: falha do Sentry não pode derrubar a geração.
- */
-function reportLoss(label: string, extra?: Record<string, unknown>): void {
-  console.warn(`persistBrandLogos: ${label}`, extra ?? '');
-  try {
-    Sentry.captureMessage(`brand_logos: ${label}`, {
-      level: 'warning',
-      tags: { service: 'brand-logos' },
-      extra,
-    });
-  } catch {
-    /* Sentry off no edge — o console.warn acima já registrou. */
-  }
-}
-
 export interface PersistBrandLogosArgs {
   /** Dono do logo. Sem ele não há o que registrar — devolve as imagens cruas. */
   userId: string | undefined;
@@ -63,6 +34,76 @@ export interface PersistBrandLogosArgs {
   images: string[];
   promptName?: string;
   promptStyle?: string;
+}
+
+interface LossContext {
+  supaUrl?: string;
+  serviceKey?: string;
+  userId?: string;
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * Roda `fn`, e se ela devolver null tenta de novo depois de um respiro.
+ * `ctxFn` é função (não objeto) de propósito: o motivo real da falha —
+ * status HTTP, corpo do erro — só existe DEPOIS da tentativa, então
+ * montar o contexto na hora da chamada gravaria sempre `null`.
+ */
+async function withRetry<T>(
+  label: string,
+  fn: () => Promise<T | null>,
+  ctxFn?: () => LossContext
+): Promise<T | null> {
+  const first = await fn();
+  if (first !== null) return first;
+  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+  const second = await fn();
+  if (second === null) await reportLoss(label, ctxFn?.());
+  return second;
+}
+
+/**
+ * Registra uma perda em 3 canais, do mais acessível pro mais técnico:
+ *   1. tabela `errors` (`type='brand_logos'`) — dá pra ler com um SELECT,
+ *      sem depender de painel externo. Foi o que faltou pra diagnosticar
+ *      "não salvou" nas primeiras rodadas;
+ *   2. Sentry;
+ *   3. console (logs do Cloudflare).
+ * Fail-safe em todos: nenhum deles pode derrubar a geração.
+ */
+async function reportLoss(label: string, ctx?: LossContext): Promise<void> {
+  console.warn(`persistBrandLogos: ${label}`, ctx?.extra ?? '');
+  try {
+    Sentry.captureMessage(`brand_logos: ${label}`, {
+      level: 'warning',
+      tags: { service: 'brand-logos' },
+      extra: ctx?.extra,
+    });
+  } catch {
+    /* Sentry off no edge — os outros canais já registraram. */
+  }
+  if (!ctx?.supaUrl || !ctx?.serviceKey) return;
+  try {
+    await fetch(`${ctx.supaUrl}/rest/v1/errors`, {
+      method: 'POST',
+      headers: {
+        apikey: ctx.serviceKey,
+        Authorization: `Bearer ${ctx.serviceKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        type: 'brand_logos',
+        msg: label.slice(0, 500),
+        url: '/api/generate-logo',
+        user_id: ctx.userId ?? null,
+        ctx: ctx.extra ?? null,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    /* Se nem o insert de erro passa, o console fica como último recurso. */
+  }
 }
 
 /**
@@ -85,7 +126,7 @@ function decodeDataUrl(src: string): { bytes: Uint8Array; mime: string } | null 
   }
 }
 
-/** Baixa uma URL http(s) da OpenAI e devolve os bytes. */
+/** Baixa uma URL http(s) (quando a IA devolve link em vez de base64). */
 async function fetchBytes(
   src: string
 ): Promise<{ bytes: Uint8Array; mime: string } | null> {
@@ -121,20 +162,22 @@ export async function persistBrandLogos(
   if (!userId) {
     // Não deveria acontecer (o gate de auth roda antes), mas se acontecer a
     // arte some sem deixar rastro — daí o alerta em vez de return mudo.
-    reportLoss('sem userId — geração não arquivada', { images: images.length });
+    await reportLoss('sem userId — geração não arquivada', {
+      extra: { images: images.length },
+    });
     return images;
   }
 
   const serviceKey = getServiceKey();
   if (!serviceKey) {
-    reportLoss('service role ausente — nenhum logo arquivado');
+    await reportLoss('service role ausente — nenhum logo arquivado');
     return images;
   }
   let supaUrl: string;
   try {
     supaUrl = getSupabaseUrl();
   } catch {
-    reportLoss('SUPABASE_URL ausente — nenhum logo arquivado');
+    await reportLoss('SUPABASE_URL ausente — nenhum logo arquivado');
     return images;
   }
 
@@ -146,30 +189,54 @@ export async function persistBrandLogos(
     images.map(async (src, i) => {
       const decoded = decodeDataUrl(src) ?? (await fetchBytes(src));
       if (!decoded) {
-        reportLoss('imagem da IA ilegível (nem data URL nem download)', {
-          index: i,
+        await reportLoss('imagem da IA ilegível (nem data URL nem download)', {
+          supaUrl,
+          serviceKey,
+          userId,
+          extra: { index: i, prefix: src.slice(0, 40) },
         });
         return src;
       }
 
       const path = `${userId}/logos/${crypto.randomUUID()}.${extFor(decoded.mime)}`;
-      const uploaded = await withRetry(`upload falhou (imagem ${i + 1})`, async () => {
-        try {
-          const up = await fetch(`${supaUrl}/storage/v1/object/${BUCKET}/${path}`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${serviceKey}`,
-              'Content-Type': decoded.mime,
-              'x-upsert': 'true',
-              'Cache-Control': 'public, max-age=31536000',
-            },
-            body: decoded.bytes.buffer as ArrayBuffer,
-          });
-          return up.ok ? true : null;
-        } catch {
-          return null;
-        }
-      });
+      // Preenchidos dentro da tentativa pra o relatório dizer o motivo real
+      // (status do storage, corpo do erro) em vez de só "não deu".
+      let status: number | null = null;
+      let detail: string | null = null;
+
+      const uploaded = await withRetry(
+        `upload no storage falhou (imagem ${i + 1})`,
+        async () => {
+          try {
+            const up = await fetch(
+              `${supaUrl}/storage/v1/object/${BUCKET}/${path}`,
+              {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${serviceKey}`,
+                  'Content-Type': decoded.mime,
+                  'x-upsert': 'true',
+                  'Cache-Control': 'public, max-age=31536000',
+                },
+                body: decoded.bytes.buffer as ArrayBuffer,
+              }
+            );
+            if (up.ok) return true;
+            status = up.status;
+            detail = (await up.text()).slice(0, 200);
+            return null;
+          } catch (e) {
+            detail = e instanceof Error ? e.message : String(e);
+            return null;
+          }
+        },
+        () => ({
+          supaUrl,
+          serviceKey,
+          userId,
+          extra: { path, bytes: decoded.bytes.length, status, detail },
+        })
+      );
       if (!uploaded) return src;
 
       const publicUrl = `${supaUrl}/storage/v1/object/public/${BUCKET}/${path}`;
@@ -188,25 +255,40 @@ export async function persistBrandLogos(
   if (rows.length > 0) {
     // O arquivo já está no bucket; sem a linha aqui ele fica invisível pro
     // /portal. Por isso o insert também tem 2ª chance.
-    await withRetry('insert em brand_logos falhou', async () => {
-      try {
-        const ins = await fetch(`${supaUrl}/rest/v1/brand_logos`, {
-          method: 'POST',
-          headers: {
-            apikey: serviceKey,
-            Authorization: `Bearer ${serviceKey}`,
-            'Content-Type': 'application/json',
-            // `merge-duplicates` porque o índice único (user_id,
-            // md5(image_url)) pode bater no retry; duplicar não ajuda.
-            Prefer: 'return=minimal,resolution=merge-duplicates',
-          },
-          body: JSON.stringify(rows),
-        });
-        return ins.ok ? true : null;
-      } catch {
-        return null;
-      }
-    });
+    let status: number | null = null;
+    let detail: string | null = null;
+    await withRetry(
+      'insert em brand_logos falhou',
+      async () => {
+        try {
+          const ins = await fetch(`${supaUrl}/rest/v1/brand_logos`, {
+            method: 'POST',
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+              'Content-Type': 'application/json',
+              // `merge-duplicates` porque o índice único (user_id,
+              // md5(image_url)) pode bater no retry; duplicar não ajuda.
+              Prefer: 'return=minimal,resolution=merge-duplicates',
+            },
+            body: JSON.stringify(rows),
+          });
+          if (ins.ok) return true;
+          status = ins.status;
+          detail = (await ins.text()).slice(0, 200);
+          return null;
+        } catch (e) {
+          detail = e instanceof Error ? e.message : String(e);
+          return null;
+        }
+      },
+      () => ({
+        supaUrl,
+        serviceKey,
+        userId,
+        extra: { rows: rows.length, status, detail },
+      })
+    );
   }
 
   return finalUrls;
