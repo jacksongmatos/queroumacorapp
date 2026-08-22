@@ -15,9 +15,46 @@
 // segue funcionando como antes — o pintor não perde o logo que acabou de
 // gerar por causa de um 500 do storage.
 
+import * as Sentry from '@sentry/nextjs';
 import { getServiceKey, getSupabaseUrl } from '../security';
 
 const BUCKET = 'posts';
+
+// Uma segunda tentativa por imagem. A regra do produto é "toda imagem gerada
+// fica salva", e um 500 passageiro do storage não pode ser o motivo de uma
+// arte sumir — a geração já custou ~40s e cota de IA, então +300ms de retry
+// é barato perto de perder o arquivo.
+const RETRY_DELAY_MS = 300;
+
+async function withRetry<T>(
+  label: string,
+  fn: () => Promise<T | null>
+): Promise<T | null> {
+  const first = await fn();
+  if (first !== null) return first;
+  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+  const second = await fn();
+  if (second === null) reportLoss(label);
+  return second;
+}
+
+/**
+ * Persistência é best-effort — mas silenciosa ela vira perda invisível.
+ * Manda pro Sentry pra alguém ver que logos estão deixando de ser
+ * arquivados. Fail-safe: falha do Sentry não pode derrubar a geração.
+ */
+function reportLoss(label: string, extra?: Record<string, unknown>): void {
+  console.warn(`persistBrandLogos: ${label}`, extra ?? '');
+  try {
+    Sentry.captureMessage(`brand_logos: ${label}`, {
+      level: 'warning',
+      tags: { service: 'brand-logos' },
+      extra,
+    });
+  } catch {
+    /* Sentry off no edge — o console.warn acima já registrou. */
+  }
+}
 
 export interface PersistBrandLogosArgs {
   /** Dono do logo. Sem ele não há o que registrar — devolve as imagens cruas. */
@@ -84,27 +121,35 @@ export async function persistBrandLogos(
 
   const serviceKey = getServiceKey();
   if (!serviceKey) {
-    console.warn('persistBrandLogos: service role ausente — logos não persistidos');
+    reportLoss('service role ausente — nenhum logo arquivado');
     return images;
   }
   let supaUrl: string;
   try {
     supaUrl = getSupabaseUrl();
   } catch {
+    reportLoss('SUPABASE_URL ausente — nenhum logo arquivado');
     return images;
   }
 
   const rows: Array<Record<string, unknown>> = [];
+  // TODAS as imagens da geração são arquivadas, independente do que o pintor
+  // fizer depois — ele não precisa escolher, salvar nem pedir camiseta. É o
+  // acervo da loja.
   const finalUrls = await Promise.all(
-    images.map(async (src) => {
+    images.map(async (src, i) => {
       const decoded = decodeDataUrl(src) ?? (await fetchBytes(src));
-      if (!decoded) return src;
+      if (!decoded) {
+        reportLoss('imagem da IA ilegível (nem data URL nem download)', {
+          index: i,
+        });
+        return src;
+      }
 
       const path = `${userId}/logos/${crypto.randomUUID()}.${extFor(decoded.mime)}`;
-      try {
-        const up = await fetch(
-          `${supaUrl}/storage/v1/object/${BUCKET}/${path}`,
-          {
+      const uploaded = await withRetry(`upload falhou (imagem ${i + 1})`, async () => {
+        try {
+          const up = await fetch(`${supaUrl}/storage/v1/object/${BUCKET}/${path}`, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${serviceKey}`,
@@ -113,19 +158,13 @@ export async function persistBrandLogos(
               'Cache-Control': 'public, max-age=31536000',
             },
             body: decoded.bytes.buffer as ArrayBuffer,
-          }
-        );
-        if (!up.ok) {
-          console.warn('persistBrandLogos: upload falhou', up.status);
-          return src;
+          });
+          return up.ok ? true : null;
+        } catch {
+          return null;
         }
-      } catch (e) {
-        console.warn(
-          'persistBrandLogos: upload exception',
-          e instanceof Error ? e.message : e
-        );
-        return src;
-      }
+      });
+      if (!uploaded) return src;
 
       const publicUrl = `${supaUrl}/storage/v1/object/public/${BUCKET}/${path}`;
       rows.push({
@@ -141,32 +180,27 @@ export async function persistBrandLogos(
   );
 
   if (rows.length > 0) {
-    try {
-      const ins = await fetch(`${supaUrl}/rest/v1/brand_logos`, {
-        method: 'POST',
-        headers: {
-          apikey: serviceKey,
-          Authorization: `Bearer ${serviceKey}`,
-          'Content-Type': 'application/json',
-          // `merge-duplicates` porque o índice único (user_id, md5(image_url))
-          // pode bater num retry; duplicar linha não ajuda ninguém.
-          Prefer: 'return=minimal,resolution=merge-duplicates',
-        },
-        body: JSON.stringify(rows),
-      });
-      if (!ins.ok) {
-        console.warn(
-          'persistBrandLogos: insert falhou',
-          ins.status,
-          (await ins.text()).slice(0, 200)
-        );
+    // O arquivo já está no bucket; sem a linha aqui ele fica invisível pro
+    // /portal. Por isso o insert também tem 2ª chance.
+    await withRetry('insert em brand_logos falhou', async () => {
+      try {
+        const ins = await fetch(`${supaUrl}/rest/v1/brand_logos`, {
+          method: 'POST',
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            'Content-Type': 'application/json',
+            // `merge-duplicates` porque o índice único (user_id,
+            // md5(image_url)) pode bater no retry; duplicar não ajuda.
+            Prefer: 'return=minimal,resolution=merge-duplicates',
+          },
+          body: JSON.stringify(rows),
+        });
+        return ins.ok ? true : null;
+      } catch {
+        return null;
       }
-    } catch (e) {
-      console.warn(
-        'persistBrandLogos: insert exception',
-        e instanceof Error ? e.message : e
-      );
-    }
+    });
   }
 
   return finalUrls;

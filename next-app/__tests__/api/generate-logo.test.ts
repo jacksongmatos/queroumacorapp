@@ -106,6 +106,43 @@ describe('POST /api/generate-logo', () => {
     ).toHaveLength(0);
   });
 
+  // "Toda imagem gerada tem que ficar salva": um 500 passageiro do storage
+  // não pode custar a arte — a 2ª tentativa salva.
+  it('storage falha na 1ª tentativa → retry arquiva mesmo assim', async () => {
+    const seen = new Set<string>();
+    mocks = installAuthMocks({
+      fetchRest: async (url) => {
+        if (url.includes('api.openai.com')) {
+          return new Response(JSON.stringify({ data: [{ b64_json: 'AAAA' }] }), {
+            status: 200,
+          });
+        }
+        if (url.includes('/storage/v1/object/posts/')) {
+          // Falha só na primeira vez que vê cada path.
+          if (!seen.has(url)) {
+            seen.add(url);
+            return new Response('flaky', { status: 500 });
+          }
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+    const { POST } = await import('@/app/api/generate-logo/route');
+    const res = await POST(
+      mkJsonReq('/api/generate-logo', { name: 'Cali Colors' }) as never
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.urls.every((u: string) => u.includes('/logos/'))).toBe(true);
+
+    const inserts = mocks.calls.filter((c) =>
+      c.url.includes('/rest/v1/brand_logos')
+    );
+    expect(inserts).toHaveLength(1);
+    expect(JSON.parse(String(inserts[0].init?.body))).toHaveLength(3);
+  });
+
   it('returns 400 when name missing', async () => {
     mocks = installAuthMocks();
     const { POST } = await import('@/app/api/generate-logo/route');
