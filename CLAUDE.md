@@ -20,7 +20,7 @@
     Pedidos da Loja.
   - No app, a tela Camisetas ganhou "🗂️ Meus logos" — o mesmo histórico,
     tocar aplica o logo no perfil.
-  - **SQL Wave 37 — PENDENTE de rodar**:
+  - **SQL Wave 37 — JÁ EXECUTADO no Supabase (2026-08-22)**:
     `/migrations/2026-08-22-brand-logos.sql`. Cria `brand_logos` (RLS
     owner + `is_portal_admin()` pra SELECT), índice único
     `(user_id, md5(image_url))` pra retry não duplicar, backfill do
