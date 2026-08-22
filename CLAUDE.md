@@ -21,6 +21,16 @@
     notificar nunca derrubar o INSERT da mensagem) e recria
     `dispatch_push_on_notification` mandando `type='message'` pro `/chat`.
   - iOS: só 16.4+ e **só em modo PWA** (Adicionar à Tela de Início).
+  - **WebView não tem Web Push — nem iOS nem Android (2026-08-22).** O app
+    empacotado (Capacitor) roda em WebView, então TODO o caminho web push
+    acima só vale pra quem usa pelo navegador/PWA. O `PushOptIn` agora
+    **some** quando o ambiente não suporta, em vez de mostrar "instale como
+    app na tela inicial" — dica sem sentido pra quem já está num app
+    instalado. Push no app das lojas exige push NATIVO (plugin
+    `@capacitor/push-notifications` + FCM/APNs, tabela de tokens e envio via
+    FCM no servidor); vai junto do próximo build nativo. Backend web push
+    validado ponta a ponta em 2026-08-22: `{"ok":true,"sent":0,"total":0}`
+    (200, sem inscritos).
 - **Edge do Cloudflare: secret NÃO chega em `process.env` (2026-08-22).**
   Descoberto depurando o portal admin em produção. As variáveis do painel do
   Pages só existem no request context, publicado no symbol global

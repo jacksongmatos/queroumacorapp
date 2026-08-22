@@ -2,7 +2,7 @@
 // Aparece no ProfileFooter pra qualquer user logado.
 //
 // Estados (resolvidos no useEffect inicial + reativo a permission/subscribed):
-//   - 'unsupported' = browser/iOS não suporta (esconde toggle, mostra dica);
+//   - 'unsupported' = ambiente sem Web Push → o card inteiro some (ver abaixo);
 //   - 'denied'     = permission negada (não pode pedir de novo direto;
 //                    dica orientando o usuário a liberar no navegador);
 //   - 'not-subscribed' = pode pedir; toggle OFF;
@@ -92,9 +92,22 @@ export function PushOptIn() {
   // VAPID não configurada no ambiente → esconde o card (nada pra ativar).
   if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) return null;
 
+  // Sem Web Push no ambiente → some com o card em vez de explicar.
+  //
+  // O app empacotado (Capacitor) roda num WebView, e WebView não tem Web
+  // Push: nem o WKWebView do iPhone (a Apple só liberou no Safari e em PWA
+  // da tela de início) nem o WebView do Android. Ou seja: a esmagadora
+  // maioria de quem via essa mensagem estava no app instalado, onde a dica
+  // "instale como app na tela inicial" não fazia sentido nenhum — a pessoa
+  // JÁ estava num app instalado. Melhor não oferecer nada do que oferecer
+  // uma saída que não existe.
+  //
+  // Push no app empacotado exige push NATIVO (FCM/APNs pelo plugin do
+  // Capacitor), que é outro caminho e virá num build nativo futuro.
+  if (status === 'unsupported') return null;
+
   const isOn = status === 'subscribed';
   const isLoading = status === 'loading';
-  const isUnsupported = status === 'unsupported';
   const isDenied = status === 'denied';
 
   return (
@@ -125,13 +138,11 @@ export function PushOptIn() {
               Receber notificações
             </p>
             <p className="text-xs text-[color:var(--color-muted)] leading-snug mt-0.5">
-              {isUnsupported
-                ? 'Seu navegador não suporta. No iPhone, instale como app na tela inicial (iOS 16.4+).'
-                : isDenied
-                  ? 'Bloqueado. Libere nas configurações do navegador pra ativar.'
-                  : isOn
-                    ? 'Avisos de curtidas, comentários e mensagens chegam mesmo com o app fechado.'
-                    : 'Receba avisos de curtidas, comentários e mensagens com o app fechado.'}
+              {isDenied
+                ? 'Bloqueado. Libere nas configurações do navegador pra ativar.'
+                : isOn
+                  ? 'Avisos de curtidas, comentários e mensagens chegam mesmo com o app fechado.'
+                  : 'Receba avisos de curtidas, comentários e mensagens com o app fechado.'}
             </p>
             {error ? (
               <p className="text-xs text-[color:var(--color-danger)] mt-1">{error}</p>
@@ -139,7 +150,7 @@ export function PushOptIn() {
           </div>
         </div>
 
-        {!isUnsupported && !isDenied ? (
+        {!isDenied ? (
           <button
             type="button"
             disabled={isLoading}
