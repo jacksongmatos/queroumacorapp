@@ -17,7 +17,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { assertProductionEnvs } from './env-check';
-import { getRuntimeEnv, getSupabaseServiceKey, getSupabaseUrl, getSupabaseAnonKey } from './env';
+import { getSupabaseServiceKey, getSupabaseUrl, getSupabaseAnonKey } from './env';
 // `isAdminEmail` é implementada em `admin-config.ts` (cache + validação
 // no startup, R-H6). Re-exportada abaixo pra manter o contrato existente
 // (chamadores já importam de `lib/api/security`).
