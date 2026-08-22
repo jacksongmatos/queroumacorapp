@@ -33,13 +33,19 @@ describe('POST /api/generate-logo', () => {
     expect(res.status).toBe(403);
   });
 
-  it('happy path: returns 3 logo urls', async () => {
+  // O gpt-image-1 devolve base64; o route materializa isso no Storage e
+  // registra em `brand_logos` (Wave 37) — é o que o /portal lê depois.
+  it('happy path: persiste as 3 imagens no storage e devolve as URLs públicas', async () => {
     mocks = installAuthMocks({
-      fetchRest: async () =>
-        new Response(
-          JSON.stringify({ data: [{ b64_json: 'AAA==' }] }),
-          { status: 200 }
-        ),
+      fetchRest: async (url) => {
+        if (url.includes('api.openai.com')) {
+          return new Response(JSON.stringify({ data: [{ b64_json: 'AAAA' }] }), {
+            status: 200,
+          });
+        }
+        // Upload no storage + insert no PostgREST.
+        return new Response('{}', { status: 200 });
+      },
     });
     const { POST } = await import('@/app/api/generate-logo/route');
     const res = await POST(
@@ -51,7 +57,53 @@ describe('POST /api/generate-logo', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.urls).toHaveLength(3);
+    expect(body.urls[0]).toContain('/storage/v1/object/public/posts/');
+    expect(body.urls[0]).toContain('user-test-id/logos/');
+
+    const uploads = mocks.calls.filter((c) =>
+      c.url.includes('/storage/v1/object/posts/')
+    );
+    expect(uploads).toHaveLength(3);
+
+    const inserts = mocks.calls.filter((c) =>
+      c.url.includes('/rest/v1/brand_logos')
+    );
+    expect(inserts).toHaveLength(1);
+    const rows = JSON.parse(String(inserts[0].init?.body));
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({
+      user_id: 'user-test-id',
+      source: 'ai',
+      prompt_name: 'Cali Colors',
+      prompt_style: 'modern',
+    });
+  });
+
+  // Storage fora do ar não pode custar o logo que o pintor acabou de gerar:
+  // a resposta cai de volta na data URL da IA.
+  it('storage indisponível → devolve as data URLs da IA (não quebra)', async () => {
+    mocks = installAuthMocks({
+      fetchRest: async (url) => {
+        if (url.includes('api.openai.com')) {
+          return new Response(JSON.stringify({ data: [{ b64_json: 'AAAA' }] }), {
+            status: 200,
+          });
+        }
+        return new Response('storage down', { status: 500 });
+      },
+    });
+    const { POST } = await import('@/app/api/generate-logo/route');
+    const res = await POST(
+      mkJsonReq('/api/generate-logo', { name: 'Cali Colors' }) as never
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.urls).toHaveLength(3);
     expect(body.urls[0]).toContain('data:image/png;base64,');
+    // Nada de linha órfã em brand_logos apontando pra arquivo que não subiu.
+    expect(
+      mocks.calls.filter((c) => c.url.includes('/rest/v1/brand_logos'))
+    ).toHaveLength(0);
   });
 
   it('returns 400 when name missing', async () => {

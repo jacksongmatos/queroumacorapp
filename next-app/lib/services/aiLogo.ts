@@ -6,7 +6,10 @@
 //     paga" fica na camada de hook (useAiLogo) que vê o profile state.
 //   - saveLogo / fetchLogo: read/write trivial em profiles.business_logo_url.
 //   - uploadLogo: PUT no bucket `posts` (mesmo bucket do avatar) com path
-//     `<userId>/business_logo.<ext>`. Retorna publicUrl com cache-buster.
+//     `<userId>/logos/<uuid>.<ext>`. Retorna publicUrl com cache-buster.
+//   - todo logo (gerado ou enviado) vira linha em `brand_logos` — o servidor
+//     registra os de IA, o cliente registra os enviados. É esse histórico
+//     que a tela Camisetas do /portal lê pra saber de quem é cada estampa.
 //   - applyLogoToShirt: composição canvas — desenha o logo sobre a foto da
 //     camiseta e devolve dataURL. Funciona client-side (precisa de
 //     document.createElement('canvas') + Image), throw em ambiente node.
@@ -21,6 +24,7 @@
 
 import { NetworkError, ValidationError } from '@/lib/errors';
 import { getSupabase } from '@/lib/supabase';
+import { markBrandLogoApplied, recordBrandLogo } from '@/lib/services/brandLogos';
 
 // Input do form do logo. `style` é opcional — o backend tolera ausência e
 // usa estilo padrão. `name` é o único required (vai virar o texto do logo).
@@ -122,6 +126,10 @@ export async function saveLogo(
     .update({ business_logo_url: logoUrl })
     .eq('id', userId);
   if (error) throw new NetworkError(error.message, error);
+
+  // Espelha no histórico qual logo o pintor escolheu — é o que o /portal
+  // mostra como "logo oficial" na hora de estampar. Best-effort.
+  await markBrandLogoApplied(userId, logoUrl);
 }
 
 /**
@@ -145,9 +153,9 @@ export async function fetchLogo(userId: string): Promise<string | null> {
 /**
  * Upload manual de logo customizado (não-IA). Mesma escada do vanilla
  * uploadBusinessLogo: valida tipo/tamanho, sobe pro bucket `posts` com path
- * `<userId>/business_logo.<ext>`, atualiza `profiles.business_logo_url`, e
- * devolve a publicUrl com cache-buster `?t=<ts>` (pra o browser não servir
- * a versão velha do CDN).
+ * `<userId>/logos/<uuid>.<ext>`, atualiza `profiles.business_logo_url`,
+ * registra em `brand_logos` e devolve a publicUrl com cache-buster `?t=<ts>`
+ * (pra o browser não servir a versão velha do CDN).
  *
  * Throws ValidationError pra inputs inválidos (não-imagem, > 5MB) e
  * NetworkError se upload ou update falham.
@@ -170,7 +178,11 @@ export async function uploadLogo(
   const ext =
     (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') ||
     'png';
-  const path = `${userId}/business_logo.${ext}`;
+  // Path único por envio (antes era `business_logo.<ext>` fixo, com upsert):
+  // o arquivo novo apagava o anterior e as linhas antigas de `brand_logos`
+  // passavam a apontar pra uma imagem diferente. Com uuid, o histórico que o
+  // /portal lê continua válido.
+  const path = `${userId}/logos/${crypto.randomUUID()}.${ext}`;
 
   const { error: upErr } = await sb.storage
     .from('posts')
@@ -188,6 +200,16 @@ export async function uploadLogo(
     .update({ business_logo_url: publicUrl })
     .eq('id', userId);
   if (profErr) throw new NetworkError(profErr.message, profErr);
+
+  // Entra no histórico já marcado como o logo do perfil (é o que o upload
+  // acabou de fazer). Best-effort — não desfaz o upload se falhar.
+  await recordBrandLogo({
+    userId,
+    imageUrl: publicUrl,
+    storagePath: path,
+    source: 'upload',
+    appliedToProfile: true,
+  });
 
   return publicUrl;
 }

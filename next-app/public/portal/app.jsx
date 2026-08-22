@@ -976,47 +976,239 @@ const ProdutosList = () => {
   );
 };
 
+// ══ CAMISETAS PERSONALIZADAS ══
+// Duas partes: o configurador (cor/tamanho/logo) e a galeria de logos que os
+// pintores geraram/enviaram DENTRO DO APP (tabela `brand_logos`, Wave 37).
+// A galeria é o motivo da tela existir: sem ela a loja recebia um pedido de
+// camiseta sem saber qual arte estampar nem de quem era.
+
+const LOGO_SOURCE_LABELS = { ai: '🤖 Gerado com IA', upload: '📤 Enviado pelo pintor' };
+const LOGO_SOURCE_COLORS = { ai: '#8338ec', upload: '#2ec4b6' };
+
+// Busca em 2 passos (mesma razão de PedidosLoja): o embed PostgREST quebra a
+// query inteira se a FK não estiver do jeito que ele espera, e aí a tela
+// aparece vazia sem dizer por quê. RLS (brand_logos_select_admin =
+// is_portal_admin) é quem libera ver o de todo mundo.
+const useBrandLogos = () => useSupabaseQuery(async (sb) => {
+  const { data: rows, error } = await sb
+    .from('brand_logos')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(300);
+  if (error) return { error };
+  const list = rows || [];
+  const userIds = [...new Set(list.map(l => l.user_id).filter(Boolean))];
+  const pmap = {};
+  if (userIds.length) {
+    const { data: profs } = await sb
+      .from('profiles')
+      .select('id, name, tag, phone, city, state, role, avatar_url, business_name, business_logo_url')
+      .in('id', userIds);
+    (profs || []).forEach(pr => { pmap[pr.id] = pr; });
+  }
+  return { data: list.map(l => ({ ...l, painter: pmap[l.user_id] || null })) };
+}, []);
+
+const LogoCard = React.memo(function LogoCard({ item, onUse }) {
+  const p = item.painter || {};
+  const isCurrent = !!p.business_logo_url && p.business_logo_url === item.image_url;
+  const when = item.created_at ? new Date(item.created_at).toLocaleDateString('pt-BR') : '—';
+  const wa = (p.phone || '').replace(/\D/g, '');
+  return (
+    <div style={{ background:C.white, border:'1px solid '+C.border, borderRadius:12, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+      <div style={{ position:'relative', background:C.cream, height:150, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <img src={item.image_url} alt={item.prompt_name || 'Logo'} loading="lazy" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
+        <span style={{ position:'absolute', top:6, left:6, padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:700, color:'#fff', background: LOGO_SOURCE_COLORS[item.source] || C.muted }}>
+          {LOGO_SOURCE_LABELS[item.source] || item.source}
+        </span>
+        {isCurrent && (
+          <span style={{ position:'absolute', top:6, right:6, padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:700, color:'#fff', background:C.p1 }}>★ logo atual</span>
+        )}
+      </div>
+      <div style={{ padding:10, display:'flex', flexDirection:'column', gap:6, flex:1 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <AvatarCell name={p.name} avatarUrl={p.avatar_url} size={28} />
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:700, fontSize:13, color:C.ink, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {p.name || 'Pintor sem nome'}
+            </div>
+            <div style={{ fontSize:11, color:C.muted }}>
+              {p.tag ? '@' + p.tag : '—'}{p.role ? ' · ' + p.role : ''}
+            </div>
+          </div>
+        </div>
+        {p.business_name && <div style={{ fontSize:11, color:C.ink }}>🏷️ {p.business_name}</div>}
+        <div style={{ fontSize:11, color:C.muted }}>
+          {(p.city || '—')}{p.state ? '/' + p.state : ''} · {p.phone || 'sem telefone'}
+        </div>
+        {item.prompt_name && (
+          <div style={{ fontSize:11, color:C.ink, background:C.cream, borderRadius:8, padding:'6px 8px' }}>
+            <b>{item.prompt_name}</b>{item.prompt_style ? ' · ' + item.prompt_style : ''}
+          </div>
+        )}
+        <div style={{ fontSize:10, color:C.muted }}>Gerado em {when}</div>
+        <div style={{ display:'flex', gap:6, marginTop:'auto' }}>
+          <button onClick={() => onUse(item)} style={{ flex:1, background:C.p1, color:'#fff', border:'none', borderRadius:8, padding:'6px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+            Usar na camiseta
+          </button>
+          <a href={item.image_url} target="_blank" rel="noopener noreferrer" style={{ background:C.cream, color:C.ink, borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:600, textDecoration:'none' }}>
+            Abrir
+          </a>
+          {wa && (
+            <a href={'https://wa.me/' + wa} target="_blank" rel="noopener noreferrer" title="Falar com o pintor" style={{ background:'#25d366', color:'#fff', borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:600, textDecoration:'none' }}>
+              💬
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const Camisetas = () => {
   const [cor, setCor] = useState('#1a1a2e');
   const [tam, setTam] = useState('M');
   const [logo, setLogo] = useState(true);
+  // Logo escolhido na galeria — entra no mockup e no texto do pedido.
+  const [logoSel, setLogoSel] = useState(null);
+  const [busca, setBusca] = useState('');
+  const [fonte, setFonte] = useState('todos');
+  const { data, loading, error, refetch } = useBrandLogos();
+  const logos = data || [];
+
+  const filtrados = React.useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return logos.filter(l => {
+      if (fonte !== 'todos' && l.source !== fonte) return false;
+      if (!q) return true;
+      const p = l.painter || {};
+      return [p.name, p.tag, p.business_name, p.city, l.prompt_name, l.prompt_style]
+        .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+    });
+  }, [logos, busca, fonte]);
+
+  const painterName = logoSel && logoSel.painter
+    ? (logoSel.painter.business_name || logoSel.painter.name || '')
+    : '';
+
+  const gerarPedido = () => {
+    if (!logoSel) {
+      alert('Escolha primeiro o logo de um pintor na galeria abaixo.');
+      return;
+    }
+    const p = logoSel.painter || {};
+    alert(
+      'Pedido de camiseta\n\n' +
+      'Pintor: ' + (p.name || '—') + (p.tag ? ' (@' + p.tag + ')' : '') + '\n' +
+      'Contato: ' + (p.phone || '—') + '\n' +
+      'Cor: ' + cor + ' · Tamanho: ' + tam + '\n' +
+      'Logo Cali Colors: ' + (logo ? 'sim' : 'nao') + '\n' +
+      'Arte: ' + logoSel.image_url
+    );
+  };
+
   return (
-    <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-      <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>👕 Configurador de Camisetas</div>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:24 }}>
-        <div>
-          <div style={{ fontSize:13, color:C.muted, marginBottom:8 }}>Cor da Camiseta</div>
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            {['#1a1a2e','#ff6b35','#2ec4b6','#e63946','#ffffff','#4a4a4a'].map(c => (
-              <div key={c} onClick={() => setCor(c)} style={{ width:32, height:32, borderRadius:'50%', background:c, border: cor===c ? '3px solid '+C.p1 : '2px solid '+C.border, cursor:'pointer' }}></div>
-            ))}
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ fontWeight:700, marginBottom:16, color:C.ink }}>👕 Configurador de Camisetas</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:24 }}>
+          <div>
+            <div style={{ fontSize:13, color:C.muted, marginBottom:8 }}>Cor da Camiseta</div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {['#1a1a2e','#ff6b35','#2ec4b6','#e63946','#ffffff','#4a4a4a'].map(c => (
+                <div key={c} onClick={() => setCor(c)} style={{ width:32, height:32, borderRadius:'50%', background:c, border: cor===c ? '3px solid '+C.p1 : '2px solid '+C.border, cursor:'pointer' }}></div>
+              ))}
+            </div>
+            <div style={{ fontSize:13, color:C.muted, marginTop:16, marginBottom:8 }}>Tamanho</div>
+            <div style={{ display:'flex', gap:8 }}>
+              {['P','M','G','GG'].map(t => (
+                <button key={t} onClick={() => setTam(t)} style={{ padding:'6px 16px', borderRadius:8, border:'2px solid '+(tam===t?C.p1:C.border), background:tam===t?C.p1:'transparent', color:tam===t?'#fff':C.ink, cursor:'pointer', fontWeight:600 }}>{t}</button>
+              ))}
+            </div>
+            <div style={{ fontSize:13, color:C.muted, marginTop:16, marginBottom:8 }}>Logo</div>
+            <div style={{ display:'flex', gap:12 }}>
+              <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                <input type="checkbox" checked={logo} onChange={e => setLogo(e.target.checked)} />
+                <span style={{ fontSize:13 }}>Cali Colors + Nome Pintor</span>
+              </label>
+            </div>
+            <div style={{ fontSize:13, color:C.muted, marginTop:16, marginBottom:8 }}>Arte do pintor</div>
+            {logoSel ? (
+              <div style={{ display:'flex', alignItems:'center', gap:10, background:C.cream, borderRadius:10, padding:8 }}>
+                <img src={logoSel.image_url} alt="" style={{ width:40, height:40, objectFit:'contain' }} />
+                <div style={{ fontSize:12, color:C.ink, flex:1 }}>
+                  <div style={{ fontWeight:700 }}>{painterName || 'Pintor'}</div>
+                  <div style={{ color:C.muted }}>{logoSel.prompt_name || (LOGO_SOURCE_LABELS[logoSel.source] || '')}</div>
+                </div>
+                <button onClick={() => setLogoSel(null)} aria-label="Tirar logo" style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'4px 8px', cursor:'pointer', color:C.ink }}>×</button>
+              </div>
+            ) : (
+              <div style={{ fontSize:12, color:C.muted }}>Escolha um logo na galeria abaixo.</div>
+            )}
           </div>
-          <div style={{ fontSize:13, color:C.muted, marginTop:16, marginBottom:8 }}>Tamanho</div>
-          <div style={{ display:'flex', gap:8 }}>
-            {['P','M','G','GG'].map(t => (
-              <button key={t} onClick={() => setTam(t)} style={{ padding:'6px 16px', borderRadius:8, border:'2px solid '+(tam===t?C.p1:C.border), background:tam===t?C.p1:'transparent', color:tam===t?'#fff':C.ink, cursor:'pointer', fontWeight:600 }}>{t}</button>
-            ))}
-          </div>
-          <div style={{ fontSize:13, color:C.muted, marginTop:16, marginBottom:8 }}>Logo</div>
-          <div style={{ display:'flex', gap:12 }}>
-            <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-              <input type="checkbox" checked={logo} onChange={e => setLogo(e.target.checked)} />
-              <span style={{ fontSize:13 }}>Cali Colors + Nome Pintor</span>
-            </label>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+            <div style={{ width:120, height:140, background:cor, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', border:'2px solid '+C.border }}>
+              {logoSel && <img src={logoSel.image_url} alt="" style={{ maxWidth:70, maxHeight:44, objectFit:'contain', marginBottom:4 }} />}
+              {logo && <div style={{ color:cor==='#ffffff'?'#333':'#fff', fontSize:11, fontFamily:'Syne,sans-serif', fontWeight:800, textAlign:'center' }}>
+                <div>CaliColors</div>
+                <div style={{ fontSize:8, marginTop:2 }}>{painterName ? painterName.slice(0, 18).toUpperCase() : 'PINTOR PRO'}</div>
+              </div>}
+              <div style={{ color:cor==='#ffffff'?'#333':'rgba(255,255,255,0.5)', fontSize:8, marginTop:8 }}>TAM {tam}</div>
+            </div>
+            <button onClick={gerarPedido} style={{ marginTop:16, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', cursor:'pointer', fontWeight:600 }}>
+              Gerar Pedido
+            </button>
           </div>
         </div>
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ width:120, height:140, background:cor, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', border:'2px solid '+C.border }}>
-            {logo && <div style={{ color:cor==='#ffffff'?'#333':'#fff', fontSize:11, fontFamily:'Syne,sans-serif', fontWeight:800, textAlign:'center' }}>
-              <div>CaliColors</div>
-              <div style={{ fontSize:8, marginTop:2 }}>PINTOR PRO</div>
-            </div>}
-            <div style={{ color:cor==='#ffffff'?'#333':'rgba(255,255,255,0.5)', fontSize:8, marginTop:8 }}>TAM {tam}</div>
+      </div>
+
+      {/* Galeria — tudo que os pintores geraram/enviaram no app */}
+      <div style={{ background:C.white, borderRadius:16, padding:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:12 }}>
+          <div>
+            <div style={{ fontWeight:700, color:C.ink }}>🎨 Logos dos pintores ({filtrados.length})</div>
+            <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>
+              Tudo que foi gerado com o Seu Zé ou enviado pelo pintor dentro do app fica salvo aqui.
+            </div>
           </div>
-          <button style={{ marginTop:16, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', cursor:'pointer', fontWeight:600 }}>
-            Gerar Pedido
-          </button>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <input
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar por pintor, @tag, cidade, texto do logo…"
+              style={{ padding:'8px 12px', border:'1px solid '+C.border, borderRadius:8, fontSize:13, minWidth:260 }}
+            />
+            <select value={fonte} onChange={e => setFonte(e.target.value)} style={{ padding:'8px 10px', border:'1px solid '+C.border, borderRadius:8, fontSize:13, background:C.white, color:C.ink }}>
+              <option value="todos">Todos</option>
+              <option value="ai">Gerados com IA</option>
+              <option value="upload">Enviados</option>
+            </select>
+            <button onClick={refetch} style={{ padding:'8px 12px', border:'1px solid '+C.border, background:C.cream, borderRadius:8, fontSize:13, cursor:'pointer', color:C.ink, fontWeight:600 }}>
+              Atualizar
+            </button>
+          </div>
         </div>
+
+        {loading && <div style={{ color:C.muted, fontSize:13, padding:'24px 0' }}>Carregando logos…</div>}
+        {!loading && error && (
+          <div style={{ color:C.p4, fontSize:13, padding:'24px 0' }}>
+            Não foi possível carregar os logos: {error.message || String(error)}
+          </div>
+        )}
+        {!loading && !error && filtrados.length === 0 && (
+          <div style={{ color:C.muted, fontSize:13, padding:'24px 0' }}>
+            {logos.length === 0
+              ? 'Nenhum logo ainda. Assim que um pintor gerar ou enviar um logo no app, ele aparece aqui.'
+              : 'Nenhum logo bate com o filtro.'}
+          </div>
+        )}
+        {!loading && !error && filtrados.length > 0 && (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(230px, 1fr))', gap:12 }}>
+            {filtrados.map(item => (
+              <LogoCard key={item.id} item={item} onUse={setLogoSel} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

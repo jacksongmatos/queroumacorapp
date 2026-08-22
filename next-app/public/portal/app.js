@@ -2388,11 +2388,260 @@ const ProdutosList = () => {
     }))
   );
 };
+
+// ══ CAMISETAS PERSONALIZADAS ══
+// Duas partes: o configurador (cor/tamanho/logo) e a galeria de logos que os
+// pintores geraram/enviaram DENTRO DO APP (tabela `brand_logos`, Wave 37).
+// A galeria é o motivo da tela existir: sem ela a loja recebia um pedido de
+// camiseta sem saber qual arte estampar nem de quem era.
+
+const LOGO_SOURCE_LABELS = {
+  ai: '🤖 Gerado com IA',
+  upload: '📤 Enviado pelo pintor'
+};
+const LOGO_SOURCE_COLORS = {
+  ai: '#8338ec',
+  upload: '#2ec4b6'
+};
+
+// Busca em 2 passos (mesma razão de PedidosLoja): o embed PostgREST quebra a
+// query inteira se a FK não estiver do jeito que ele espera, e aí a tela
+// aparece vazia sem dizer por quê. RLS (brand_logos_select_admin =
+// is_portal_admin) é quem libera ver o de todo mundo.
+const useBrandLogos = () => useSupabaseQuery(async sb => {
+  const {
+    data: rows,
+    error
+  } = await sb.from('brand_logos').select('*').order('created_at', {
+    ascending: false
+  }).limit(300);
+  if (error) return {
+    error
+  };
+  const list = rows || [];
+  const userIds = [...new Set(list.map(l => l.user_id).filter(Boolean))];
+  const pmap = {};
+  if (userIds.length) {
+    const {
+      data: profs
+    } = await sb.from('profiles').select('id, name, tag, phone, city, state, role, avatar_url, business_name, business_logo_url').in('id', userIds);
+    (profs || []).forEach(pr => {
+      pmap[pr.id] = pr;
+    });
+  }
+  return {
+    data: list.map(l => ({
+      ...l,
+      painter: pmap[l.user_id] || null
+    }))
+  };
+}, []);
+const LogoCard = React.memo(function LogoCard({
+  item,
+  onUse
+}) {
+  const p = item.painter || {};
+  const isCurrent = !!p.business_logo_url && p.business_logo_url === item.image_url;
+  const when = item.created_at ? new Date(item.created_at).toLocaleDateString('pt-BR') : '—';
+  const wa = (p.phone || '').replace(/\D/g, '');
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.white,
+      border: '1px solid ' + C.border,
+      borderRadius: 12,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'relative',
+      background: C.cream,
+      height: 150,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: item.image_url,
+    alt: item.prompt_name || 'Logo',
+    loading: "lazy",
+    style: {
+      maxWidth: '100%',
+      maxHeight: '100%',
+      objectFit: 'contain'
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: 'absolute',
+      top: 6,
+      left: 6,
+      padding: '2px 8px',
+      borderRadius: 20,
+      fontSize: 10,
+      fontWeight: 700,
+      color: '#fff',
+      background: LOGO_SOURCE_COLORS[item.source] || C.muted
+    }
+  }, LOGO_SOURCE_LABELS[item.source] || item.source), isCurrent && /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: 'absolute',
+      top: 6,
+      right: 6,
+      padding: '2px 8px',
+      borderRadius: 20,
+      fontSize: 10,
+      fontWeight: 700,
+      color: '#fff',
+      background: C.p1
+    }
+  }, "\u2605 logo atual")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 10,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(AvatarCell, {
+    name: p.name,
+    avatarUrl: p.avatar_url,
+    size: 28
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 13,
+      color: C.ink,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap'
+    }
+  }, p.name || 'Pintor sem nome'), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, p.tag ? '@' + p.tag : '—', p.role ? ' · ' + p.role : ''))), p.business_name && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.ink
+    }
+  }, "\uD83C\uDFF7\uFE0F ", p.business_name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, p.city || '—', p.state ? '/' + p.state : '', " \xB7 ", p.phone || 'sem telefone'), item.prompt_name && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.ink,
+      background: C.cream,
+      borderRadius: 8,
+      padding: '6px 8px'
+    }
+  }, /*#__PURE__*/React.createElement("b", null, item.prompt_name), item.prompt_style ? ' · ' + item.prompt_style : ''), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.muted
+    }
+  }, "Gerado em ", when), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 6,
+      marginTop: 'auto'
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onUse(item),
+    style: {
+      flex: 1,
+      background: C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 8,
+      padding: '6px',
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: 'pointer'
+    }
+  }, "Usar na camiseta"), /*#__PURE__*/React.createElement("a", {
+    href: item.image_url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      background: C.cream,
+      color: C.ink,
+      borderRadius: 8,
+      padding: '6px 10px',
+      fontSize: 12,
+      fontWeight: 600,
+      textDecoration: 'none'
+    }
+  }, "Abrir"), wa && /*#__PURE__*/React.createElement("a", {
+    href: 'https://wa.me/' + wa,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    title: "Falar com o pintor",
+    style: {
+      background: '#25d366',
+      color: '#fff',
+      borderRadius: 8,
+      padding: '6px 10px',
+      fontSize: 12,
+      fontWeight: 600,
+      textDecoration: 'none'
+    }
+  }, "\uD83D\uDCAC"))));
+});
 const Camisetas = () => {
   const [cor, setCor] = useState('#1a1a2e');
   const [tam, setTam] = useState('M');
   const [logo, setLogo] = useState(true);
+  // Logo escolhido na galeria — entra no mockup e no texto do pedido.
+  const [logoSel, setLogoSel] = useState(null);
+  const [busca, setBusca] = useState('');
+  const [fonte, setFonte] = useState('todos');
+  const {
+    data,
+    loading,
+    error,
+    refetch
+  } = useBrandLogos();
+  const logos = data || [];
+  const filtrados = React.useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return logos.filter(l => {
+      if (fonte !== 'todos' && l.source !== fonte) return false;
+      if (!q) return true;
+      const p = l.painter || {};
+      return [p.name, p.tag, p.business_name, p.city, l.prompt_name, l.prompt_style].filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+    });
+  }, [logos, busca, fonte]);
+  const painterName = logoSel && logoSel.painter ? logoSel.painter.business_name || logoSel.painter.name || '' : '';
+  const gerarPedido = () => {
+    if (!logoSel) {
+      alert('Escolha primeiro o logo de um pintor na galeria abaixo.');
+      return;
+    }
+    const p = logoSel.painter || {};
+    alert('Pedido de camiseta\n\n' + 'Pintor: ' + (p.name || '—') + (p.tag ? ' (@' + p.tag + ')' : '') + '\n' + 'Contato: ' + (p.phone || '—') + '\n' + 'Cor: ' + cor + ' · Tamanho: ' + tam + '\n' + 'Logo Cali Colors: ' + (logo ? 'sim' : 'nao') + '\n' + 'Arte: ' + logoSel.image_url);
+  };
   return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       background: C.white,
       borderRadius: 16,
@@ -2485,7 +2734,61 @@ const Camisetas = () => {
     style: {
       fontSize: 13
     }
-  }, "Cali Colors + Nome Pintor")))), /*#__PURE__*/React.createElement("div", {
+  }, "Cali Colors + Nome Pintor"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.muted,
+      marginTop: 16,
+      marginBottom: 8
+    }
+  }, "Arte do pintor"), logoSel ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      background: C.cream,
+      borderRadius: 10,
+      padding: 8
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: logoSel.image_url,
+    alt: "",
+    style: {
+      width: 40,
+      height: 40,
+      objectFit: 'contain'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.ink,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700
+    }
+  }, painterName || 'Pintor'), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted
+    }
+  }, logoSel.prompt_name || LOGO_SOURCE_LABELS[logoSel.source] || '')), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setLogoSel(null),
+    "aria-label": "Tirar logo",
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '4px 8px',
+      cursor: 'pointer',
+      color: C.ink
+    }
+  }, "\xD7")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted
+    }
+  }, "Escolha um logo na galeria abaixo.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -2504,7 +2807,16 @@ const Camisetas = () => {
       flexDirection: 'column',
       border: '2px solid ' + C.border
     }
-  }, logo && /*#__PURE__*/React.createElement("div", {
+  }, logoSel && /*#__PURE__*/React.createElement("img", {
+    src: logoSel.image_url,
+    alt: "",
+    style: {
+      maxWidth: 70,
+      maxHeight: 44,
+      objectFit: 'contain',
+      marginBottom: 4
+    }
+  }), logo && /*#__PURE__*/React.createElement("div", {
     style: {
       color: cor === '#ffffff' ? '#333' : '#fff',
       fontSize: 11,
@@ -2517,13 +2829,14 @@ const Camisetas = () => {
       fontSize: 8,
       marginTop: 2
     }
-  }, "PINTOR PRO")), /*#__PURE__*/React.createElement("div", {
+  }, painterName ? painterName.slice(0, 18).toUpperCase() : 'PINTOR PRO')), /*#__PURE__*/React.createElement("div", {
     style: {
       color: cor === '#ffffff' ? '#333' : 'rgba(255,255,255,0.5)',
       fontSize: 8,
       marginTop: 8
     }
   }, "TAM ", tam)), /*#__PURE__*/React.createElement("button", {
+    onClick: gerarPedido,
     style: {
       marginTop: 16,
       background: C.p1,
@@ -2534,7 +2847,108 @@ const Camisetas = () => {
       cursor: 'pointer',
       fontWeight: 600
     }
-  }, "Gerar Pedido"))));
+  }, "Gerar Pedido")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.white,
+      borderRadius: 16,
+      padding: 20,
+      boxShadow: '0 2px 12px rgba(0,0,0,0.06)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      flexWrap: 'wrap',
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: C.ink
+    }
+  }, "\uD83C\uDFA8 Logos dos pintores (", filtrados.length, ")"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      marginTop: 2
+    }
+  }, "Tudo que foi gerado com o Seu Z\xE9 ou enviado pelo pintor dentro do app fica salvo aqui.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: busca,
+    onChange: e => setBusca(e.target.value),
+    placeholder: "Buscar por pintor, @tag, cidade, texto do logo\u2026",
+    style: {
+      padding: '8px 12px',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      fontSize: 13,
+      minWidth: 260
+    }
+  }), /*#__PURE__*/React.createElement("select", {
+    value: fonte,
+    onChange: e => setFonte(e.target.value),
+    style: {
+      padding: '8px 10px',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      fontSize: 13,
+      background: C.white,
+      color: C.ink
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "todos"
+  }, "Todos"), /*#__PURE__*/React.createElement("option", {
+    value: "ai"
+  }, "Gerados com IA"), /*#__PURE__*/React.createElement("option", {
+    value: "upload"
+  }, "Enviados")), /*#__PURE__*/React.createElement("button", {
+    onClick: refetch,
+    style: {
+      padding: '8px 12px',
+      border: '1px solid ' + C.border,
+      background: C.cream,
+      borderRadius: 8,
+      fontSize: 13,
+      cursor: 'pointer',
+      color: C.ink,
+      fontWeight: 600
+    }
+  }, "Atualizar"))), loading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 13,
+      padding: '24px 0'
+    }
+  }, "Carregando logos\u2026"), !loading && error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.p4,
+      fontSize: 13,
+      padding: '24px 0'
+    }
+  }, "N\xE3o foi poss\xEDvel carregar os logos: ", error.message || String(error)), !loading && !error && filtrados.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 13,
+      padding: '24px 0'
+    }
+  }, logos.length === 0 ? 'Nenhum logo ainda. Assim que um pintor gerar ou enviar um logo no app, ele aparece aqui.' : 'Nenhum logo bate com o filtro.'), !loading && !error && filtrados.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+      gap: 12
+    }
+  }, filtrados.map(item => /*#__PURE__*/React.createElement(LogoCard, {
+    key: item.id,
+    item: item,
+    onUse: setLogoSel
+  })))));
 };
 const Analytics = () => {
   const [data, setData] = useState({

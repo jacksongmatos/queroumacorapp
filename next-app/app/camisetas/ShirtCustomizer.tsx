@@ -56,6 +56,7 @@ export function ShirtCustomizer() {
     isSaving,
     upload,
     isUploading,
+    history,
   } = useAiLogo();
 
   const [color, setColor] = useState<string>('#ffffff');
@@ -98,6 +99,17 @@ export function ShirtCustomizer() {
       showToast((err as Error).message || 'Erro ao enviar logo', 'error');
     } finally {
       e.target.value = '';
+    }
+  }
+
+  // Reusar um logo do histórico = torná-lo o logo do perfil de novo. Um
+  // clique só; o preview segue `savedLogo`, então atualiza sozinho.
+  async function handleReuse(url: string) {
+    try {
+      await save(url);
+      showToast('Logo aplicado na camiseta', 'success');
+    } catch (e) {
+      showToast((e as Error).message || 'Erro ao usar logo', 'error');
     }
   }
 
@@ -305,6 +317,77 @@ export function ShirtCustomizer() {
           </div>
         ) : null}
       </div>
+
+      {/* Meus logos — histórico persistido em `brand_logos`. Some quando
+          o pintor ainda não gerou/enviou nenhum. */}
+      {history.length > 0 ? (
+        <div
+          className="bg-white"
+          style={{ borderRadius: 16, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}
+        >
+          <div
+            className="font-extrabold"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 16,
+              marginBottom: 4,
+              color: 'var(--color-ink)',
+            }}
+          >
+            🗂️ Meus logos
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 10 }}>
+            Tudo que você já gerou ou enviou fica salvo aqui e na Cali Colors.
+            Toque pra usar na camiseta.
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {history.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleReuse(item.image_url)}
+                disabled={isSaving}
+                title={item.prompt_name || 'Logo enviado'}
+                className="relative overflow-hidden"
+                style={{
+                  aspectRatio: '1 / 1',
+                  borderRadius: 10,
+                  background: 'var(--color-cream)',
+                  border:
+                    savedLogo === item.image_url
+                      ? '2px solid var(--color-p1)'
+                      : '1px solid rgba(0,0,0,.08)',
+                  padding: 4,
+                  cursor: isSaving ? 'wait' : 'pointer',
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.image_url}
+                  alt={item.prompt_name || 'Logo'}
+                  loading="lazy"
+                  className="w-full h-full object-contain"
+                />
+                <span
+                  className="absolute"
+                  style={{
+                    left: 3,
+                    top: 3,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: '1px 5px',
+                    borderRadius: 6,
+                    background: item.source === 'ai' ? '#8338ec' : 'rgba(0,0,0,.55)',
+                    color: '#fff',
+                  }}
+                >
+                  {item.source === 'ai' ? 'IA' : 'MEU'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Personalize sua camiseta */}
       <div
