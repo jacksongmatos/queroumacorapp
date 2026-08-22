@@ -66,10 +66,16 @@
 		<string>remote-notification</string>
 	</array>
 
+	<!-- App-Bound Domains: com `limitsNavigationsToAppBoundDomains` ligado no
+	     capacitor.config.ts, a WKWebView SÓ enxerga os domínios desta lista.
+	     O Supabase entrega auth, banco e storage do app inteiro — sem ele
+	     aqui, o iOS derruba as requisições e o app relata "sem internet"
+	     mesmo com a rede boa. Limite da Apple: 10 domínios. -->
 	<key>WKAppBoundDomains</key>
 	<array>
 		<string>queroumacor.com.br</string>
 		<string>www.queroumacor.com.br</string>
+		<string>uwqebaqweehiljsqkifm.supabase.co</string>
 	</array>
 
 	<key>NSCameraUsageDescription</key>

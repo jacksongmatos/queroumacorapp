@@ -49,6 +49,10 @@ interface AuthContextValue {
   resendVerification: () => Promise<{ error?: string }>;
 }
 
+// Teto pra resolução da sessão inicial. 8s é generoso pra um refresh de token
+// em 3G ruim e curto o bastante pra ninguém achar que o app travou.
+const SESSION_TIMEOUT_MS = 8000;
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -60,17 +64,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     let mounted = true;
 
-    sb.auth
-      .getSession()
-      .then(({ data }) => {
+    // `getSession()` NÃO é só leitura de localStorage: quando o access token
+    // está vencido, o supabase-js dispara um refresh pela rede e só resolve
+    // depois dele. Dentro do WebView (Capacitor iOS/Android) esse fetch pode
+    // ficar pendurado pra sempre — o sistema congela o WebView no background
+    // e a requisição que estava em voo nunca é rejeitada nem concluída ao
+    // voltar. Como o `loading` só virava false no `.then`/`.catch`, o app
+    // ficava eternamente no "Carregando…" do AppShell: exatamente o
+    // "sai e volta e não abre mais" relatado.
+    //
+    // Aqui a promessa corre contra um timeout. Estourou, destrava a tela: o
+    // usuário cai no /login (que já manda de volta pro /feed sozinho se a
+    // sessão aparecer depois pelo onAuthStateChange) em vez de encarar uma
+    // tela morta sem saída.
+    const syncSession = async () => {
+      try {
+        const result = await Promise.race([
+          sb.auth.getSession(),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), SESSION_TIMEOUT_MS),
+          ),
+        ]);
         if (!mounted) return;
-        setSession(data.session);
-        setUser(data.session?.user ?? null);
-        setLoading(false);
-      })
-      .catch(() => {
+        if (result) {
+          setSession(result.data.session);
+          setUser(result.data.session?.user ?? null);
+        }
+      } catch {
+        // Falha de rede/refresh — segue pro finally e destrava a tela.
+      } finally {
         if (mounted) setLoading(false);
-      });
+      }
+    };
+
+    void syncSession();
 
     const {
       data: { subscription },
@@ -78,11 +105,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       setSession(sess);
       setUser(sess?.user ?? null);
+      // Só destrava quando REALMENTE chegou uma sessão. Com `sess` nulo o
+      // `getSession()` (e o timeout dele) é quem decide — senão um
+      // INITIAL_SESSION vazio adiantaria um pulo pro /login antes da sessão
+      // guardada terminar de ser restaurada.
+      if (sess) setLoading(false);
     });
+
+    // Ao voltar do background (ou ao recuperar a rede), refaz a leitura da
+    // sessão. Sem isso, quem destravou pelo timeout ficaria "deslogado" até
+    // matar o app: o supabase-js não tenta de novo sozinho, e o WebView não
+    // recarrega a página ao ser retomado.
+    const onResume = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void syncSession();
+    };
+    // `pageshow` só interessa com persisted=true (volta do bfcache no
+    // Safari/WKWebView); no load normal ele duplicaria o sync do mount.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void syncSession();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onResume);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', onResume);
+      window.addEventListener('pageshow', onPageShow);
+    }
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onResume);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', onResume);
+        window.removeEventListener('pageshow', onPageShow);
+      }
     };
   }, []);
 
