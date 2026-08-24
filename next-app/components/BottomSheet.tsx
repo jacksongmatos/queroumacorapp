@@ -234,9 +234,14 @@ export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetP
         {/* Corpo rolável. `flex: 1` garante que o body cresce pra preencher
             o espaço disponível entre o cabeçalho fixo e o limite de altura
             do sheet. `overscroll-behavior: contain` impede que, ao chegar no
-            fim, a rolagem continue no `<main>` atrás. O padding de baixo soma
-            a safe area pra que o último botão não fique embaixo da barrinha
-            do iPhone. */}
+            fim, a rolagem continue no `<main>` atrás.
+
+            O padding de baixo garante que o último botão de ação não fica
+            atrás do BottomNav (que tem ~60px + safe area). Fórmula:
+            - 16px espaço mínimo de conforto
+            - 60px altura do BottomNav
+            - env(safe-area-inset-bottom) notch/home bar do iPhone
+            = 76px + safe-area. Aumentado pra 100px pra margem extra. */}
         <div
           ref={bodyRef}
           className="hide-scrollbar"
@@ -247,7 +252,7 @@ export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetP
             WebkitOverflowScrolling: 'touch',
             touchAction: 'pan-y',
             padding: '4px 18px 24px',
-            paddingBottom: 'calc(24px + env(safe-area-inset-bottom))',
+            paddingBottom: 'calc(100px + env(safe-area-inset-bottom))',
           }}
         >
           {children}
