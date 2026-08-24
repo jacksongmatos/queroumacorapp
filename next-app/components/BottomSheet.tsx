@@ -231,14 +231,17 @@ export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetP
           </button>
         </div>
 
-        {/* Corpo rolável. `overscroll-behavior: contain` impede que, ao
-            chegar no fim, a rolagem continue no `<main>` atrás. O padding de
-            baixo soma a safe area pra que o último botão não fique embaixo
-            da barrinha do iPhone. */}
+        {/* Corpo rolável. `flex: 1` garante que o body cresce pra preencher
+            o espaço disponível entre o cabeçalho fixo e o limite de altura
+            do sheet. `overscroll-behavior: contain` impede que, ao chegar no
+            fim, a rolagem continue no `<main>` atrás. O padding de baixo soma
+            a safe area pra que o último botão não fique embaixo da barrinha
+            do iPhone. */}
         <div
           ref={bodyRef}
           className="hide-scrollbar"
           style={{
+            flex: 1,
             overflowY: 'auto',
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch',
