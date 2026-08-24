@@ -361,7 +361,9 @@ export function SearchResults() {
               borderRadius: 26,
               border: '1.5px solid rgba(255,255,255,.14)',
               background: 'rgba(255,255,255,.07)',
-              fontSize: 14,
+              /* Font size: deixar a media query do globals.css fazer o trabalho.
+                 Em @media (pointer: coarse) o input terá 16px (evita zoom iOS),
+                 em desktop terá o valor padrão do navegador ou 16px também. */
             }}
           />
         </label>
