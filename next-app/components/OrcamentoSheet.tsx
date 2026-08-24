@@ -170,7 +170,17 @@ export function OrcamentoSheet({ open, onClose, painterId, painterName, postId }
         </p>
       ) : null}
 
-      <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: 4 }}>
+      {/* Campos SEM rolagem própria: o corpo do BottomSheet já rola (o sheet
+          é `maxHeight: 92dvh` com cabeçalho fixo + corpo rolável).
+          Um segundo scroller aqui dentro deixava o botão "Enviar orçamento"
+          INALCANÇÁVEL no iPhone: o `60vh` (que no Safari conta a área atrás
+          das barras) fazia esta caixa cobrir toda a área visível, e o iOS
+          prende o gesto a UM scroller do começo ao fim — chegando no fim da
+          lista de campos, a rolagem não passa pro corpo do sheet, e como não
+          sobrava nenhum pedaço do corpo pra encostar o dedo, o botão ficava
+          fora de alcance pra sempre. Com um scroller só, campos e botão
+          rolam juntos. */}
+      <div>
         <Field label="Tipo de pintura">
           <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={inputCls}>
             {TIPOS.map((o) => <option key={o} value={o}>{o}</option>)}
