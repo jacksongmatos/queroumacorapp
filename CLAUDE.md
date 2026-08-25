@@ -1,7 +1,6 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
-- **WhatsApp Cloud API — LIVE no backend, falta só o webhook na Meta
-  (2026-08-25).** O número
+- **WhatsApp Cloud API — LIVE ponta a ponta (2026-08-25).** O número
   oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA
   `102067872689175`, Phone Number ID `109293361953640`, app "CaliColors
   Integracao API"). Service em `lib/api/_services/whatsapp.ts` (builders
@@ -13,12 +12,12 @@
   anti-retry-storm igual mp-webhook). 22 testes em
   `__tests__/services/whatsapp.test.ts`. Doc: `docs/WHATSAPP_CLOUD_API.md`.
   - **O access token NÃO está no código** (IDs públicos são default; token
-    só via env). Faltam 3 envs no CF Pages Production + redeploy:
-    `WHATSAPP_ACCESS_TOKEN` (o token permanente do system user),
-    `META_APP_SECRET` (painel Meta → Básico), `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
-    (string nossa, ex. `openssl rand -hex 24`) — e cadastrar o webhook no
-    painel da Meta (URL `/api/whatsapp/webhook` + o mesmo verify token,
-    subscribe em "messages").
+    só via env). As 3 envs JÁ ESTÃO no CF Pages Production (2026-08-25):
+    `WHATSAPP_ACCESS_TOKEN`, `META_APP_SECRET`,
+    `WHATSAPP_WEBHOOK_VERIFY_TOKEN`. Webhook JÁ CADASTRADO e verificado no
+    painel da Meta (subscribe em "messages"). Não pedir pra configurar de
+    novo. Se o token vazar/expirar (erro 190 do Graph): regenerar no
+    painel Meta e trocar só a env + redeploy.
   - **Janela de 24h da Meta**: texto livre só pra quem escreveu nas últimas
     24h; fora dela o Graph dá 131047 e a rota responde 422 "use um template
     aprovado". Templates se criam no WhatsApp Manager.
