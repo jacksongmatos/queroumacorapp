@@ -19,6 +19,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -59,6 +60,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  // Último access_token já espelhado no cookie do guard /admin/* — evita
+  // re-POSTar a cada re-render/sync com o mesmo token.
+  const lastCookieTokenRef = useRef<string | null>(null);
+
+  // CRIT-4: espelha o access_token no cookie httpOnly `sb-session-token`
+  // (via /api/auth/set-session-cookie) SEMPRE que a sessão muda. O
+  // LoginForm só cobria login com email/senha — quem entrava por
+  // Google/Apple (OAuth) nunca ganhava o cookie e via 404 eterno em
+  // /admin/*. Aqui cobre todos os caminhos (OAuth, restore de sessão,
+  // TOKEN_REFRESHED — que também renova o cookie antes do max-age de 1h
+  // expirar). Best-effort: só afeta o painel admin, nunca o login em si.
+  useEffect(() => {
+    const token = session?.access_token ?? null;
+    if (!token || token === lastCookieTokenRef.current) return;
+    lastCookieTokenRef.current = token;
+    try {
+      void fetch('/api/auth/set-session-cookie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: token }),
+        credentials: 'same-origin',
+      }).catch(() => {
+        // Silencioso — cookie é UX-only pro /admin.
+      });
+    } catch {
+      // fetch indisponível (SSR/teste) — ignora.
+    }
+  }, [session]);
 
   useEffect(() => {
     const sb = getSupabase();

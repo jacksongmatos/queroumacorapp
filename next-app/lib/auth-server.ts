@@ -33,6 +33,15 @@
 
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
+// Edge do Cloudflare: env do painel do Pages SÓ existe no request context —
+// `process.env` dinâmico vem vazio em produção (descoberta 2026-08-22, ver
+// lib/api/env.ts). Este guard lia process.env direto, então ADMIN_EMAILS e
+// a service key nunca chegavam e TODO acesso a /admin/* caía em notFound(),
+// mesmo admin com cookie válido. `getRuntimeEnv` lê o request context com
+// fallback pra process.env (build/dev/vitest). Os acessos ESTÁTICOS a
+// `process.env.NEXT_PUBLIC_*` ficam como fallback: o build do Next inlina
+// essas expressões, então seguem funcionando onde o contexto faltar.
+import { getRuntimeEnv } from '@/lib/api/env';
 
 const SESSION_COOKIE = 'sb-session-token';
 const AUTH_TIMEOUT_MS = 10_000;
@@ -44,25 +53,27 @@ interface AdminGuardResult {
 
 function getSupabaseUrl(): string | null {
   const url =
+    getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL') ||
+    getRuntimeEnv('SUPABASE_URL') ||
     process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.SUPABASE_URL ||
     '';
   return url ? url.replace(/\/$/, '') : null;
 }
 
 function getAnonKey(): string | null {
   return (
+    getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
+    getRuntimeEnv('SUPABASE_ANON_KEY') ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
     null
   );
 }
 
 function getServiceKey(): string | null {
   return (
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_KEY ||
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY') ||
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
+    getRuntimeEnv('SUPABASE_SERVICE_KEY') ||
     null
   );
 }
@@ -109,9 +120,9 @@ async function getUserFromToken(
   }
 }
 
-/** Checa email em ADMIN_EMAILS env. */
+/** Checa email em ADMIN_EMAILS env (runtime — nunca process.env direto). */
 function isAdminEmail(email: string): boolean {
-  const list = (process.env.ADMIN_EMAILS || '')
+  const list = (getRuntimeEnv('ADMIN_EMAILS') || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
