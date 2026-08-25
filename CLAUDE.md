@@ -1,5 +1,30 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **WhatsApp Cloud API — backend codado, falta ENV (2026-08-25).** O número
+  oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA
+  `102067872689175`, Phone Number ID `109293361953640`, app "CaliColors
+  Integracao API"). Service em `lib/api/_services/whatsapp.ts` (builders
+  puros + `sendWhatsAppText/Template` + `verifyMetaSignature` +
+  `parseInboundMessages`); rotas `/api/whatsapp/send` (admin-only, mesmo
+  gate do `/api/admin/users`, rate limit 30/min, audit_log com preview de
+  80 chars) e `/api/whatsapp/webhook` (GET verificação + POST com HMAC
+  `X-Hub-Signature-256` validado antes do parse; pós-assinatura sempre 200,
+  anti-retry-storm igual mp-webhook). 22 testes em
+  `__tests__/services/whatsapp.test.ts`. Doc: `docs/WHATSAPP_CLOUD_API.md`.
+  - **O access token NÃO está no código** (IDs públicos são default; token
+    só via env). Faltam 3 envs no CF Pages Production + redeploy:
+    `WHATSAPP_ACCESS_TOKEN` (o token permanente do system user),
+    `META_APP_SECRET` (painel Meta → Básico), `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+    (string nossa, ex. `openssl rand -hex 24`) — e cadastrar o webhook no
+    painel da Meta (URL `/api/whatsapp/webhook` + o mesmo verify token,
+    subscribe em "messages").
+  - **Janela de 24h da Meta**: texto livre só pra quem escreveu nas últimas
+    24h; fora dela o Graph dá 131047 e a rota responde 422 "use um template
+    aprovado". Templates se criam no WhatsApp Manager.
+  - Webhook por enquanto só loga (preview 60 chars → CF logs). Persistência
+    de mensagem recebida é etapa futura — NÃO misturar com a tabela
+    `messages` do chat interno (user↔user, FK em profiles).
+
 - **WebView: "erro 500 e não abre mais" / "sem internet" — 4 causas
   corrigidas (2026-08-22).** Sintomas: no Android, sair e voltar (ou no meio
   do uso) dava 500 e o app não abria mais; no iOS, "não tem internet" ao
