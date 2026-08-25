@@ -1,6 +1,7 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
-- **WhatsApp Cloud API — backend codado, falta ENV (2026-08-25).** O número
+- **WhatsApp Cloud API — LIVE no backend, falta só o webhook na Meta
+  (2026-08-25).** O número
   oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA
   `102067872689175`, Phone Number ID `109293361953640`, app "CaliColors
   Integracao API"). Service em `lib/api/_services/whatsapp.ts` (builders
