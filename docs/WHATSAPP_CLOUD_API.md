@@ -71,10 +71,27 @@ Templates).
   `META_APP_SECRET` sobre o raw body) validada ANTES do parse; inválida →
   401, secret ausente → 503. Depois da assinatura ok, **sempre 200**
   (anti-retry-storm, mesma filosofia do mp-webhook).
-- Por enquanto o POST só loga as mensagens recebidas (preview de 60 chars →
-  Cloudflare logs). Persistir em tabela / auto-responder é etapa futura —
-  **não** misturar com a tabela `messages` do chat interno (user↔user, FK
-  em profiles).
+- Mensagens recebidas são logadas (preview 60 chars → CF logs) **e
+  gravadas em `whatsapp_messages`** (SQL Wave 38) via service_role,
+  best-effort: falha de gravação não muda o 200. O `message_id` (wamid)
+  é UNIQUE — retry de webhook da Meta não duplica linha. Tabela separada
+  da `messages` do chat interno (aqui o interlocutor é telefone externo).
+
+## Tela admin `/admin/whatsapp`
+
+Guard `requireAdminServer()` (CRIT-4) + RLS (SELECT só `is_portal_admin()`).
+Lista as mensagens em estilo conversa (recebidas à esquerda, enviadas à
+direita), com filtros Todas/Recebidas/Enviadas, poll de 15s e botão
+"Responder" que preenche o número no formulário de envio (texto livre via
+`/api/whatsapp/send`). É a forma prática de testar envio/recebimento ponta
+a ponta sem curl nem logs do Cloudflare.
+
+## SQL Wave 38 — `whatsapp_messages`
+
+Migration em `/migrations/2026-08-25-whatsapp-messages.sql`. Sem a tabela,
+webhook e envio seguem funcionando (persistência é best-effort) — mas a
+tela `/admin/whatsapp` fica vazia e mostra erro de tabela inexistente na
+listagem.
 
 ### Cadastro do webhook no painel da Meta
 

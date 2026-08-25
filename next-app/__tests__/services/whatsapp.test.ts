@@ -24,6 +24,7 @@ import {
   isWhatsAppConfigured,
   normalizeBrPhone,
   parseInboundMessages,
+  persistWhatsAppMessage,
   sendWhatsAppText,
   verifyMetaSignature,
 } from '../../lib/api/_services/whatsapp';
@@ -219,6 +220,72 @@ describe('verifyMetaSignature', () => {
   it('rejeita header ausente ou sem prefixo sha256=', async () => {
     expect(await verifyMetaSignature(body, null, secret)).toBe(false);
     expect(await verifyMetaSignature(body, 'md5=abc', secret)).toBe(false);
+  });
+});
+
+// ─── persistWhatsAppMessage (SQL Wave 38) ───────────────────────────────────
+
+describe('persistWhatsAppMessage', () => {
+  const SUPA_URL = 'https://fake.supabase.co';
+  const SERVICE_KEY = 'service-key-teste';
+
+  beforeEach(() => {
+    process.env.SUPABASE_URL = SUPA_URL;
+    process.env.SUPABASE_SERVICE_ROLE = SERVICE_KEY;
+  });
+
+  afterEach(() => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE;
+  });
+
+  it('POST no REST com service key, on_conflict e ignore-duplicates', async () => {
+    const spy = stubFetchOnce(201, {});
+    const ok = await persistWhatsAppMessage({
+      direction: 'in',
+      waId: '16503154274',
+      profileName: 'Jackson',
+      messageId: 'wamid.abc',
+      type: 'text',
+      body: 'oi',
+      waTimestamp: '1756100000',
+    });
+    expect(ok).toBe(true);
+    const [url, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${SUPA_URL}/rest/v1/whatsapp_messages?on_conflict=message_id`);
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe(`Bearer ${SERVICE_KEY}`);
+    expect(headers.Prefer).toContain('ignore-duplicates');
+    const row = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(row).toMatchObject({
+      direction: 'in',
+      wa_id: '16503154274',
+      message_id: 'wamid.abc',
+      body: 'oi',
+    });
+    // Epoch em segundos vira ISO.
+    expect(row.wa_timestamp).toBe(new Date(1756100000 * 1000).toISOString());
+  });
+
+  it('messageId vazio vira NULL (não colide no UNIQUE)', async () => {
+    const spy = stubFetchOnce(201, {});
+    await persistWhatsAppMessage({ direction: 'out', waId: '5511988887777', messageId: '' });
+    const row = JSON.parse((spy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(row.message_id).toBeNull();
+  });
+
+  it('best-effort: sem service key → false sem lançar', async () => {
+    delete process.env.SUPABASE_SERVICE_ROLE;
+    const spy = stubFetchOnce(201, {});
+    expect(await persistWhatsAppMessage({ direction: 'in', waId: 'x' })).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('best-effort: REST 500 → false; network throw → false', async () => {
+    stubFetchOnce(500, { message: 'boom' });
+    expect(await persistWhatsAppMessage({ direction: 'in', waId: 'x' })).toBe(false);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('down')));
+    expect(await persistWhatsAppMessage({ direction: 'in', waId: 'x' })).toBe(false);
   });
 });
 

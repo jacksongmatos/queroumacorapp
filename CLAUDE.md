@@ -21,9 +21,18 @@
   - **Janela de 24h da Meta**: texto livre só pra quem escreveu nas últimas
     24h; fora dela o Graph dá 131047 e a rota responde 422 "use um template
     aprovado". Templates se criam no WhatsApp Manager.
-  - Webhook por enquanto só loga (preview 60 chars → CF logs). Persistência
-    de mensagem recebida é etapa futura — NÃO misturar com a tabela
-    `messages` do chat interno (user↔user, FK em profiles).
+  - **SQL Wave 38 — PENDENTE de rodar** (`/migrations/2026-08-25-whatsapp-messages.sql`):
+    tabela `whatsapp_messages` (direction in/out, `message_id` UNIQUE pra
+    dedupe de retry da Meta, RLS SELECT só `is_portal_admin()`, escrita só
+    service_role). Webhook grava inbound e `/api/whatsapp/send` grava
+    outbound via `persistWhatsAppMessage` (best-effort — falha nunca custa
+    o 200 do webhook nem a mensagem enviada; sem a tabela, tudo segue
+    funcionando só com log). Tela `/admin/whatsapp` (RSC guard
+    `requireAdminServer` + `WhatsAppAdmin` client): lista em estilo conversa
+    (poll 15s), filtros in/out, form de envio de texto livre e botão
+    "Responder". NÃO misturar com a tabela `messages` do chat interno
+    (user↔user, FK em profiles) — aqui o interlocutor é telefone externo.
+    Trocar para "JÁ EXECUTADO" após rodar no SQL Editor.
 
 - **WebView: "erro 500 e não abre mais" / "sem internet" — 4 causas
   corrigidas (2026-08-22).** Sintomas: no Android, sair e voltar (ou no meio

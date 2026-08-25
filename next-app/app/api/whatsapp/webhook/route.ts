@@ -21,6 +21,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getRuntimeEnv } from '@/lib/api/env';
 import {
   parseInboundMessages,
+  persistWhatsAppMessage,
   verifyMetaSignature,
 } from '@/lib/api/_services/whatsapp';
 
@@ -83,6 +84,24 @@ export async function POST(request: NextRequest) {
         `[whatsapp-webhook] msg de ${msg.from} (${msg.profileName || 'sem nome'}) ` +
           `type=${msg.type} id=${msg.messageId} preview="${msg.text.slice(0, 60)}"`
       );
+    }
+    // SQL Wave 38: grava em `whatsapp_messages` (best-effort; wamid UNIQUE
+    // dedupa retries da Meta). Falha vira log — a resposta segue 200.
+    const persisted = await Promise.all(
+      messages.map((msg) =>
+        persistWhatsAppMessage({
+          direction: 'in',
+          waId: msg.from,
+          profileName: msg.profileName,
+          messageId: msg.messageId,
+          type: msg.type,
+          body: msg.text,
+          waTimestamp: msg.timestamp,
+        })
+      )
+    );
+    if (persisted.some((ok) => !ok)) {
+      console.warn('[whatsapp-webhook] falha ao persistir parte das mensagens (best-effort)');
     }
   } catch (e) {
     console.error(

@@ -20,7 +20,7 @@
 // traduzimos pra mensagem acionável.
 
 import { getRuntimeEnv } from '../env';
-import { ServiceError } from '../security';
+import { getServiceKey, getSupabaseUrl, ServiceError } from '../security';
 
 export const GRAPH_API_VERSION = 'v21.0';
 
@@ -204,6 +204,78 @@ export async function sendWhatsAppTemplate(opts: {
   return sendWhatsAppMessage(
     buildTemplatePayload(to, opts.template, opts.languageCode || 'pt_BR', opts.components)
   );
+}
+
+// ─── Persistência (SQL Wave 38: tabela whatsapp_messages) ───────────────────
+
+export interface PersistWhatsAppMessageInput {
+  direction: 'in' | 'out';
+  waId: string;
+  profileName?: string;
+  /** wamid da Meta. UNIQUE no banco — retry de webhook não duplica linha. */
+  messageId?: string;
+  type?: string;
+  body?: string;
+  template?: string;
+  /** UUID do admin que enviou (só direction='out'). */
+  sentBy?: string;
+  /** Epoch em SEGUNDOS como a Meta manda (string). */
+  waTimestamp?: string;
+}
+
+const PERSIST_TIMEOUT_MS = 8000;
+
+/**
+ * Grava uma mensagem (recebida ou enviada) em `whatsapp_messages` via REST
+ * com service_role. BEST-EFFORT: retorna false em qualquer falha (tabela
+ * ainda não criada, env ausente, rede) — persistir nunca pode custar o 200
+ * do webhook nem uma mensagem já enviada com sucesso.
+ */
+export async function persistWhatsAppMessage(
+  input: PersistWhatsAppMessageInput
+): Promise<boolean> {
+  try {
+    const url = getSupabaseUrl();
+    const serviceKey = getServiceKey();
+    if (!url || !serviceKey) return false;
+
+    let waTimestamp: string | null = null;
+    if (input.waTimestamp && /^\d+$/.test(input.waTimestamp)) {
+      const d = new Date(Number(input.waTimestamp) * 1000);
+      if (!Number.isNaN(d.getTime())) waTimestamp = d.toISOString();
+    }
+
+    const row = {
+      direction: input.direction,
+      wa_id: input.waId,
+      profile_name: input.profileName || null,
+      message_id: input.messageId || null, // '' vira NULL (UNIQUE permite múltiplos)
+      type: input.type || 'text',
+      body: input.body || null,
+      template: input.template || null,
+      sent_by: input.sentBy || null,
+      wa_timestamp: waTimestamp,
+    };
+
+    const res = await fetch(
+      `${url.replace(/\/$/, '')}/rest/v1/whatsapp_messages?on_conflict=message_id`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          // ignore-duplicates: retry de webhook da Meta (mesmo wamid) vira no-op.
+          Prefer: 'resolution=ignore-duplicates,return=minimal',
+        },
+        body: JSON.stringify(row),
+        signal: AbortSignal.timeout(PERSIST_TIMEOUT_MS),
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Webhook: verificação de assinatura ─────────────────────────────────────

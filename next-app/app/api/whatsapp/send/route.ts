@@ -26,6 +26,8 @@ import {
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import {
   isWhatsAppConfigured,
+  normalizeBrPhone,
+  persistWhatsAppMessage,
   sendWhatsAppTemplate,
   sendWhatsAppText,
   type TemplateComponent,
@@ -82,6 +84,18 @@ export async function POST(request: NextRequest) {
             components: input.components as TemplateComponent[] | undefined,
           })
         : await sendWhatsAppText({ to: input.to, body: input.body as string });
+
+    // SQL Wave 38: histórico da conversa em `whatsapp_messages` (best-effort
+    // — mensagem já saiu, gravar não pode custar o sucesso da resposta).
+    await persistWhatsAppMessage({
+      direction: 'out',
+      waId: result.waId || normalizeBrPhone(input.to) || input.to,
+      messageId: result.messageId,
+      type: input.type,
+      body: input.body,
+      template: input.template,
+      sentBy: callerId,
+    });
 
     // Trilha: quem mandou o quê pra quem, pelo número oficial. Fail-open
     // (perder o log não pode custar a mensagem já enviada). Sem o corpo
