@@ -1,6 +1,6 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
-- **SQL Waves 40 e 41 (2026-08-28) — PENDENTES de rodar no Supabase.**
+- **SQL Waves 40 e 41 (2026-08-28) — JÁ EXECUTADAS no Supabase (2026-08-28). Não pedir pra rodar de novo.**
   - **Wave 40** (`/migrations/2026-08-28-profile-counters-triggers.sql`):
     os contadores `followers_count`/`following_count`/`posts_count` de
     `profiles` NUNCA tiveram trigger de manutenção no repo (a migration
@@ -15,7 +15,6 @@
     recusa) — o app sobe o PDF pro bucket e entrega o LINK público com
     `?download=` (quotePdf.uploadPdfForLink). Sem o bucket, cai no
     fallback data URL (que no wrapper não salva).
-  Trocar pra "JÁ EXECUTADO" quando o usuário rodar.
 
 - **Respostas automáticas do chat — consertadas, SQL Wave 39 JÁ EXECUTADO
   no Supabase (2026-08-28).** Dois bugs: (1) `auto_responses` nasceu SEM unique em
