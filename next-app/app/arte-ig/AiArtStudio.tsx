@@ -49,6 +49,8 @@ export function AiArtStudio() {
   // Form state. Default style=profissional, aspect=square — bate com o
   // vanilla _aiArtReset().
   const [style, setStyle] = useState<ArtStyle>('profissional');
+  // Visualizador em tela cheia do histórico (toque na miniatura abre).
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const [needsTwo, setNeedsTwo] = useState(false);
   const [aspect, setAspect] = useState<ArtAspect>('square');
   const [hint, setHint] = useState('');
@@ -427,30 +429,49 @@ export function AiArtStudio() {
                       border: '1px solid var(--color-border)',
                     }}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={it.imageDataUrl}
-                      alt="Arte anterior"
-                      style={{
-                        width: '100%',
-                        aspectRatio: '1 / 1',
-                        objectFit: 'cover',
-                        display: 'block',
-                      }}
-                    />
+                    {/* Toque abre em tela cheia (antes não fazia nada). */}
+                    <button
+                      type="button"
+                      onClick={() => setViewerUrl(it.imageDataUrl)}
+                      className="block w-full"
+                      style={{ border: 'none', padding: 0, cursor: 'zoom-in', background: 'none' }}
+                      aria-label="Ver arte em tela cheia"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={it.imageDataUrl}
+                        alt="Arte anterior"
+                        style={{
+                          width: '100%',
+                          aspectRatio: '1 / 1',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                    </button>
                     <div className="flex" style={{ borderTop: '1px solid var(--color-border)' }}>
-                      <a
-                        href={it.imageDataUrl}
-                        download={`arte-${it.id}.png`}
+                      {/* Antes: <a download href="data:..."> — o WebView tratava
+                          como navegação e o app "fechava". Agora share sheet
+                          nativo + fallback blob (shareOrDownloadImage). */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void import('@/lib/utils/shareOrDownloadImage').then(
+                            ({ shareOrDownloadImage }) =>
+                              shareOrDownloadImage(it.imageDataUrl, `arte-${it.id}.png`),
+                          )
+                        }
                         className="flex-1 text-center font-bold text-[10px] py-1.5"
                         style={{
                           color: 'var(--color-ink)',
-                          textDecoration: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
                           background: 'rgba(0,0,0,.02)',
                         }}
+                        aria-label="Baixar ou compartilhar arte"
                       >
                         ⬇️
-                      </a>
+                      </button>
                       <button
                         type="button"
                         onClick={() => history.remove(it.id)}
@@ -473,6 +494,43 @@ export function AiArtStudio() {
                 Suas últimas {history.items.length} artes ficam salvas neste celular.
                 Baixe pra não perder.
               </p>
+            </div>
+          ) : null}
+
+          {/* Visualizador em tela cheia — toque em qualquer lugar fecha. */}
+          {viewerUrl ? (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Arte em tela cheia"
+              onClick={() => setViewerUrl(null)}
+              className="fixed inset-0 z-[1100] flex items-center justify-center"
+              style={{ background: 'rgba(0,0,0,.88)', padding: 16 }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={viewerUrl}
+                alt="Arte em tela cheia"
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }}
+              />
+              <button
+                type="button"
+                onClick={() => setViewerUrl(null)}
+                aria-label="Fechar"
+                className="absolute flex items-center justify-center rounded-full font-bold"
+                style={{
+                  top: 'calc(12px + env(safe-area-inset-top))',
+                  right: 12,
+                  width: 40,
+                  height: 40,
+                  background: 'rgba(255,255,255,.15)',
+                  color: '#fff',
+                  border: 'none',
+                  fontSize: 18,
+                }}
+              >
+                ✕
+              </button>
             </div>
           ) : null}
         </section>

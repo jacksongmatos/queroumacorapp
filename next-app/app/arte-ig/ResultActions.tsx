@@ -82,13 +82,11 @@ export function ResultActions({
   }, [withLogo, logoUrl, imageDataUrl, logoPos]);
 
   const handleDownload = useCallback(() => {
-    if (typeof document === 'undefined') return;
-    const a = document.createElement('a');
-    a.href = displayUrl;
-    a.download = `arte-ig-${Date.now()}.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // Anchor com data URL era tratado como navegação pelo WebView Android
+    // (o app "fechava"). O helper usa share sheet nativo + fallback blob.
+    void import('@/lib/utils/shareOrDownloadImage').then(({ shareOrDownloadImage }) =>
+      shareOrDownloadImage(displayUrl, `arte-ig-${Date.now()}.png`),
+    );
   }, [displayUrl]);
 
   const handlePost = useCallback(() => {
