@@ -725,6 +725,57 @@ const editUserName = async (profile, after) => {
   })) && after) after();
 };
 
+// Edita cidade (vazio limpa).
+const editUserCity = async (profile, after) => {
+  let v = prompt('Cidade de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.city || '');
+  if (v === null) return;
+  v = v.trim();
+  if (v.length > 60) {
+    alert('Cidade muito longa (max 60 caracteres).');
+    return;
+  }
+  if (v === (profile.city || '')) return;
+  if ((await adminUsers({
+    action: 'set_info',
+    userId: profile.id,
+    city: v
+  })) && after) after();
+};
+
+// Edita a UF (2 letras; vazio limpa).
+const editUserState = async (profile, after) => {
+  let v = prompt('Estado (UF, 2 letras — ex.: SP) de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.state || '');
+  if (v === null) return;
+  v = v.trim().toUpperCase();
+  if (v && !/^[A-Z]{2}$/.test(v)) {
+    alert('UF invalida: use 2 letras (ex.: SP, RJ) ou vazio pra limpar.');
+    return;
+  }
+  if (v === (profile.state || '')) return;
+  if ((await adminUsers({
+    action: 'set_info',
+    userId: profile.id,
+    state: v
+  })) && after) after();
+};
+
+// Edita especialidades (texto livre, separadas por virgula; vazio limpa).
+const editUserSpecialties = async (profile, after) => {
+  let v = prompt('Especialidades de ' + (profile.name || 'este perfil') + '\n(separadas por virgula — ex.: Residencial, Textura, Grafiato; vazio pra limpar)', profile.specialties || '');
+  if (v === null) return;
+  v = v.trim();
+  if (v.length > 200) {
+    alert('Especialidades muito longas (max 200 caracteres).');
+    return;
+  }
+  if (v === (profile.specialties || '')) return;
+  if ((await adminUsers({
+    action: 'set_info',
+    userId: profile.id,
+    specialties: v
+  })) && after) after();
+};
+
 // Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
 // pede confirmacao. O backend recusa formato invalido e e-mail em uso.
 const editUserEmail = async (profile, after) => {
@@ -858,6 +909,76 @@ const EmailCell = ({
 }, profile.email || '—'), /*#__PURE__*/React.createElement("button", {
   onClick: () => editUserEmail(profile, after),
   title: "Editar e-mail (troca o login)",
+  style: {
+    background: 'none',
+    border: '1px solid ' + C.border,
+    borderRadius: 6,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: 11
+  }
+}, "\u270F\uFE0F"));
+
+// Cidade / UF / Especialidades com lapis (mesmo padrao).
+const CityCell = ({
+  profile,
+  after
+}) => /*#__PURE__*/React.createElement("span", {
+  style: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6
+  }
+}, /*#__PURE__*/React.createElement("span", null, profile.city || '—'), /*#__PURE__*/React.createElement("button", {
+  onClick: () => editUserCity(profile, after),
+  title: "Editar cidade",
+  style: {
+    background: 'none',
+    border: '1px solid ' + C.border,
+    borderRadius: 6,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: 11
+  }
+}, "\u270F\uFE0F"));
+const StateCell = ({
+  profile,
+  after
+}) => /*#__PURE__*/React.createElement("span", {
+  style: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6
+  }
+}, /*#__PURE__*/React.createElement("span", null, profile.state || '—'), /*#__PURE__*/React.createElement("button", {
+  onClick: () => editUserState(profile, after),
+  title: "Editar UF",
+  style: {
+    background: 'none',
+    border: '1px solid ' + C.border,
+    borderRadius: 6,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: 11
+  }
+}, "\u270F\uFE0F"));
+const SpecialtiesCell = ({
+  profile,
+  after
+}) => /*#__PURE__*/React.createElement("span", {
+  style: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6
+  }
+}, /*#__PURE__*/React.createElement("span", {
+  style: {
+    color: C.muted,
+    fontSize: 12
+  }
+}, profile.specialties || '—'), /*#__PURE__*/React.createElement("button", {
+  onClick: () => editUserSpecialties(profile, after),
+  title: "Editar especialidades",
   style: {
     background: 'none',
     border: '1px solid ' + C.border,
@@ -1746,17 +1867,24 @@ const PintoresList = ({
     style: {
       padding: '10px 12px'
     }
-  }, p.city || '—'), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(CityCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
-  }, p.state || '—'), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(StateCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
-      padding: '10px 12px',
-      fontSize: 12,
-      color: C.muted
+      padding: '10px 12px'
     }
-  }, p.specialties || '—'), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(SpecialtiesCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
@@ -5528,11 +5656,17 @@ const ClientesList = () => {
       style: {
         padding: '10px 12px'
       }
-    }, c.city || '—'), /*#__PURE__*/React.createElement("td", {
+    }, /*#__PURE__*/React.createElement(CityCell, {
+      profile: c,
+      after: fetchClientes
+    })), /*#__PURE__*/React.createElement("td", {
       style: {
         padding: '10px 12px'
       }
-    }, c.state || '—'), /*#__PURE__*/React.createElement("td", {
+    }, /*#__PURE__*/React.createElement(StateCell, {
+      profile: c,
+      after: fetchClientes
+    })), /*#__PURE__*/React.createElement("td", {
       style: {
         padding: '10px 12px',
         color: C.muted

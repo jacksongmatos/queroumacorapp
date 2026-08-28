@@ -342,6 +342,40 @@ const editUserName = async (profile, after) => {
   if (await adminUsers({ action:'set_name', userId: profile.id, name: v }) && after) after();
 };
 
+// Edita cidade (vazio limpa).
+const editUserCity = async (profile, after) => {
+  let v = prompt('Cidade de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.city || '');
+  if (v === null) return;
+  v = v.trim();
+  if (v.length > 60) { alert('Cidade muito longa (max 60 caracteres).'); return; }
+  if (v === (profile.city || '')) return;
+  if (await adminUsers({ action:'set_info', userId: profile.id, city: v }) && after) after();
+};
+
+// Edita a UF (2 letras; vazio limpa).
+const editUserState = async (profile, after) => {
+  let v = prompt('Estado (UF, 2 letras — ex.: SP) de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.state || '');
+  if (v === null) return;
+  v = v.trim().toUpperCase();
+  if (v && !/^[A-Z]{2}$/.test(v)) { alert('UF invalida: use 2 letras (ex.: SP, RJ) ou vazio pra limpar.'); return; }
+  if (v === (profile.state || '')) return;
+  if (await adminUsers({ action:'set_info', userId: profile.id, state: v }) && after) after();
+};
+
+// Edita especialidades (texto livre, separadas por virgula; vazio limpa).
+const editUserSpecialties = async (profile, after) => {
+  let v = prompt(
+    'Especialidades de ' + (profile.name || 'este perfil') +
+    '\n(separadas por virgula — ex.: Residencial, Textura, Grafiato; vazio pra limpar)',
+    profile.specialties || ''
+  );
+  if (v === null) return;
+  v = v.trim();
+  if (v.length > 200) { alert('Especialidades muito longas (max 200 caracteres).'); return; }
+  if (v === (profile.specialties || '')) return;
+  if (await adminUsers({ action:'set_info', userId: profile.id, specialties: v }) && after) after();
+};
+
 // Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
 // pede confirmacao. O backend recusa formato invalido e e-mail em uso.
 const editUserEmail = async (profile, after) => {
@@ -435,6 +469,29 @@ const EmailCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.muted }}>{profile.email || '—'}</span>
     <button onClick={() => editUserEmail(profile, after)} title="Editar e-mail (troca o login)"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// Cidade / UF / Especialidades com lapis (mesmo padrao).
+const CityCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span>{profile.city || '—'}</span>
+    <button onClick={() => editUserCity(profile, after)} title="Editar cidade"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+const StateCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span>{profile.state || '—'}</span>
+    <button onClick={() => editUserState(profile, after)} title="Editar UF"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+const SpecialtiesCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ color:C.muted, fontSize:12 }}>{profile.specialties || '—'}</span>
+    <button onClick={() => editUserSpecialties(profile, after)} title="Editar especialidades"
       style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
@@ -855,9 +912,9 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
               </td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px', fontSize:12 }}><TagCell profile={p} after={fetchPintores} /></td>
-              <td style={{ padding:'10px 12px' }}>{p.city || '—'}</td>
-              <td style={{ padding:'10px 12px' }}>{p.state || '—'}</td>
-              <td style={{ padding:'10px 12px', fontSize:12, color:C.muted }}>{p.specialties || '—'}</td>
+              <td style={{ padding:'10px 12px' }}><CityCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px' }}><StateCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px' }}><SpecialtiesCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}>{p.rating_avg != null ? Number(p.rating_avg).toFixed(1) : '—'}</td>
               <td style={{ padding:'10px 12px' }}>
                 {p.verified ? <span style={{ background:C.p6+'22', color:C.p6, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>Aprovado</span> : <span style={{ background:C.p7+'22', color:'#b8860b', borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>Pendente</span>}
@@ -2355,8 +2412,8 @@ const ClientesList = () => {
                 <td style={{ padding:'10px 12px' }}><RoleSelect profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px' }}><TagCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={c} after={fetchClientes} /></td>
-                <td style={{ padding:'10px 12px' }}>{c.city || '—'}</td>
-                <td style={{ padding:'10px 12px' }}>{c.state || '—'}</td>
+                <td style={{ padding:'10px 12px' }}><CityCell profile={c} after={fetchClientes} /></td>
+                <td style={{ padding:'10px 12px' }}><StateCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>
                 <td style={{ padding:'10px 12px', fontFamily:'monospace', fontSize:11, fontWeight:700, letterSpacing:1 }}>{c._generated_codes && c._generated_codes.length > 0 ? c._generated_codes.join(', ') : '—'}</td>
                 <td style={{ padding:'10px 12px', fontFamily:'monospace', fontSize:11, fontWeight:700, letterSpacing:1 }}>{c.invite_code_used || '—'}</td>

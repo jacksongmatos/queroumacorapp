@@ -12,12 +12,17 @@
   conta admin/portal ("habilitar para excluir aqui tbm"); a PRÓPRIA
   conta segue sempre bloqueada. Trocar pra "JÁ EXECUTADO" após rodar.
 
-- **Portal: editar nome e e-mail (2026-08-28, v=20260828g).** `NameCell`
-  (Pintores + Clientes) e `EmailCell` (Clientes) com lápis, igual TagCell.
-  Actions novas na rota `/api/admin/users`: `set_name` (PATCH
-  profiles.name, 2-60 chars) e `set_email` (PUT no GoTrue admin — troca o
-  LOGIN — + espelho em profiles.email; 409 se em uso; critical no
-  audit_log; perfil órfão sem login ganha só o espelho).
+- **Portal: editar nome, e-mail, cidade, UF e especialidades
+  (2026-08-28, v=20260828h).** Células com lápis igual TagCell:
+  `NameCell` (Pintores + Clientes), `EmailCell` (Clientes), `CityCell` +
+  `StateCell` (Pintores + Clientes), `SpecialtiesCell` (Pintores). As
+  abas Grafiteiros e Funileiros REUTILIZAM o componente `PintoresList`
+  (roleFilter) — edição neles vem de graça. Actions na rota
+  `/api/admin/users`: `set_name` (2-60 chars), `set_email` (PUT no
+  GoTrue admin — troca o LOGIN — + espelho em profiles.email; 409 se em
+  uso; critical no audit_log; perfil órfão ganha só o espelho) e
+  `set_info` (city ≤60 / state UF 2 letras / specialties ≤200; string
+  vazia LIMPA o campo).
 
 - **SQL Wave 43 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-28). Não
   pedir pra rodar de novo.**

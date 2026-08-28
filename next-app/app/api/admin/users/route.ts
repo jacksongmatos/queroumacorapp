@@ -22,6 +22,7 @@ import {
   listUsers,
   patchProfile,
   setEmail,
+  setInfo,
   setName,
   setTag,
 } from '@/lib/api/_services/admin-users';
@@ -50,6 +51,9 @@ export async function POST(request: NextRequest) {
     roleKey?: unknown;
     tag?: unknown;
     name?: unknown;
+    city?: unknown;
+    state?: unknown;
+    specialties?: unknown;
   };
   try {
     body = (await readBody(request, { maxBytes: 1024 * 1024 })) as typeof body;
@@ -112,6 +116,15 @@ export async function POST(request: NextRequest) {
     } else if (action === 'set_name') {
       result = await setName({ userId, name: body?.name });
       auditChanges = { name: result.name, admin_email: email };
+    } else if (action === 'set_info') {
+      // Cidade/estado/especialidades — campos livres do perfil.
+      result = await setInfo({
+        userId,
+        city: body?.city,
+        state: body?.state,
+        specialties: body?.specialties,
+      });
+      auditChanges = { patch: result.patch, admin_email: email };
     } else if (action === 'set_email') {
       // Troca o LOGIN no Auth + espelho em profiles.email.
       result = await setEmail({ userId, email: body?.email });

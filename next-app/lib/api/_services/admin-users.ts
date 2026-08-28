@@ -210,6 +210,65 @@ export async function setName(args: {
 }
 
 /**
+ * Edita cidade/estado/especialidades (portal admin). Cada campo é
+ * opcional; string vazia LIMPA o campo (vira null). Pelo menos um campo
+ * precisa vir no body.
+ */
+export async function setInfo(args: {
+  userId: string;
+  city?: unknown;
+  state?: unknown;
+  specialties?: unknown;
+}): Promise<{ ok: true; patch: Record<string, string | null> }> {
+  const patch: Record<string, string | null> = {};
+
+  if (typeof args.city === 'string') {
+    const v = args.city.trim().replace(/\s+/g, ' ');
+    if (v.length > 60) throw new ServiceError('cidade muito longa (máx 60 caracteres)', 400);
+    patch.city = v || null;
+  }
+  if (typeof args.state === 'string') {
+    const v = args.state.trim().toUpperCase();
+    if (v && !/^[A-Z]{2}$/.test(v)) {
+      throw new ServiceError('estado inválido: use a UF com 2 letras (ex.: SP) ou vazio pra limpar', 400);
+    }
+    patch.state = v || null;
+  }
+  if (typeof args.specialties === 'string') {
+    const v = args.specialties.trim().replace(/\s+/g, ' ');
+    if (v.length > 200) throw new ServiceError('especialidades muito longas (máx 200 caracteres)', 400);
+    patch.specialties = v || null;
+  }
+  if (Object.keys(patch).length === 0) {
+    throw new ServiceError('nada pra atualizar (city/state/specialties)', 400);
+  }
+
+  const serviceKey = getServiceKey();
+  if (!serviceKey) throw new ServiceError('Gestão de usuários não configurada', 503);
+  const supaUrl = getSupabaseUrl();
+  const r = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(args.userId)}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(patch),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!r.ok) {
+    console.warn('admin-users setInfo supabase error', r.status, (await r.text()).slice(0, 200));
+    throw new ServiceError('Falha ao salvar — tente de novo', 502);
+  }
+  const updated = (await r.json()) as unknown[];
+  if (!Array.isArray(updated) || updated.length === 0) {
+    throw new ServiceError('perfil não encontrado', 404);
+  }
+  return { ok: true, patch };
+}
+
+/**
  * Troca o e-mail de um usuário (portal admin). Atualiza o LOGIN no Auth
  * (GoTrue admin API — sem e-mail de confirmação: ação administrativa) e
  * espelha em `profiles.email` (coluna de exibição usada pelo portal).
