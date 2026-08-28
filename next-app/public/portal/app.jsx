@@ -1147,15 +1147,26 @@ const Camisetas = () => {
             )}
           </div>
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-            <div style={{ width:120, height:140, background:cor, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', border:'2px solid '+C.border }}>
-              {logoSel && <img src={logoSel.image_url} alt="" style={{ maxWidth:70, maxHeight:44, objectFit:'contain', marginBottom:4 }} />}
-              {logo && <div style={{ color:cor==='#ffffff'?'#333':'#fff', fontSize:11, fontFamily:'Syne,sans-serif', fontWeight:800, textAlign:'center' }}>
-                <div>CaliColors</div>
-                <div style={{ fontSize:8, marginTop:2 }}>{painterName ? painterName.slice(0, 18).toUpperCase() : 'PINTOR PRO'}</div>
-              </div>}
-              <div style={{ color:cor==='#ffffff'?'#333':'rgba(255,255,255,0.5)', fontSize:8, marginTop:8 }}>TAM {tam}</div>
+            {/* Mockup IGUAL ao do app (ShirtCustomizer): foto /img/shirt-white.webp
+                + overlay multiply mascarado pela própria foto pra tingir a cor +
+                logo do pintor no peito esquerdo (30%/22%/14%) e Cali Colors no
+                direito. Antes era um retângulo colorido que não parecia camiseta. */}
+            <div style={{ position:'relative', width:240, height:240 }}>
+              <img src="/img/shirt-white.webp" alt="Camiseta" style={{ position:'absolute', left:0, top:0, width:'100%', height:'100%', objectFit:'contain', filter:'drop-shadow(0 6px 12px rgba(0,0,0,0.08))' }} />
+              {cor !== '#ffffff' && (
+                <div style={{ position:'absolute', left:0, top:0, width:'100%', height:'100%', background:cor, mixBlendMode:'multiply', WebkitMaskImage:'url(/img/shirt-white.webp)', WebkitMaskRepeat:'no-repeat', WebkitMaskPosition:'center', WebkitMaskSize:'contain', maskImage:'url(/img/shirt-white.webp)', maskRepeat:'no-repeat', maskPosition:'center', maskSize:'contain', opacity:0.85 }}></div>
+              )}
+              {logoSel ? (
+                <img src={logoSel.image_url} alt="" style={{ position:'absolute', left:'30%', top:'22%', width:'14%', maxHeight:'14%', objectFit:'contain', borderRadius:3 }} />
+              ) : (
+                <div style={{ position:'absolute', left:'28%', top:'21%', width:'18%', height:'15%', border:'1.5px dashed rgba(0,0,0,0.3)', borderRadius:5, fontSize:7, color:'rgba(0,0,0,0.5)', fontWeight:600, display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', lineHeight:1.1, padding:2, textTransform:'uppercase', letterSpacing:'0.3px', background:'rgba(255,255,255,0.4)' }}>Aplique seu logo</div>
+              )}
+              {logo && <img src="/img/cali-colors-logo.webp" alt="Cali Colors" style={{ position:'absolute', right:'30%', top:'22%', width:'14%', maxHeight:'14%', objectFit:'contain' }} />}
             </div>
-            <button onClick={gerarPedido} style={{ marginTop:16, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', cursor:'pointer', fontWeight:600 }}>
+            <div style={{ fontSize:12, color:C.muted, marginTop:6 }}>
+              TAM {tam}{painterName ? ' · ' + painterName.slice(0, 18) : ''}
+            </div>
+            <button onClick={gerarPedido} style={{ marginTop:12, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', cursor:'pointer', fontWeight:600 }}>
               Gerar Pedido
             </button>
           </div>
