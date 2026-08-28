@@ -98,12 +98,18 @@ function sendDiagPing(): void {
     const standalone =
       typeof matchMedia === 'function' &&
       matchMedia('(display-mode: standalone)').matches;
+    // `sw`: o service worker está controlando a página? Diferencia "as
+    // defesas do sw.js valem neste ambiente" de "o wrapper desligou SW".
+    const sw =
+      'serviceWorker' in navigator
+        ? String(Boolean(navigator.serviceWorker.controller))
+        : 'na';
     fetch('/api/log-error', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'scrollpin-diag',
-        msg: `scrollpin wv=${isAndroidWebView(ua)} standalone=${standalone} scrollY=${Math.round(window.scrollY)} vw=${window.innerWidth} vh=${window.innerHeight}`,
+        msg: `scrollpin wv=${isAndroidWebView(ua)} standalone=${standalone} sw=${sw} scrollY=${Math.round(window.scrollY)} vw=${window.innerWidth} vh=${window.innerHeight}`,
         ua,
         ctx: 'scrollpin',
       }),

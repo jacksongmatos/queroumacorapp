@@ -184,12 +184,37 @@ describe('service worker — navegação', () => {
     expect(cached).toBeDefined();
   });
 
-  it('NUNCA guarda no cache uma resposta 500', async () => {
-    // Duas entradas na fila: o SW repete a navegação uma vez em 5xx.
+  it('NUNCA guarda no cache uma resposta 500 — e nunca a entrega crua', async () => {
+    // Duas entradas na fila: o SW repete a navegação uma vez em 5xx. Sem
+    // cópia boa no cache, o que chega na tela é a página amigável de
+    // auto-retry (v5) — nunca mais a tela "500 | Server Error" morta.
     h.queue.set(`${ORIGIN}/feed`, [html('erro', 500), html('erro', 500)]);
     const res = await h.handleFetch(asNavigation(navRequest('/feed')));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toContain('erro 500');
     expect(await h.cacheStorage.match(`${ORIGIN}/feed`)).toBeUndefined();
+  });
+
+  it('5xx persistente registra o incidente no /api/log-error', async () => {
+    h.queue.set(`${ORIGIN}/feed`, [html('erro', 502), html('erro', 502)]);
+    await h.handleFetch(asNavigation(navRequest('/feed')));
+    // Fire-and-forget: a chamada acontece mesmo sem resposta na fila (o
+    // harness responde network-error e o SW engole).
+    expect(h.fetchCalls.some((u) => u.endsWith('/api/log-error'))).toBe(true);
+  });
+
+  it('payload RSC recebe o 5xx CRU (o router trata), nunca HTML de fallback', async () => {
+    const rscUrl = `${ORIGIN}/feed?_rsc=abc123`;
+    h.queue.set(rscUrl, [new Response('flight', { status: 500 }), new Response('flight', { status: 500 })]);
+    const res = await h.handleFetch(new Request(rscUrl));
+    expect(res.status).toBe(500);
+  });
+
+  it('payload RSC com rede morta vira 503 vazio (router faz hard-nav)', async () => {
+    const rscUrl = `${ORIGIN}/feed?_rsc=abc123`;
+    h.queue.set(rscUrl, ['network-error', 'network-error']);
+    const res = await h.handleFetch(new Request(rscUrl));
+    expect(res.status).toBe(503);
   });
 
   it('repete a navegação uma vez quando o servidor devolve 500', async () => {
@@ -214,11 +239,11 @@ describe('service worker — navegação', () => {
     const res = await h.handleFetch(asNavigation(navRequest('/feed')));
 
     expect(res.status).toBe(200);
-    await expect(res.text()).resolves.toContain('Sem conexão');
+    await expect(res.text()).resolves.toContain('Reconectando');
   });
 
   it('serve a cópia boa do cache quando a rede cai', async () => {
-    const cache = await h.cacheStorage.open('quc-v4-static');
+    const cache = await h.cacheStorage.open('quc-v5-static');
     await cache.put(`${ORIGIN}/feed`, html('<p>feed offline</p>'));
 
     h.queue.set(`${ORIGIN}/feed`, ['network-error', 'network-error']);
@@ -228,10 +253,10 @@ describe('service worker — navegação', () => {
   });
 
   it('activate apaga os caches de versões anteriores', async () => {
-    await h.cacheStorage.open('quc-v3-static');
     await h.cacheStorage.open('quc-v4-static');
+    await h.cacheStorage.open('quc-v5-static');
     await h.runActivate();
-    expect(await h.cacheStorage.keys()).toEqual(['quc-v4-static']);
+    expect(await h.cacheStorage.keys()).toEqual(['quc-v5-static']);
   });
 });
 

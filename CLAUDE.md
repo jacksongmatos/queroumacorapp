@@ -80,6 +80,17 @@
     **`CACHE_VERSION` foi pra `quc-v3` — é o bump que limpa os caches já
     envenenados de quem está preso hoje** (o `activate` apaga toda chave fora
     da versão). Bumpar de novo em qualquer mudança de estratégia do SW.
+    **v5 (2026-08-28): 5xx cru NUNCA mais chega na tela em navegação de
+    documento.** O v4 preferia o cache mas, sem cópia boa (comum: SPA quase
+    não gera navegação de documento), devolvia o 500 cru — era a tela
+    "500 | Server Error" morta ao reabrir a tela do celular com o app aberto
+    (renderer morto → re-navegação → soluço 5xx do edge). Agora o último
+    recurso pra 5xx é a página "Reconectando…" com AUTO-RETRY (backoff
+    2.5s+n·1.5s, teto 6/2min via sessionStorage, reload também no evento
+    `online`) — o app volta sozinho sem matar o processo. RSC segue
+    recebendo status cru (router faz hard-nav). Incidente 5xx pós-retry
+    loga `type='sw-nav-5xx'` no /admin/errors (best-effort). O ping
+    `scrollpin-diag` ganhou o campo `sw=` (SW controlando a página?).
   - **Sem retentativa.** Navegação agora repete UMA vez (600ms) em falha de
     rede e em 5xx. Cobre a retomada do WebView e cold start ruim do edge.
     `install` também deixou de ser all-or-nothing (`addAll` → puts tolerantes):
