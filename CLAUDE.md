@@ -1,5 +1,18 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **SQL Wave 43 (2026-08-28) — PENDENTE de rodar no Supabase.**
+  (`/migrations/2026-08-28-admin-delete-user-rpc.sql`) Exclusão
+  permanente de conta pelo portal: a rota `/api/admin/users`
+  (action delete_user) morria com a página "502 Bad Gateway" do PRÓPRIO
+  Cloudflare (corpo capturado no relatório do portal comprovou) — o
+  edge era derrubado durante a chamada HTTP ao GoTrue. Solução: RPC
+  `admin_delete_user(uuid)` SECURITY DEFINER que roda a cascata inteira
+  dentro do Postgres (guardas: is_portal_admin, nunca a própria conta,
+  nunca admin/portal — colunas via to_jsonb; audit_log antes do
+  delete). O portal (v=20260828f) chama a RPC direto via supabase-js;
+  a rota edge segue existindo pras outras actions (set_tag/set_pro/…).
+  Trocar pra "JÁ EXECUTADO" depois de rodar.
+
 - **SQL Wave 42 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-28,
   verificação retornou security_definer=true pras 2 RPCs). Não pedir
   pra rodar de novo.**

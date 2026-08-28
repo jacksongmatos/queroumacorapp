@@ -348,14 +348,20 @@ const deleteUsersPermanently = async (profiles, after) => {
     'Ultima confirmacao: ' + profiles.length + ' conta(s) serao apagadas para sempre.\n\n' +
     'Nao existe desfazer. Confirmar a exclusao?'
   )) return;
-  // Sequencial com pausa curta (nao afogar o Auth) e falhas AGREGADAS num
-  // relatorio unico com o motivo de cada uma — antes era 1 alerta por conta
-  // e o erro vinha pelado ("HTTP 502"), impossivel de diagnosticar.
+  // Exclusao via RPC admin_delete_user DIRETO no banco (Wave 43): a rota
+  // do edge morria com 502 do proprio Cloudflare no meio da cascata do
+  // Auth. A RPC roda a cascata inteira DENTRO do Postgres (sem HTTP pro
+  // GoTrue, sem edge no caminho) e valida portal admin + guardas la.
+  // Sequencial com pausa curta; falhas AGREGADAS num relatorio unico.
   let ok = 0; const failed = [];
   for (const p of profiles) {
-    const r = await adminUsersRaw({ action:'delete_user', userId: p.id });
-    if (r.ok) ok++;
-    else failed.push('• ' + (p.name || (p.tag ? '@'+p.tag : p.id.slice(0,8))) + ' — ' + r.error);
+    let msg = '';
+    try {
+      const { error } = await supa.rpc('admin_delete_user', { p_user_id: p.id });
+      if (error) msg = error.message || 'erro desconhecido';
+    } catch (e) { msg = (e && e.message) || 'falha de rede'; }
+    if (!msg) ok++;
+    else failed.push('• ' + (p.name || (p.tag ? '@'+p.tag : p.id.slice(0,8))) + ' — ' + msg);
     await new Promise(res => setTimeout(res, 250));
   }
   alert(
