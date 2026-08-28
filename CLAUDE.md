@@ -1,5 +1,24 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **SQL Wave 44 (2026-08-28) — PENDENTE de rodar no Supabase.**
+  (`/migrations/2026-08-28-delete-user-fk-sweep.sql`) CAUSA RAIZ do 502
+  de exclusão comprovada: `quotes_painter_id_fkey` (e possivelmente
+  outras FKs) referencia profiles SEM ON DELETE → conta com orçamento
+  não excluía (era o que derrubava GoTrue/edge). A wave (1) varre
+  dinamicamente TODAS as FKs public→profiles/auth.users com NO ACTION/
+  RESTRICT e recria: coluna nullable → SET NULL, NOT NULL → CASCADE;
+  (2) recria `admin_delete_user(uuid, boolean)` com `p_force_admin` —
+  portal (v=20260828g) manda true após 3ª confirmação pra excluir
+  conta admin/portal ("habilitar para excluir aqui tbm"); a PRÓPRIA
+  conta segue sempre bloqueada. Trocar pra "JÁ EXECUTADO" após rodar.
+
+- **Portal: editar nome e e-mail (2026-08-28, v=20260828g).** `NameCell`
+  (Pintores + Clientes) e `EmailCell` (Clientes) com lápis, igual TagCell.
+  Actions novas na rota `/api/admin/users`: `set_name` (PATCH
+  profiles.name, 2-60 chars) e `set_email` (PUT no GoTrue admin — troca o
+  LOGIN — + espelho em profiles.email; 409 se em uso; critical no
+  audit_log; perfil órfão sem login ganha só o espelho).
+
 - **SQL Wave 43 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-28). Não
   pedir pra rodar de novo.**
   (`/migrations/2026-08-28-admin-delete-user-rpc.sql`) Exclusão

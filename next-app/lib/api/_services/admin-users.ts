@@ -173,6 +173,118 @@ export async function setTag(args: {
 }
 
 /**
+ * Edita o nome de exibição de um perfil (portal admin). Trim + limites
+ * frouxos (2-60) — nome é campo livre, sem regra de unicidade.
+ */
+export async function setName(args: {
+  userId: string;
+  name: unknown;
+}): Promise<{ ok: true; name: string }> {
+  const raw = typeof args.name === 'string' ? args.name.trim().replace(/\s+/g, ' ') : '';
+  if (raw.length < 2 || raw.length > 60) {
+    throw new ServiceError('nome inválido: use de 2 a 60 caracteres', 400);
+  }
+  const serviceKey = getServiceKey();
+  if (!serviceKey) throw new ServiceError('Gestão de usuários não configurada', 503);
+  const supaUrl = getSupabaseUrl();
+  const r = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(args.userId)}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ name: raw }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!r.ok) {
+    console.warn('admin-users setName supabase error', r.status, (await r.text()).slice(0, 200));
+    throw new ServiceError('Falha ao salvar o nome — tente de novo', 502);
+  }
+  const updated = (await r.json()) as unknown[];
+  if (!Array.isArray(updated) || updated.length === 0) {
+    throw new ServiceError('perfil não encontrado', 404);
+  }
+  return { ok: true, name: raw };
+}
+
+/**
+ * Troca o e-mail de um usuário (portal admin). Atualiza o LOGIN no Auth
+ * (GoTrue admin API — sem e-mail de confirmação: ação administrativa) e
+ * espelha em `profiles.email` (coluna de exibição usada pelo portal).
+ * Perfil órfão (sem login no Auth, 404) ganha só o espelho no profile.
+ */
+export async function setEmail(args: {
+  userId: string;
+  email: unknown;
+}): Promise<{ ok: true; email: string; authUpdated: boolean }> {
+  const raw = typeof args.email === 'string' ? args.email.trim().toLowerCase() : '';
+  // Validação simples e suficiente pro admin: algo@algo.tld sem espaços.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(raw) || raw.length > 254) {
+    throw new ServiceError('e-mail inválido (formato esperado: nome@dominio.com)', 400);
+  }
+  const serviceKey = getServiceKey();
+  if (!serviceKey) throw new ServiceError('Gestão de usuários não configurada', 503);
+  const supaUrl = getSupabaseUrl();
+  const sHeaders = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  // 1) Login no Auth. É a fonte de verdade — se falhar (fora 404), aborta
+  //    sem tocar no profile, senão exibição e login divergem.
+  let authUpdated = false;
+  let ar: Response;
+  try {
+    ar = await fetch(`${supaUrl}/auth/v1/admin/users/${encodeURIComponent(args.userId)}`, {
+      method: 'PUT',
+      headers: sHeaders,
+      body: JSON.stringify({ email: raw }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    throw new ServiceError('não consegui falar com o Auth do Supabase — nada foi alterado', 502);
+  }
+  if (ar.ok) {
+    authUpdated = true;
+  } else if (ar.status !== 404) {
+    const body = (await ar.text()).slice(0, 180);
+    if (ar.status === 422 || /already|registered|exists/i.test(body)) {
+      throw new ServiceError(`o e-mail "${raw}" já está em uso por outro login`, 409);
+    }
+    console.warn('admin-users setEmail auth error', ar.status, body);
+    throw new ServiceError(
+      `o Auth recusou trocar o e-mail (HTTP ${ar.status}): ${body || 'sem detalhe'}`,
+      502,
+    );
+  }
+
+  // 2) Espelho em profiles.email (o portal lista daqui).
+  const pr = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(args.userId)}`, {
+    method: 'PATCH',
+    headers: { ...sHeaders, Prefer: 'return=representation' },
+    body: JSON.stringify({ email: raw }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!pr.ok) {
+    console.warn('admin-users setEmail profile error', pr.status, (await pr.text()).slice(0, 200));
+    throw new ServiceError(
+      authUpdated
+        ? 'login atualizado, mas falhou espelhar no perfil — rode de novo pra sincronizar'
+        : 'Falha ao salvar o e-mail no perfil — tente de novo',
+      502,
+    );
+  }
+  const updated = (await pr.json()) as unknown[];
+  if (!Array.isArray(updated) || updated.length === 0) {
+    if (!authUpdated) throw new ServiceError('perfil não encontrado', 404);
+  }
+  return { ok: true, email: raw, authUpdated };
+}
+
+/**
  * Exclusão PERMANENTE: apaga o login no Auth (GoTrue admin API) e a linha
  * de `profiles`. Sem volta. Guardas: nunca a própria conta do caller, e
  * nunca um perfil admin/portal (remova o acesso antes, se for o caso).

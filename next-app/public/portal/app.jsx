@@ -332,6 +332,32 @@ const editUserTag = async (profile, after) => {
   if (await adminUsers({ action:'set_tag', userId: profile.id, tag: v }) && after) after();
 };
 
+// Edita o nome de exibicao (2 a 60 caracteres).
+const editUserName = async (profile, after) => {
+  let v = prompt('Novo nome para ' + (profile.name || 'este perfil') + ':', profile.name || '');
+  if (v === null) return;
+  v = v.trim().replace(/\s+/g, ' ');
+  if (v.length < 2 || v.length > 60) { alert('Nome invalido: use de 2 a 60 caracteres.'); return; }
+  if (v === profile.name) return;
+  if (await adminUsers({ action:'set_name', userId: profile.id, name: v }) && after) after();
+};
+
+// Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
+// pede confirmacao. O backend recusa formato invalido e e-mail em uso.
+const editUserEmail = async (profile, after) => {
+  let v = prompt(
+    'Novo e-mail para ' + (profile.name || 'este perfil') +
+    '\n\nATENCAO: troca tambem o E-MAIL DE LOGIN da conta.',
+    profile.email || ''
+  );
+  if (v === null) return;
+  v = v.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) { alert('E-mail invalido (esperado: nome@dominio.com).'); return; }
+  if (v === (profile.email || '').toLowerCase()) return;
+  if (!confirm('Confirmar a troca do e-mail de login para:\n\n' + v + '\n\nA pessoa passara a entrar com esse e-mail.')) return;
+  if (await adminUsers({ action:'set_email', userId: profile.id, email: v }) && after) after();
+};
+
 // Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
 // tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
 const deleteUsersPermanently = async (profiles, after) => {
@@ -348,6 +374,15 @@ const deleteUsersPermanently = async (profiles, after) => {
     'Ultima confirmacao: ' + profiles.length + ' conta(s) serao apagadas para sempre.\n\n' +
     'Nao existe desfazer. Confirmar a exclusao?'
   )) return;
+  // Conta com acesso ADMIN/PORTAL exige um TERCEIRO aceite (a pedido:
+  // "habilitar para excluir aqui tbm") — a RPC so as apaga com
+  // p_force_admin=true. A PROPRIA conta segue impossivel de excluir.
+  const adminTargets = profiles.filter(p => p.portal_access || p.role === 'admin');
+  if (adminTargets.length && !confirm(
+    'ATENCAO: ' + adminTargets.length + ' conta(s) com acesso ADMIN/PORTAL:\n\n' +
+    adminTargets.map(p => '• ' + (p.name || (p.tag ? '@'+p.tag : p.id.slice(0,8)))).join('\n') +
+    '\n\nExcluir contas de administrador tambem?'
+  )) return;
   // Exclusao via RPC admin_delete_user DIRETO no banco (Wave 43): a rota
   // do edge morria com 502 do proprio Cloudflare no meio da cascata do
   // Auth. A RPC roda a cascata inteira DENTRO do Postgres (sem HTTP pro
@@ -357,7 +392,10 @@ const deleteUsersPermanently = async (profiles, after) => {
   for (const p of profiles) {
     let msg = '';
     try {
-      const { error } = await supa.rpc('admin_delete_user', { p_user_id: p.id });
+      const { error } = await supa.rpc('admin_delete_user', {
+        p_user_id: p.id,
+        p_force_admin: !!(p.portal_access || p.role === 'admin')
+      });
       if (error) msg = error.message || 'erro desconhecido';
     } catch (e) { msg = (e && e.message) || 'falha de rede'; }
     if (!msg) ok++;
@@ -379,6 +417,24 @@ const TagCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.p3, fontWeight:600 }}>{profile.tag ? '@'+profile.tag : '—'}</span>
     <button onClick={() => editUserTag(profile, after)} title="Editar @tag"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// Nome com lapis (mesmo padrao da TagCell).
+const NameCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ fontWeight:600 }}>{profile.name || 'Sem nome'}</span>
+    <button onClick={() => editUserName(profile, after)} title="Editar nome"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// E-mail com lapis — troca tambem o LOGIN (aviso no prompt).
+const EmailCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ color:C.muted }}>{profile.email || '—'}</span>
+    <button onClick={() => editUserEmail(profile, after)} title="Editar e-mail (troca o login)"
       style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
@@ -794,7 +850,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
               <td style={{ padding:'10px 12px' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   <AvatarCell name={p.name} avatarUrl={p.avatar_url} size={32} />
-                  <span style={{ fontWeight:600 }}>{p.name || 'Sem nome'}</span>
+                  <NameCell profile={p} after={fetchPintores} />
                 </div>
               </td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
@@ -2293,12 +2349,12 @@ const ClientesList = () => {
                 <td style={{ padding:'10px 12px' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <AvatarCell name={c.name} avatarUrl={c.avatar_url} size={32} />
-                    <span style={{ fontWeight:600 }}>{c.name || 'Sem nome'}</span>
+                    <NameCell profile={c} after={fetchClientes} />
                   </div>
                 </td>
                 <td style={{ padding:'10px 12px' }}><RoleSelect profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px' }}><TagCell profile={c} after={fetchClientes} /></td>
-                <td style={{ padding:'10px 12px', color:C.muted }}>{c.email || '—'}</td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px' }}>{c.city || '—'}</td>
                 <td style={{ padding:'10px 12px' }}>{c.state || '—'}</td>
                 <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>

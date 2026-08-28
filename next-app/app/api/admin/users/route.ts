@@ -21,6 +21,8 @@ import {
   ensureCallerHasPortalAccess,
   listUsers,
   patchProfile,
+  setEmail,
+  setName,
   setTag,
 } from '@/lib/api/_services/admin-users';
 import { logAuditEvent } from '@/lib/api/audit';
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
     expiresAt?: unknown;
     roleKey?: unknown;
     tag?: unknown;
+    name?: unknown;
   };
   try {
     body = (await readBody(request, { maxBytes: 1024 * 1024 })) as typeof body;
@@ -106,6 +109,13 @@ export async function POST(request: NextRequest) {
       // Regra do app: @tag nunca vazia (busca/link dependem dela).
       result = await setTag({ userId, tag: body?.tag });
       auditChanges = { tag: result.tag, admin_email: email };
+    } else if (action === 'set_name') {
+      result = await setName({ userId, name: body?.name });
+      auditChanges = { name: result.name, admin_email: email };
+    } else if (action === 'set_email') {
+      // Troca o LOGIN no Auth + espelho em profiles.email.
+      result = await setEmail({ userId, email: body?.email });
+      auditChanges = { email: result.email, auth_updated: result.authUpdated, admin_email: email };
     } else {
       const patch = buildPatch({
         action,
@@ -126,7 +136,9 @@ export async function POST(request: NextRequest) {
       action === 'set_pro' ||
       action === 'promote' ||
       action === 'revoke' ||
-      action === 'delete_user';
+      action === 'delete_user' ||
+      // Troca de e-mail muda a IDENTIDADE do login — trilha obrigatória.
+      action === 'set_email';
     try {
       await logAuditEvent({
         actorId: callerId || null,
