@@ -1,7 +1,7 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
-- **Respostas automáticas do chat — consertadas, SQL Wave 39 PENDENTE
-  (2026-08-28).** Dois bugs: (1) `auto_responses` nasceu SEM unique em
+- **Respostas automáticas do chat — consertadas, SQL Wave 39 JÁ EXECUTADO
+  no Supabase (2026-08-28).** Dois bugs: (1) `auto_responses` nasceu SEM unique em
   `(user_id, trigger_type)` → o upsert `onConflict` do AutoRespostaSheet
   falhava com 42P10 em TODO salvamento, e o código não conferia o `error`
   do supabase-js (não lança!) → toast "salvas!" mentiroso, toggle voltava
@@ -12,9 +12,8 @@
   (`/migrations/2026-08-28-auto-responses-fix.sql`): limpa duplicatas,
   cria a UNIQUE e o trigger `trg_auto_reply_on_message` (responde mesmo
   com app fechado; anti-loop pelo marcador "🤖 Resposta automática:";
-  máx 1 por conversa/12h; EXCEPTION WHEN OTHERS igual Wave 36). **Até
-  rodar a Wave 39 a feature fica inerte** (o save funciona só depois da
-  UNIQUE). Follow-up (3 dias) segue não implementado (precisa de
+  máx 1 por conversa/12h; EXCEPTION WHEN OTHERS igual Wave 36). **Wave 39 rodada em 2026-08-28 — não pedir pra rodar de
+  novo.** Follow-up (3 dias) segue não implementado (precisa de
   pg_cron; só o slot new_message dispara).
 
 - **Pull-to-refresh nativo do AAB (WebIntoApp) — neutralizado pelo lado web
