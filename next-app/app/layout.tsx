@@ -93,6 +93,19 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`,
           }}
         />
+        {/* Pin pré-hidratação do WebView Android (camada 1 da trava do
+            pull-to-refresh nativo — ver useAndroidWebViewScrollPin.ts).
+            Sem isso, do primeiro byte até o React hidratar o documento fica
+            em scrollY 0 e o SwipeRefreshLayout do wrapper segue armado
+            justamente durante o boot. Roda no <head>: estica o <html> (que
+            já existe) e prende o scroll assim que possível, com re-pin no
+            DOMContentLoaded/load. Espelha a detecção e as constantes do
+            hook (4px de folga, pin em 2) — mudou lá, mudar aqui. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var ua=navigator.userAgent||'';if(!/Android/i.test(ua))return;if(!(/;\\s?wv\\)/.test(ua)||/WebIntoApp/i.test(ua)))return;document.documentElement.style.minHeight='calc(100vh + 4px)';var pin=function(){if(window.scrollY<2)window.scrollTo(0,2);};pin();document.addEventListener('DOMContentLoaded',pin);window.addEventListener('load',pin);}catch(e){}})();`,
+          }}
+        />
         {/* Eruda: console de DevTools mobile, ativa so dentro do app nativo
             (Capacitor) pra debugar o WebView sem precisar de Mac/Safari
             Web Inspector. Toca no botao flutuante pra abrir o console. */}

@@ -2,10 +2,12 @@
 //
 // Trava do pull-to-refresh NATIVO do wrapper Android (2026-08-28). O
 // SwipeRefreshLayout do AAB consulta o scroll do DOCUMENTO via
-// canChildScrollUp(); o hook prende o documento em scrollY=1 pra resposta
+// canChildScrollUp(); o hook prende o documento em scrollY=2 pra resposta
 // virar "pode subir" e o reload nunca armar. Aqui cobrimos: o matcher de
-// user-agent, o pin inicial, o re-pin quando algo devolve o scroll a 0, o
-// escopo (só WebView Android) e a limpeza no unmount.
+// user-agent, o pin inicial, o re-pin quando algo devolve o scroll a 0
+// (inclusive visibilitychange, retomada do WebView), a guarda de dreno
+// (touchmove descendente fora de scroller não pode drenar o pin), o escopo
+// (só WebView Android) e a limpeza no unmount.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, cleanup } from '@testing-library/react';
@@ -58,6 +60,23 @@ function setScrollY(y: number) {
   Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
 }
 
+function touch(type: string, clientY: number, target?: Element): Event {
+  const e = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(e, 'touches', {
+    value: type === 'touchend' ? [] : [{ clientY }],
+  });
+  if (target) Object.defineProperty(e, 'target', { value: target });
+  return e;
+}
+
+/** Dispara touchstart→touchmove no document e diz se o move foi cancelado. */
+function swipeDoc(fromY: number, toY: number, target: Element): boolean {
+  target.dispatchEvent(touch('touchstart', fromY, target));
+  const move = touch('touchmove', toY, target);
+  target.dispatchEvent(move);
+  return move.defaultPrevented;
+}
+
 describe('useAndroidWebViewScrollPin', () => {
   let scrollTo: ReturnType<typeof vi.fn>;
 
@@ -83,11 +102,11 @@ describe('useAndroidWebViewScrollPin', () => {
     vi.unstubAllGlobals();
   });
 
-  it('no WebView: estica o body e prende o documento em scrollY=1', () => {
+  it('no WebView: estica o body e prende o documento em scrollY=2', () => {
     setUserAgent(UA_WEBVIEW);
     renderHook(() => useAndroidWebViewScrollPin());
-    expect(document.body.style.minHeight).toBe('calc(100vh + 2px)');
-    expect(scrollTo).toHaveBeenCalledWith(0, 1);
+    expect(document.body.style.minHeight).toBe('calc(100vh + 4px)');
+    expect(scrollTo).toHaveBeenCalledWith(0, 2);
   });
 
   it('re-pina quando algo devolve o documento ao topo', () => {
@@ -96,19 +115,19 @@ describe('useAndroidWebViewScrollPin', () => {
     scrollTo.mockClear();
     setScrollY(0);
     window.dispatchEvent(new Event('scroll'));
-    expect(scrollTo).toHaveBeenCalledWith(0, 1);
+    expect(scrollTo).toHaveBeenCalledWith(0, 2);
   });
 
-  it('já pinado (scrollY=1), não fica chamando scrollTo em loop', () => {
+  it('já pinado (scrollY=2), não fica chamando scrollTo em loop', () => {
     setUserAgent(UA_WEBVIEW);
     renderHook(() => useAndroidWebViewScrollPin());
     scrollTo.mockClear();
-    setScrollY(1);
+    setScrollY(2);
     window.dispatchEvent(new Event('scroll'));
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
-  it('re-pina na retomada do WebView (pageshow) e no resize do teclado', () => {
+  it('re-pina na retomada do WebView (pageshow/visibilitychange) e no resize', () => {
     setUserAgent(UA_WEBVIEW);
     renderHook(() => useAndroidWebViewScrollPin());
     scrollTo.mockClear();
@@ -117,6 +136,8 @@ describe('useAndroidWebViewScrollPin', () => {
     expect(scrollTo).toHaveBeenCalledTimes(1);
     window.dispatchEvent(new Event('resize'));
     expect(scrollTo).toHaveBeenCalledTimes(2);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(scrollTo).toHaveBeenCalledTimes(3);
   });
 
   it('fora do WebView Android é no-op total', () => {
@@ -124,16 +145,74 @@ describe('useAndroidWebViewScrollPin', () => {
     renderHook(() => useAndroidWebViewScrollPin());
     expect(document.body.style.minHeight).toBe('');
     expect(scrollTo).not.toHaveBeenCalled();
+    // Guarda de dreno também não instala.
+    expect(swipeDoc(100, 180, document.body)).toBe(false);
   });
 
-  it('unmount restaura o body e solta os listeners', () => {
+  it('unmount restaura o body (inclusive valor pré-existente) e solta os listeners', () => {
     setUserAgent(UA_WEBVIEW);
+    document.body.style.minHeight = '50px';
     const { unmount } = renderHook(() => useAndroidWebViewScrollPin());
+    expect(document.body.style.minHeight).toBe('calc(100vh + 4px)');
     unmount();
-    expect(document.body.style.minHeight).toBe('');
+    expect(document.body.style.minHeight).toBe('50px');
     scrollTo.mockClear();
     setScrollY(0);
     window.dispatchEvent(new Event('scroll'));
+    document.dispatchEvent(new Event('visibilitychange'));
     expect(scrollTo).not.toHaveBeenCalled();
+    expect(swipeDoc(100, 180, document.body)).toBe(false);
+    document.body.style.minHeight = '';
+  });
+
+  describe('guarda de dreno (touchmove no document)', () => {
+    it('cancela o arrasto descendente que nasce fora de qualquer scroller', () => {
+      // Simula o toque no TopNav / tela fora do AppShell: nada na cadeia
+      // pode subir, então deixar rolar drenaria o pin 2→0 e re-armaria o
+      // SwipeRefreshLayout no meio do gesto.
+      setUserAgent(UA_WEBVIEW);
+      renderHook(() => useAndroidWebViewScrollPin());
+      setScrollY(2);
+      expect(swipeDoc(100, 180, document.body)).toBe(true);
+    });
+
+    it('deixa passar quando um scroller na cadeia ainda pode subir', () => {
+      setUserAgent(UA_WEBVIEW);
+      const inner = document.createElement('div');
+      inner.style.overflowY = 'auto';
+      Object.defineProperty(inner, 'scrollTop', { value: 120, configurable: true });
+      document.body.appendChild(inner);
+      renderHook(() => useAndroidWebViewScrollPin());
+      setScrollY(2);
+      expect(swipeDoc(100, 180, inner)).toBe(false);
+      inner.remove();
+    });
+
+    it('deixa passar o arrasto pra cima (rolar conteúdo pra baixo)', () => {
+      setUserAgent(UA_WEBVIEW);
+      renderHook(() => useAndroidWebViewScrollPin());
+      setScrollY(2);
+      expect(swipeDoc(180, 100, document.body)).toBe(false);
+    });
+
+    it('deixa passar quando o documento está realmente rolado (fora do shell)', () => {
+      // /admin e afins rolam o documento: voltar ao topo é gesto legítimo.
+      setUserAgent(UA_WEBVIEW);
+      renderHook(() => useAndroidWebViewScrollPin());
+      setScrollY(240);
+      expect(swipeDoc(100, 180, document.body)).toBe(false);
+    });
+
+    it('ignora multi-toque (pinch não é rolagem)', () => {
+      setUserAgent(UA_WEBVIEW);
+      renderHook(() => useAndroidWebViewScrollPin());
+      setScrollY(2);
+      const start = new Event('touchstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(start, 'touches', { value: [{ clientY: 100 }, { clientY: 300 }] });
+      document.body.dispatchEvent(start);
+      const move = touch('touchmove', 180, document.body);
+      document.body.dispatchEvent(move);
+      expect(move.defaultPrevented).toBe(false);
+    });
   });
 });
