@@ -1,6 +1,8 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
-- **SQL Wave 42 (2026-08-28) — PENDENTE de rodar no Supabase.**
+- **SQL Wave 42 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-28,
+  verificação retornou security_definer=true pras 2 RPCs). Não pedir
+  pra rodar de novo.**
   (`/migrations/2026-08-28-quotes-insert-fix.sql`) Fix do "new row
   violates row-level security policy for table quotes" ao Gravar/Enviar
   orçamento: as RPCs `create_painter_draft` e `create_quote_from_post`
@@ -12,7 +14,7 @@
   `post_id` (a versão do init recebia `p_post_id` e NÃO gravava — o
   filtro de leads comprados nunca casava) e adiciona policy de INSERT
   fallback (cliente = quote própria; pintor = só rascunho sem
-  client_id). Trocar pra "JÁ EXECUTADO" depois de rodar.
+  client_id).
 
 - **SQL Waves 40 e 41 (2026-08-28) — JÁ EXECUTADAS no Supabase (2026-08-28). Não pedir pra rodar de novo.**
   - **Wave 40** (`/migrations/2026-08-28-profile-counters-triggers.sql`):
