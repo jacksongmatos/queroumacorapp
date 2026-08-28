@@ -1,5 +1,28 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **WhatsApp do PORTAL: Evolution API (2026-08-28) — canal ÚNICO até a
+  Meta autenticar.** Evolution API self-hosted (Baileys) em Docker no
+  Render FREE (`https://evolution-api-8arv.onrender.com`, Manager em
+  `/manager`; dorme ~15min → 1ª request pós-sono até 50s; DB no schema
+  `evolution_api` do Supabase). Instância `meu-whatsapp` conectada ao
+  número SECUNDÁRIO +55 11 92072-5935 (o oficial +55 11 95976-5031 fica
+  reservado pra Cloud API da Meta, que ainda NÃO autenticou). Service
+  `lib/api/_services/whatsapp-evo.ts` (config + sendEvolutionText com
+  timeout 55s pro cold start + jidToPhone + parseEvolutionWebhook);
+  webhook `POST /api/whatsapp-evo/webhook?token=<EVOLUTION_WEBHOOK_TOKEN>`
+  (Evolution não assina eventos → segredo na URL; pós-token sempre 200;
+  MESSAGES_UPSERT; fromMe→'out'; grupos ignorados; grava na MESMA
+  `whatsapp_messages` → aparece em /admin/whatsapp). A rota
+  `/api/whatsapp/send` DESPACHA: texto → Evolution quando configurada
+  (senão Meta); template → SÓ Meta (503 amigável sem ela). 4 ENVS no CF
+  Pages (PENDENTES de configurar): `EVOLUTION_API_URL`,
+  `EVOLUTION_API_KEY` (= AUTHENTICATION_API_KEY do Render, secret),
+  `EVOLUTION_INSTANCE` (opcional, default meu-whatsapp),
+  `EVOLUTION_WEBHOOK_TOKEN` (string aleatória nossa, secret). Depois do
+  deploy: configurar a URL do webhook no Manager (Configurations →
+  Webhook, evento MESSAGES_UPSERT). 19 testes em
+  `__tests__/services/whatsapp-evo.test.ts`.
+
 - **SQL Wave 44 (2026-08-28) — PENDENTE de rodar no Supabase.**
   (`/migrations/2026-08-28-delete-user-fk-sweep.sql`) CAUSA RAIZ do 502
   de exclusão comprovada: `quotes_painter_id_fkey` (e possivelmente

@@ -32,15 +32,25 @@ import {
   sendWhatsAppText,
   type TemplateComponent,
 } from '@/lib/api/_services/whatsapp';
+import {
+  isEvolutionConfigured,
+  sendEvolutionText,
+} from '@/lib/api/_services/whatsapp-evo';
 import { whatsappSendSchema } from '@/lib/api/schemas/whatsapp-send';
 import { logAuditEvent } from '@/lib/api/audit';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!isWhatsAppConfigured()) {
+  // Canal preferido pra TEXTO: Evolution API (número secundário, sem janela
+  // de 24h) enquanto a Cloud API da Meta não autentica (2026-08-28).
+  // Templates seguem exclusivos da Meta. Basta UM dos dois configurado.
+  if (!isWhatsAppConfigured() && !isEvolutionConfigured()) {
     return jsonResponse(
-      { error: 'WhatsApp Cloud API não configurada (WHATSAPP_ACCESS_TOKEN ausente)' },
+      {
+        error:
+          'Nenhum canal de WhatsApp configurado (EVOLUTION_API_URL/EVOLUTION_API_KEY ou WHATSAPP_ACCESS_TOKEN)',
+      },
       503
     );
   }
@@ -75,15 +85,30 @@ export async function POST(request: NextRequest) {
     }
     const input = parsed.data;
 
-    const result =
-      input.type === 'template'
-        ? await sendWhatsAppTemplate({
-            to: input.to,
-            template: input.template as string,
-            languageCode: input.languageCode,
-            components: input.components as TemplateComponent[] | undefined,
-          })
-        : await sendWhatsAppText({ to: input.to, body: input.body as string });
+    let result: { messageId: string; waId: string };
+    let channel: 'evolution' | 'meta';
+    if (input.type === 'template') {
+      // Template é recurso da Meta — não existe na Evolution.
+      if (!isWhatsAppConfigured()) {
+        throw new ServiceError(
+          'templates exigem a Cloud API da Meta, que ainda não está configurada — envie como texto',
+          503
+        );
+      }
+      channel = 'meta';
+      result = await sendWhatsAppTemplate({
+        to: input.to,
+        template: input.template as string,
+        languageCode: input.languageCode,
+        components: input.components as TemplateComponent[] | undefined,
+      });
+    } else if (isEvolutionConfigured()) {
+      channel = 'evolution';
+      result = await sendEvolutionText({ to: input.to, body: input.body as string });
+    } else {
+      channel = 'meta';
+      result = await sendWhatsAppText({ to: input.to, body: input.body as string });
+    }
 
     // SQL Wave 38: histórico da conversa em `whatsapp_messages` (best-effort
     // — mensagem já saiu, gravar não pode custar o sucesso da resposta).
@@ -108,6 +133,7 @@ export async function POST(request: NextRequest) {
       targetId: result.waId || null,
       changes: {
         type: input.type,
+        channel,
         template: input.template || null,
         bodyPreview: (input.body || '').slice(0, 80),
         messageId: result.messageId,
@@ -115,7 +141,12 @@ export async function POST(request: NextRequest) {
       request,
     }).catch(() => {});
 
-    return jsonResponse({ ok: true, messageId: result.messageId, waId: result.waId });
+    return jsonResponse({
+      ok: true,
+      messageId: result.messageId,
+      waId: result.waId,
+      channel,
+    });
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
     console.error('whatsapp-send erro inesperado:', e instanceof Error ? e.message : e);
