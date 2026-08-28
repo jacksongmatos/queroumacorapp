@@ -7,12 +7,14 @@
 // Páginas de auth (/login, /signup, /) NÃO usam AppShell.
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { isProfileComplete } from '@/lib/profileCompletion';
 import { useNoPullToRefresh } from '@/lib/hooks/useNoPullToRefresh';
+import { hasStoredSession } from '@/lib/sessionStorageHybrid';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
@@ -54,6 +56,18 @@ export function AppShell({
   // scroller já no topo, que era o caso que sobrava no arrasto rápido.
   useNoPullToRefresh(scrollRef);
 
+  // Sessão GRAVADA no aparelho mas ainda não restaurada (boot com rede
+  // fria estourava o timeout de 8s e o app EXPULSAVA pro /login quem
+  // estava logado — era o "pede senha toda vez que reinicia"). Com
+  // sessão salva, a tela vira "Reconectando…" em vez de formulário.
+  // Estado (e não chamada direta no render) pra não divergir na
+  // hidratação — no server não há localStorage.
+  const [storedSession, setStoredSession] = useState(false);
+  useEffect(() => {
+    if (loading || user) return;
+    setStoredSession(hasStoredSession());
+  }, [loading, user]);
+
   // Acesso sem conta REMOVIDO: telas privadas (requireAuth=true) exigem login —
   // visitante deslogado é mandado pro /login (com ?next pra voltar após logar).
   // Páginas públicas (/login, /signup, /, /completar-perfil) não usam AppShell;
@@ -61,6 +75,12 @@ export function AppShell({
   useEffect(() => {
     if (!requireAuth) return;
     if (loading || user) return;
+    // Sessão salva no aparelho → NÃO expulsa: o AuthProvider re-tenta a
+    // restauração (visibilitychange/online/pageshow) e o onAuthStateChange
+    // entrega o user quando a rede acorda. Se o refresh token for
+    // realmente inválido, o supabase-js apaga a sessão salva e este guard
+    // volta a mandar pro /login sozinho.
+    if (hasStoredSession()) return;
     const next = pathname && pathname !== '/' ? `?next=${encodeURIComponent(pathname)}` : '';
     router.replace(`/login${next}`);
   }, [requireAuth, loading, user, pathname, router]);
@@ -92,6 +112,43 @@ export function AppShell({
   // Enquanto resolve auth ou enquanto o redirect dispara, não renderiza o
   // conteúdo privado (evita flash de tela protegida pra deslogado).
   if (requireAuth && (loading || !user || incomplete)) {
+    // Sessão salva + rede lenta: tela de reconexão com saídas manuais,
+    // nunca o formulário de senha.
+    if (!loading && !user && storedSession) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center gap-4">
+          <div className="text-4xl" aria-hidden="true">📶</div>
+          <div>
+            <div className="font-bold text-[color:var(--color-ink)]">Reconectando…</div>
+            <p className="text-sm text-[color:var(--color-muted)] mt-1 max-w-[260px]">
+              Sua conta está salva neste aparelho — só estamos esperando a
+              conexão responder.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-white font-bold"
+            style={{
+              padding: '12px 26px',
+              borderRadius: 12,
+              border: 'none',
+              background: 'var(--color-p1)',
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            Tentar agora
+          </button>
+          <Link
+            href="/login"
+            className="text-xs text-[color:var(--color-muted)] underline"
+          >
+            Entrar com outra conta
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center p-8">
         <div className="text-[color:var(--color-muted)] text-sm">Carregando…</div>

@@ -11,9 +11,15 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { useUnreadMessageCount } from '@/lib/hooks/useUnreadMessageCount';
+
+// Telas-raiz (as 5 abas da BottomNav): nelas não há "de onde voltar".
+// Nas DEMAIS, o TopNav ganha um ← — importante no app Android, onde o
+// botão voltar nativo do wrapper fecha o app em vez de navegar.
+const ROOT_PATHS = new Set(['/', '/feed', '/search', '/loja', '/notificacoes', '/perfil']);
 
 interface TopNavProps {
   /** Override do badge — usado em telas onde a regra de derivação não
@@ -26,6 +32,16 @@ export function TopNav({ proStatus }: TopNavProps) {
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
   const unreadChat = useUnreadMessageCount();
+  const router = useRouter();
+  const pathname = usePathname();
+  const showBack = !!pathname && !ROOT_PATHS.has(pathname);
+
+  function handleBack() {
+    // Sem histórico (deep-link, app recém-aberto nessa tela), volta pro
+    // feed em vez de não fazer nada.
+    if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+    else router.push('/feed');
+  }
 
   // Derivação automática se o caller não passou proStatus.
   // is_admin/portal_access podem não estar no SELECT (Profile type
@@ -72,6 +88,27 @@ export function TopNav({ proStatus }: TopNavProps) {
         paddingRight: 'max(14px, env(safe-area-inset-right))',
       }}
     >
+      {showBack ? (
+        <button
+          type="button"
+          onClick={handleBack}
+          aria-label="Voltar"
+          className="flex items-center justify-center flex-shrink-0 text-white"
+          style={{
+            width: 36,
+            height: 36,
+            marginRight: -6,
+            background: 'rgba(255,255,255,.08)',
+            border: 'none',
+            borderRadius: 10,
+            cursor: 'pointer',
+            fontSize: 18,
+            lineHeight: 1,
+          }}
+        >
+          ←
+        </button>
+      ) : null}
       <Link
         href={user ? '/feed' : '/'}
         className="text-white font-extrabold tracking-tight whitespace-nowrap"

@@ -12,6 +12,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
+import { hybridAuthStorage } from './sessionStorageHybrid';
 
 // Alias re-exportado pra reduzir verbosidade nos consumers.
 export type TypedSupabaseClient = SupabaseClient<Database>;
@@ -51,7 +52,16 @@ export function getSupabase(): TypedSupabaseClient {
     );
   }
   _client = createClient<Database>(url, key, {
-    auth: { persistSession: true, autoRefreshToken: true },
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      // Sessão em DOIS armazéns (localStorage + cookies fatiados): o
+      // wrapper Android limpa localStorage ao fechar e deslogava o user a
+      // cada reinício — com o espelho em cookie, restaura de quem
+      // sobreviveu. Só no browser; no server o supabase-js usa o default
+      // (memória) e nada muda. Ver lib/sessionStorageHybrid.ts.
+      ...(typeof window !== 'undefined' ? { storage: hybridAuthStorage } : {}),
+    },
   });
   return _client;
 }
