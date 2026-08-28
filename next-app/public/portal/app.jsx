@@ -3341,10 +3341,216 @@ const AvaliacoesTab = () => {
   );
 };
 
+// ── WhatsApp (Evolution API, numero secundario +55 11 92072-5935) ──
+// Estilo WhatsApp Web: coluna esquerda = uma conversa por numero (nome do
+// perfil do app quando o telefone casa, senao o nome do WhatsApp/numero);
+// direita = balões + campo de resposta. Le direto de whatsapp_messages
+// (RLS libera SELECT pra portal admin); envia pela rota /api/whatsapp/send
+// (que despacha pra Evolution). Poll de 15s, igual as demais telas.
+const fmtWaPhone = (d) => {
+  if(!d) return '';
+  const n = d.replace(/^55/, '');
+  if(n.length === 11) return '(' + n.slice(0,2) + ') ' + n.slice(2,7) + '-' + n.slice(7);
+  if(n.length === 10) return '(' + n.slice(0,2) + ') ' + n.slice(2,6) + '-' + n.slice(6);
+  return '+' + d;
+};
+const waHora = (m) => {
+  const iso = m.wa_timestamp || m.created_at;
+  if(!iso) return '';
+  const dt = new Date(iso);
+  const hoje = new Date();
+  const mesmoDia = dt.toDateString() === hoje.toDateString();
+  return mesmoDia
+    ? dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })
+    : dt.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+};
+
+const WhatsAppTab = () => {
+  const [msgs, setMsgs] = useState([]);
+  const [profByPhone, setProfByPhone] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [openWa, setOpenWa] = useState(null); // wa_id da conversa aberta
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState('');
+  const [busca, setBusca] = useState('');
+  const endRef = React.useRef(null);
+
+  const load = async () => {
+    const { data } = await supa
+      .from('whatsapp_messages')
+      .select('id, direction, wa_id, profile_name, type, body, template, wa_timestamp, created_at')
+      .order('created_at', { ascending:false })
+      .limit(500);
+    setMsgs(data || []);
+    setLoading(false);
+  };
+
+  // Perfis do app com telefone → nome/@tag na lista (casamento pelos
+  // ultimos 8 digitos, robusto a DDI/9 na frente/formatacao).
+  const loadProfiles = async () => {
+    const { data } = await supa.from('profiles').select('id, name, tag, phone').not('phone','is',null).limit(3000);
+    const map = {};
+    (data || []).forEach(p => {
+      const dig = String(p.phone || '').replace(/\D/g, '');
+      if(dig.length >= 8) map[dig.slice(-8)] = p;
+    });
+    setProfByPhone(map);
+  };
+
+  useEffect(() => {
+    load(); loadProfiles();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }); }, [openWa, msgs.length]);
+
+  // Agrupa por numero (mensagem mais recente primeiro).
+  const convs = React.useMemo(() => {
+    const map = {};
+    msgs.forEach(m => {
+      if(!m.wa_id) return;
+      if(!map[m.wa_id]) map[m.wa_id] = { waId: m.wa_id, msgs: [], last: m, name: '' };
+      map[m.wa_id].msgs.push(m);
+      if(m.direction === 'in' && m.profile_name && !map[m.wa_id].name) map[m.wa_id].name = m.profile_name;
+      if(new Date(m.created_at) > new Date(map[m.wa_id].last.created_at)) map[m.wa_id].last = m;
+    });
+    return Object.values(map).sort((a,b) => new Date(b.last.created_at) - new Date(a.last.created_at));
+  }, [msgs]);
+
+  const nomeDe = (c) => {
+    const prof = profByPhone[c.waId.slice(-8)];
+    if(prof) return (prof.name || '@' + prof.tag) + (prof.tag ? ' (@' + prof.tag + ')' : '');
+    return c.name || fmtWaPhone(c.waId);
+  };
+
+  const convsFiltradas = convs.filter(c => {
+    if(!busca.trim()) return true;
+    const q = busca.toLowerCase();
+    return c.waId.includes(q.replace(/\D/g, '') || '§') || nomeDe(c).toLowerCase().includes(q);
+  });
+
+  const aberta = convs.find(c => c.waId === openWa);
+  const thread = aberta ? [...aberta.msgs].sort((a,b) => new Date(a.created_at) - new Date(b.created_at)) : [];
+
+  const enviar = async () => {
+    const body = text.trim();
+    if(!body || !openWa || sending) return;
+    setSending(true); setErr('');
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setErr('Sessao expirada — entre de novo.'); setSending(false); return; }
+      const r = await fetch('/api/whatsapp/send', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, to: openWa, body })
+      });
+      let res = {}; try { res = await r.json(); } catch(_){}
+      if(!r.ok || !res.ok){ setErr(res.error || ('Falha no envio (HTTP ' + r.status + ')')); }
+      else { setText(''); load(); }
+    } catch(_) { setErr('Falha de rede ao enviar.'); }
+    setSending(false);
+  };
+
+  const novaConversa = () => {
+    const v = prompt('Numero do WhatsApp (com DDD, ex: 11 99999-9999):');
+    if(v === null) return;
+    let dig = v.replace(/\D/g, '');
+    if(dig.length === 10 || dig.length === 11) dig = '55' + dig;
+    if(!(dig.startsWith('55') && (dig.length === 12 || dig.length === 13))){ alert('Numero invalido — use DDD + numero.'); return; }
+    setOpenWa(dig); setErr('');
+  };
+
+  return (
+    <div>
+      <div style={{ background:'#fff', borderRadius:16, boxShadow:'0 2px 12px rgba(26,26,46,.06)', overflow:'hidden', display:'flex', height:'calc(100vh - 170px)', minHeight:420 }}>
+        {/* Coluna de conversas */}
+        <div style={{ width:320, minWidth:260, borderRight:'1px solid '+C.border, display:'flex', flexDirection:'column' }}>
+          <div style={{ padding:12, borderBottom:'1px solid '+C.border, display:'flex', gap:8 }}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar numero ou nome…"
+              style={{ flex:1, padding:'8px 12px', borderRadius:10, border:'1.5px solid '+C.border, fontSize:13, outline:'none' }} />
+            <button onClick={novaConversa} title="Nova conversa"
+              style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'0 14px', fontWeight:700, fontSize:18, cursor:'pointer' }}>+</button>
+          </div>
+          <div style={{ flex:1, overflowY:'auto' }}>
+            {loading ? (
+              <div style={{ padding:20, color:C.muted, fontSize:13 }}>Carregando…</div>
+            ) : convsFiltradas.length === 0 ? (
+              <div style={{ padding:20, color:C.muted, fontSize:13 }}>
+                {convs.length === 0
+                  ? 'Nenhuma conversa ainda. Mensagens recebidas no +55 11 92072-5935 aparecem aqui.'
+                  : 'Nada encontrado na busca.'}
+              </div>
+            ) : convsFiltradas.map(c => (
+              <div key={c.waId} onClick={() => { setOpenWa(c.waId); setErr(''); }}
+                style={{ padding:'12px 14px', cursor:'pointer', borderBottom:'1px solid '+C.cream,
+                  background: openWa === c.waId ? C.cream : 'transparent' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+                  <strong style={{ fontSize:13, color:C.ink, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nomeDe(c)}</strong>
+                  <span style={{ fontSize:11, color:C.muted, whiteSpace:'nowrap' }}>{waHora(c.last)}</span>
+                </div>
+                <div style={{ fontSize:12, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>
+                  {(c.last.direction === 'out' ? 'Voce: ' : '') + (c.last.body || '[' + (c.last.type || 'msg') + ']')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Thread */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', background:C.cream }}>
+          {!openWa ? (
+            <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:C.muted, fontSize:14, padding:20, textAlign:'center' }}>
+              Selecione uma conversa ao lado — ou toque em + pra comecar uma nova.<br/>Canal: +55 11 92072-5935 (Evolution).
+            </div>
+          ) : (
+            <>
+              <div style={{ padding:'12px 16px', background:'#fff', borderBottom:'1px solid '+C.border, fontWeight:700, fontSize:14, color:C.ink }}>
+                {aberta ? nomeDe(aberta) : fmtWaPhone(openWa)}
+                <span style={{ fontWeight:400, color:C.muted, fontSize:12, marginLeft:8 }}>{fmtWaPhone(openWa)}</span>
+              </div>
+              <div style={{ flex:1, overflowY:'auto', padding:16, display:'flex', flexDirection:'column', gap:6 }}>
+                {thread.length === 0 ? (
+                  <div style={{ color:C.muted, fontSize:13, textAlign:'center', marginTop:20 }}>Sem historico com este numero — escreva a primeira mensagem abaixo.</div>
+                ) : thread.map(m => (
+                  <div key={m.id} style={{
+                    alignSelf: m.direction === 'out' ? 'flex-end' : 'flex-start',
+                    maxWidth:'72%', padding:'8px 12px', borderRadius:12, fontSize:13, lineHeight:1.45,
+                    background: m.direction === 'out' ? C.p1 : '#fff',
+                    color: m.direction === 'out' ? '#fff' : C.ink,
+                    boxShadow:'0 1px 3px rgba(0,0,0,.06)', whiteSpace:'pre-wrap', wordBreak:'break-word'
+                  }}>
+                    {m.body || '[' + (m.type || 'mensagem') + ']'}
+                    <div style={{ fontSize:10, opacity:.7, marginTop:3, textAlign:'right' }}>{waHora(m)}</div>
+                  </div>
+                ))}
+                <div ref={endRef} />
+              </div>
+              {err ? <div style={{ padding:'8px 16px', background:'#fdecea', color:'#b3261e', fontSize:12 }}>{err}</div> : null}
+              <div style={{ display:'flex', gap:8, padding:12, background:'#fff', borderTop:'1px solid '+C.border }}>
+                <input value={text} onChange={e=>setText(e.target.value)}
+                  onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviar(); } }}
+                  placeholder="Escreva uma mensagem…"
+                  style={{ flex:1, padding:'10px 14px', borderRadius:12, border:'1.5px solid '+C.border, fontSize:14, outline:'none' }} />
+                <button onClick={enviar} disabled={sending || !text.trim()}
+                  style={{ background:C.p1, color:'#fff', border:'none', borderRadius:12, padding:'0 20px', fontWeight:700, fontSize:14,
+                    cursor: sending ? 'wait' : 'pointer', opacity: sending || !text.trim() ? .6 : 1 }}>
+                  {sending ? 'Enviando…' : 'Enviar'}
+                </button>
+              </div>
+              {sending ? <div style={{ padding:'4px 16px 10px', background:'#fff', color:C.muted, fontSize:11 }}>Se o servidor estava dormindo (plano free), pode levar ate 1 minuto.</div> : null}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PAGES_DEF = [
   { id:'dashboard', icon:'📊', label:'Dashboard', section:'PRINCIPAL', component:<Dashboard /> },
   { id:'avisos', icon:'📢', label:'Avisos / Notificacoes', section:'PRINCIPAL', component:<Avisos /> },
   { id:'chats', icon:'💬', label:'Chats 3-Way', section:'PRINCIPAL', badgeKey:'chats', component:<Chats /> },
+  { id:'whatsapp', icon:'📱', label:'WhatsApp', section:'PRINCIPAL', component:<WhatsAppTab /> },
   { id:'orcamentos', icon:'📋', label:'Orçamentos', section:'PRINCIPAL', badgeKey:'orcamentos', component:<Orcamentos /> },
   { id:'pintores', icon:'🖌️', label:'Pintores', section:'PESSOAS', badgeKey:'pintores', component:<PintoresList key="pintores" roleFilter={p=>currentRoleKey(p)==='pintor'} title="Pintores Cadastrados" defaultRole="pintor" emptyMsg="Nenhum pintor cadastrado." /> },
   { id:'grafiteiros', icon:'🎨', label:'Grafiteiros', section:'PESSOAS', badgeKey:'grafiteiros', component:<PintoresList key="grafiteiros" roleFilter={p=>currentRoleKey(p)==='grafiteiro'} title="Grafiteiros / Muralistas" defaultRole="grafiteiro" emptyMsg="Nenhum grafiteiro cadastrado." /> },
