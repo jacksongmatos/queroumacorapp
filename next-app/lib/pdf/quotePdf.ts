@@ -370,12 +370,20 @@ export async function shareOrDownloadPdfBlob(
     }
   }
 
-  // WebView Android sem share de arquivo: blob: NÃO chega no lado nativo
-  // (o DownloadListener do wrapper não consegue ler o conteúdo — o "Save
-  // As" aparecia sem nome e salvava nada). data: URL carrega os bytes na
-  // própria URL, aí o wrapper decodifica e grava de verdade.
+  // WebView Android sem share de arquivo: NENHUM canal local funciona no
+  // wrapper — blob: o DownloadListener não lê ("Save As" vazio), e data:
+  // o DownloadManager do Android recusa (só baixa http/https). O único
+  // canal à prova de wrapper é um LINK HTTPS de verdade: sobe o PDF pro
+  // Storage (bucket `exports`, Wave 41) e navega pra URL pública com
+  // `?download=` — o Android baixa como qualquer download normal.
   const { isAndroidWebView } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
   if (isAndroidWebView(navigator.userAgent || '')) {
+    const url = await uploadPdfForLink(blob, filename);
+    if (url) {
+      window.location.href = url; // disposition attachment → não navega, baixa
+      return 'downloaded';
+    }
+    // Bucket ausente/sem sessão: última tentativa via data URL.
     const dataUrl = await blobToDataUrl(blob);
     clickDownloadAnchor(dataUrl, filename);
     return 'downloaded';
@@ -386,6 +394,30 @@ export async function shareOrDownloadPdfBlob(
   clickDownloadAnchor(url, filename);
   setTimeout(() => URL.revokeObjectURL(url), 5000);
   return 'downloaded';
+}
+
+// Sobe o PDF pro bucket público `exports` (SQL Wave 41: escrita só no
+// próprio path userId/..., leitura pública) e devolve a URL com
+// `?download=` (Content-Disposition: attachment). Best-effort: null =
+// caller usa o fallback local.
+async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | null> {
+  try {
+    const { getSupabase } = await import('@/lib/supabase');
+    const sb = getSupabase();
+    const { data } = await sb.auth.getSession();
+    const uid = data.session?.user?.id;
+    if (!uid) return null;
+    const path = `${uid}/${Date.now()}-${filename}`;
+    const up = await sb.storage
+      .from('exports')
+      .upload(path, blob, { contentType: 'application/pdf', upsert: true });
+    if (up.error) return null;
+    const pub = sb.storage.from('exports').getPublicUrl(path);
+    const url = pub.data?.publicUrl;
+    return url ? `${url}?download=${encodeURIComponent(filename)}` : null;
+  } catch {
+    return null;
+  }
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

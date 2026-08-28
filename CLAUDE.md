@@ -1,5 +1,22 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **SQL Waves 40 e 41 (2026-08-28) — PENDENTES de rodar no Supabase.**
+  - **Wave 40** (`/migrations/2026-08-28-profile-counters-triggers.sql`):
+    os contadores `followers_count`/`following_count`/`posts_count` de
+    `profiles` NUNCA tiveram trigger de manutenção no repo (a migration
+    2026-06-14 só recriou a view assumindo que existiam) → o perfil
+    mostrava "0 seguindo" com dezenas de follows reais. Cria os triggers
+    (SECURITY DEFINER — sem isso a RLS barra o UPDATE no profile do OUTRO
+    usuário) + BACKFILL a partir de follows/posts.
+  - **Wave 41** (`/migrations/2026-08-28-exports-bucket.sql`): bucket
+    `exports` (público, 10MB, só application/pdf, escrita no próprio
+    path). No WebView do wrapper NENHUM download local funciona (share de
+    arquivo ausente; blob: o nativo não lê; data: o DownloadManager
+    recusa) — o app sobe o PDF pro bucket e entrega o LINK público com
+    `?download=` (quotePdf.uploadPdfForLink). Sem o bucket, cai no
+    fallback data URL (que no wrapper não salva).
+  Trocar pra "JÁ EXECUTADO" quando o usuário rodar.
+
 - **Respostas automáticas do chat — consertadas, SQL Wave 39 JÁ EXECUTADO
   no Supabase (2026-08-28).** Dois bugs: (1) `auto_responses` nasceu SEM unique em
   `(user_id, trigger_type)` → o upsert `onConflict` do AutoRespostaSheet
