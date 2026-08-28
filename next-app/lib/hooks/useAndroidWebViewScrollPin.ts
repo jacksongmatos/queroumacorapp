@@ -28,13 +28,16 @@
 //    o gesto descendente quando nada na cadeia do alvo pode subir (mesma
 //    lógica do useNoPullToRefresh, generalizada pro documento inteiro).
 //
-// Escopo: WebView Android (token `; wv)` no user-agent, padrão do System
-// WebView — https://android-developers.googleblog.com/2024/12/
-// user-agent-reduction-on-android-webview.html). Isso inclui, além do
-// wrapper, in-app browsers (Instagram/Facebook/Gmail) — lá o efeito é
-// inofensivo (2px invisíveis, nenhum SwipeRefreshLayout pra enganar).
-// Chrome, PWA, iOS e desktop não entram: neles o pull-to-refresh é do
-// navegador e já é tratado por `overscroll-behavior` + useNoPullToRefresh.
+// Escopo: QUALQUER Android (2026-08-28 — antes era só UA com token `; wv)`,
+// mas geradores tipo WebIntoApp podem customizar o user-agent e o pin
+// ficava mudo sem nenhum sinal; "Android" no UA sobrevive a praticamente
+// qualquer customização). No Chrome/PWA Android o efeito é inofensivo e
+// até bem-vindo: o pin também impede o pull-to-refresh do PRÓPRIO Chrome
+// (que exige scrollY 0). A altura extra usa `dvh` (com fallback `vh`)
+// justamente pra barra de URL do Chrome não ganhar dezenas de px de scroll
+// — dvh acompanha o viewport atual, então a folga é sempre 4px exatos.
+// iOS e desktop ficam de fora: pull-to-refresh deles já é coberto por
+// `overscroll-behavior` + useNoPullToRefresh onde importa.
 //
 // Isso NÃO substitui desligar o "Pull to Refresh" no painel do WebIntoApp
 // (que continua sendo a correção de raiz, no próximo rebuild) — mas chega
@@ -49,14 +52,20 @@ const EXTRA_SCROLL_PX = 4;
 const PIN_PX = 2;
 
 /**
- * Detecta o WebView do Android pelo user-agent. O System WebView carrega o
- * token `; wv)`; o WebIntoApp usa o System WebView, então herda o token —
- * e alguns geradores anexam o próprio nome, coberto pelo segundo teste.
- * Exportada pura pra teste unitário. Espelhada no script inline do
- * layout.tsx (camada 1) — mudou aqui, mudar lá.
+ * Gate do pin: qualquer Android. Espelhada no script inline do layout.tsx
+ * (camada 1) — mudou aqui, mudar lá.
+ */
+export function isAndroid(ua: string): boolean {
+  return /Android/i.test(ua);
+}
+
+/**
+ * Detecção estrita do WebView (token `; wv)` do System WebView, ou gerador
+ * que anexa o próprio nome). Não é mais o gate do pin — vira flag no
+ * diagnóstico, pra distinguir wrapper de Chrome/PWA no /admin/errors.
  */
 export function isAndroidWebView(ua: string): boolean {
-  if (!/Android/i.test(ua)) return false;
+  if (!isAndroid(ua)) return false;
   return /;\s?wv\)/.test(ua) || /WebIntoApp/i.test(ua);
 }
 
@@ -74,16 +83,49 @@ function hasScrollableUpAncestor(from: EventTarget | null): boolean {
   return false;
 }
 
+/**
+ * Diagnóstico TEMPORÁRIO (2026-08-28): 1 ping por sessão pro
+ * /api/log-error com UA + estado do pin, pra confirmar no /admin/errors
+ * que o wrapper da Play Store está mesmo entrando no gate (o user-agent
+ * real dele é desconhecido — o eruda só liga com window.Capacitor, que o
+ * WebIntoApp não tem). Remover depois de confirmado.
+ */
+function sendDiagPing(): void {
+  try {
+    if (sessionStorage.getItem('scrollpin_diag')) return;
+    sessionStorage.setItem('scrollpin_diag', '1');
+    const ua = navigator.userAgent || '';
+    const standalone =
+      typeof matchMedia === 'function' &&
+      matchMedia('(display-mode: standalone)').matches;
+    fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'scrollpin-diag',
+        msg: `scrollpin wv=${isAndroidWebView(ua)} standalone=${standalone} scrollY=${Math.round(window.scrollY)} vw=${window.innerWidth} vh=${window.innerHeight}`,
+        ua,
+        ctx: 'scrollpin',
+      }),
+    }).catch(() => {});
+  } catch {
+    // sessionStorage indisponível (modo privado etc.) — diagnóstico é
+    // best-effort, nunca custa o pin.
+  }
+}
+
 export function useAndroidWebViewScrollPin(): void {
   useEffect(() => {
-    if (!isAndroidWebView(navigator.userAgent || '')) return;
+    if (!isAndroid(navigator.userAgent || '')) return;
 
     const body = document.body;
     const prevMinHeight = body.style.minHeight;
-    // `vh` e não `dvh` de propósito: no WebView não existe barra de URL que
-    // encolhe, então 100vh == altura real da janela e o documento ganha
-    // EXATAMENTE os 4px de rolagem — nada visível muda.
+    // dvh com fallback vh: dvh acompanha o viewport ATUAL (barra de URL do
+    // Chrome recolhida ou não), então a folga é sempre 4px exatos. Em
+    // WebView antigo sem dvh a segunda atribuição é rejeitada pela CSSOM e
+    // fica o vh — que dentro do wrapper é a mesma coisa (sem barra de URL).
     body.style.minHeight = `calc(100vh + ${EXTRA_SCROLL_PX}px)`;
+    body.style.minHeight = `calc(100dvh + ${EXTRA_SCROLL_PX}px)`;
 
     const pin = () => {
       if (window.scrollY < PIN_PX) window.scrollTo(0, PIN_PX);
@@ -111,6 +153,8 @@ export function useAndroidWebViewScrollPin(): void {
 
     // rAF: espera o layout aplicar o minHeight antes do primeiro pin.
     const raf = requestAnimationFrame(pin);
+    // Diagnóstico depois do pin assentar (3s cobre boot + primeiro paint).
+    const diagTimer = setTimeout(sendDiagPing, 3000);
     // Re-pin em tudo que pode devolver o documento ao topo: scroll
     // programático/autoscroll de foco (scroll), teclado abre/fecha (resize)
     // e retomada do WebView congelado pelo sistema (pageshow/visibility —
@@ -126,6 +170,7 @@ export function useAndroidWebViewScrollPin(): void {
 
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(diagTimer);
       window.removeEventListener('scroll', pin);
       window.removeEventListener('resize', pin);
       window.removeEventListener('pageshow', pin);

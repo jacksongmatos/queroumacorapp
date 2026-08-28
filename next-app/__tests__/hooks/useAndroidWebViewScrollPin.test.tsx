@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, cleanup } from '@testing-library/react';
 import {
+  isAndroid,
   isAndroidWebView,
   useAndroidWebViewScrollPin,
 } from '@/lib/hooks/useAndroidWebViewScrollPin';
@@ -27,7 +28,21 @@ const UA_IOS_SAFARI =
 const UA_DESKTOP =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-describe('isAndroidWebView', () => {
+describe('isAndroid (gate do pin)', () => {
+  it('casa qualquer Android — WebView, Chrome ou UA customizado do gerador', () => {
+    expect(isAndroid(UA_WEBVIEW)).toBe(true);
+    expect(isAndroid(UA_CHROME_ANDROID)).toBe(true);
+    expect(isAndroid('MeuApp/1.0 (Android 14)')).toBe(true);
+  });
+
+  it('NÃO casa iOS, desktop ou UA vazio', () => {
+    expect(isAndroid(UA_IOS_SAFARI)).toBe(false);
+    expect(isAndroid(UA_DESKTOP)).toBe(false);
+    expect(isAndroid('')).toBe(false);
+  });
+});
+
+describe('isAndroidWebView (flag de diagnóstico)', () => {
   it('reconhece o token "; wv)" do System WebView', () => {
     expect(isAndroidWebView(UA_WEBVIEW)).toBe(true);
     expect(isAndroidWebView(UA_WEBVIEW_REDUCED)).toBe(true);
@@ -37,11 +52,10 @@ describe('isAndroidWebView', () => {
     expect(isAndroidWebView(UA_CHROME_ANDROID + ' WebIntoApp')).toBe(true);
   });
 
-  it('NÃO dispara no Chrome Android (site/PWA), iOS ou desktop', () => {
+  it('NÃO marca Chrome Android (site/PWA), iOS ou desktop', () => {
     expect(isAndroidWebView(UA_CHROME_ANDROID)).toBe(false);
     expect(isAndroidWebView(UA_IOS_SAFARI)).toBe(false);
     expect(isAndroidWebView(UA_DESKTOP)).toBe(false);
-    expect(isAndroidWebView('')).toBe(false);
   });
 
   it('exige Android — "wv" solto em outro OS não conta', () => {
@@ -91,6 +105,9 @@ describe('useAndroidWebViewScrollPin', () => {
       return 1;
     });
     vi.stubGlobal('cancelAnimationFrame', () => {});
+    // Ping de diagnóstico não pode bater na rede em teste.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}'))));
+    sessionStorage.clear();
     setScrollY(0);
     document.body.style.minHeight = '';
   });
@@ -105,7 +122,17 @@ describe('useAndroidWebViewScrollPin', () => {
   it('no WebView: estica o body e prende o documento em scrollY=2', () => {
     setUserAgent(UA_WEBVIEW);
     renderHook(() => useAndroidWebViewScrollPin());
-    expect(document.body.style.minHeight).toBe('calc(100vh + 4px)');
+    // dvh onde o CSSOM aceita, vh como fallback — os dois valem.
+    expect(document.body.style.minHeight).toMatch(/^calc\(100d?vh \+ 4px\)$/);
+    expect(scrollTo).toHaveBeenCalledWith(0, 2);
+  });
+
+  it('no Chrome Android (UA sem wv) TAMBÉM pina — gate é qualquer Android', () => {
+    // Cobre o wrapper com user-agent customizado (sem token wv) e, de
+    // quebra, mata o pull-to-refresh do próprio Chrome.
+    setUserAgent(UA_CHROME_ANDROID);
+    renderHook(() => useAndroidWebViewScrollPin());
+    expect(document.body.style.minHeight).toMatch(/^calc\(100d?vh \+ 4px\)$/);
     expect(scrollTo).toHaveBeenCalledWith(0, 2);
   });
 
@@ -140,8 +167,8 @@ describe('useAndroidWebViewScrollPin', () => {
     expect(scrollTo).toHaveBeenCalledTimes(3);
   });
 
-  it('fora do WebView Android é no-op total', () => {
-    setUserAgent(UA_CHROME_ANDROID);
+  it('fora do Android (iOS/desktop) é no-op total', () => {
+    setUserAgent(UA_IOS_SAFARI);
     renderHook(() => useAndroidWebViewScrollPin());
     expect(document.body.style.minHeight).toBe('');
     expect(scrollTo).not.toHaveBeenCalled();
@@ -149,11 +176,31 @@ describe('useAndroidWebViewScrollPin', () => {
     expect(swipeDoc(100, 180, document.body)).toBe(false);
   });
 
+  it('agenda o ping de diagnóstico e o cancela no unmount sem disparar', () => {
+    vi.useFakeTimers();
+    try {
+      setUserAgent(UA_WEBVIEW);
+      const { unmount } = renderHook(() => useAndroidWebViewScrollPin());
+      vi.advanceTimersByTime(3000);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+      expect(body.type).toBe('scrollpin-diag');
+      expect(body.msg).toContain('wv=true');
+      // 1 por sessão: remontar não re-envia (sessionStorage guarda).
+      unmount();
+      renderHook(() => useAndroidWebViewScrollPin());
+      vi.advanceTimersByTime(3000);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('unmount restaura o body (inclusive valor pré-existente) e solta os listeners', () => {
     setUserAgent(UA_WEBVIEW);
     document.body.style.minHeight = '50px';
     const { unmount } = renderHook(() => useAndroidWebViewScrollPin());
-    expect(document.body.style.minHeight).toBe('calc(100vh + 4px)');
+    expect(document.body.style.minHeight).toMatch(/^calc\(100d?vh \+ 4px\)$/);
     unmount();
     expect(document.body.style.minHeight).toBe('50px');
     scrollTo.mockClear();

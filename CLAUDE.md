@@ -7,18 +7,25 @@
   o documento vivia em scrollY 0 → reload armado na tela INTEIRA (arrasto
   rápido pra baixo = círculo de recarregar, em qualquer posição). CSS/JS não
   alcançam o toque nativo, mas o ESTADO consultado sim. Defesa em 3
-  camadas, só dentro do WebView Android (token `; wv)` ou `WebIntoApp` no
-  UA; Chrome/PWA/iOS/desktop são no-op): (1) script inline no `<head>` do
-  layout.tsx pina ANTES da hidratação (senão o boot ficava desprotegido);
-  (2) hook `useAndroidWebViewScrollPin` (montado no RootLayout via
-  `<AndroidWebViewScrollPin>`) estica o body em 4px e PINA o documento em
-  `scrollY = 2`, com re-pin em scroll/resize/pageshow/visibilitychange
-  (retomada do WebView); (3) guarda de dreno: touchmove no document
-  cancela arrasto descendente que nasce fora de qualquer scroller (TopNav,
-  /login) — sem ela o gesto drenava o pin 2→0 e re-armava o reload no meio
-  do movimento. Com o documento fora do topo, o nativo responde "pode
-  subir" e o gesto nunca arma. **Constantes espelhadas** entre o hook e o
-  script inline do layout — mudou um, mudar o outro.
+  camadas, em QUALQUER Android (gate largado em 2026-08-28 de "UA com
+  token wv" pra "/Android/i" — o wrapper pode customizar o UA e o pin
+  ficava mudo; no Chrome/PWA o pin é inofensivo e ainda mata o
+  pull-to-refresh do próprio Chrome; iOS/desktop são no-op): (1) script
+  inline no `<head>` do layout.tsx pina ANTES da hidratação (senão o boot
+  ficava desprotegido); (2) hook `useAndroidWebViewScrollPin` (montado no
+  RootLayout via `<AndroidWebViewScrollPin>`) estica o body em 4px — em
+  `dvh` com fallback `vh`, senão a barra de URL do Chrome ganharia ~60px
+  de scroll real — e PINA o documento em `scrollY = 2`, com re-pin em
+  scroll/resize/pageshow/visibilitychange (retomada do WebView); (3)
+  guarda de dreno: touchmove no document cancela arrasto descendente que
+  nasce fora de qualquer scroller (TopNav, /login) — sem ela o gesto
+  drenava o pin 2→0 e re-armava o reload no meio do movimento. Com o
+  documento fora do topo, o nativo responde "pode subir" e o gesto nunca
+  arma. **Constantes espelhadas** entre o hook e o script inline do
+  layout — mudou um, mudar o outro. **Diagnóstico TEMPORÁRIO ativo**:
+  1 ping/sessão de aparelho Android pro `/api/log-error`
+  (`type='scrollpin-diag'`, aparece no `/admin/errors` com o UA real do
+  wrapper) — REMOVER depois de confirmar que o AAB entra no gate.
   **Correção de raiz continua pendente**: desmarcar "Pull to Refresh" no
   painel do WebIntoApp no próximo rebuild do AAB (checklist do
   `docs/ANDROID_BUILD.md`). Testes em
