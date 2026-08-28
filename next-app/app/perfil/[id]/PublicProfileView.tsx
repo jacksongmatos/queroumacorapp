@@ -388,16 +388,27 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
           {profile?.tag ? (
             <div className="text-sm text-white/70">@{profile.tag}</div>
           ) : null}
-          {(profession || role) || city || state ? (
-            <div className="text-xs text-white/60 mt-1">
-              {(() => {
-                const prof = profession || (role ? role.charAt(0).toUpperCase() + role.slice(1) : '');
-                return prof;
-              })()}
-              {(profession || role) && (city || state) ? ' · ' : ''}
-              {[city, state].filter(Boolean).join(', ')}
-            </div>
-          ) : null}
+          {(() => {
+            // `profession` tem DEFAULT 'pintor' no banco pra TODO cadastro —
+            // usar ela como rótulo fazia cadastro incompleto/cliente aparecer
+            // como "pintor" no app enquanto o portal (que ignora profession de
+            // propósito) o classifica como Cliente. Só rotula por profession
+            // quem tem role profissional de verdade; senão usa a role; sem
+            // role, sem rótulo.
+            const roleBadge = isProfessional
+              ? profession || (role ? role.charAt(0).toUpperCase() + role.slice(1) : '')
+              : role
+                ? role.charAt(0).toUpperCase() + role.slice(1)
+                : '';
+            if (!roleBadge && !city && !state) return null;
+            return (
+              <div className="text-xs text-white/60 mt-1">
+                {roleBadge}
+                {roleBadge && (city || state) ? ' · ' : ''}
+                {[city, state].filter(Boolean).join(', ')}
+              </div>
+            );
+          })()}
           {/* ⭐ nota + nº de avaliações (rating_avg/review_count mantidos por trigger) */}
           {reviewCount > 0 ? (
             <div className="text-xs mt-1 flex items-center gap-1" style={{ color: '#ffd166' }}>
