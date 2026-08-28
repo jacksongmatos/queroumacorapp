@@ -69,11 +69,18 @@ export interface ProfilePatch {
 // `archived_conversations`, `cart`, `seen_stories`, `palette` — que somam
 // 30-40% do row e nunca são lidos). Se uma coluna não existir no banco,
 // PostgREST devolve erro específico e caímos no fallback profiles_public.
+// PEGADINHA (2026-08-28): `is_admin` NÃO existe na tabela profiles real
+// (só em código legado/migrations antigas — ver CLAUDE.md). Com ela na
+// lista, o select principal falhava 42703 pra TODO MUNDO e caía no
+// fallback profiles_public — que esconde `portal_access` (Wave 32).
+// Efeito: admin de portal nunca era admin no client (badge PRO em vez de
+// ADMIN, "Sem acesso" em /admin/whatsapp, /admin/errors etc.). NÃO
+// recolocar is_admin aqui sem antes criar a coluna no banco.
 const PROFILE_COLS =
   'id, name, tag, username, display_name, avatar_url, bio, phone, email, ' +
   'city, state, address, business_logo_url, business_name, role, user_type, ' +
   'profession, specialties, service_radius, is_pro, pro_expires_at, ' +
-  'pro_grace_until, is_admin, portal_access, verified, rating_avg, ' +
+  'pro_grace_until, portal_access, verified, rating_avg, ' +
   'review_count, birth_date, ai_logo_gen_count, instagram_url, ' +
   'website_url, followers_count, following_count, posts_count, created_at';
 
