@@ -60,7 +60,17 @@ export async function POST(request: NextRequest) {
     const token = getToken(request, body);
     const { callerId, email } = await verifyAdminToken(token);
     if (!callerId) throw new ServiceError('token inválido', 401);
-    if (!isAdminEmail(email)) throw new ServiceError('não autorizado (email não admin)', 403);
+    // Diagnóstico no texto: sem saber QUAL email o servidor viu, o
+    // operador não tem como consertar a allowlist — a mensagem antiga
+    // ("email não admin") mandava adivinhar. O email é o do próprio
+    // caller autenticado, então dizer não vaza nada que ele já não saiba.
+    if (!isAdminEmail(email)) {
+      throw new ServiceError(
+        `não autorizado: o email "${email || '(sem email no login)'}" não está na lista ADMIN_EMAILS do servidor. ` +
+          'Adicione esse email na env ADMIN_EMAILS (Cloudflare Pages → Settings → Environment variables → Production) e refaça o deploy.',
+        403,
+      );
+    }
     const rl = await checkRateLimit({
       userId: callerId || email,
       endpoint: 'admin-users',
