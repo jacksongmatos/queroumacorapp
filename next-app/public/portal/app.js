@@ -639,6 +639,129 @@ const setProfileVerified = async (id, value, after) => {
     value
   })) && after) after();
 };
+
+// Edita a @tag pelo portal. REGRA DO APP: tag nunca fica vazia (busca e
+// link de perfil dependem dela) — o backend recusa vazio/duplicada.
+const editUserTag = async (profile, after) => {
+  let v = prompt('Nova @tag para ' + (profile.name || 'este perfil') + '\n(3 a 24 caracteres: a-z, 0-9, _ — NAO pode ficar vazia)', profile.tag || '');
+  if (v === null) return;
+  v = v.trim().replace(/^@+/, '').toLowerCase();
+  if (!v) {
+    alert('A @tag nao pode ficar vazia — regra do app (busca e link do perfil dependem dela).');
+    return;
+  }
+  if (!/^[a-z0-9_]{3,24}$/.test(v)) {
+    alert('@tag invalida: use 3 a 24 caracteres (a-z, 0-9, _).');
+    return;
+  }
+  if (v === profile.tag) return;
+  if ((await adminUsers({
+    action: 'set_tag',
+    userId: profile.id,
+    tag: v
+  })) && after) after();
+};
+
+// Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
+// tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
+const deleteUsersPermanently = async (profiles, after) => {
+  if (!profiles.length) return;
+  const names = profiles.map(p => '• ' + (p.name || 'Sem nome') + (p.tag ? ' (@' + p.tag + ')' : '')).join('\n');
+  const typed = prompt('EXCLUIR PERMANENTEMENTE ' + profiles.length + ' conta(s)?\n\n' + names + '\n\nApaga o LOGIN e o PERFIL do Supabase. SEM VOLTA.\n\nDigite EXCLUIR para confirmar:');
+  if (typed === null) return;
+  if (typed.trim().toUpperCase() !== 'EXCLUIR') {
+    alert('Confirmacao incorreta — nada foi excluido.');
+    return;
+  }
+  let ok = 0,
+    fail = 0;
+  for (const p of profiles) {
+    if (await adminUsers({
+      action: 'delete_user',
+      userId: p.id
+    })) ok++;else fail++;
+  }
+  alert('Excluidas: ' + ok + ' conta(s)' + (fail ? ' · Falharam: ' + fail : ''));
+  if (after) after();
+};
+
+// Celula de @tag com lapis de edicao — compartilhada pelas tabelas.
+const TagCell = ({
+  profile,
+  after
+}) => /*#__PURE__*/React.createElement("span", {
+  style: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6
+  }
+}, /*#__PURE__*/React.createElement("span", {
+  style: {
+    color: C.p3,
+    fontWeight: 600
+  }
+}, profile.tag ? '@' + profile.tag : '—'), /*#__PURE__*/React.createElement("button", {
+  onClick: () => editUserTag(profile, after),
+  title: "Editar @tag",
+  style: {
+    background: 'none',
+    border: '1px solid ' + C.border,
+    borderRadius: 6,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: 11
+  }
+}, "\u270F\uFE0F"));
+
+// Barra de selecao em massa (checkbox master + excluir selecionados).
+const BulkDeleteBar = ({
+  list,
+  selIds,
+  setSelIds,
+  after
+}) => {
+  if (!selIds.length) return null;
+  const chosen = list.filter(p => selIds.includes(p.id));
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      margin: '0 0 12px'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: C.muted
+    }
+  }, selIds.length, " selecionado(s)"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => deleteUsersPermanently(chosen, () => {
+      setSelIds([]);
+      if (after) after();
+    }),
+    style: {
+      background: C.p4,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 8,
+      padding: '6px 14px',
+      cursor: 'pointer',
+      fontSize: 12,
+      fontWeight: 700
+    }
+  }, "\uD83D\uDDD1 Excluir selecionados permanentemente"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSelIds([]),
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '6px 10px',
+      cursor: 'pointer',
+      fontSize: 12,
+      color: C.muted
+    }
+  }, "Limpar"));
+};
 function askProDate() {
   return new Promise(resolve => {
     const pad = n => String(n).padStart(2, '0');
@@ -1346,6 +1469,9 @@ const PintoresList = ({
     ascending: false
   }), []);
   const pintores = roleFilter ? (data || []).filter(roleFilter) : data || [];
+  const [selIds, setSelIds] = useState([]);
+  const toggleSel = id => setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : s.concat(id));
+  const allSel = pintores.length > 0 && selIds.length === pintores.length;
   const updateVerified = (id, verified) => setProfileVerified(id, verified, fetchPintores);
   if (loading) return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1369,6 +1495,11 @@ const PintoresList = ({
   }, title || 'Pintores Cadastrados', " (", pintores.length, ")"), /*#__PURE__*/React.createElement(CreateAppUserForm, {
     onCreated: fetchPintores,
     defaultRole: defaultRole || 'pintor'
+  }), /*#__PURE__*/React.createElement(BulkDeleteBar, {
+    list: pintores,
+    selIds: selIds,
+    setSelIds: setSelIds,
+    after: fetchPintores
   }), pintores.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
@@ -1389,7 +1520,17 @@ const PintoresList = ({
     style: {
       borderBottom: '2px solid ' + C.border
     }
-  }, ['Nome', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: '8px 12px',
+      width: 34
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: allSel,
+    onChange: e => setSelIds(e.target.checked ? pintores.map(x => x.id) : []),
+    title: "Selecionar todos"
+  })), ['Nome', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -1403,9 +1544,18 @@ const PintoresList = ({
   }, h)))), /*#__PURE__*/React.createElement("tbody", null, pintores.map((p, i) => /*#__PURE__*/React.createElement("tr", {
     key: p.id,
     style: {
-      borderBottom: '1px solid ' + C.border
+      borderBottom: '1px solid ' + C.border,
+      background: selIds.includes(p.id) ? C.cream : 'transparent'
     }
   }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: '10px 12px'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: selIds.includes(p.id),
+    onChange: () => toggleSel(p.id)
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
@@ -1433,10 +1583,12 @@ const PintoresList = ({
   })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px',
-      color: C.muted,
       fontSize: 12
     }
-  }, p.tag ? '@' + p.tag : '—'), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(TagCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
@@ -5088,6 +5240,9 @@ const ClientesList = () => {
     }));
   }, []);
   const clientes = data || [];
+  const [selIds, setSelIds] = useState([]);
+  const toggleSel = id => setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : s.concat(id));
+  const allSel = clientes.length > 0 && selIds.length === clientes.length;
   if (loading) return /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 20,
@@ -5110,6 +5265,11 @@ const ClientesList = () => {
   }, "\uD83D\uDC65 Clientes Cadastrados (", clientes.length, ")"), /*#__PURE__*/React.createElement(CreateAppUserForm, {
     onCreated: fetchClientes,
     defaultRole: "cliente"
+  }), /*#__PURE__*/React.createElement(BulkDeleteBar, {
+    list: clientes,
+    selIds: selIds,
+    setSelIds: setSelIds,
+    after: fetchClientes
   }), clientes.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
@@ -5130,7 +5290,17 @@ const ClientesList = () => {
     style: {
       borderBottom: '2px solid ' + C.border
     }
-  }, ['Nome', 'Tipo', '@Tag', 'Email', 'Cidade', 'Estado', 'Cadastro', 'Codigo Gerado', 'Codigo Utilizado', 'PRO', 'Portal'].map(h => /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: '8px 12px',
+      width: 34
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: allSel,
+    onChange: e => setSelIds(e.target.checked ? clientes.map(x => x.id) : []),
+    title: "Selecionar todos"
+  })), ['Nome', 'Tipo', '@Tag', 'Email', 'Cidade', 'Estado', 'Cadastro', 'Codigo Gerado', 'Codigo Utilizado', 'PRO', 'Portal'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -5150,9 +5320,18 @@ const ClientesList = () => {
     return /*#__PURE__*/React.createElement("tr", {
       key: c.id || i,
       style: {
-        borderBottom: '1px solid ' + C.border
+        borderBottom: '1px solid ' + C.border,
+        background: selIds.includes(c.id) ? C.cream : 'transparent'
       }
     }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: '10px 12px'
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: selIds.includes(c.id),
+      onChange: () => toggleSel(c.id)
+    })), /*#__PURE__*/React.createElement("td", {
       style: {
         padding: '10px 12px'
       }
@@ -5179,11 +5358,12 @@ const ClientesList = () => {
       after: fetchClientes
     })), /*#__PURE__*/React.createElement("td", {
       style: {
-        padding: '10px 12px',
-        color: C.p3,
-        fontWeight: 600
+        padding: '10px 12px'
       }
-    }, c.tag ? '@' + c.tag : '—'), /*#__PURE__*/React.createElement("td", {
+    }, /*#__PURE__*/React.createElement(TagCell, {
+      profile: c,
+      after: fetchClientes
+    })), /*#__PURE__*/React.createElement("td", {
       style: {
         padding: '10px 12px',
         color: C.muted

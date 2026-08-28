@@ -291,6 +291,69 @@ const setProfileVerified = async (id, value, after) => {
   if (await adminUsers({ action:'verify', userId:id, value }) && after) after();
 };
 
+// Edita a @tag pelo portal. REGRA DO APP: tag nunca fica vazia (busca e
+// link de perfil dependem dela) — o backend recusa vazio/duplicada.
+const editUserTag = async (profile, after) => {
+  let v = prompt(
+    'Nova @tag para ' + (profile.name || 'este perfil') +
+    '\n(3 a 24 caracteres: a-z, 0-9, _ — NAO pode ficar vazia)',
+    profile.tag || ''
+  );
+  if (v === null) return;
+  v = v.trim().replace(/^@+/, '').toLowerCase();
+  if (!v) { alert('A @tag nao pode ficar vazia — regra do app (busca e link do perfil dependem dela).'); return; }
+  if (!/^[a-z0-9_]{3,24}$/.test(v)) { alert('@tag invalida: use 3 a 24 caracteres (a-z, 0-9, _).'); return; }
+  if (v === profile.tag) return;
+  if (await adminUsers({ action:'set_tag', userId: profile.id, tag: v }) && after) after();
+};
+
+// Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
+// tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
+const deleteUsersPermanently = async (profiles, after) => {
+  if (!profiles.length) return;
+  const names = profiles.map(p => '• ' + (p.name || 'Sem nome') + (p.tag ? ' (@' + p.tag + ')' : '')).join('\n');
+  const typed = prompt(
+    'EXCLUIR PERMANENTEMENTE ' + profiles.length + ' conta(s)?\n\n' + names +
+    '\n\nApaga o LOGIN e o PERFIL do Supabase. SEM VOLTA.\n\nDigite EXCLUIR para confirmar:'
+  );
+  if (typed === null) return;
+  if (typed.trim().toUpperCase() !== 'EXCLUIR') { alert('Confirmacao incorreta — nada foi excluido.'); return; }
+  let ok = 0, fail = 0;
+  for (const p of profiles) {
+    if (await adminUsers({ action:'delete_user', userId: p.id })) ok++; else fail++;
+  }
+  alert('Excluidas: ' + ok + ' conta(s)' + (fail ? ' · Falharam: ' + fail : ''));
+  if (after) after();
+};
+
+// Celula de @tag com lapis de edicao — compartilhada pelas tabelas.
+const TagCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ color:C.p3, fontWeight:600 }}>{profile.tag ? '@'+profile.tag : '—'}</span>
+    <button onClick={() => editUserTag(profile, after)} title="Editar @tag"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// Barra de selecao em massa (checkbox master + excluir selecionados).
+const BulkDeleteBar = ({ list, selIds, setSelIds, after }) => {
+  if (!selIds.length) return null;
+  const chosen = list.filter(p => selIds.includes(p.id));
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10, margin:'0 0 12px' }}>
+      <span style={{ fontSize:13, color:C.muted }}>{selIds.length} selecionado(s)</span>
+      <button onClick={() => deleteUsersPermanently(chosen, () => { setSelIds([]); if (after) after(); })}
+        style={{ background:C.p4, color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', cursor:'pointer', fontSize:12, fontWeight:700 }}>
+        🗑 Excluir selecionados permanentemente
+      </button>
+      <button onClick={() => setSelIds([])}
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'6px 10px', cursor:'pointer', fontSize:12, color:C.muted }}>
+        Limpar
+      </button>
+    </div>
+  );
+};
+
 function askProDate() {
   return new Promise(resolve => {
     const pad = n => String(n).padStart(2, '0');
@@ -646,6 +709,9 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
   const { data, loading, refetch: fetchPintores } = useSupabaseQuery(() => profilesService
     .list({ painterOnly: true, order: 'created_at', ascending: false }), []);
   const pintores = roleFilter ? (data || []).filter(roleFilter) : (data || []);
+  const [selIds, setSelIds] = useState([]);
+  const toggleSel = (id) => setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : s.concat(id));
+  const allSel = pintores.length > 0 && selIds.length === pintores.length;
 
   const updateVerified = (id, verified) => setProfileVerified(id, verified, fetchPintores);
 
@@ -655,12 +721,16 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
     <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
       <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>{title || 'Pintores Cadastrados'} ({pintores.length})</div>
       <CreateAppUserForm onCreated={fetchPintores} defaultRole={defaultRole || 'pintor'} />
+      <BulkDeleteBar list={pintores} selIds={selIds} setSelIds={setSelIds} after={fetchPintores} />
       {pintores.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>{emptyMsg || 'Nenhum pintor cadastrado.'}</div>}
       <div style={{ overflowX:'auto' }}>
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:700 }}>
         {pintores.length > 0 && (
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
+              <th style={{ padding:'8px 12px', width:34 }}>
+                <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? pintores.map(x => x.id) : [])} title="Selecionar todos" />
+              </th>
               {['Nome','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
@@ -669,7 +739,10 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
         )}
         <tbody>
           {pintores.map((p, i) => (
-            <tr key={p.id} style={{ borderBottom:'1px solid '+C.border }}>
+            <tr key={p.id} style={{ borderBottom:'1px solid '+C.border, background: selIds.includes(p.id) ? C.cream : 'transparent' }}>
+              <td style={{ padding:'10px 12px' }}>
+                <input type="checkbox" checked={selIds.includes(p.id)} onChange={() => toggleSel(p.id)} />
+              </td>
               <td style={{ padding:'10px 12px' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   <AvatarCell name={p.name} avatarUrl={p.avatar_url} size={32} />
@@ -677,7 +750,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
                 </div>
               </td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
-              <td style={{ padding:'10px 12px', color:C.muted, fontSize:12 }}>{p.tag ? '@'+p.tag : '—'}</td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><TagCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}>{p.city || '—'}</td>
               <td style={{ padding:'10px 12px' }}>{p.state || '—'}</td>
               <td style={{ padding:'10px 12px', fontSize:12, color:C.muted }}>{p.specialties || '—'}</td>
@@ -2135,6 +2208,9 @@ const ClientesList = () => {
     return profiles.map(p => ({ ...p, _generated_codes: inviteMap[p.id] || [] }));
   }, []);
   const clientes = data || [];
+  const [selIds, setSelIds] = useState([]);
+  const toggleSel = (id) => setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : s.concat(id));
+  const allSel = clientes.length > 0 && selIds.length === clientes.length;
 
   if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando clientes...</div>;
 
@@ -2142,12 +2218,16 @@ const ClientesList = () => {
     <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
       <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>👥 Clientes Cadastrados ({clientes.length})</div>
       <CreateAppUserForm onCreated={fetchClientes} defaultRole="cliente" />
+      <BulkDeleteBar list={clientes} selIds={selIds} setSelIds={setSelIds} after={fetchClientes} />
       {clientes.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum cliente cadastrado.</div>}
       <div style={{ overflowX:'auto' }}>
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:800 }}>
         {clientes.length > 0 && (
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
+              <th style={{ padding:'8px 12px', width:34 }}>
+                <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? clientes.map(x => x.id) : [])} title="Selecionar todos" />
+              </th>
               {['Nome','Tipo','@Tag','Email','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado','PRO','Portal'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
@@ -2158,7 +2238,10 @@ const ClientesList = () => {
           {clientes.map((c, i) => {
             const data = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
             return (
-              <tr key={c.id || i} style={{ borderBottom:'1px solid '+C.border }}>
+              <tr key={c.id || i} style={{ borderBottom:'1px solid '+C.border, background: selIds.includes(c.id) ? C.cream : 'transparent' }}>
+                <td style={{ padding:'10px 12px' }}>
+                  <input type="checkbox" checked={selIds.includes(c.id)} onChange={() => toggleSel(c.id)} />
+                </td>
                 <td style={{ padding:'10px 12px' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <AvatarCell name={c.name} avatarUrl={c.avatar_url} size={32} />
@@ -2166,7 +2249,7 @@ const ClientesList = () => {
                   </div>
                 </td>
                 <td style={{ padding:'10px 12px' }}><RoleSelect profile={c} after={fetchClientes} /></td>
-                <td style={{ padding:'10px 12px', color:C.p3, fontWeight:600 }}>{c.tag ? '@'+c.tag : '—'}</td>
+                <td style={{ padding:'10px 12px' }}><TagCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px', color:C.muted }}>{c.email || '—'}</td>
                 <td style={{ padding:'10px 12px' }}>{c.city || '—'}</td>
                 <td style={{ padding:'10px 12px' }}>{c.state || '—'}</td>

@@ -17,9 +17,11 @@ import {
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import {
   buildPatch,
+  deleteUserPermanently,
   ensureCallerHasPortalAccess,
   listUsers,
   patchProfile,
+  setTag,
 } from '@/lib/api/_services/admin-users';
 import { logAuditEvent } from '@/lib/api/audit';
 
@@ -44,6 +46,7 @@ export async function POST(request: NextRequest) {
     value?: unknown;
     expiresAt?: unknown;
     roleKey?: unknown;
+    tag?: unknown;
   };
   try {
     body = (await readBody(request, { maxBytes: 1024 * 1024 })) as typeof body;
@@ -77,29 +80,47 @@ export async function POST(request: NextRequest) {
     }
 
     if (!userId) return jsonResponse({ error: 'userId obrigatório' }, 400);
-    const patch = buildPatch({
-      action,
-      value: body?.value,
-      expiresAt: body?.expiresAt,
-      roleKey: body?.roleKey,
-    });
     await ensureCallerHasPortalAccess({ callerId });
-    const result = await patchProfile({ userId, patch });
+
+    let result: Record<string, unknown>;
+    let auditChanges: Record<string, unknown>;
+    if (action === 'delete_user') {
+      // Exclusão PERMANENTE (Auth + profiles). Guardas no service: nunca a
+      // própria conta, nunca admin/portal sem revogar antes.
+      result = await deleteUserPermanently({ userId, callerId });
+      auditChanges = { deleted: true, admin_email: email };
+    } else if (action === 'set_tag') {
+      // Regra do app: @tag nunca vazia (busca/link dependem dela).
+      result = await setTag({ userId, tag: body?.tag });
+      auditChanges = { tag: result.tag, admin_email: email };
+    } else {
+      const patch = buildPatch({
+        action,
+        value: body?.value,
+        expiresAt: body?.expiresAt,
+        roleKey: body?.roleKey,
+      });
+      result = await patchProfile({ userId, patch });
+      auditChanges = { patch, admin_email: email };
+    }
     // Audit-log: ação admin em profile alvo. `changes` carrega o patch
     // (sem segredos — buildPatch só constrói campos de RBAC/PRO/role).
-    // R-H5: critical=true pra mudanças sensíveis (set_pro / set_portal_access)
-    // — sem trilha, sumimos com prova de quem promoveu/demovou quem (input
-    // de auditoria interna + DPO). Outras actions (set_verified, role)
-    // mantêm fail-open.
+    // R-H5: critical=true pra mudanças sensíveis (set_pro / promote/revoke /
+    // delete_user) — sem trilha, sumimos com prova de quem promoveu/apagou
+    // quem (input de auditoria interna + DPO). Outras actions mantêm
+    // fail-open.
     const isCriticalAction =
-      action === 'set_pro' || action === 'set_portal_access';
+      action === 'set_pro' ||
+      action === 'promote' ||
+      action === 'revoke' ||
+      action === 'delete_user';
     try {
       await logAuditEvent({
         actorId: callerId || null,
         action: `admin.user.${action}`,
         targetTable: 'profiles',
         targetId: userId,
-        changes: { patch, admin_email: email },
+        changes: auditChanges,
         request,
         critical: isCriticalAction,
       });

@@ -114,6 +114,126 @@ export async function patchProfile(args: {
 }
 
 /**
+ * Edita a @tag de um perfil (portal admin). REGRA DO APP: tag nunca fica
+ * vazia — sem ela o perfil some da busca e perde o link público. Mesmas
+ * regras do tagSchema do app (a-z, 0-9, _; 3-24 chars; lowercase). O
+ * trigger `sync_profile_tag_username` do banco propaga pra `username`.
+ */
+export async function setTag(args: {
+  userId: string;
+  tag: unknown;
+}): Promise<{ ok: true; tag: string }> {
+  const raw =
+    typeof args.tag === 'string' ? args.tag.trim().replace(/^@+/, '').toLowerCase() : '';
+  if (!raw) throw new ServiceError('a @tag não pode ficar vazia', 400);
+  if (raw.length < 3 || raw.length > 24 || !/^[a-z0-9_]+$/.test(raw)) {
+    throw new ServiceError('@tag inválida: 3 a 24 caracteres, só a-z, 0-9 e _', 400);
+  }
+  const serviceKey = getServiceKey();
+  if (!serviceKey) throw new ServiceError('Gestão de usuários não configurada', 503);
+  const supaUrl = getSupabaseUrl();
+  const sHeaders = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  // Unicidade: a tag é o handle público — duas pessoas com a mesma quebra
+  // busca e link de perfil. Pré-checagem + tradução do 409 do PostgREST.
+  const dup = await fetch(
+    `${supaUrl}/rest/v1/profiles?select=id&or=(tag.eq.${encodeURIComponent(raw)},username.eq.${encodeURIComponent(raw)})&id=neq.${encodeURIComponent(args.userId)}&limit=1`,
+    { headers: sHeaders, signal: AbortSignal.timeout(TIMEOUT_MS) },
+  );
+  if (dup.ok) {
+    const rows = (await dup.json()) as unknown[];
+    if (Array.isArray(rows) && rows.length > 0) {
+      throw new ServiceError(`a @tag "${raw}" já está em uso por outro perfil`, 409);
+    }
+  }
+
+  const r = await fetch(
+    `${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(args.userId)}`,
+    {
+      method: 'PATCH',
+      headers: { ...sHeaders, Prefer: 'return=representation' },
+      body: JSON.stringify({ tag: raw, username: raw }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    },
+  );
+  if (r.status === 409) throw new ServiceError(`a @tag "${raw}" já está em uso`, 409);
+  if (!r.ok) {
+    console.warn('admin-users setTag supabase error', r.status, (await r.text()).slice(0, 200));
+    throw new ServiceError('Falha ao salvar a @tag — tente de novo', 502);
+  }
+  const updated = (await r.json()) as unknown[];
+  if (!Array.isArray(updated) || updated.length === 0) {
+    throw new ServiceError('perfil não encontrado', 404);
+  }
+  return { ok: true, tag: raw };
+}
+
+/**
+ * Exclusão PERMANENTE: apaga o login no Auth (GoTrue admin API) e a linha
+ * de `profiles`. Sem volta. Guardas: nunca a própria conta do caller, e
+ * nunca um perfil admin/portal (remova o acesso antes, se for o caso).
+ * As FKs ON DELETE CASCADE limpam o rastro (posts/mensagens/etc. conforme
+ * o schema); mídia órfã cai no cleanup_orphan_media() semanal.
+ */
+export async function deleteUserPermanently(args: {
+  userId: string;
+  callerId: string;
+}): Promise<{ ok: true; deleted: string }> {
+  const { userId, callerId } = args;
+  if (userId === callerId) {
+    throw new ServiceError('você não pode excluir a própria conta por aqui', 400);
+  }
+  const serviceKey = getServiceKey();
+  if (!serviceKey) throw new ServiceError('Gestão de usuários não configurada', 503);
+  const supaUrl = getSupabaseUrl();
+  const sHeaders = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` };
+
+  // Proteção anti-tiro-no-pé: admin/portal não se exclui em lote.
+  const g = await fetch(
+    `${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=portal_access,role`,
+    { headers: sHeaders, signal: AbortSignal.timeout(TIMEOUT_MS) },
+  );
+  if (g.ok) {
+    const rows = (await g.json()) as Array<{ portal_access?: boolean; role?: string | null }>;
+    const row = rows?.[0];
+    if (row && (row.portal_access || row.role === 'admin')) {
+      throw new ServiceError(
+        'este perfil tem acesso admin/portal — revogue o acesso antes de excluir',
+        400,
+      );
+    }
+  }
+
+  // 1) Login (Auth). 404 = já não existia (perfil órfão) — segue pro passo 2.
+  const ar = await fetch(`${supaUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: sHeaders,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!ar.ok && ar.status !== 404) {
+    console.warn('admin-users deleteUser auth error', ar.status, (await ar.text()).slice(0, 200));
+    throw new ServiceError('falha ao excluir o login (auth) — nada foi apagado', 502);
+  }
+
+  // 2) Linha de profiles (cobre FK sem cascade e perfis órfãos).
+  const pr = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: sHeaders,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!pr.ok && pr.status !== 404) {
+    console.warn('admin-users deleteUser profile error', pr.status);
+    throw new ServiceError('login excluído, mas falhou apagar o perfil — rode de novo', 502);
+  }
+
+  return { ok: true, deleted: userId };
+}
+
+/**
  * High-level: lookup de um usuário por id ou email. Devolve `{ users: [...] }`.
  * Usado pelo controller `admin-users` quando body manda `query`/`email`/`userId`
  * sem nenhuma `action` de mutação — vira modo "read only" pra preencher UI.

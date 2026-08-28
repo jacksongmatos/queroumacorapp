@@ -370,16 +370,38 @@ export async function shareOrDownloadPdfBlob(
     }
   }
 
-  // Fallback: download direto via anchor.
+  // WebView Android sem share de arquivo: blob: NÃO chega no lado nativo
+  // (o DownloadListener do wrapper não consegue ler o conteúdo — o "Save
+  // As" aparecia sem nome e salvava nada). data: URL carrega os bytes na
+  // própria URL, aí o wrapper decodifica e grava de verdade.
+  const { isAndroidWebView } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
+  if (isAndroidWebView(navigator.userAgent || '')) {
+    const dataUrl = await blobToDataUrl(blob);
+    clickDownloadAnchor(dataUrl, filename);
+    return 'downloaded';
+  }
+
+  // Navegador: download direto via anchor + blob.
   const url = URL.createObjectURL(blob);
+  clickDownloadAnchor(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return 'downloaded';
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(fr.error ?? new Error('read fail'));
+    fr.readAsDataURL(blob);
+  });
+}
+
+function clickDownloadAnchor(href: string, filename: string): void {
   const a = document.createElement('a');
-  a.href = url;
+  a.href = href;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 100);
-  return 'downloaded';
+  setTimeout(() => a.remove(), 100);
 }

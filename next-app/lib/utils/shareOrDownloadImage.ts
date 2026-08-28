@@ -32,15 +32,20 @@ export async function shareOrDownloadImage(
       }
     }
 
-    const url = URL.createObjectURL(blob);
+    // WebView Android sem share de arquivo: blob: não chega no lado nativo
+    // (Save As vazio que não salva). No app, o próprio dataUrl de origem já
+    // carrega os bytes — anchor direto nele o wrapper decodifica e grava.
+    const { isAndroidWebView } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
+    const inWebView = isAndroidWebView(navigator.userAgent || '');
+    const href = inWebView ? dataUrl : URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = href;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
       a.remove();
-      URL.revokeObjectURL(url);
+      if (!inWebView) URL.revokeObjectURL(href);
     }, 100);
     return 'downloaded';
   } catch {
