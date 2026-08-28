@@ -3483,9 +3483,39 @@ const WhatsAppTab = () => {
     setOpenWa(dig); setErr('');
   };
 
+  // Diagnostico: pergunta ao servidor se ele alcanca o Evolution, se a
+  // apikey e aceita e se a instancia esta conectada (cada etapa com tempo).
+  const [diag, setDiag] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const testarConexao = async () => {
+    setDiagLoading(true); setDiag(null);
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setDiag('Sessao expirada — entre de novo.'); setDiagLoading(false); return; }
+      const r = await fetch('/api/whatsapp-evo/ping', { headers:{ Authorization:'Bearer ' + session.access_token } });
+      let raw = ''; try { raw = await r.text(); } catch(_){}
+      let j = null; try { j = JSON.parse(raw); } catch(_){}
+      if(!j){ setDiag('HTTP ' + r.status + ' — ' + (raw || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,200)); }
+      else setDiag(j);
+    } catch(e) { setDiag('Falha de rede: ' + ((e && e.message) || '?')); }
+    setDiagLoading(false);
+  };
+
   return (
     <div>
-      <div style={{ background:'#fff', borderRadius:16, boxShadow:'0 2px 12px rgba(26,26,46,.06)', overflow:'hidden', display:'flex', height:'calc(100vh - 170px)', minHeight:420 }}>
+      <div style={{ marginBottom:10, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+        <button onClick={testarConexao} disabled={diagLoading}
+          style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:10, padding:'7px 14px', fontSize:12, fontWeight:600, cursor: diagLoading?'wait':'pointer', color:C.ink }}>
+          {diagLoading ? 'Testando…' : '🔌 Testar conexao com o WhatsApp'}
+        </button>
+        <span style={{ fontSize:11, color:C.muted }}>Canal: Evolution · +55 11 92072-5935</span>
+      </div>
+      {diag ? (
+        <pre style={{ background:'#1a1a2e', color:'#e6e6f0', padding:12, borderRadius:10, fontSize:11, lineHeight:1.5, overflowX:'auto', marginBottom:12, maxHeight:260 }}>
+          {typeof diag === 'string' ? diag : JSON.stringify(diag, null, 2)}
+        </pre>
+      ) : null}
+      <div style={{ background:'#fff', borderRadius:16, boxShadow:'0 2px 12px rgba(26,26,46,.06)', overflow:'hidden', display:'flex', height:'calc(100vh - 230px)', minHeight:420 }}>
         {/* Coluna de conversas */}
         <div style={{ width:320, minWidth:260, borderRight:'1px solid '+C.border, display:'flex', flexDirection:'column' }}>
           <div style={{ padding:12, borderBottom:'1px solid '+C.border, display:'flex', gap:8 }}>

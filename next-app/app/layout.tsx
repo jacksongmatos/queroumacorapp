@@ -93,6 +93,16 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`,
           }}
         />
+        {/* REGRA DO QUEROUMACOR (2026-08-28): todo horário exibido é o de
+            BRASÍLIA (America/Sao_Paulo), independente do fuso do aparelho.
+            Patch na raiz: injeta timeZone default em toLocale{Date,Time,}String
+            de Date — cobre todas as telas atuais e futuras sem editar cada
+            chamada. Quem passar timeZone explícito continua mandando. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var TZ='America/Sao_Paulo';['toLocaleDateString','toLocaleTimeString','toLocaleString'].forEach(function(fn){var orig=Date.prototype[fn];Date.prototype[fn]=function(loc,opts){return orig.call(this,loc||'pt-BR',Object.assign({timeZone:TZ},opts||{}));};});}catch(e){}})();`,
+          }}
+        />
         {/* Pin pré-hidratação do Android (camada 1 da trava do
             pull-to-refresh nativo — ver useAndroidWebViewScrollPin.ts).
             Sem isso, do primeiro byte até o React hidratar o documento fica

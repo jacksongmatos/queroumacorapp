@@ -1,5 +1,16 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **REGRA: TODO horário do QueroUmaCor é BRASÍLIA (2026-08-28).** App e
+  portal exibem sempre `America/Sao_Paulo`, independente do fuso do
+  aparelho/computador. Implementado por patch na RAIZ (não em cada
+  chamada): script inline no `<head>` do `app/layout.tsx` (app) e no
+  `public/portal/index.html` (portal) sobrescreve
+  `Date.prototype.toLocale{Date,Time,}String` injetando
+  `timeZone:'America/Sao_Paulo'` + locale `pt-BR` por default — quem
+  passa `timeZone` explícito continua mandando. Cobre as ~36 chamadas
+  existentes e qualquer tela futura de graça. Datas gravadas no banco
+  seguem em UTC (correto); a conversão é só de exibição.
+
 - **WhatsApp do PORTAL: Evolution API (2026-08-28) — canal ÚNICO até a
   Meta autenticar.** Evolution API self-hosted (Baileys) em Docker no
   Render FREE (`https://evolution-api-8arv.onrender.com`, Manager em

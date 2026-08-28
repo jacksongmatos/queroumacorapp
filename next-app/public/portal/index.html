@@ -24,12 +24,18 @@
 </script>
 <script src="/supabase.js?v=2.45.0" defer integrity="sha384-dGnL7r9uccC9TdSdE05clTJ6esxMU42XBQ1/BWLzKQOBi7qR1aCMRIi0LzUmexIg" crossorigin="anonymous"></script>
 <script>
+  // REGRA DO QUEROUMACOR: todo horario exibido e o de BRASILIA
+  // (America/Sao_Paulo), independente do fuso do computador. Mesmo patch
+  // do app (layout.tsx): default de timeZone nos toLocale* de Date.
+  (function(){try{var TZ='America/Sao_Paulo';['toLocaleDateString','toLocaleTimeString','toLocaleString'].forEach(function(fn){var orig=Date.prototype[fn];Date.prototype[fn]=function(loc,opts){return orig.call(this,loc||'pt-BR',Object.assign({timeZone:TZ},opts||{}));};});}catch(e){}})();
+</script>
+<script>
   const SUPA_URL = 'https://uwqebaqweehiljsqkifm.supabase.co';
   const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3cWViYXF3ZWVoaWxqc3FraWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjYzMjgsImV4cCI6MjA4OTgwMjMyOH0.yp-z4iMifiOV3ftLVIHOFEQBLcMBdU8VFok7VKlSFg8';
 </script>
 <script src="/portal/react.production.min.js?v=18.3.1" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="/portal/react-dom.production.min.js?v=18.3.1" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
-<script src="/portal/app.js?v=20260828j" defer integrity="sha384-Ies2ZXJshW2CtRpBqzirpKOcek6tG0YvqHf3YnUtjTasyUQYA1yUEXXwXa0VVyMq" crossorigin="anonymous"></script>
+<script src="/portal/app.js?v=20260828k" defer integrity="sha384-GkSehdCmnQGHMFBlFruf/pKthjSVmu06niKrI8YyWBtB2i0U+s+kI+O+5lTzubem" crossorigin="anonymous"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'DM Sans', sans-serif; background: #f7f3ee; min-height:100vh; }
