@@ -253,6 +253,22 @@ const CreateAppUserForm = ({ onCreated, defaultRole }) => {
 // por RLS (unica policy de UPDATE e auth.uid() = id). Por isso tudo
 // vai pelo endpoint /api/admin/users com service role.
 // (era /api/admin-users no Cloudflare Function; virou rota Next em app/api/admin/users)
+// Versao "crua": devolve { ok, error } SEM alert — a exclusao em massa usa
+// isso pra agregar as falhas num relatorio unico em vez de 1 alerta por conta.
+const adminUsersRaw = async (payload) => {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) return { ok: false, error: 'Sessao expirada. Entre novamente.' };
+  const r = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken: session.access_token, ...payload })
+  });
+  let res = {};
+  try { res = await r.json(); } catch (_) {}
+  if (!r.ok || !res.ok) return { ok: false, status: r.status, error: res.error || ('HTTP ' + r.status) };
+  return { ok: true };
+};
+
 const adminUsers = async (payload) => {
   const { data: { session } } = await supa.auth.getSession();
   if (!session) { alert('Sessao expirada. Entre novamente.'); return false; }
@@ -323,11 +339,23 @@ const deleteUsersPermanently = async (profiles, after) => {
     'Ultima confirmacao: ' + profiles.length + ' conta(s) serao apagadas para sempre.\n\n' +
     'Nao existe desfazer. Confirmar a exclusao?'
   )) return;
-  let ok = 0, fail = 0;
+  // Sequencial com pausa curta (nao afogar o Auth) e falhas AGREGADAS num
+  // relatorio unico com o motivo de cada uma — antes era 1 alerta por conta
+  // e o erro vinha pelado ("HTTP 502"), impossivel de diagnosticar.
+  let ok = 0; const failed = [];
   for (const p of profiles) {
-    if (await adminUsers({ action:'delete_user', userId: p.id })) ok++; else fail++;
+    const r = await adminUsersRaw({ action:'delete_user', userId: p.id });
+    if (r.ok) ok++;
+    else failed.push('• ' + (p.name || (p.tag ? '@'+p.tag : p.id.slice(0,8))) + ' — ' + r.error);
+    await new Promise(res => setTimeout(res, 250));
   }
-  alert('Excluidas: ' + ok + ' conta(s)' + (fail ? ' · Falharam: ' + fail : ''));
+  alert(
+    'Excluidas: ' + ok + ' de ' + profiles.length + ' conta(s)' +
+    (failed.length
+      ? '\n\nFALHARAM ' + failed.length + ':\n' + failed.slice(0, 8).join('\n') +
+        (failed.length > 8 ? '\n…e mais ' + (failed.length - 8) : '')
+      : '')
+  );
   if (after) after();
 };
 

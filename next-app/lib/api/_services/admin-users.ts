@@ -209,25 +209,52 @@ export async function deleteUserPermanently(args: {
   }
 
   // 1) Login (Auth). 404 = já não existia (perfil órfão) — segue pro passo 2.
-  const ar = await fetch(`${supaUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
-    method: 'DELETE',
-    headers: sHeaders,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  // O erro upstream vai NA MENSAGEM: um 502 pelado ("A acao falhou: HTTP
+  // 502") não diz se foi FK travando o delete, timeout ou o GoTrue fora —
+  // e sem isso não dá pra consertar a causa.
+  let ar: Response;
+  try {
+    ar = await fetch(`${supaUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: sHeaders,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (e) {
+    const timeout = e instanceof Error && e.name === 'TimeoutError';
+    throw new ServiceError(
+      timeout
+        ? 'o Auth demorou demais pra excluir este login (timeout 10s) — tente de novo em lotes menores'
+        : 'não consegui falar com o Auth do Supabase — nada foi apagado',
+      502,
+    );
+  }
   if (!ar.ok && ar.status !== 404) {
-    console.warn('admin-users deleteUser auth error', ar.status, (await ar.text()).slice(0, 200));
-    throw new ServiceError('falha ao excluir o login (auth) — nada foi apagado', 502);
+    const body = (await ar.text()).slice(0, 180);
+    console.warn('admin-users deleteUser auth error', ar.status, body);
+    throw new ServiceError(
+      `o Auth recusou excluir o login (HTTP ${ar.status}): ${body || 'sem detalhe'}`,
+      502,
+    );
   }
 
   // 2) Linha de profiles (cobre FK sem cascade e perfis órfãos).
-  const pr = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
-    method: 'DELETE',
-    headers: sHeaders,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  let pr: Response;
+  try {
+    pr = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: sHeaders,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    throw new ServiceError('login excluído, mas o perfil não respondeu — rode de novo pra limpar', 502);
+  }
   if (!pr.ok && pr.status !== 404) {
-    console.warn('admin-users deleteUser profile error', pr.status);
-    throw new ServiceError('login excluído, mas falhou apagar o perfil — rode de novo', 502);
+    const body = (await pr.text()).slice(0, 180);
+    console.warn('admin-users deleteUser profile error', pr.status, body);
+    throw new ServiceError(
+      `login excluído, mas falhou apagar o perfil (HTTP ${pr.status}): ${body || 'sem detalhe'} — rode de novo`,
+      502,
+    );
   }
 
   return { ok: true, deleted: userId };

@@ -71,10 +71,13 @@ export async function POST(request: NextRequest) {
         403,
       );
     }
+    // 120/min (era 30): exclusão em massa do portal manda 1 request por
+    // conta — um lote de 23 + as ações do mesmo minuto estourava o teto no
+    // meio. Endpoint segue duplamente gateado (ADMIN_EMAILS + portal_access).
     const rl = await checkRateLimit({
       userId: callerId || email,
       endpoint: 'admin-users',
-      limit: 30,
+      limit: 120,
     });
     if (!rl.allowed) return rateLimitResponse(rl);
 
