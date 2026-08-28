@@ -3433,6 +3433,19 @@ const WhatsAppTab = () => {
   const aberta = convs.find(c => c.waId === openWa);
   const thread = aberta ? [...aberta.msgs].sort((a,b) => new Date(a.created_at) - new Date(b.created_at)) : [];
 
+  const [sendStage, setSendStage] = useState('');
+
+  // Acorda o Render ANTES do envio, DIRETO do navegador (mode no-cors: a
+  // resposta nao importa, o que vale e a request chegar la e tirar o
+  // servico do sono). O edge do Cloudflare mata a function se ELA ficar
+  // esperando o cold start (~50s) — o navegador pode esperar a vontade.
+  const acordarEvolution = () => new Promise((resolve) => {
+    const done = setTimeout(resolve, 65000); // teto de espera do aquecimento
+    fetch('https://evolution-api-8arv.onrender.com', { mode:'no-cors', cache:'no-store' })
+      .then(() => { clearTimeout(done); resolve(); })
+      .catch(() => { clearTimeout(done); resolve(); });
+  });
+
   const enviar = async () => {
     const body = text.trim();
     if(!body || !openWa || sending) return;
@@ -3440,16 +3453,25 @@ const WhatsAppTab = () => {
     try {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErr('Sessao expirada — entre de novo.'); setSending(false); return; }
+      setSendStage('Acordando o servidor…');
+      await acordarEvolution();
+      setSendStage('Enviando…');
       const r = await fetch('/api/whatsapp/send', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ accessToken: session.access_token, to: openWa, body })
       });
-      let res = {}; try { res = await r.json(); } catch(_){}
-      if(!r.ok || !res.ok){ setErr(res.error || ('Falha no envio (HTTP ' + r.status + ')')); }
+      // Texto primeiro: 5xx do PROPRIO Cloudflare vem como HTML — o trecho
+      // cru no erro aponta a camada (mesma tatica do relatorio de exclusao).
+      let raw = ''; try { raw = await r.text(); } catch(_){}
+      let res = {}; try { res = JSON.parse(raw); } catch(_){}
+      if(!r.ok || !res.ok){
+        const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
+        setErr(res.error || ('Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')'));
+      }
       else { setText(''); load(); }
     } catch(_) { setErr('Falha de rede ao enviar.'); }
-    setSending(false);
+    setSending(false); setSendStage('');
   };
 
   const novaConversa = () => {
@@ -3534,10 +3556,10 @@ const WhatsAppTab = () => {
                 <button onClick={enviar} disabled={sending || !text.trim()}
                   style={{ background:C.p1, color:'#fff', border:'none', borderRadius:12, padding:'0 20px', fontWeight:700, fontSize:14,
                     cursor: sending ? 'wait' : 'pointer', opacity: sending || !text.trim() ? .6 : 1 }}>
-                  {sending ? 'Enviando…' : 'Enviar'}
+                  {sending ? (sendStage || 'Enviando…') : 'Enviar'}
                 </button>
               </div>
-              {sending ? <div style={{ padding:'4px 16px 10px', background:'#fff', color:C.muted, fontSize:11 }}>Se o servidor estava dormindo (plano free), pode levar ate 1 minuto.</div> : null}
+              {sending && sendStage === 'Acordando o servidor…' ? <div style={{ padding:'4px 16px 10px', background:'#fff', color:C.muted, fontSize:11 }}>O servidor do WhatsApp dorme apos 15min parado (plano free) — acordando ele antes de enviar, pode levar ate 1 minuto.</div> : null}
             </>
           )}
         </div>

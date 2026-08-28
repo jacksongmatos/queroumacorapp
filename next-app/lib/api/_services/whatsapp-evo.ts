@@ -22,7 +22,12 @@ import { getRuntimeEnv } from '../env';
 import { ServiceError } from '../security';
 import { normalizeBrPhone } from './whatsapp';
 
-const SEND_TIMEOUT_MS = 55000; // cold start do Render Free (~50s) + folga
+// 25s, NÃO 55s: o Cloudflare mata a function do edge antes disso quando o
+// upstream fica pendurado (comprovado 2026-08-28 — o 502 cru do CF chegava
+// na tela ANTES do nosso timeout responder JSON). Quem espera o cold start
+// do Render agora é o NAVEGADOR: o portal pinga a URL base direto (browser
+// não tem esse teto) antes de chamar a rota, e o edge só faz o envio rápido.
+const SEND_TIMEOUT_MS = 25000;
 
 export const DEFAULT_EVOLUTION_INSTANCE = 'meu-whatsapp';
 

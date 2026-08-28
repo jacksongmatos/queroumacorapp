@@ -7947,6 +7947,25 @@ const WhatsAppTab = () => {
   });
   const aberta = convs.find(c => c.waId === openWa);
   const thread = aberta ? [...aberta.msgs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)) : [];
+  const [sendStage, setSendStage] = useState('');
+
+  // Acorda o Render ANTES do envio, DIRETO do navegador (mode no-cors: a
+  // resposta nao importa, o que vale e a request chegar la e tirar o
+  // servico do sono). O edge do Cloudflare mata a function se ELA ficar
+  // esperando o cold start (~50s) — o navegador pode esperar a vontade.
+  const acordarEvolution = () => new Promise(resolve => {
+    const done = setTimeout(resolve, 65000); // teto de espera do aquecimento
+    fetch('https://evolution-api-8arv.onrender.com', {
+      mode: 'no-cors',
+      cache: 'no-store'
+    }).then(() => {
+      clearTimeout(done);
+      resolve();
+    }).catch(() => {
+      clearTimeout(done);
+      resolve();
+    });
+  });
   const enviar = async () => {
     const body = text.trim();
     if (!body || !openWa || sending) return;
@@ -7963,6 +7982,9 @@ const WhatsAppTab = () => {
         setSending(false);
         return;
       }
+      setSendStage('Acordando o servidor…');
+      await acordarEvolution();
+      setSendStage('Enviando…');
       const r = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: {
@@ -7974,12 +7996,19 @@ const WhatsAppTab = () => {
           body
         })
       });
+      // Texto primeiro: 5xx do PROPRIO Cloudflare vem como HTML — o trecho
+      // cru no erro aponta a camada (mesma tatica do relatorio de exclusao).
+      let raw = '';
+      try {
+        raw = await r.text();
+      } catch (_) {}
       let res = {};
       try {
-        res = await r.json();
+        res = JSON.parse(raw);
       } catch (_) {}
       if (!r.ok || !res.ok) {
-        setErr(res.error || 'Falha no envio (HTTP ' + r.status + ')');
+        const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+        setErr(res.error || 'Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')');
       } else {
         setText('');
         load();
@@ -7988,6 +8017,7 @@ const WhatsAppTab = () => {
       setErr('Falha de rede ao enviar.');
     }
     setSending(false);
+    setSendStage('');
   };
   const novaConversa = () => {
     const v = prompt('Numero do WhatsApp (com DDD, ex: 11 99999-9999):');
@@ -8230,14 +8260,14 @@ const WhatsAppTab = () => {
       cursor: sending ? 'wait' : 'pointer',
       opacity: sending || !text.trim() ? .6 : 1
     }
-  }, sending ? 'Enviando…' : 'Enviar')), sending ? /*#__PURE__*/React.createElement("div", {
+  }, sending ? sendStage || 'Enviando…' : 'Enviar')), sending && sendStage === 'Acordando o servidor…' ? /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '4px 16px 10px',
       background: '#fff',
       color: C.muted,
       fontSize: 11
     }
-  }, "Se o servidor estava dormindo (plano free), pode levar ate 1 minuto.") : null))));
+  }, "O servidor do WhatsApp dorme apos 15min parado (plano free) \u2014 acordando ele antes de enviar, pode levar ate 1 minuto.") : null))));
 };
 const PAGES_DEF = [{
   id: 'dashboard',
