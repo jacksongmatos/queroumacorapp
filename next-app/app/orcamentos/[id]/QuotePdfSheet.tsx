@@ -9,6 +9,7 @@
 // browser entra em modo impressão — o user salva como PDF pelo diálogo
 // nativo ("Salvar como PDF"). Sem jspdf — economiza 150kb.
 
+import { useState } from 'react';
 import type { Quote } from '@/lib/types';
 
 interface PainterProfile {
@@ -36,6 +37,25 @@ const BRL = new Intl.NumberFormat('pt-BR', {
 });
 
 export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetProps) {
+  // "Imprimir / Salvar PDF": window.print() é NO-OP dentro do WebView
+  // Android (o wrapper não tem diálogo de impressão — o toque não fazia
+  // nada). Agora gera o PDF de verdade (jsPDF, mesmo layout do
+  // compartilhar) e entrega pelo share sheet nativo / download.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function handlePdf() {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const { shareOrDownloadQuotePdf } = await import('@/lib/pdf/quotePdf');
+      await shareOrDownloadQuotePdf(quote, painter);
+    } catch {
+      // Último recurso: diálogo de impressão (funciona no navegador).
+      try { window.print(); } catch { /* no-op */ }
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   if (!open) return null;
 
   const today = new Date().toLocaleDateString('pt-BR');
@@ -483,7 +503,8 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={handlePdf}
+              disabled={pdfBusy}
               className="flex-1 font-bold text-white text-sm"
               style={{
                 padding: 11,
@@ -493,7 +514,7 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
                 cursor: 'pointer',
               }}
             >
-              🖨️ Imprimir / Salvar PDF
+              {pdfBusy ? 'Gerando…' : '🖨️ Salvar PDF'}
             </button>
           </footer>
         </div>

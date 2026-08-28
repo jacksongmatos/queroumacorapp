@@ -332,6 +332,22 @@ export async function shareOrDownloadQuotePdf(
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const blob = await generateQuotePdfBlob(quote, painter);
   const filename = `orcamento-${(quote.id || 'novo').slice(0, 8)}.pdf`;
+  return shareOrDownloadPdfBlob(blob, filename, `Orçamento ${quote.service_type || ''}`.trim());
+}
+
+/**
+ * Compartilha OU baixa um Blob de PDF qualquer. Extraído do fluxo do
+ * orçamento pra reuso (PDF do pedido da loja, etc.). É o caminho que
+ * FUNCIONA dentro do WebView Android: `window.print()` é no-op lá (o
+ * wrapper não implementa diálogo de impressão), mas o share sheet nativo
+ * via navigator.share({files}) funciona — e o download por anchor cobre
+ * desktop/navegador.
+ */
+export async function shareOrDownloadPdfBlob(
+  blob: Blob,
+  filename: string,
+  title: string,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const file = new File([blob], filename, { type: 'application/pdf' });
 
   // Tenta Web Share API com arquivo (Chrome Android, Safari iOS 15+).
@@ -344,8 +360,8 @@ export async function shareOrDownloadQuotePdf(
     try {
       await nav.share({
         files: [file],
-        title: `Orçamento ${quote.service_type || ''}`.trim(),
-        text: 'Orçamento em anexo.',
+        title,
+        text: 'Documento em anexo.',
       });
       return 'shared';
     } catch (e) {

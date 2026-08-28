@@ -16,9 +16,34 @@
 
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useNotifications } from '@/lib/hooks/useNotifications';
 import type { Notification } from '@/lib/types';
+
+// Destino ao tocar na notificação (2026-08-28 — antes o toque só marcava
+// como lida e não levava a lugar nenhum). Mapeia por tipo; tipo sem
+// destino óbvio fica null (o card vira só-leitura, mas agora com o texto
+// COMPLETO visível — sem truncate).
+function hrefFor(n: Notification): string | null {
+  switch (n.type) {
+    case 'message':
+      return '/chat';
+    case 'follow':
+      return n.actor_id ? `/perfil/${n.actor_id}` : null;
+    case 'like':
+    case 'comment':
+      return '/feed';
+    case 'quote_request':
+    case 'quote_sent':
+    case 'quote_approved':
+      return '/orcamentos';
+    case 'order':
+      return '/pedidos';
+    default:
+      return null;
+  }
+}
 
 // Ícone por tipo — fallback "🔔" pra tipos novos não listados, mantendo a UX
 // graciosa quando o backend introduzir novas categorias antes do front.
@@ -87,20 +112,24 @@ function SkeletonRow() {
 function NotifRow({
   n,
   onMarkRead,
+  onNavigate,
 }: {
   n: Notification;
   onMarkRead: (id: string) => void;
+  onNavigate: (href: string) => void;
 }) {
   const unread = !n.read;
+  const href = hrefFor(n);
   const handleClick = () => {
     if (unread) onMarkRead(n.id);
+    if (href) onNavigate(href);
   };
   return (
     <button
       type="button"
       onClick={handleClick}
       className={
-        'w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ' +
+        'w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ' +
         (unread
           ? 'bg-white border-[color:var(--color-p1)]/40 hover:bg-[color:var(--color-bg)]'
           : 'bg-white/60 border-[color:var(--color-border)] hover:bg-white')
@@ -115,11 +144,18 @@ function NotifRow({
       </span>
       <span className="flex-1 min-w-0">
         {n.title ? (
-          <span className="block font-semibold text-sm truncate">{n.title}</span>
+          <span className="block font-semibold text-sm break-words">{n.title}</span>
         ) : null}
         {n.body ? (
-          <span className="block text-xs text-[color:var(--color-muted)] truncate">
+          // Texto COMPLETO (sem truncate): notificação cortada sem como
+          // expandir não serve pra nada. Quebra em quantas linhas precisar.
+          <span className="block text-xs text-[color:var(--color-muted)] break-words whitespace-pre-wrap">
             {n.body}
+          </span>
+        ) : null}
+        {href ? (
+          <span className="block text-[11px] font-semibold mt-1 text-[color:var(--color-p1)]">
+            Abrir →
           </span>
         ) : null}
       </span>
@@ -128,7 +164,7 @@ function NotifRow({
       </span>
       {unread ? (
         <span
-          className="w-2 h-2 rounded-full bg-[color:var(--color-p1)] flex-shrink-0"
+          className="w-2 h-2 rounded-full bg-[color:var(--color-p1)] flex-shrink-0 mt-1.5"
           aria-label="Não lida"
         />
       ) : null}
@@ -137,6 +173,7 @@ function NotifRow({
 }
 
 export function NotificationsList() {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { notifications, loading, error, unreadCount, markRead, markAll, isMarking } =
     useNotifications();
@@ -244,7 +281,7 @@ export function NotificationsList() {
       <ul className="space-y-2">
         {notifications.map((n) => (
           <li key={n.id}>
-            <NotifRow n={n} onMarkRead={markRead} />
+            <NotifRow n={n} onMarkRead={markRead} onNavigate={(href) => router.push(href)} />
           </li>
         ))}
       </ul>
