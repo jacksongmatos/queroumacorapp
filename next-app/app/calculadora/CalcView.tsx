@@ -9,6 +9,13 @@ import { useMemo, useRef, useState } from 'react';
 import { canSeeProFeature } from '@/lib/policies';
 import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
 import { showToast } from '@/lib/toast';
+import {
+  DEFAULT_LINE,
+  PAINT_LINES,
+  coverageScale,
+  getPaintLine,
+  paintLineBrands,
+} from '@/lib/paintLines';
 
 const SURFACE_OPTIONS: Record<'parede' | 'teto', ReadonlyArray<{ value: number; label: string }>> = {
   parede: [
@@ -64,6 +71,7 @@ export function CalcView() {
   const [comp, setComp] = useState('');       // parede: comprimento em m
   const [fator, setFator] = useState(1);
   const [demaos, setDemaos] = useState(2);
+  const [lineId, setLineId] = useState(DEFAULT_LINE.id);
   const [estimating, setEstimating] = useState(false);
   const policyUser = usePolicyUser();
   const isPro = canSeeProFeature(policyUser);
@@ -137,14 +145,18 @@ export function CalcView() {
     return isFinite(h) && h > 0 && isFinite(c) && c > 0 ? h * c : NaN;
   }, [mode, area, altura, comp]);
 
+  const paintLine = useMemo(() => getPaintLine(lineId), [lineId]);
+
   const result = useMemo(() => {
     const a = effectiveArea;
     if (!isFinite(a) || a <= 0) return null;
-    // Demanda em m² ajustada pelo substrato (fator) e pelas demãos (base = 2,
-    // já que a cobertura por unidade considera acabamento de 2 a 3 demãos).
-    const demandM2 = a * fator * (demaos / 2);
+    // Demanda em m² ajustada pelo substrato (fator), pelas demãos (base = 2,
+    // já que a cobertura por unidade considera acabamento de 2 a 3 demãos) e
+    // pelo RENDIMENTO DA LINHA escolhida (coverageScale: linha que rende mais
+    // que a média → menos tinta; econômica → mais).
+    const demandM2 = a * fator * (demaos / 2) * coverageScale(paintLine);
     return { areaM2: a, demandM2, units: combineUnits(demandM2) };
-  }, [effectiveArea, fator, demaos]);
+  }, [effectiveArea, fator, demaos, paintLine]);
 
   return (
     <div className="px-3.5 pt-4 pb-8">
@@ -328,6 +340,48 @@ export function CalcView() {
             ))}
           </select>
 
+          {/* Linha de tinta — cada linha rende diferente (rótulo: m² por
+              demão por lata 18L). Agrupado por marca; "Média do mercado"
+              mantém o comportamento histórico. Dados em lib/paintLines.ts. */}
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                color: 'rgba(255,255,255,.5)',
+                marginBottom: 8,
+                textTransform: 'uppercase',
+                letterSpacing: '.05em',
+              }}
+            >
+              Linha de tinta
+            </div>
+            <select
+              value={lineId}
+              onChange={(e) => setLineId(e.target.value)}
+              className="w-full text-white outline-none"
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                border: '1.5px solid rgba(255,255,255,.14)',
+                background: 'rgba(255,255,255,.07)',
+                fontSize: 14,
+              }}
+            >
+              <option value={DEFAULT_LINE.id} style={{ color: 'var(--color-ink)' }}>
+                {DEFAULT_LINE.name}
+              </option>
+              {paintLineBrands().map((brand) => (
+                <optgroup key={brand} label={brand}>
+                  {PAINT_LINES.filter((l) => l.brand === brand).map((l) => (
+                    <option key={l.id} value={l.id} style={{ color: 'var(--color-ink)' }}>
+                      {l.name} · ~{l.m2PerCoat18L} m²/demão (18L)
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+
           <div>
             <div
               style={{
@@ -396,6 +450,11 @@ export function CalcView() {
             pra cobrir ~{Math.ceil(result.areaM2)} m² · {demaos} {demaos === 1 ? 'demão' : 'demãos'}
             {fator !== 1 ? ` · superfície ${fator}×` : ''}
           </div>
+          {paintLine.id !== DEFAULT_LINE.id ? (
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 4 }}>
+              {paintLine.brand} {paintLine.name} — rendimento ~{paintLine.m2PerCoat18L} m²/demão por lata 18L
+            </div>
+          ) : null}
           <div style={{ fontSize: 10.5, marginTop: 12, opacity: 0.85, lineHeight: 1.45 }}>
             Esse cálculo pode variar conforme a qualidade da tinta, o substrato e
             o modo de aplicação.
@@ -405,7 +464,7 @@ export function CalcView() {
 
       <div className="flex flex-col gap-2" style={{ marginBottom: 14 }}>
         {[
-          ['💡', 'O rendimento médio pode mudar com o acabamento, substrato, aplicação e qualidade da tinta. Como base: galão 3,6L cobre ~20m² e lata 18L ~100m², em 2 a 3 demãos.'],
+          ['💡', 'O rendimento vem da LINHA de tinta escolhida (número do rótulo, por demão). Sem linha escolhida, usamos a média: galão 3,6L cobre ~20m² e lata 18L ~100m², em 2 a 3 demãos. Acabamento, substrato e aplicação ainda influenciam.'],
           ['🛒', 'Compre um pouco a mais para retoques futuros.'],
         ].map(([icon, text]) => (
           <div
