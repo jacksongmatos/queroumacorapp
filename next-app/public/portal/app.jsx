@@ -263,9 +263,18 @@ const adminUsersRaw = async (payload) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ accessToken: session.access_token, ...payload })
   });
+  // Le como TEXTO primeiro: quando o 5xx vem do PROPRIO Cloudflare (a
+  // function morreu), o corpo e uma pagina HTML — o res.json() falhava
+  // mudo e o relatorio mostrava so "HTTP 502", impossivel saber a origem.
+  // Agora o trecho cru do corpo entra no relatorio.
+  let raw = '';
+  try { raw = await r.text(); } catch (_) {}
   let res = {};
-  try { res = await r.json(); } catch (_) {}
-  if (!r.ok || !res.ok) return { ok: false, status: r.status, error: res.error || ('HTTP ' + r.status) };
+  try { res = JSON.parse(raw); } catch (_) {}
+  if (!r.ok || !res.ok) {
+    const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+    return { ok: false, status: r.status, error: res.error || ('HTTP ' + r.status + (snippet ? ' — corpo: "' + snippet + '"' : ' (sem corpo)')) };
+  }
   return { ok: true };
 };
 
