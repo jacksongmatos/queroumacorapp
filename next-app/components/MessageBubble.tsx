@@ -68,6 +68,11 @@ function isAudioUrl(s: string): boolean {
   return /\.(mp3|m4a|ogg|webm)(\?|$)/i.test(s) && !isVideoUrl(s);
 }
 
+// Prefixo gravado pelo trigger de auto-resposta (Wave 39). É o CONTRATO
+// anti-loop do banco — o conteúdo armazenado não muda; aqui só trocamos a
+// APRESENTAÇÃO: em vez do texto cru com 🤖, uma etiqueta com o Seu Zé.
+const AUTO_REPLY_PREFIX = '🤖 Resposta automática:';
+
 function formatTime(iso: string): string {
   try {
     const d = new Date(iso);
@@ -122,6 +127,33 @@ export function MessageBubble({
     );
   } else if (message.type === 'audio' || (message.type === 'text' && isAudioUrl(message.content))) {
     content = <audio src={message.content} controls className="max-w-[240px]" preload="metadata" />;
+  } else if (message.type === 'text' && message.content.startsWith(AUTO_REPLY_PREFIX)) {
+    // Auto-resposta: etiqueta com o Seu Zé no lugar do "🤖 Resposta
+    // automática:" cru. O marcador segue no banco (anti-loop do trigger);
+    // só a renderização muda.
+    const rest = message.content.slice(AUTO_REPLY_PREFIX.length).replace(/^\n/, '');
+    content = (
+      <span className="block">
+        <span className="flex items-center gap-1.5 mb-1" style={{ opacity: 0.8 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- asset estático local */}
+          <img
+            src="/img/seu-ze.webp"
+            alt=""
+            width={16}
+            height={16}
+            className="rounded-full flex-shrink-0"
+            loading="lazy"
+          />
+          <span
+            className="font-bold uppercase"
+            style={{ fontSize: 9, letterSpacing: '.06em' }}
+          >
+            Resposta automática
+          </span>
+        </span>
+        <span className="whitespace-pre-wrap break-words">{rest}</span>
+      </span>
+    );
   } else {
     // Texto plain — React escapa automaticamente. Mantemos newlines.
     content = <span className="whitespace-pre-wrap break-words">{message.content}</span>;

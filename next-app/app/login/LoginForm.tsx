@@ -44,6 +44,15 @@ function safeNext(raw: string | null | undefined): string {
   return ALLOWED_NEXT.has(clean) ? raw : '/feed';
 }
 
+// "Lembrar meu e-mail": guarda SÓ o e-mail em localStorage pra pré-preencher
+// o campo na próxima vez. A SENHA nunca é gravada — localStorage é legível
+// por qualquer script da página, então senha em texto plano ali viraria
+// alvo de XSS e fere a boa prática de segurança (LGPD art. 46 exige medidas
+// proporcionais). Quem mantém a pessoa logada é a SESSÃO do Supabase, que
+// já persiste sozinha; se o app está pedindo senha a cada abertura, o
+// problema é a sessão sendo apagada (ver wrapper), não falta deste campo.
+const SAVED_EMAIL_KEY = 'login_saved_email';
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -61,14 +70,31 @@ export function LoginForm() {
     router.replace(next);
   }, [authLoading, user, next, router]);
   const [showPw, setShowPw] = useState(false);
+  const [rememberEmail, setRememberEmail] = useState(false);
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { email: '', password: '' },
   });
+
+  // Pré-preenche o e-mail salvo (se a pessoa marcou "lembrar" numa visita
+  // anterior). try/catch: localStorage pode estar indisponível (modo
+  // privado) e isso nunca pode quebrar o login.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SAVED_EMAIL_KEY);
+      if (saved) {
+        setRememberEmail(true);
+        setValue('email', saved);
+      }
+    } catch {
+      // segue sem pré-preencher
+    }
+  }, [setValue]);
 
   async function onSubmit(data: FormData) {
     setServerError(null);
@@ -81,6 +107,13 @@ export function LoginForm() {
           : error;
       setServerError(friendly);
       return;
+    }
+    // Só grava o e-mail DEPOIS do login dar certo (não guardar typo).
+    try {
+      if (rememberEmail) localStorage.setItem(SAVED_EMAIL_KEY, data.email);
+      else localStorage.removeItem(SAVED_EMAIL_KEY);
+    } catch {
+      // best-effort
     }
     // CRIT-4: grava cookie httpOnly com access_token pra que RSCs do painel
     // /admin/* consigam validar admin server-side via lib/auth-server.ts.
@@ -187,7 +220,16 @@ export function LoginForm() {
         )}
       </div>
 
-      <div className="text-right -mt-2">
+      <div className="flex items-center justify-between -mt-2">
+        <label className="flex items-center gap-2 text-sm text-[color:var(--color-muted)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={rememberEmail}
+            onChange={(e) => setRememberEmail(e.target.checked)}
+            className="w-4 h-4 accent-[#ff6b35]"
+          />
+          Lembrar meu e-mail
+        </label>
         {/* TODO: portar `/reset-password` (vanilla `sendPasswordReset` em modules/auth-pw.js).
             Por enquanto link estático — rota retorna 404 até feature ser portada. */}
         <Link
