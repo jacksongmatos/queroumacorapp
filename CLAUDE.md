@@ -18,6 +18,40 @@
   `docs/ANDROID_BUILD.md`). Testes em
   `__tests__/hooks/useAndroidWebViewScrollPin.test.tsx`.
 
+- **WhatsApp Cloud API — LIVE ponta a ponta (2026-08-25).** O número
+  oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA
+  `102067872689175`, Phone Number ID `109293361953640`, app "CaliColors
+  Integracao API"). Service em `lib/api/_services/whatsapp.ts` (builders
+  puros + `sendWhatsAppText/Template` + `verifyMetaSignature` +
+  `parseInboundMessages`); rotas `/api/whatsapp/send` (admin-only, mesmo
+  gate do `/api/admin/users`, rate limit 30/min, audit_log com preview de
+  80 chars) e `/api/whatsapp/webhook` (GET verificação + POST com HMAC
+  `X-Hub-Signature-256` validado antes do parse; pós-assinatura sempre 200,
+  anti-retry-storm igual mp-webhook). 22 testes em
+  `__tests__/services/whatsapp.test.ts`. Doc: `docs/WHATSAPP_CLOUD_API.md`.
+  - **O access token NÃO está no código** (IDs públicos são default; token
+    só via env). As 3 envs JÁ ESTÃO no CF Pages Production (2026-08-25):
+    `WHATSAPP_ACCESS_TOKEN`, `META_APP_SECRET`,
+    `WHATSAPP_WEBHOOK_VERIFY_TOKEN`. Webhook JÁ CADASTRADO e verificado no
+    painel da Meta (subscribe em "messages"). Não pedir pra configurar de
+    novo. Se o token vazar/expirar (erro 190 do Graph): regenerar no
+    painel Meta e trocar só a env + redeploy.
+  - **Janela de 24h da Meta**: texto livre só pra quem escreveu nas últimas
+    24h; fora dela o Graph dá 131047 e a rota responde 422 "use um template
+    aprovado". Templates se criam no WhatsApp Manager.
+  - **SQL Wave 38 — JÁ EXECUTADO no Supabase (2026-08-25)**
+    (`/migrations/2026-08-25-whatsapp-messages.sql`):
+    tabela `whatsapp_messages` (direction in/out, `message_id` UNIQUE pra
+    dedupe de retry da Meta, RLS SELECT só `is_portal_admin()`, escrita só
+    service_role). Webhook grava inbound e `/api/whatsapp/send` grava
+    outbound via `persistWhatsAppMessage` (best-effort — falha nunca custa
+    o 200 do webhook nem a mensagem enviada; sem a tabela, tudo segue
+    funcionando só com log). Tela `/admin/whatsapp` (RSC guard
+    `requireAdminServer` + `WhatsAppAdmin` client): lista em estilo conversa
+    (poll 15s), filtros in/out, form de envio de texto livre e botão
+    "Responder". NÃO misturar com a tabela `messages` do chat interno
+    (user↔user, FK em profiles) — aqui o interlocutor é telefone externo.
+
 - **WebView: "erro 500 e não abre mais" / "sem internet" — 4 causas
   corrigidas (2026-08-22).** Sintomas: no Android, sair e voltar (ou no meio
   do uso) dava 500 e o app não abria mais; no iOS, "não tem internet" ao

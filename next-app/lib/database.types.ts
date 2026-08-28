@@ -1419,6 +1419,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      // ─── whatsapp_messages (Wave 38, 2026-08-25) ───────────────────────
+      // Conversas do número oficial via WhatsApp Cloud API. SELECT só admin
+      // (is_portal_admin()); escrita só via service_role no backend.
+      whatsapp_messages: {
+        Row: {
+          id: string;
+          direction: 'in' | 'out';
+          wa_id: string;
+          profile_name: string | null;
+          message_id: string | null;
+          type: string;
+          body: string | null;
+          template: string | null;
+          sent_by: string | null;
+          wa_timestamp: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          direction: 'in' | 'out';
+          wa_id: string;
+          profile_name?: string | null;
+          message_id?: string | null;
+          type?: string;
+          body?: string | null;
+          template?: string | null;
+          sent_by?: string | null;
+          wa_timestamp?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          direction?: 'in' | 'out';
+          wa_id?: string;
+          profile_name?: string | null;
+          message_id?: string | null;
+          type?: string;
+          body?: string | null;
+          template?: string | null;
+          sent_by?: string | null;
+          wa_timestamp?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
       // get_conversations: agrega conversas no servidor (linha 899+ no SQL).
