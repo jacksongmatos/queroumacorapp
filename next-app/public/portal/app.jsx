@@ -312,12 +312,17 @@ const editUserTag = async (profile, after) => {
 const deleteUsersPermanently = async (profiles, after) => {
   if (!profiles.length) return;
   const names = profiles.map(p => '• ' + (p.name || 'Sem nome') + (p.tag ? ' (@' + p.tag + ')' : '')).join('\n');
-  const typed = prompt(
+  // Dupla confirmacao com BOTOES (nao digitacao): no celular, digitar
+  // "EXCLUIR" num prompt era erro garantido e travava o uso legitimo.
+  // Dois passos ja evitam o clique acidental, que e o risco real aqui.
+  if (!confirm(
     'EXCLUIR PERMANENTEMENTE ' + profiles.length + ' conta(s)?\n\n' + names +
-    '\n\nApaga o LOGIN e o PERFIL do Supabase. SEM VOLTA.\n\nDigite EXCLUIR para confirmar:'
-  );
-  if (typed === null) return;
-  if (typed.trim().toUpperCase() !== 'EXCLUIR') { alert('Confirmacao incorreta — nada foi excluido.'); return; }
+    '\n\nApaga o LOGIN e o PERFIL do Supabase. SEM VOLTA.'
+  )) return;
+  if (!confirm(
+    'Ultima confirmacao: ' + profiles.length + ' conta(s) serao apagadas para sempre.\n\n' +
+    'Nao existe desfazer. Confirmar a exclusao?'
+  )) return;
   let ok = 0, fail = 0;
   for (const p of profiles) {
     if (await adminUsers({ action:'delete_user', userId: p.id })) ok++; else fail++;
