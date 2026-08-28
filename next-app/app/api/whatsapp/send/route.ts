@@ -34,6 +34,7 @@ import {
 } from '@/lib/api/_services/whatsapp';
 import {
   isEvolutionConfigured,
+  normalizeWhatsAppTarget,
   sendEvolutionText,
 } from '@/lib/api/_services/whatsapp-evo';
 import { whatsappSendSchema } from '@/lib/api/schemas/whatsapp-send';
@@ -114,7 +115,13 @@ export async function POST(request: NextRequest) {
     // — mensagem já saiu, gravar não pode custar o sucesso da resposta).
     await persistWhatsAppMessage({
       direction: 'out',
-      waId: result.waId || normalizeBrPhone(input.to) || input.to,
+      // Fallback do wa_id respeita DDI estrangeiro (ver
+      // normalizeWhatsAppTarget) — com normalizeBrPhone, resposta pra
+      // número dos EUA era gravada na conversa errada.
+      waId:
+        result.waId ||
+        (channel === 'evolution' ? normalizeWhatsAppTarget(input.to) : normalizeBrPhone(input.to)) ||
+        input.to,
       messageId: result.messageId,
       type: input.type,
       body: input.body,

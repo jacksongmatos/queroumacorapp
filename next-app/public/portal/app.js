@@ -7849,11 +7849,20 @@ const AvaliacoesTab = () => {
 // direita = balões + campo de resposta. Le direto de whatsapp_messages
 // (RLS libera SELECT pra portal admin); envia pela rota /api/whatsapp/send
 // (que despacha pra Evolution). Poll de 15s, igual as demais telas.
+// Formata SO numero brasileiro no padrao (DD) 9xxxx-xxxx. Numero de outro
+// pais (ex.: EUA 16503154274) fica como +DDI... — antes o codigo tirava o
+// '55' de qualquer numero e exibia um DDD brasileiro que nao existe.
 const fmtWaPhone = d => {
   if (!d) return '';
-  const n = d.replace(/^55/, '');
-  if (n.length === 11) return '(' + n.slice(0, 2) + ') ' + n.slice(2, 7) + '-' + n.slice(7);
-  if (n.length === 10) return '(' + n.slice(0, 2) + ') ' + n.slice(2, 6) + '-' + n.slice(6);
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
+    const n = d.slice(2);
+    if (n.length === 11) return '(' + n.slice(0, 2) + ') ' + n.slice(2, 7) + '-' + n.slice(7);
+    if (n.length === 10) return '(' + n.slice(0, 2) + ') ' + n.slice(2, 6) + '-' + n.slice(6);
+  }
+  if (d.startsWith('1') && d.length === 11) {
+    // EUA/Canada
+    return '+1 (' + d.slice(1, 4) + ') ' + d.slice(4, 7) + '-' + d.slice(7);
+  }
   return '+' + d;
 };
 const waHora = m => {
@@ -8019,16 +8028,20 @@ const WhatsAppTab = () => {
     setSending(false);
     setSendStage('');
   };
+
+  // Mesma regra do servidor (normalizeWhatsAppTarget): numero brasileiro
+  // local ganha o 55; numero que ja vem com DDI de outro pais passa direto.
   const novaConversa = () => {
-    const v = prompt('Numero do WhatsApp (com DDD, ex: 11 99999-9999):');
+    const v = prompt('Numero do WhatsApp\n(Brasil: DDD + numero, ex: 11 99999-9999)\n(outro pais: DDI + numero, ex: 1 650 315 4274):');
     if (v === null) return;
-    let dig = v.replace(/\D/g, '');
-    if (dig.length === 10 || dig.length === 11) dig = '55' + dig;
-    if (!(dig.startsWith('55') && (dig.length === 12 || dig.length === 13))) {
-      alert('Numero invalido — use DDD + numero.');
+    const d = v.replace(/\D/g, '');
+    let alvo = null;
+    if (d.startsWith('55') && (d.length === 12 || d.length === 13)) alvo = d;else if (d.length === 10) alvo = '55' + d;else if (d.length === 11 && d[2] === '9') alvo = '55' + d;else if (d.length >= 11 && d.length <= 15) alvo = d;
+    if (!alvo) {
+      alert('Numero invalido. Brasil: DDD + numero. Outro pais: DDI + numero.');
       return;
     }
-    setOpenWa(dig);
+    setOpenWa(alvo);
     setErr('');
   };
 

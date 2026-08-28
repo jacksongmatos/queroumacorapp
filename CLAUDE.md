@@ -31,8 +31,24 @@
   `EVOLUTION_INSTANCE` (opcional, default meu-whatsapp),
   `EVOLUTION_WEBHOOK_TOKEN` (string aleatória nossa, secret). Depois do
   deploy: configurar a URL do webhook no Manager (Configurations →
-  Webhook, evento MESSAGES_UPSERT). 19 testes em
+  Webhook, evento MESSAGES_UPSERT). 21 testes em
   `__tests__/services/whatsapp-evo.test.ts`.
+  - **CAUSA DO "502 Bad gateway" NO ENVIO (2026-08-28, fechada):** era
+    número ESTRANGEIRO tratado como BR. O envio usava `normalizeBrPhone`,
+    que cola '55' em qualquer coisa com 10-11 dígitos → contato dos EUA
+    `16503154274` (+1 650 315-4274) virava `5516503154274`, inexistente;
+    o Baileys pendurava tentando resolver o JID e o CF matava a function
+    ANTES de qualquer resposta nossa (por isso o 502 cru, com o
+    diagnóstico do edge todo verde). Agora o envio usa
+    `normalizeWhatsAppTarget` (BR local ganha 55; **11 dígitos só é
+    celular BR se o 3º for 9**; 11-15 dígitos em outro formato = DDI
+    estrangeiro, passa VERBATIM). `fmtWaPhone` do portal e o "+" (nova
+    conversa) seguem a mesma regra. NÃO usar `normalizeBrPhone` no
+    caminho da Evolution.
+  - **Diagnóstico**: `GET /api/whatsapp-evo/ping` (admin-only) mede
+    conectividade + apikey + estado da instância a partir do edge e
+    reporta as envs sem vazar segredo; botão "🔌 Testar conexao" no topo
+    da aba WhatsApp do portal.
 
 - **SQL Wave 44 (2026-08-28) — PENDENTE de rodar no Supabase.**
   (`/migrations/2026-08-28-delete-user-fk-sweep.sql`) CAUSA RAIZ do 502
