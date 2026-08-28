@@ -79,6 +79,24 @@ export function NotesView() {
         setTranscribing(false);
       }
     },
+    // SEM este handler o hook só fazia console.warn: no celular, negar (ou
+    // nem receber) a permissão de microfone deixava o botão "sem fazer
+    // nada". Agora o motivo aparece na tela, com o caminho da correção.
+    onError: (err) => {
+      const name = (err as Error & { name?: string }).name || '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        showToast(
+          'Permissão de microfone negada. Libere o microfone nas configurações do app/navegador e tente de novo.',
+          'error',
+        );
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        showToast('Nenhum microfone encontrado neste aparelho.', 'error');
+      } else if (name === 'NotReadableError' || name === 'AbortError') {
+        showToast('O microfone está ocupado por outro app. Feche o outro app e tente de novo.', 'error');
+      } else {
+        showToast('Não consegui abrir o microfone: ' + (err.message || name || 'erro desconhecido'), 'error');
+      }
+    },
   });
 
   function handleMicClick() {
@@ -88,6 +106,13 @@ export function NotesView() {
       // só mostrava um toast — parecia que o botão "não fazia nada".
       showToast('Gravar e transcrever áudio é um recurso PRO. Troque seus pontos pelo plano PRO.', 'info');
       router.push('/pro');
+      return;
+    }
+    if (rec.unsupported) {
+      showToast(
+        'Este app/navegador não permite gravar áudio aqui. Abra pelo Chrome em queroumacor.com.br pra usar o microfone.',
+        'error',
+      );
       return;
     }
     if (rec.recording) {
