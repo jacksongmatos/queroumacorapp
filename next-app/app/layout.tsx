@@ -9,6 +9,7 @@ import { ReferralCapture } from '@/components/ReferralCapture';
 import { DialogProvider } from '@/components/Dialog';
 import { AuthGateProvider } from '@/components/AuthGate';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
+import { AndroidWebViewScrollPin } from '@/components/AndroidWebViewScrollPin';
 import { EmailVerifyBanner } from '@/components/EmailVerifyBanner';
 import './globals.css';
 
@@ -109,6 +110,10 @@ export default function RootLayout({
             consomem ambos (useNotifications etc.) tenham acesso ao user no
             queryKey/enabled sem ordem de inicialização ambígua. */}
         <ServiceWorkerRegister />
+        {/* Trava do pull-to-refresh nativo do wrapper Android (WebIntoApp):
+            prende o documento em scrollY=1 pra que o SwipeRefreshLayout
+            nunca arme o reload. No-op fora do WebView Android. */}
+        <AndroidWebViewScrollPin />
         <AuthProvider>
           <QueryProvider>
             <DialogProvider>

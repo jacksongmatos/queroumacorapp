@@ -329,10 +329,19 @@ Pro nativo o documento está no topo o tempo todo, então o gesto de
 recarregar fica armado em toda a tela. Arrasto lento a WebView consome
 primeiro; arrasto rápido passa do touch slop e o nativo intercepta antes.
 
-**Nada de CSS ou JS resolve** — o `SwipeRefreshLayout` intercepta o toque
+**Nada de CSS ou JS resolve o TOQUE** — o `SwipeRefreshLayout` intercepta
 antes de a WebView receber. O lado web já faz a sua parte para navegador
 comum (`overscroll-behavior-y: contain` + o guard `useNoPullToRefresh`), e
 é por isso que no Chrome não acontece.
+
+**MAS o ESTADO de scroll do documento o nativo consulta** — e isso o web
+controla. Desde 2026-08-28 o app "pina" o documento em `scrollY = 1`
+dentro do WebView Android (hook `useAndroidWebViewScrollPin`, montado no
+RootLayout via `<AndroidWebViewScrollPin>`): com o documento fora do topo,
+`canChildScrollUp()` responde "sim" e o gesto nunca arma. Chega via deploy
+web em todos os aparelhos já instalados, sem regenerar AAB. Desligar o
+"Pull to Refresh" no painel do WebIntoApp continua sendo a correção de
+raiz — fazer no próximo rebuild.
 
 **Correção**, no projeto Android:
 

@@ -1,5 +1,23 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Pull-to-refresh nativo do AAB (WebIntoApp) — neutralizado pelo lado web
+  (2026-08-28).** O AAB da Play Store envolve a WebView num
+  `SwipeRefreshLayout`; ele arma o reload quando `canChildScrollUp()` é
+  false, e como o app é shell 100dvh + overflow hidden (só o `<main>` rola),
+  o documento vivia em scrollY 0 → reload armado na tela INTEIRA (arrasto
+  rápido pra baixo = círculo de recarregar, em qualquer posição). CSS/JS não
+  alcançam o toque nativo, mas o ESTADO consultado sim: o hook
+  `useAndroidWebViewScrollPin` (montado no RootLayout via
+  `<AndroidWebViewScrollPin>`) estica o body em 2px e PINA o documento em
+  `scrollY = 1` — só dentro do WebView Android (token `; wv)` ou
+  `WebIntoApp` no UA; Chrome/PWA/iOS/desktop são no-op. Com o documento
+  fora do topo, o nativo responde "pode subir" e o gesto nunca arma.
+  Re-pin em scroll/resize/pageshow/visibilitychange (retomada do WebView).
+  **Correção de raiz continua pendente**: desmarcar "Pull to Refresh" no
+  painel do WebIntoApp no próximo rebuild do AAB (checklist do
+  `docs/ANDROID_BUILD.md`). Testes em
+  `__tests__/hooks/useAndroidWebViewScrollPin.test.tsx`.
+
 - **WebView: "erro 500 e não abre mais" / "sem internet" — 4 causas
   corrigidas (2026-08-22).** Sintomas: no Android, sair e voltar (ou no meio
   do uso) dava 500 e o app não abria mais; no iOS, "não tem internet" ao
