@@ -6,8 +6,10 @@
 
 import Link from 'next/link';
 import { useProfile } from '@/lib/hooks/useProfile';
+import { personaForRole } from '@/lib/aiPersona';
 
 interface Feature {
+  /** Emoji OU caminho de imagem (/img/...) — a lista renderiza os dois. */
   icon: string;
   label: string;
 }
@@ -22,20 +24,27 @@ const PRO_POINTS_COST = 1000;
 // signup + trigger award_referral_points no banco).
 const REFERRAL_POINTS = 10;
 
-const FEATURES: readonly Feature[] = [
-  { icon: '📥', label: 'Pedidos de orçamento ilimitados' },
-  { icon: '🏆', label: 'Apareça no topo das buscas e do mapa' },
-  { icon: '✓', label: 'Badge verificado no perfil' },
-  { icon: '📊', label: 'Estatísticas avançadas do perfil' },
-  { icon: '🎓', label: 'Acesso a cursos exclusivos' },
-  { icon: '🤖', label: 'Orçamento gerado pelo Seu Zé' },
-  { icon: '🐻', label: 'Seu Zé — chat e voz pra tirar dúvidas' },
-  { icon: '🎨', label: 'Arte pra Instagram a partir da sua foto' },
-];
+// A lista não crava o nome da persona: cada perfil tem o SEU parceiro
+// digital (pintor → Seu Zé, grafiteiro → Fê, automotivo → Senna, cliente
+// → Alice), então o texto é genérico e a FOTO vem de `personaForRole`.
+function buildFeatures(personaImage: string): readonly Feature[] {
+  return [
+    { icon: '📥', label: 'Pedidos de orçamento ilimitados' },
+    { icon: '🏆', label: 'Apareça no topo das buscas e do mapa' },
+    { icon: '✓', label: 'Badge verificado no perfil' },
+    { icon: '📊', label: 'Estatísticas avançadas do perfil' },
+    { icon: '🎓', label: 'Acesso a cursos exclusivos' },
+    { icon: personaImage, label: 'Orçamento gerado pelo seu parceiro digital' },
+    { icon: personaImage, label: 'Seu parceiro digital — chat e voz pra tirar dúvidas' },
+    { icon: '🎨', label: 'Arte pra usar nas suas redes sociais a partir da sua foto' },
+  ];
+}
 
 export function ProView() {
   const { profile } = useProfile();
   const isPro = !!profile?.is_pro;
+  const persona = personaForRole(profile?.role || profile?.user_type);
+  const FEATURES = buildFeatures(persona.image);
 
   // NÃO há pagamento do PRO dentro do app. A ÚNICA forma de ativar o PRO é
   // trocando pontos pelo plano (RPC redeem_pro_with_points, instantâneo). Os
@@ -123,7 +132,21 @@ export function ProView() {
               gap: 12,
             }}
           >
-            <span style={{ fontSize: 20 }}>{f.icon}</span>
+            {f.icon.startsWith('/') ? (
+              // Foto da persona no MESMO tamanho visual dos emojis (20px).
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={f.icon}
+                alt=""
+                width={22}
+                height={22}
+                className="rounded-full flex-shrink-0"
+                style={{ objectFit: 'cover' }}
+                loading="lazy"
+              />
+            ) : (
+              <span style={{ fontSize: 20 }}>{f.icon}</span>
+            )}
             <span style={{ flex: 1 }}>{f.label}</span>
           </div>
         ))}
