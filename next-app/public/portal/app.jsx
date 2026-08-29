@@ -1852,197 +1852,259 @@ const Chats = () => {
   );
 };
 
-const CLAUDE_API_KEY = localStorage.getItem('claude_api_key') || '';
-const AI_SEARCH_STORE_ADDRESS = 'Estr. Pres. Juscelino K. de Oliveira, 1071 - Jardim dos Pimentas, Guarulhos - SP, 07272-345';
+// ══ IMPORTAR LEADS DE PLANILHA ═══════════════════════════════════════════
+// Substituiu o "Busca AI" (2026-08-29), que NAO buscava nada: pedia pro
+// modelo INVENTAR empresas plausiveis — nome, telefone, nota, tudo
+// fabricado. Telefone inventado em formato valido e o telefone de alguem,
+// e com o botao "Abordar" do lado isso vira mensagem pra estranho.
+//
+// Le CSV, nao .xlsx: xlsx e ZIP+XML e precisaria de biblioteca externa (o
+// portal carrega script com SRI e sem bundler). No Excel: Arquivo →
+// Salvar como → CSV.
+//
+// Dois detalhes que quebram importacao de planilha brasileira e que estao
+// tratados aqui: o Excel pt-BR separa por PONTO E VIRGULA (nao virgula) e
+// salva em ANSI/windows-1252 (nao UTF-8) — sem isso vem tudo numa coluna
+// so, ou com acento virando caractere estranho.
 
-const AiSearchModal = ({ open, onClose, onResults, existingLeads }) => {
-  const [alvo, setAlvo] = useState('');
-  const [raio, setRaio] = useState(15);
-  const [endereco, setEndereco] = useState(AI_SEARCH_STORE_ADDRESS);
-  const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState('');
+const CSV_CAMPOS = [
+  { k:'name',         rot:'Nome *',        req:true,  dicas:['nome','name','empresa','razao','razão','estabelecimento','titulo','título'] },
+  { k:'phone',        rot:'Telefone *',    req:true,  dicas:['telefone','fone','celular','phone','whatsapp','contato','tel'] },
+  { k:'category',     rot:'Categoria',     req:false, dicas:['categoria','category','tipo','ramo','atividade'] },
+  { k:'segment',      rot:'Segmento',      req:false, dicas:['segmento','segment'] },
+  { k:'city',         rot:'Cidade',        req:false, dicas:['cidade','city','municipio','município'] },
+  { k:'neighborhood', rot:'Bairro',        req:false, dicas:['bairro','neighborhood','regiao','região'] },
+  { k:'address',      rot:'Endereço',      req:false, dicas:['endereco','endereço','address','rua','logradouro'] },
+  { k:'rating',       rot:'Nota',          req:false, dicas:['nota','rating','avaliacao','avaliação','estrelas'] },
+  { k:'review_count', rot:'Nº avaliações', req:false, dicas:['avaliacoes','avaliações','review','reviews','review_count','qtd'] },
+  { k:'priority',     rot:'Prioridade',    req:false, dicas:['prioridade','priority'] },
+];
 
-  const [apiKey, setApiKey] = useState(CLAUDE_API_KEY);
-  const [showKeyInput, setShowKeyInput] = useState(!CLAUDE_API_KEY);
+const semAcento = (t) => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
 
-  const doSearch = async () => {
-    if (!alvo.trim()) { setError('Descreva o alvo da busca'); return; }
-    if (!apiKey.trim()) { setShowKeyInput(true); setError('Configure sua API Key do Claude'); return; }
-    localStorage.setItem('claude_api_key', apiKey);
-    setSearching(true); setError(''); setResults(null);
+// Parser de CSV na mao: trata aspas, aspas duplicadas ("") e quebra de
+// linha DENTRO do campo — endereco com virgula entre aspas e a regra, nao
+// a excecao, em planilha de lead.
+const parseCSV = (texto, sep) => {
+  const linhas = []; let campo = ''; let linha = []; let dentroAspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (dentroAspas) {
+      if (c === '"') {
+        if (texto[i+1] === '"') { campo += '"'; i++; } else dentroAspas = false;
+      } else campo += c;
+      continue;
+    }
+    if (c === '"') { dentroAspas = true; continue; }
+    if (c === sep) { linha.push(campo); campo = ''; continue; }
+    if (c === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; continue; }
+    if (c === '\r') continue;
+    campo += c;
+  }
+  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
+  return linhas.filter(l => l.some(v => String(v).trim() !== ''));
+};
 
-    const existingNames = existingLeads.map(l => (l.name||'').toLowerCase());
-    const prompt = `Você é um assistente de prospecção de leads para uma loja de tintas chamada "Cali Colors" localizada em: ${endereco}.
+const detectarSeparador = (primeiraLinha) => {
+  const cont = (ch) => (primeiraLinha.split(ch).length - 1);
+  const cands = [[';', cont(';')], [',', cont(',')], ['\t', cont('\t')]];
+  cands.sort((a,b) => b[1] - a[1]);
+  return cands[0][1] > 0 ? cands[0][0] : ';';
+};
 
-TAREFA: Encontre ${alvo} em um raio de até ${raio}km da loja.
+// Excel pt-BR salva CSV em ANSI. Lemos como UTF-8 e, se aparecer o
+// caractere de substituicao, relemos como windows-1252.
+const decodificar = (buffer) => {
+  const utf8 = new TextDecoder('utf-8').decode(buffer);
+  if (!utf8.includes('�')) return utf8;
+  try { return new TextDecoder('windows-1252').decode(buffer); } catch(_) { return utf8; }
+};
 
-REGRAS:
-- Retorne APENAS um JSON array com no máximo 20 resultados
-- Cada objeto deve ter: name, phone, segment, category, rating, review_count, neighborhood, city, priority, address
-- segment deve ser: RESIDENCIAL, COMERCIAL, AUTOMOTIVO ou GRAFFITI
-- priority: alta, media ou baixa (baseado em proximidade e relevância)
-- phone no formato: 11 XXXX-XXXX (DDD de Guarulhos/SP)
-- rating de 1.0 a 5.0
-- NÃO inclua estes nomes que já são leads: ${existingNames.slice(0,30).join(', ')}
-- Gere resultados realistas baseados no tipo de negócio e região
-- Responda SOMENTE com o JSON array, sem texto adicional`;
+const soDigitos = (t) => String(t||'').replace(/\D/g,'');
+const chaveTelefone = (t) => { const d = soDigitos(t); return d.length >= 8 ? d.slice(-8) : ''; };
 
+const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
+  const [linhas, setLinhas] = useState(null);   // matriz do CSV
+  const [mapa, setMapa] = useState({});         // campo → indice da coluna
+  const [erro, setErro] = useState('');
+  const [progresso, setProgresso] = useState('');
+  const [relatorio, setRelatorio] = useState(null);
+  const [importando, setImportando] = useState(false);
+
+  const reset = () => { setLinhas(null); setMapa({}); setErro(''); setProgresso(''); setRelatorio(null); };
+  const fechar = () => { reset(); onClose(); };
+
+  const lerArquivo = async (file) => {
+    reset();
+    if (!file) return;
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': CLAUDE_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: prompt }]
-        })
+      const buf = await file.arrayBuffer();
+      const texto = decodificar(buf).replace(/^﻿/, '');
+      const sep = detectarSeparador((texto.split('\n')[0] || ''));
+      const m = parseCSV(texto, sep);
+      if (m.length < 2) { setErro('A planilha precisa ter o cabecalho e ao menos uma linha.'); return; }
+      const cabec = m[0].map(h => semAcento(h));
+      // Casa cada campo com a coluna cujo titulo mais parece com ele.
+      const auto = {};
+      CSV_CAMPOS.forEach(c => {
+        const idx = cabec.findIndex(h => h && c.dicas.some(d => h === semAcento(d)));
+        const idx2 = idx >= 0 ? idx : cabec.findIndex(h => h && c.dicas.some(d => h.includes(semAcento(d))));
+        if (idx2 >= 0 && !Object.values(auto).includes(idx2)) auto[c.k] = idx2;
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message || 'Erro na API Claude');
-      const text = data.content?.[0]?.text || '';
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error('Resposta inválida da AI');
-      const parsed = JSON.parse(jsonMatch[0]);
-      setResults(parsed);
-    } catch (e) {
-      setError(e.message || 'Erro ao buscar leads');
-    } finally { setSearching(false); }
+      setMapa(auto); setLinhas(m);
+    } catch(e) { setErro('Nao consegui ler o arquivo: ' + ((e && e.message) || '?')); }
   };
 
-  const saveLeads = async () => {
-    if (!results || results.length === 0) return;
-    const rows = results.map(r => ({
-      name: r.name, phone: r.phone, segment: r.segment, category: r.category,
-      rating: r.rating, review_count: r.review_count, neighborhood: r.neighborhood,
-      city: r.city || 'Guarulhos', priority: r.priority || 'media',
-      address: r.address || '', source: 'ai_search', status: 'novo'
-    }));
-    let saved = 0;
-    try {
-      await leadsService.insertBatch(rows);
-      saved = rows.length;
-    } catch (e) {
-      // Se o batch falhar, tenta um a um para nao perder todos.
-      console.warn('insertBatch leads falhou, tentando um a um:', e);
-      for (const row of rows) {
-        try { await leadsService.insertBatch([row]); saved++; } catch(_) { /* ignora */ }
+  const dados = linhas ? linhas.slice(1) : [];
+  const val = (row, campo) => {
+    const i = mapa[campo];
+    return (i === undefined || i === null || i === '') ? '' : String(row[i] ?? '').trim();
+  };
+
+  const importar = async () => {
+    if (mapa.name === undefined || mapa.phone === undefined) {
+      setErro('Escolha ao menos as colunas de Nome e Telefone.'); return;
+    }
+    setImportando(true); setErro(''); setProgresso('Preparando…');
+
+    const jaExiste = {};
+    (existingLeads || []).forEach(l => { const k = chaveTelefone(l.phone); if (k) jaExiste[k] = true; });
+
+    const rows = []; const semTelefone = []; const repetidos = [];
+    const vistos = {};
+    dados.forEach(r => {
+      const nome = val(r, 'name');
+      const tel = val(r, 'phone');
+      const k = chaveTelefone(tel);
+      if (!nome) return;
+      if (!k) { semTelefone.push(nome); return; }
+      if (jaExiste[k] || vistos[k]) { repetidos.push(nome); return; }
+      vistos[k] = true;
+      const nota = parseFloat(String(val(r,'rating')).replace(',', '.'));
+      const qtd = parseInt(soDigitos(val(r,'review_count')), 10);
+      const prio = semAcento(val(r,'priority'));
+      rows.push({
+        name: nome.slice(0, 200),
+        phone: tel.slice(0, 40),
+        segment: (val(r,'segment') || '').toUpperCase().slice(0, 40) || null,
+        category: val(r,'category').slice(0, 80) || null,
+        city: val(r,'city').slice(0, 80) || 'Guarulhos',
+        neighborhood: val(r,'neighborhood').slice(0, 80) || null,
+        address: val(r,'address').slice(0, 250) || null,
+        rating: isFinite(nota) ? Math.min(5, Math.max(0, nota)) : null,
+        review_count: isFinite(qtd) ? qtd : null,
+        priority: ['alta','media','baixa'].includes(prio) ? prio : 'media',
+        source: 'planilha',
+        status: 'novo',
+      });
+    });
+
+    if (!rows.length) {
+      setImportando(false);
+      setRelatorio({ salvos:0, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas:0 });
+      return;
+    }
+
+    // Em lotes: 1000 linhas num INSERT so estoura tempo/limite do PostgREST.
+    let salvos = 0, falhas = 0;
+    const LOTE = 200;
+    for (let i = 0; i < rows.length; i += LOTE) {
+      const fatia = rows.slice(i, i + LOTE);
+      setProgresso('Salvando ' + Math.min(i + LOTE, rows.length) + ' de ' + rows.length + '…');
+      try { await leadsService.insertBatch(fatia); salvos += fatia.length; }
+      catch(e) {
+        // Lote falhou: tenta linha a linha pra nao perder as boas.
+        for (const row of fatia) {
+          try { await leadsService.insertBatch([row]); salvos++; } catch(_) { falhas++; }
+        }
       }
     }
-    alert('✅ ' + saved + ' leads salvos no banco!');
-    onResults();
-    onClose();
+    setImportando(false); setProgresso('');
+    setRelatorio({ salvos, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas });
+    onPronto();
   };
 
   if (!open) return null;
+  const sel = { padding:'6px 8px', borderRadius:8, border:'1px solid '+C.border, fontSize:12, background:'#fff', width:'100%' };
+
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="ai-search-modal-title" style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.white, borderRadius:20, width:620, maxHeight:'85vh', overflow:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <div style={{ background:'linear-gradient(135deg, #8338ec, #6b21c8)', padding:'24px 28px', borderRadius:'20px 20px 0 0' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div>
-              <div id="ai-search-modal-title" style={{ color:'#fff', fontSize:20, fontWeight:800, fontFamily:'Syne,sans-serif' }}>✨ Busca AI de Leads</div>
-              <div style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:4 }}>Powered by Claude AI — Encontre novos clientes na região</div>
-            </div>
-            <button aria-label="Fechar busca AI" onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, width:36, height:36, fontSize:18, color:'#fff', cursor:'pointer' }}>✕</button>
-          </div>
+    <div onClick={fechar} style={{ position:'fixed', inset:0, background:'rgba(26,26,46,.55)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:18, width:'min(760px, 96vw)', maxHeight:'90vh', overflow:'auto', boxShadow:'0 20px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ padding:'16px 20px', background:C.ink, color:'#fff', borderRadius:'18px 18px 0 0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ fontSize:18, fontWeight:800, fontFamily:'Syne,sans-serif' }}>📥 Importar leads de planilha</div>
+          <button onClick={fechar} style={{ background:'none', border:'none', color:'#fff', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
         </div>
-
-        <div style={{ padding:24 }}>
-          {/* API Key (hidden once set) */}
-          {showKeyInput && (
-            <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>🔑 API Key Claude</div>
-              <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-..." type="password"
-                style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', fontFamily:'monospace' }} />
-            </div>
-          )}
-          {!showKeyInput && apiKey && (
-            <div style={{ marginBottom:12, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ fontSize:12, color:C.p6 }}>✅ API Key configurada</span>
-              <button onClick={()=>setShowKeyInput(true)} style={{ fontSize:11, color:C.p5, background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Alterar</button>
-            </div>
-          )}
-
-          {/* Store address */}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>📍 Endereço da Cali Colors</div>
-            <input value={endereco} onChange={e=>setEndereco(e.target.value)}
-              style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', background:C.bg }} />
-          </div>
-
-          {/* Target description */}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>🎯 Descrição do Alvo</div>
-            <textarea value={alvo} onChange={e=>setAlvo(e.target.value)} rows={3}
-              placeholder="Ex: funilarias e oficinas de pintura automotiva, lojas de materiais de construção, pintores residenciais..."
-              style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', resize:'vertical', fontFamily:'DM Sans,sans-serif' }} />
-          </div>
-
-          {/* Radius */}
-          <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:8 }}>📏 Raio de busca: <span style={{ color:C.p5, fontSize:16, fontWeight:800 }}>{raio}km</span></div>
-            <input type="range" min={5} max={50} value={raio} onChange={e=>setRaio(Number(e.target.value))}
-              style={{ width:'100%', accentColor:C.p5 }} />
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.muted }}>
-              <span>5km</span><span>15km</span><span>30km</span><span>50km</span>
-            </div>
-          </div>
-
-          {/* Quick presets */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
-            {['Funilarias e pintura automotiva','Pintores residenciais','Construtoras e reformas','Lojas de materiais','Imobiliárias','Condomínios'].map(t => (
-              <button key={t} onClick={()=>setAlvo(t)} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+C.border, background:alvo===t?'rgba(131,56,236,0.1)':'transparent', color:alvo===t?C.p5:C.ink, fontSize:12, cursor:'pointer', fontWeight:500 }}>{t}</button>
-            ))}
-          </div>
-
-          {error && <div style={{ color:C.p4, fontSize:13, marginBottom:12, padding:'8px 14px', background:'rgba(230,57,70,0.1)', borderRadius:10 }}>⚠️ {error}</div>}
-
-          {/* Search button */}
-          <button onClick={doSearch} disabled={searching}
-            style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:searching?C.muted:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:15, fontWeight:700, cursor:searching?'wait':'pointer', fontFamily:'DM Sans,sans-serif', boxShadow:'0 4px 15px rgba(131,56,236,0.3)' }}>
-            {searching ? '🔄 Buscando com Claude AI...' : '✨ Buscar Leads com AI'}
-          </button>
-
-          {/* Results */}
-          {results && results.length > 0 && (
-            <div style={{ marginTop:20 }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:C.ink }}>🎯 {results.length} leads encontrados</div>
-                <button onClick={saveLeads} style={{ padding:'8px 18px', borderRadius:10, border:'none', background:C.p6, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>💾 Salvar todos no banco</button>
+        <div style={{ padding:20 }}>
+          {!linhas ? (
+            <div>
+              <div style={{ fontSize:13, color:C.ink, lineHeight:1.6, marginBottom:14 }}>
+                No Excel: <strong>Arquivo → Salvar como → CSV</strong>. Depois escolha o arquivo aqui.
+                A primeira linha tem que ser o cabeçalho (Nome, Telefone, Categoria…).
               </div>
-              <div style={{ maxHeight:300, overflow:'auto', borderRadius:12, border:'1px solid '+C.border }}>
+              <input type="file" accept=".csv,.txt,text/csv" onChange={e=>lerArquivo(e.target.files && e.target.files[0])}
+                style={{ display:'block', width:'100%', padding:14, border:'2px dashed '+C.border, borderRadius:12, fontSize:13, cursor:'pointer' }} />
+              <div style={{ fontSize:11, color:C.muted, marginTop:10 }}>
+                Nada é enviado até você conferir as colunas na próxima tela.
+              </div>
+            </div>
+          ) : relatorio ? (
+            <div>
+              <div style={{ fontSize:15, fontWeight:800, color:C.ink, marginBottom:10 }}>
+                {relatorio.salvos > 0 ? '✅ ' + relatorio.salvos + ' leads importados' : 'Nenhum lead novo importado'}
+              </div>
+              <div style={{ fontSize:13, color:C.muted, lineHeight:1.8 }}>
+                {relatorio.repetidos > 0 ? <div>· {relatorio.repetidos} já existiam (mesmo telefone) e foram pulados</div> : null}
+                {relatorio.semTelefone > 0 ? <div>· {relatorio.semTelefone} sem telefone válido — ficaram de fora</div> : null}
+                {relatorio.falhas > 0 ? <div style={{ color:'#b91c1c' }}>· {relatorio.falhas} o banco recusou</div> : null}
+              </div>
+              <button onClick={fechar} style={{ marginTop:18, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 22px', fontWeight:700, fontSize:13, cursor:'pointer' }}>Fechar</button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize:13, color:C.ink, marginBottom:4 }}>
+                <strong>{dados.length}</strong> linhas lidas. Confira em que coluna está cada informação:
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:14 }}>Só Nome e Telefone são obrigatórios. O resto pode ficar em branco.</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:10 }}>
+                {CSV_CAMPOS.map(c => (
+                  <div key={c.k}>
+                    <label style={{ fontSize:11, fontWeight:700, color: c.req ? C.p1 : C.muted, display:'block', marginBottom:3 }}>{c.rot}</label>
+                    <select value={mapa[c.k] === undefined ? '' : mapa[c.k]} style={sel}
+                      onChange={e => setMapa(m => ({ ...m, [c.k]: e.target.value === '' ? undefined : Number(e.target.value) }))}>
+                      <option value="">— não tenho —</option>
+                      {linhas[0].map((h, i) => <option key={i} value={i}>{h || ('Coluna ' + (i+1))}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop:16, fontSize:11, fontWeight:700, color:C.muted }}>PRÉVIA DAS 3 PRIMEIRAS</div>
+              <div style={{ overflowX:'auto', border:'1px solid '+C.border, borderRadius:10, marginTop:6 }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-                  <thead>
-                    <tr style={{ background:C.bg }}>
-                      {['Nome','Segmento','Categoria','Rating','Telefone','Bairro'].map(h=>(
-                        <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:C.muted, fontSize:11 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
+                  <thead><tr style={{ background:C.bg }}>
+                    {CSV_CAMPOS.filter(c => mapa[c.k] !== undefined).map(c =>
+                      <th key={c.k} style={{ padding:'7px 9px', textAlign:'left', fontSize:11, color:C.muted, whiteSpace:'nowrap' }}>{c.rot}</th>)}
+                  </tr></thead>
                   <tbody>
-                    {results.map((r,i)=>(
+                    {dados.slice(0,3).map((r,i) => (
                       <tr key={i} style={{ borderTop:'1px solid '+C.border }}>
-                        <td style={{ padding:'8px 10px', fontWeight:600 }}>{r.name}</td>
-                        <td style={{ padding:'8px 10px' }}><StatusBadge status={(r.segment||'').toUpperCase()} colorMap={LEAD_SEG_COLORS} labelMap={{}} /></td>
-                        <td style={{ padding:'8px 10px', color:C.muted }}>{r.category}</td>
-                        <td style={{ padding:'8px 10px' }}><span style={{color:'#f5a623'}}>{'★'.repeat(Math.round(r.rating||0))}</span> {(r.rating||0).toFixed(1)}</td>
-                        <td style={{ padding:'8px 10px', color:C.p3 }}>{r.phone}</td>
-                        <td style={{ padding:'8px 10px', color:C.muted }}>{r.neighborhood}</td>
+                        {CSV_CAMPOS.filter(c => mapa[c.k] !== undefined).map(c =>
+                          <td key={c.k} style={{ padding:'7px 9px', whiteSpace:'nowrap', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis' }}>{val(r, c.k)}</td>)}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {erro ? <div style={{ color:'#b91c1c', fontSize:12, marginTop:12 }}>{erro}</div> : null}
+              <div style={{ display:'flex', gap:10, marginTop:18, alignItems:'center' }}>
+                <button onClick={importar} disabled={importando}
+                  style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'11px 24px', fontWeight:700, fontSize:13, cursor: importando?'wait':'pointer' }}>
+                  {importando ? 'Importando…' : 'Importar ' + dados.length + ' linhas'}
+                </button>
+                <button onClick={reset} disabled={importando}
+                  style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'11px 18px', fontSize:13, cursor:'pointer', color:C.muted }}>Trocar arquivo</button>
+                <span style={{ fontSize:12, color:C.muted }}>{progresso}</span>
+              </div>
             </div>
-          )}
-          {results && results.length === 0 && (
-            <div style={{ textAlign:'center', padding:20, color:C.muted, marginTop:16 }}>Nenhum lead encontrado. Tente termos diferentes.</div>
           )}
         </div>
       </div>
@@ -2053,7 +2115,7 @@ REGRAS:
 // Constantes estáticas dos Leads — movidas para módulo (eram recriadas a cada render).
 const LEAD_SEG_COLORS = { AUTOMOTIVO: '#e63946', GRAFFITI: '#8338ec', RESIDENCIAL: '#ff6b35', COMERCIAL: '#2ec4b6' };
 const LEAD_SEG_ICONS = { AUTOMOTIVO: '🚗', GRAFFITI: '🎨', 'GRAFFITI/ARTE': '🎨', RESIDENCIAL: '🏠', COMERCIAL: '🏢' };
-const LEAD_CAT_ICONS = { 'Funilaria/Auto': '🚗', 'Graffiti/Arte': '🎨', 'Pintor': '🖌', 'Reformas': '🔧', 'Construtoras': '🏗', 'Imobiliárias': '🏢', 'Arquitetura': '✏', 'Materiais': '🧱', 'Condomínios': '🏘', 'Academias': '💪', 'Bares': '🍺', 'Limpeza': '🧹', 'Marmoraria': '💎' };
+const LEAD_CAT_ICONS = { 'Funilaria/Auto': '🚗', 'Graffiti/Arte': '🎨', 'Pintor': '🖌', 'Reformas': '🔧', 'Construtoras': '🏗', 'Imobiliárias': '🏢', 'Arquitetura': '✏', 'Materiais': '🧱', 'Condomínios': '🏘', 'Academias': '💪', 'Bares': '🍺', 'Limpeza': '🧹', 'Marmoraria': '💎', 'Engenharia': '📐' };
 const LEAD_STATUS_COLORS = { novo: C.p3, contactado: C.p7, qualificado: C.p6, convertido: C.p1, perdido: C.p4 };
 
 // ══ ABORDAGEM DE LEAD POR WHATSAPP ═══════════════════════════════════════
@@ -2105,6 +2167,9 @@ const LEAD_PITCH = {
   'Supermercado':   { funil:'demanda', linha:'pintura de loja, piso e fachada', termos:['epoxi','piso','acrilic','fachada'] },
   'Pousada':        { funil:'demanda', linha:'pintura de quartos e fachada', termos:['acrilic','latex','fachada'] },
   'Arquitetura':    { funil:'demanda', linha:'especificacao de cores e acabamentos', termos:['acrilic','textura','efeito'] },
+  // Engenharia entrou com a planilha de 986 leads (2026-08-29): engenheiro
+  // e empresa de engenharia tocam obra, entao a loja FORNECE.
+  'Engenharia':     { funil:'fornece', linha:'linha de obra e manutencao predial', termos:['acrilic','latex','fundo prepar','textura','impermeab'] },
 };
 const pitchDoLead = (l) => LEAD_PITCH[l.category] ||
   { funil:'demanda', linha:'linha completa de tintas', termos:['acrilic','latex'] };
@@ -2302,7 +2367,7 @@ const Leads = () => {
   const [filtroSegmento, setFiltroSegmento] = useState('TODOS');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [ordenar, setOrdenar] = useState('rating');
-  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [abordar, setAbordar] = useState(null); // lead da janela de abordagem
 
   const removeDuplicates = async (allLeads) => {
@@ -2454,7 +2519,7 @@ const Leads = () => {
             <option value="name">Ordenar: Nome A-Z</option>
           </select>
           <button onClick={exportCSV} style={{ padding:'10px 16px', borderRadius:10, border:'1px solid '+C.border, background:C.bg, color:C.ink, fontSize:12, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>⬇ CSV</button>
-          <button onClick={()=>setAiModalOpen(true)} style={{ padding:'10px 16px', borderRadius:10, border:'none', background:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(131,56,236,0.35)' }}>✨ Busca AI</button>
+          <button onClick={()=>setImportOpen(true)} title="Importar leads de uma planilha (Excel salvo como CSV)" style={{ padding:'10px 16px', borderRadius:10, border:'none', background:C.p1, color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6 }}>📥 Importar planilha</button>
         </div>
 
         {/* SEGMENT CHIPS */}
@@ -2546,7 +2611,7 @@ const Leads = () => {
           </tbody>
         </table>
       </div>
-      <AiSearchModal open={aiModalOpen} onClose={()=>setAiModalOpen(false)} onResults={fetchLeads} existingLeads={leads} />
+      <ImportarPlanilhaModal open={importOpen} onClose={()=>setImportOpen(false)} onPronto={fetchLeads} existingLeads={leads} />
       {abordar ? (
         <AbordagemModal
           lead={abordar}

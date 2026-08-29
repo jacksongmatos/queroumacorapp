@@ -103,6 +103,33 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **Leads: "Busca AI" REMOVIDO, importador de planilha no lugar
+  (2026-08-29, portal v=20260829o).** O botão "✨ Busca AI" NÃO buscava
+  nada: mandava o modelo INVENTAR empresas plausíveis (nome, telefone,
+  nota, avaliações) e salvava como lead `source='ai_search'`. Telefone
+  inventado em formato válido é o telefone de alguém — e com o botão
+  "💬 Abordar" ao lado, viram mensagem pra estranho. A base tinha 0
+  `ai_search` (os 88 originais são `captacao`), então nada a limpar.
+  No lugar entrou **"📥 Importar planilha"** (`ImportarPlanilhaModal`):
+  lê CSV (xlsx é ZIP+XML e exigiria biblioteca; o portal não tem
+  bundler), **detecta separador `;`/`,`/tab e re-decodifica em
+  windows-1252** quando o UTF-8 falha (Excel pt-BR salva ANSI e com
+  ponto-e-vírgula — sem isso vem tudo numa coluna ou com acento
+  quebrado), casa as colunas sozinho por nome de cabeçalho com correção
+  manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
+  grava em lotes de 200 com `source='planilha'`.
+  - **Importação de 986 leads do Google Maps (2026-08-29)** —
+    `/migrations/2026-08-29-import-leads-planilha.sql`, **PENDENTE de
+    rodar.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    sem telefone ficaram fora). Categoria crua do Maps ("Architect",
+    "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
+    quando a categoria briga com ele; "Região" separada em cidade ×
+    bairro (696 linhas traziam o TERMO DE BUSCA, tipo "arquiteto Osasco
+    SP", não região); prioridade pela distância (alta = Guarulhos +
+    vizinhos 422, media = metropolitana 311, baixa = interior 253).
+    `LEAD_PITCH` ganhou a chave **'Engenharia'** (funil `fornece`) — 234
+    leads caem nela.
+
 - **REGRA: TODO horário do QueroUmaCor é BRASÍLIA (2026-08-28).** App e
   portal exibem sempre `America/Sao_Paulo`, independente do fuso do
   aparelho/computador. Implementado por patch na RAIZ (não em cada
