@@ -13,14 +13,21 @@
 // lista de cores do ProductDetailSheet, `maxHeight: 220`).
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { globSync } from 'node:fs';
 
 const root = join(__dirname, '..');
 
 function sourceFiles(): string[] {
-  return globSync('{app,components}/**/*.tsx', { cwd: root }).map((f) => join(root, f));
+  // readdirSync recursivo em vez de fs.globSync: globSync só existe no Node 22+
+  // e o CI roda Node 20 — a suíte passava na máquina e quebrava lá
+  // ("globSync is not a function"). readdirSync com `recursive` é estável
+  // desde o Node 20 e varre a mesma coisa que '{app,components}/**/*.tsx'.
+  return ['app', 'components'].flatMap((dir) =>
+    readdirSync(join(root, dir), { recursive: true, encoding: 'utf8' })
+      .filter((f) => f.endsWith('.tsx'))
+      .map((f) => join(root, dir, f)),
+  );
 }
 
 /** Arquivos que renderizam um <BottomSheet> — só neles a regra vale. */
