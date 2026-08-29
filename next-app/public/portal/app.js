@@ -4732,6 +4732,523 @@ const LEAD_STATUS_COLORS = {
   convertido: C.p1,
   perdido: C.p4
 };
+
+// ══ ABORDAGEM DE LEAD POR WHATSAPP ═══════════════════════════════════════
+// Mensagem personalizada por SEGMENTO, com produtos do NOSSO catalogo.
+// REGRA DE NEGOCIO (decisao do dono, 2026-08-29): a mensagem NUNCA leva
+// preco nem orcamento — isso e trabalho de pessoa. Por isso o card de
+// produto aqui mostra nome/linha/volume e nada de R$.
+
+// Numero do lead → formato do WhatsApp. Cobre o celular ANTIGO de 8 digitos
+// (comecando 8/9, de antes de 2016) que precisa ganhar o nono digito.
+const normalizeLeadPhone = raw => {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d;
+  if (d.length === 11 && d[2] === '9') return '55' + d; // celular novo
+  if (d.length === 10 && /^[89]/.test(d.slice(2))) return '55' + d.slice(0, 2) + '9' + d.slice(2); // celular antigo
+  if (d.length === 10) return '55' + d; // fixo
+  if (d.length >= 11 && d.length <= 15) return d; // DDI estrangeiro
+  return null;
+};
+
+// Celular ou fixo, so pelo formato (deterministico no Brasil).
+const tipoDeLinha = raw => {
+  const d = String(raw || '').replace(/\D/g, '');
+  const local = d.startsWith('55') ? d.slice(2) : d;
+  if (local.length === 11 && local[2] === '9') return 'celular';
+  if (local.length === 10 && /^[89]/.test(local.slice(2))) return 'celular';
+  if (local.length === 10) return 'fixo';
+  return 'desconhecido';
+};
+
+// Mapa CATEGORIA DO LEAD → o que oferecer + palavras que acham o produto no
+// catalogo (busca no NOME, que e mais confiavel que a taxonomia). Ajustar
+// aqui quando a loja quiser mudar o que oferece pra cada tipo de cliente.
+const LEAD_PITCH = {
+  'Funilaria/Auto': {
+    funil: 'fornece',
+    linha: 'linha automotiva',
+    termos: ['automotiv', 'primer', 'verniz', 'poliester', 'massa pl', 'fundo']
+  },
+  'Auto Center': {
+    funil: 'fornece',
+    linha: 'linha automotiva',
+    termos: ['automotiv', 'primer', 'verniz', 'fundo']
+  },
+  'Pintor': {
+    funil: 'fornece',
+    linha: 'linha residencial e comercial',
+    termos: ['latex', 'acrilic', 'massa corrida', 'seladora', 'fundo']
+  },
+  'Graffiti/Arte': {
+    funil: 'fornece',
+    linha: 'linha de spray e arte',
+    termos: ['spray', 'aerossol', 'acrilic']
+  },
+  'Construtora': {
+    funil: 'fornece',
+    linha: 'linha de obra em grande volume',
+    termos: ['acrilic', 'latex', 'fundo prepar', 'textura', '18l']
+  },
+  'Reforma': {
+    funil: 'fornece',
+    linha: 'linha de reforma',
+    termos: ['acrilic', 'latex', 'massa', 'seladora']
+  },
+  'Materiais': {
+    funil: 'fornece',
+    linha: 'linha completa pra revenda',
+    termos: ['acrilic', 'latex', 'esmalte', 'solvente']
+  },
+  'Marmoraria': {
+    funil: 'fornece',
+    linha: 'impermeabilizantes e vernizes',
+    termos: ['verniz', 'impermeab', 'resina']
+  },
+  'Limpeza': {
+    funil: 'fornece',
+    linha: 'linha de manutencao predial',
+    termos: ['acrilic', 'esmalte', 'solvente']
+  },
+  'Imobiliária': {
+    funil: 'demanda',
+    linha: 'pintura de imoveis pra locacao e venda',
+    termos: ['acrilic', 'latex', 'massa corrida']
+  },
+  'Condomínio': {
+    funil: 'demanda',
+    linha: 'pintura de fachada e areas comuns',
+    termos: ['fachada', 'acrilic', 'textura', 'impermeab']
+  },
+  'Bares': {
+    funil: 'demanda',
+    linha: 'pintura de salao e fachada',
+    termos: ['acrilic', 'esmalte', 'epoxi']
+  },
+  'Academia': {
+    funil: 'demanda',
+    linha: 'pintura de salao e piso',
+    termos: ['epoxi', 'piso', 'acrilic']
+  },
+  'Supermercado': {
+    funil: 'demanda',
+    linha: 'pintura de loja, piso e fachada',
+    termos: ['epoxi', 'piso', 'acrilic', 'fachada']
+  },
+  'Pousada': {
+    funil: 'demanda',
+    linha: 'pintura de quartos e fachada',
+    termos: ['acrilic', 'latex', 'fachada']
+  },
+  'Arquitetura': {
+    funil: 'demanda',
+    linha: 'especificacao de cores e acabamentos',
+    termos: ['acrilic', 'textura', 'efeito']
+  }
+};
+const pitchDoLead = l => LEAD_PITCH[l.category] || {
+  funil: 'demanda',
+  linha: 'linha completa de tintas',
+  termos: ['acrilic', 'latex']
+};
+
+// Monta o texto da abordagem. Sem preco — ver regra no topo do bloco.
+const montarAbordagem = (lead, produtos) => {
+  const p = pitchDoLead(lead);
+  const nome = (lead.name || '').trim();
+  const ondeEsta = lead.neighborhood || lead.city || '';
+  const saudacao = 'Olá' + (nome ? ', ' + nome : '') + '!';
+  const abre = ' Aqui é a Cali Colors, loja de tintas em Guarulhos.';
+  const contexto = ondeEsta ? ' Vi que vocês atuam em ' + ondeEsta + '.' : '';
+  let corpo;
+  if (p.funil === 'fornece') {
+    corpo = '\n\nTrabalhamos com ' + p.linha + ' e atendemos profissionais com condição especial.';
+    if (produtos.length) {
+      corpo += ' Por exemplo:\n' + produtos.map(x => '• ' + x.name + (x.volume ? ' (' + x.volume + ')' : '')).join('\n');
+    }
+    corpo += '\n\nPosso te passar as condições pra profissional? Temos também o QueroUmaCor, nosso app onde pintores recebem pedidos de orçamento da região — entrar é gratuito.';
+  } else {
+    corpo = '\n\nAtendemos ' + p.linha + ': fornecemos a tinta e indicamos profissionais avaliados pelo nosso app.';
+    if (produtos.length) {
+      corpo += ' Trabalhamos com ' + produtos.slice(0, 3).map(x => x.name).join(', ') + ', entre outros.';
+    }
+    corpo += '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
+  }
+  return saudacao + abre + contexto + corpo + '\n\n_Se preferir não receber mensagens, é só responder PARE._';
+};
+
+// Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
+// catalogo pelo segmento (marcaveis), deixa editar o texto e envia pelo
+// canal da loja.
+const AbordagemModal = ({
+  lead,
+  onClose,
+  onSent
+}) => {
+  const [produtos, setProdutos] = useState([]);
+  const [sel, setSel] = useState({});
+  const [texto, setTexto] = useState('');
+  const [busca, setBusca] = useState('');
+  const [carregando, setCarregando] = useState(true);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState('');
+  const [editado, setEditado] = useState(false);
+  const pitch = pitchDoLead(lead);
+  const alvo = normalizeLeadPhone(lead.phone);
+  const linha = tipoDeLinha(lead.phone);
+
+  // Busca no catalogo pelos termos do segmento (ou pela busca manual).
+  const buscarProdutos = async termosManuais => {
+    setCarregando(true);
+    const termos = termosManuais ? [termosManuais] : pitch.termos;
+    const filtro = termos.map(t => 'name.ilike.*' + t + '*').join(',');
+    const {
+      data
+    } = await supa.from('products').select('id, name, volume, line, category, stock, active').or(filtro).eq('active', true).limit(12);
+    const lista = (data || []).filter(p => p.stock == null || p.stock > 0).slice(0, 8);
+    setProdutos(lista);
+    if (!termosManuais) {
+      const inicial = {};
+      lista.slice(0, 3).forEach(p => {
+        inicial[p.id] = true;
+      });
+      setSel(inicial);
+    }
+    setCarregando(false);
+  };
+  useEffect(() => {
+    buscarProdutos();
+  }, []);
+
+  // Recompoe o texto sempre que a selecao muda — a menos que o operador
+  // ja tenha editado na mao (nao sobrescrever o trabalho dele).
+  const escolhidos = produtos.filter(p => sel[p.id]);
+  useEffect(() => {
+    if (!editado) setTexto(montarAbordagem(lead, escolhidos));
+  }, [produtos, sel, editado]);
+  const enviar = async () => {
+    if (!alvo) {
+      setErro('Numero invalido neste lead.');
+      return;
+    }
+    if (!texto.trim()) {
+      setErro('A mensagem esta vazia.');
+      return;
+    }
+    setEnviando(true);
+    setErro('');
+    try {
+      const {
+        data: {
+          session
+        }
+      } = await supa.auth.getSession();
+      if (!session) {
+        setErro('Sessao expirada — entre de novo.');
+        setEnviando(false);
+        return;
+      }
+      const r = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          accessToken: session.access_token,
+          to: alvo,
+          body: texto
+        })
+      });
+      let raw = '';
+      try {
+        raw = await r.text();
+      } catch (_) {}
+      let res = {};
+      try {
+        res = JSON.parse(raw);
+      } catch (_) {}
+      if (!r.ok || !res.ok) {
+        const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+        setErro(res.error || 'Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')');
+        setEnviando(false);
+        return;
+      }
+      // Enviou: marca o lead como contactado (best-effort — a mensagem ja saiu).
+      try {
+        await supa.from('leads').update({
+          status: 'contactado'
+        }).eq('id', lead.id);
+      } catch (_) {}
+      if (onSent) onSent(alvo);
+      onClose();
+    } catch (_) {
+      setErro('Falha de rede ao enviar.');
+    }
+    setEnviando(false);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: onClose,
+    style: {
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(26,26,46,.5)',
+      zIndex: 1000,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      background: '#fff',
+      borderRadius: 16,
+      width: 'min(720px, 96vw)',
+      maxHeight: '92vh',
+      display: 'flex',
+      flexDirection: 'column',
+      boxShadow: '0 16px 48px rgba(0,0,0,.24)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '16px 20px',
+      borderBottom: '1px solid ' + C.border,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 16,
+      color: C.ink
+    }
+  }, lead.name || 'Lead sem nome'), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      marginTop: 2,
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", null, lead.category || '—'), /*#__PURE__*/React.createElement("span", null, "\xB7"), /*#__PURE__*/React.createElement("span", null, pitch.funil === 'fornece' ? '🎨 fornece obra (compra tinta)' : '🏢 precisa de obra'), /*#__PURE__*/React.createElement("span", null, "\xB7"), /*#__PURE__*/React.createElement("span", null, lead.phone || 'sem telefone'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: linha === 'celular' ? C.p6 + '22' : C.p7 + '33',
+      color: linha === 'celular' ? C.p6 : '#b8860b',
+      borderRadius: 6,
+      padding: '1px 7px',
+      fontWeight: 600
+    }
+  }, linha === 'celular' ? 'celular' : linha === 'fixo' ? 'fixo (pode não ter WhatsApp)' : 'formato estranho'))), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      background: 'none',
+      border: 'none',
+      fontSize: 22,
+      cursor: 'pointer',
+      color: C.muted,
+      lineHeight: 1
+    }
+  }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 20,
+      overflowY: 'auto',
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink,
+      marginBottom: 8
+    }
+  }, "Produtos do cat\xE1logo pra este segmento", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      color: C.muted
+    }
+  }, " \u2014 marque o que entra na mensagem")), /*#__PURE__*/React.createElement("input", {
+    value: busca,
+    onChange: e => setBusca(e.target.value),
+    onKeyDown: e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        buscarProdutos(busca.trim() || null);
+      }
+    },
+    placeholder: "Buscar outro produto no cat\xE1logo e apertar Enter\u2026",
+    style: {
+      width: '100%',
+      padding: '8px 12px',
+      borderRadius: 10,
+      border: '1.5px solid ' + C.border,
+      fontSize: 13,
+      outline: 'none',
+      marginBottom: 10
+    }
+  }), carregando ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 13,
+      padding: '10px 0'
+    }
+  }, "Buscando no cat\xE1logo\u2026") : produtos.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 13,
+      padding: '10px 0'
+    }
+  }, "Nenhum produto encontrado pra este segmento. Use a busca acima \u2014 ou envie sem produtos mesmo.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: 8,
+      marginBottom: 16
+    }
+  }, produtos.map(p => /*#__PURE__*/React.createElement("label", {
+    key: p.id,
+    style: {
+      display: 'flex',
+      gap: 8,
+      alignItems: 'flex-start',
+      padding: '8px 10px',
+      border: '1px solid ' + (sel[p.id] ? C.p1 : C.border),
+      borderRadius: 10,
+      cursor: 'pointer',
+      background: sel[p.id] ? C.p1 + '0d' : '#fff'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: !!sel[p.id],
+    onChange: () => {
+      setSel(s => ({
+        ...s,
+        [p.id]: !s[p.id]
+      }));
+      setEditado(false);
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.35
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 600,
+      color: C.ink
+    }
+  }, p.name), p.volume ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.muted
+    }
+  }, " \xB7 ", p.volume) : null, p.line ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 11
+    }
+  }, p.line) : null)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink,
+      marginBottom: 6,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "Mensagem"), editado ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEditado(false),
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 6,
+      padding: '2px 8px',
+      fontSize: 11,
+      cursor: 'pointer',
+      color: C.muted
+    }
+  }, "\u21BA Voltar ao texto autom\xE1tico") : null), /*#__PURE__*/React.createElement("textarea", {
+    value: texto,
+    onChange: e => {
+      setTexto(e.target.value);
+      setEditado(true);
+    },
+    rows: 10,
+    style: {
+      width: '100%',
+      padding: 12,
+      borderRadius: 12,
+      border: '1.5px solid ' + C.border,
+      fontSize: 13,
+      lineHeight: 1.5,
+      outline: 'none',
+      resize: 'vertical',
+      fontFamily: 'DM Sans, sans-serif'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
+      marginTop: 6
+    }
+  }, "Sem pre\xE7o por regra da loja \u2014 valor e or\xE7amento s\xE3o tratados por uma pessoa."), erro ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: '8px 12px',
+      background: '#fdecea',
+      color: '#b3261e',
+      borderRadius: 8,
+      fontSize: 12
+    }
+  }, erro) : null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '14px 20px',
+      borderTop: '1px solid ' + C.border,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, "Envia pelo n\xFAmero da loja \xB7 +55 11 92072-5935"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      padding: '9px 16px',
+      fontSize: 13,
+      cursor: 'pointer',
+      color: C.muted
+    }
+  }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+    onClick: enviar,
+    disabled: enviando || !alvo,
+    style: {
+      background: C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 10,
+      padding: '9px 22px',
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: enviando ? 'wait' : 'pointer',
+      opacity: enviando || !alvo ? .6 : 1
+    }
+  }, enviando ? 'Enviando…' : '📤 Enviar abordagem')))));
+};
 const LEAD_PRIO_COLORS = {
   alta: C.p6,
   media: C.p7,
@@ -4746,6 +5263,8 @@ const Leads = () => {
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [ordenar, setOrdenar] = useState('rating');
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [abordar, setAbordar] = useState(null); // lead da janela de abordagem
+
   const removeDuplicates = async allLeads => {
     const seen = {};
     const dupeIds = [];
@@ -4850,12 +5369,18 @@ const Leads = () => {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // Abre o WhatsApp no APARELHO do operador (canal secundario — quando ele
+  // prefere falar do proprio celular em vez do numero da loja).
   const openWhatsApp = (phone, name) => {
     if (!phone) return;
-    const num = phone.replace(/\D/g, '');
-    const fullNum = num.startsWith('55') ? num : '55' + num;
+    const alvo = normalizeLeadPhone(phone);
+    if (!alvo) {
+      alert('Numero invalido neste lead.');
+      return;
+    }
     const msg = encodeURIComponent('Olá ' + (name || '') + '! Somos da Cali Colors — QueroUmaCor. Gostaríamos de apresentar nossa plataforma para você. Podemos conversar?');
-    window.open('https://wa.me/' + fullNum + '?text=' + msg, '_blank', 'noopener,noreferrer');
+    window.open('https://wa.me/' + alvo + '?text=' + msg, '_blank', 'noopener,noreferrer');
   };
   if (loading) return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5283,8 +5808,15 @@ const Leads = () => {
       style: {
         padding: '12px 10px'
       }
-    }, l.phone ? /*#__PURE__*/React.createElement("button", {
-      onClick: () => openWhatsApp(l.phone, l.name),
+    }, l.phone ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setAbordar(l),
+      title: "Abordagem personalizada pelo numero da loja",
       style: {
         background: '#25D366',
         color: '#fff',
@@ -5299,7 +5831,18 @@ const Leads = () => {
         gap: 4,
         whiteSpace: 'nowrap'
       }
-    }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCF1"), " WhatsApp") : /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCAC"), " Abordar"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => openWhatsApp(l.phone, l.name),
+      title: "Abrir no MEU WhatsApp (nao usa o numero da loja)",
+      style: {
+        background: 'none',
+        border: '1px solid ' + C.border,
+        borderRadius: 8,
+        padding: '5px 8px',
+        cursor: 'pointer',
+        fontSize: 12
+      }
+    }, "\uD83D\uDCF1")) : /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.muted
       }
@@ -5309,7 +5852,11 @@ const Leads = () => {
     onClose: () => setAiModalOpen(false),
     onResults: fetchLeads,
     existingLeads: leads
-  }));
+  }), abordar ? /*#__PURE__*/React.createElement(AbordagemModal, {
+    lead: abordar,
+    onClose: () => setAbordar(null),
+    onSent: () => fetchLeads()
+  }) : null);
 };
 
 // Status de orcamento — novo ciclo:
@@ -7910,18 +8457,27 @@ const WhatsAppTab = () => {
     setLoading(false);
   };
 
-  // Perfis do app com telefone → nome/@tag na lista (casamento pelos
-  // ultimos 8 digitos, robusto a DDI/9 na frente/formatacao).
+  // Quem e o dono do numero? Duas fontes, casadas pelos ULTIMOS 8 DIGITOS
+  // (robusto a DDI, nono digito e formatacao):
+  //   1. profiles — usuario cadastrado no app (tem @tag)
+  //   2. leads    — contato da prospeccao (ainda nao e usuario)
+  // Sem isso, conversa que a LOJA inicia fica so com o numero na tela: o
+  // nome do WhatsApp (pushName) so chega quando a pessoa RESPONDE.
+  const [leadByPhone, setLeadByPhone] = useState({});
   const loadProfiles = async () => {
-    const {
-      data
-    } = await supa.from('profiles').select('id, name, tag, phone').not('phone', 'is', null).limit(3000);
-    const map = {};
-    (data || []).forEach(p => {
+    const [profRes, leadRes] = await Promise.all([supa.from('profiles').select('id, name, tag, phone').not('phone', 'is', null).limit(3000), supa.from('leads').select('id, name, phone, category, status').not('phone', 'is', null).limit(3000)]);
+    const mapP = {};
+    (profRes.data || []).forEach(p => {
       const dig = String(p.phone || '').replace(/\D/g, '');
-      if (dig.length >= 8) map[dig.slice(-8)] = p;
+      if (dig.length >= 8) mapP[dig.slice(-8)] = p;
     });
-    setProfByPhone(map);
+    setProfByPhone(mapP);
+    const mapL = {};
+    (leadRes.data || []).forEach(l => {
+      const dig = String(l.phone || '').replace(/\D/g, '');
+      if (dig.length >= 8) mapL[dig.slice(-8)] = l;
+    });
+    setLeadByPhone(mapL);
   };
 
   // REALTIME (Wave 45): o banco AVISA quando entra mensagem — a msg
@@ -7980,10 +8536,23 @@ const WhatsAppTab = () => {
     });
     return Object.values(map).sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
   }, [msgs]);
+
+  // Prioridade: usuario do app > lead da prospeccao > nome do WhatsApp >
+  // numero formatado.
   const nomeDe = c => {
-    const prof = profByPhone[c.waId.slice(-8)];
+    const chave = c.waId.slice(-8);
+    const prof = profByPhone[chave];
     if (prof) return (prof.name || '@' + prof.tag) + (prof.tag ? ' (@' + prof.tag + ')' : '');
+    const lead = leadByPhone[chave];
+    if (lead && lead.name) return lead.name;
     return c.name || fmtWaPhone(c.waId);
+  };
+  // Etiqueta de origem, pra saber com quem se esta falando.
+  const origemDe = c => {
+    const chave = c.waId.slice(-8);
+    if (profByPhone[chave]) return null; // usuario do app ja aparece com @tag
+    const lead = leadByPhone[chave];
+    return lead ? lead.category || 'Lead' : null;
   };
   const convsFiltradas = convs.filter(c => {
     if (!busca.trim()) return true;
@@ -8273,7 +8842,14 @@ const WhatsAppTab = () => {
       color: C.muted,
       whiteSpace: 'nowrap'
     }
-  }, waHora(c.last))), /*#__PURE__*/React.createElement("div", {
+  }, waHora(c.last))), origemDe(c) ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.p3,
+      fontWeight: 600,
+      marginTop: 1
+    }
+  }, origemDe(c)) : null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: C.muted,
@@ -8309,14 +8885,27 @@ const WhatsAppTab = () => {
       fontSize: 14,
       color: C.ink
     }
-  }, aberta ? nomeDe(aberta) : fmtWaPhone(openWa), /*#__PURE__*/React.createElement("span", {
+  }, aberta ? nomeDe(aberta) : leadByPhone[openWa.slice(-8)]?.name || fmtWaPhone(openWa), /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 400,
       color: C.muted,
       fontSize: 12,
       marginLeft: 8
     }
-  }, fmtWaPhone(openWa))), /*#__PURE__*/React.createElement("div", {
+  }, fmtWaPhone(openWa)), (() => {
+    const org = aberta ? origemDe(aberta) : leadByPhone[openWa.slice(-8)]?.category || null;
+    return org ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 8,
+        background: C.p3 + '1f',
+        color: C.p3,
+        borderRadius: 6,
+        padding: '2px 8px',
+        fontSize: 11,
+        fontWeight: 600
+      }
+    }, org) : null;
+  })()), /*#__PURE__*/React.createElement("div", {
     ref: threadRef,
     style: {
       flex: 1,
