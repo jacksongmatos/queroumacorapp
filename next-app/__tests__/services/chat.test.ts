@@ -79,6 +79,7 @@ interface Spies {
   eqsByTable: Record<string, Array<{ col: string; val: unknown }>>;
   isByTable: Record<string, Array<{ col: string; val: unknown }>>;
   insByTable: Record<string, Array<{ col: string; vals: unknown[] }>>;
+  orsByTable: Record<string, string[]>;
   rpcCalls: Array<{ fn: string }>;
   uploads: Array<{ bucket: string; path: string; mime?: string }>;
   publicUrls: string[];
@@ -104,6 +105,7 @@ function makeFakeClient(
     eqsByTable: {},
     isByTable: {},
     insByTable: {},
+    orsByTable: {},
     rpcCalls: [],
     uploads: [],
     publicUrls: [],
@@ -134,7 +136,10 @@ function makeFakeClient(
     };
     chain.neq = () => chain;
     chain.ilike = () => chain;
-    chain.or = () => chain;
+    chain.or = (filter: string) => {
+      (spies.orsByTable[table] ??= []).push(filter);
+      return chain;
+    };
     chain.in = (col: string, vals: unknown[]) => {
       (spies.insByTable[table] ??= []).push({ col, vals });
       return chain;
@@ -675,21 +680,27 @@ describe('searchUsers', () => {
   });
 
   it('filtra por nome (case-insensitive) e por tag', async () => {
+    // Quem casa nome/tag é o PostgREST (`or` com dois ilike), não o cliente —
+    // então o que se prova aqui é o FILTRO enviado, e que as linhas que o
+    // banco devolveu passam adiante. O fake não emula `or`: se a fixture
+    // trouxesse o Bob, ele voltaria junto (foi o que quebrou este teste).
     const ctl = makeFakeClient({
       profiles_public: [
         {
           data: [
             { id: '1', name: 'Alice Painter', tag: 'alicep', avatar_url: null, role: 'pintor' },
-            { id: '2', name: 'Bob', tag: 'bob123', avatar_url: null, role: null },
             { id: '3', name: 'Carol', tag: 'aliceFan', avatar_url: null, role: null },
           ],
         },
       ],
     });
     __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
-    const out = await searchUsers('alice');
-    // Match por nome (Alice Painter) E por tag (aliceFan).
+    const out = await searchUsers('ALICE');
     expect(out.map((u) => u.id).sort()).toEqual(['1', '3']);
+    // ilike já é case-insensitive; a query desce em minúsculas e com % dos dois lados.
+    expect(ctl.spies.orsByTable.profiles_public?.[0]).toBe(
+      'name.ilike.%alice%,tag.ilike.%alice%',
+    );
   });
 
   it('exclui IDs informados em excludeIds (e o próprio user em geral)', async () => {

@@ -340,7 +340,7 @@ describe('signUp', () => {
     expect(r.userId).toBe('user-legacy');
   });
 
-  it('passa metadados (name, tag, phone, user_type) pro auth.signUp', async () => {
+  it('passa metadados (name, tag, phone, user_type, city, state, birth_date) pro auth.signUp', async () => {
     const client = makeFakeClient({
       tables: { profiles_public: { selectResult: { data: [], error: null } } },
       signUp: { data: { user: { id: 'u1' } } },
@@ -361,11 +361,46 @@ describe('signUp', () => {
     }).signUp;
     expect(authMock.mock.calls.length).toBe(1);
     const arg = authMock.mock.calls[0][0];
+    // city/state/birth_date vão no metadata de propósito: a trigger
+    // handle_new_user grava tudo já no INSERT (SECURITY DEFINER), sem depender
+    // do UPDATE pós-signup — que rodava sem sessão e deixava cidade em branco.
+    // Não informados, descem como string vazia (nunca undefined).
     expect(arg.options.data).toEqual({
       name: 'João Silva',
       tag: 'joaosilva',
       phone: '5511959765031',
       user_type: 'grafiteiro',
+      city: '',
+      state: '',
+      birth_date: '',
     });
+  });
+
+  it('city/state/birth_date informados descem no metadata, com UF em maiúsculas', async () => {
+    const client = makeFakeClient({
+      tables: { profiles_public: { selectResult: { data: [], error: null } } },
+      signUp: { data: { user: { id: 'u1' } } },
+    });
+    __setSupabaseForTests(client);
+
+    await signUp({
+      email: 'a@b.co',
+      password: 'senha1234',
+      name: 'João Silva',
+      tag: 'joaosilva',
+      phone: '5511959765031',
+      userType: 'grafiteiro',
+      city: 'Guarulhos',
+      state: 'sp',
+      birthDate: '1990-05-20',
+    });
+
+    const authMock = (client.auth as unknown as {
+      signUp: { mock: { calls: Array<[{ options: { data: Record<string, unknown> } }]> } };
+    }).signUp;
+    const data = authMock.mock.calls[0][0].options.data;
+    expect(data.city).toBe('Guarulhos');
+    expect(data.state).toBe('SP');
+    expect(data.birth_date).toBe('1990-05-20');
   });
 });
