@@ -4028,31 +4028,16 @@ const WhatsAppTab = () => {
     setOpenWa(alvo); setErr('');
   };
 
-  // Diagnostico: pergunta ao servidor se ele alcanca o Evolution, se a
-  // apikey e aceita e se a instancia esta conectada (cada etapa com tempo).
+  // Area de resultado (varredura de follow-up). O botao "Testar conexao"
+  // saiu da tela em 2026-08-29: era ferramenta de depuracao do 502 do
+  // envio, ja resolvido. A rota /api/whatsapp-evo/ping CONTINUA no ar —
+  // se precisar diagnosticar de novo, e so chamar ela direto com o token
+  // de admin.
   const [diag, setDiag] = useState(null);
-  const [diagLoading, setDiagLoading] = useState(false);
-  const testarConexao = async () => {
-    setDiagLoading(true); setDiag(null);
-    try {
-      const { data: { session } } = await supa.auth.getSession();
-      if(!session){ setDiag('Sessao expirada — entre de novo.'); setDiagLoading(false); return; }
-      const r = await fetch('/api/whatsapp-evo/ping', { headers:{ Authorization:'Bearer ' + session.access_token } });
-      let raw = ''; try { raw = await r.text(); } catch(_){}
-      let j = null; try { j = JSON.parse(raw); } catch(_){}
-      if(!j){ setDiag('HTTP ' + r.status + ' — ' + (raw || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,200)); }
-      else { setDiag(j); if(j.ok) warmRef.current = Date.now(); }
-    } catch(e) { setDiag('Falha de rede: ' + ((e && e.message) || '?')); }
-    setDiagLoading(false);
-  };
 
   return (
     <div>
       <div style={{ marginBottom:10, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-        <button onClick={testarConexao} disabled={diagLoading}
-          style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:10, padding:'7px 14px', fontSize:12, fontWeight:600, cursor: diagLoading?'wait':'pointer', color:C.ink }}>
-          {diagLoading ? 'Testando…' : '🔌 Testar conexao'}
-        </button>
         <span style={{ fontSize:11, color:C.muted }}>Canal: Evolution · +55 11 92072-5935</span>
         {/* Padrao global da IA: vale pra conversa que ainda nao tem chave
             propria. Serve de "desliga tudo" em caso de emergencia. */}
@@ -4093,12 +4078,12 @@ const WhatsAppTab = () => {
           <button onClick={()=>rodarFollowup(true)} disabled={sweeping}
             title="Simula a varredura agora e mostra o que ela FARIA, sem enviar nada."
             style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:600, cursor: sweeping?'wait':'pointer', color:C.muted }}>
-            {sweeping ? '…' : '👀 Simular'}
+            {sweeping ? '…' : '👀 Simular follow-up'}
           </button>
           <button onClick={()=>{ if(confirm('Rodar o follow-up AGORA? Mensagens podem ser enviadas aos clientes.')) rodarFollowup(false); }} disabled={sweeping}
             title="Roda a varredura de verdade agora, sem esperar a proxima hora."
             style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:600, cursor: sweeping?'wait':'pointer', color:C.muted }}>
-            {sweeping ? '…' : '▶ Rodar'}
+            {sweeping ? '…' : '▶ Rodar follow-up agora'}
           </button>
           <span style={{ fontSize:11, color:C.muted }}>
             IA por padrão em conversas novas: <strong style={{ color: iaPadrao ? C.p6 : C.muted }}>{iaPadrao ? 'ligada' : 'desligada'}</strong>

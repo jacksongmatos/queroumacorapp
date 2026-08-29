@@ -75,10 +75,10 @@
       pra NULL). Servidor (`isAiEnabledFor`) e portal (`iaLigada`) checam
       `typeof enabled === 'boolean'`. **Nunca escrever `enabled` em
       upsert que não seja a chave de propósito.**
-  - Portal (v=20260829k): chave "IA ligada/desligada" por conversa +
+  - Portal (v=20260829l): chave "IA ligada/desligada" por conversa +
     botão "💬 Auto-resposta ligada/desligada" (mensagem de ausência) +
-    botão "🔁 Follow-up ligado/desligado" + "👀 Simular" (dryRun, mostra o
-    que a varredura FARIA sem enviar) + "▶ Rodar" + linha com a última
+    botão "🔁 Follow-up ligado/desligado" + "👀 Simular follow-up" (dryRun, mostra o
+    que a varredura FARIA sem enviar) + "▶ Rodar follow-up agora" + linha com a última
     varredura (`last_sweep_at`/`last_sweep_note`) +
     botão 🕐 "Só horário comercial ⟷ Responde 24h" + faixa de alertas
     com "Abrir conversa" + botão "✨ Sugerir" (copiloto: rota
@@ -151,8 +151,9 @@
     eco local otimista no envio.
   - **Diagnóstico**: `GET /api/whatsapp-evo/ping` (admin-only) mede
     conectividade + apikey + estado da instância a partir do edge e
-    reporta as envs sem vazar segredo; botão "🔌 Testar conexao" no topo
-    da aba WhatsApp do portal.
+    reporta as envs sem vazar segredo. O botão "🔌 Testar conexao" SAIU da
+    tela em 2026-08-29 (era ferramenta do 502 do envio, já resolvido) —
+    a rota continua no ar, chamar direto com token de admin se precisar.
   - **Render é PAGO desde 2026-08-29 (Starter US$7/mês) — NÃO dorme mais.**
     O plano free dormia com 15min parado e derrubava a conexão do
     WhatsApp junto (o pior efeito; a lentidão de ~50s era só o sintoma

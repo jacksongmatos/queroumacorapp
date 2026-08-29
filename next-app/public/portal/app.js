@@ -8972,48 +8972,12 @@ const WhatsAppTab = () => {
     setErr('');
   };
 
-  // Diagnostico: pergunta ao servidor se ele alcanca o Evolution, se a
-  // apikey e aceita e se a instancia esta conectada (cada etapa com tempo).
+  // Area de resultado (varredura de follow-up). O botao "Testar conexao"
+  // saiu da tela em 2026-08-29: era ferramenta de depuracao do 502 do
+  // envio, ja resolvido. A rota /api/whatsapp-evo/ping CONTINUA no ar —
+  // se precisar diagnosticar de novo, e so chamar ela direto com o token
+  // de admin.
   const [diag, setDiag] = useState(null);
-  const [diagLoading, setDiagLoading] = useState(false);
-  const testarConexao = async () => {
-    setDiagLoading(true);
-    setDiag(null);
-    try {
-      const {
-        data: {
-          session
-        }
-      } = await supa.auth.getSession();
-      if (!session) {
-        setDiag('Sessao expirada — entre de novo.');
-        setDiagLoading(false);
-        return;
-      }
-      const r = await fetch('/api/whatsapp-evo/ping', {
-        headers: {
-          Authorization: 'Bearer ' + session.access_token
-        }
-      });
-      let raw = '';
-      try {
-        raw = await r.text();
-      } catch (_) {}
-      let j = null;
-      try {
-        j = JSON.parse(raw);
-      } catch (_) {}
-      if (!j) {
-        setDiag('HTTP ' + r.status + ' — ' + (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200));
-      } else {
-        setDiag(j);
-        if (j.ok) warmRef.current = Date.now();
-      }
-    } catch (e) {
-      setDiag('Falha de rede: ' + (e && e.message || '?'));
-    }
-    setDiagLoading(false);
-  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 10,
@@ -9022,20 +8986,7 @@ const WhatsAppTab = () => {
       gap: 10,
       flexWrap: 'wrap'
     }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: testarConexao,
-    disabled: diagLoading,
-    style: {
-      background: '#fff',
-      border: '1px solid ' + C.border,
-      borderRadius: 10,
-      padding: '7px 14px',
-      fontSize: 12,
-      fontWeight: 600,
-      cursor: diagLoading ? 'wait' : 'pointer',
-      color: C.ink
-    }
-  }, diagLoading ? 'Testando…' : '🔌 Testar conexao'), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted
@@ -9133,7 +9084,7 @@ const WhatsAppTab = () => {
       cursor: sweeping ? 'wait' : 'pointer',
       color: C.muted
     }
-  }, sweeping ? '…' : '👀 Simular'), /*#__PURE__*/React.createElement("button", {
+  }, sweeping ? '…' : '👀 Simular follow-up'), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (confirm('Rodar o follow-up AGORA? Mensagens podem ser enviadas aos clientes.')) rodarFollowup(false);
     },
@@ -9149,7 +9100,7 @@ const WhatsAppTab = () => {
       cursor: sweeping ? 'wait' : 'pointer',
       color: C.muted
     }
-  }, sweeping ? '…' : '▶ Rodar'), /*#__PURE__*/React.createElement("span", {
+  }, sweeping ? '…' : '▶ Rodar follow-up agora'), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted
