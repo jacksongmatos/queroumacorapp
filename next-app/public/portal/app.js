@@ -8549,6 +8549,56 @@ const WhatsAppTab = () => {
       alert('Nao consegui salvar a chave da IA: ' + error.message);
     }
   };
+
+  // Copiloto: pede a sugestao da IA e joga no campo de texto (NAO envia).
+  // Funciona a qualquer hora — quem pediu foi uma pessoa.
+  const [sugerindo, setSugerindo] = useState(false);
+  const sugerirResposta = async () => {
+    if (!openWa || sugerindo) return;
+    setSugerindo(true);
+    setErr('');
+    try {
+      const {
+        data: {
+          session
+        }
+      } = await supa.auth.getSession();
+      if (!session) {
+        setErr('Sessao expirada — entre de novo.');
+        setSugerindo(false);
+        return;
+      }
+      const r = await fetch('/api/whatsapp-evo/suggest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          accessToken: session.access_token,
+          waId: openWa
+        })
+      });
+      let raw = '';
+      try {
+        raw = await r.text();
+      } catch (_) {}
+      let res = {};
+      try {
+        res = JSON.parse(raw);
+      } catch (_) {}
+      if (!r.ok || !res.ok) {
+        setErr(res.error || 'IA nao respondeu (HTTP ' + r.status + ')');
+      } else {
+        setText(res.reply || '');
+        if (res.escalate) {
+          setErr('⚠️ Esta conversa pede ' + (res.reason === 'preco' ? 'PREÇO' : res.reason === 'orcamento' ? 'ORÇAMENTO' : 'atendimento humano') + ' — a sugestão acima só ganha tempo. Responda você.');
+        }
+      }
+    } catch (_) {
+      setErr('Falha de rede ao pedir a sugestao.');
+    }
+    setSugerindo(false);
+  };
   const resolverAlerta = async id => {
     setAlertas(a => a.filter(x => x.id !== id)); // otimista
     await supa.from('portal_alerts').update({
@@ -9198,6 +9248,21 @@ const WhatsAppTab = () => {
       outline: 'none'
     }
   }), /*#__PURE__*/React.createElement("button", {
+    onClick: sugerirResposta,
+    disabled: sugerindo,
+    title: "A IA l\xEA a conversa e escreve a resposta aqui (voc\xEA revisa antes de enviar)",
+    style: {
+      background: '#fff',
+      color: C.p3,
+      border: '1.5px solid ' + C.border,
+      borderRadius: 12,
+      padding: '0 14px',
+      fontWeight: 700,
+      fontSize: 13,
+      cursor: sugerindo ? 'wait' : 'pointer',
+      whiteSpace: 'nowrap'
+    }
+  }, sugerindo ? '✨ Pensando…' : '✨ Sugerir'), /*#__PURE__*/React.createElement("button", {
     onClick: enviar,
     disabled: sending || !text.trim(),
     style: {

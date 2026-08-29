@@ -20,6 +20,7 @@ import {
   isBusinessHour,
   isOptOut,
   MAX_AUTO_REPLIES_PER_DAY,
+  parseHoursSetting,
   type ConversationTurn,
   type LeadContext,
 } from './whatsapp-ai';
@@ -178,7 +179,16 @@ export async function maybeAutoReply(opts: {
     const { enabled, state } = await isAiEnabledFor(opts.waId);
     if (!enabled) return { acted: false, why: 'IA desligada nesta conversa' };
     if (!isAiConfigured()) return { acted: false, why: 'OPENAI_API_KEY ausente' };
-    if (!isBusinessHour()) return { acted: false, why: 'fora do horário comercial' };
+
+    // Janela de atendimento configurável no banco (app_settings
+    // 'whatsapp_ai_hours'): "8-19" padrão, "0-24" pra atender sempre.
+    const cfgHoras = await dbGet<{ value: string }>(
+      `app_settings?key=eq.whatsapp_ai_hours&select=value`,
+    );
+    const janela = parseHoursSetting(cfgHoras[0]?.value);
+    if (!isBusinessHour(new Date(), janela)) {
+      return { acted: false, why: `fora do horário de atendimento (${janela.start}h-${janela.end}h BRT)` };
+    }
 
     const hoje = new Date().toISOString().slice(0, 10);
     const jaHoje = state && state.replies_date === hoje ? state.replies_today : 0;

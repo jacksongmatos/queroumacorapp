@@ -3728,6 +3728,33 @@ const WhatsAppTab = () => {
     }
   };
 
+  // Copiloto: pede a sugestao da IA e joga no campo de texto (NAO envia).
+  // Funciona a qualquer hora — quem pediu foi uma pessoa.
+  const [sugerindo, setSugerindo] = useState(false);
+  const sugerirResposta = async () => {
+    if(!openWa || sugerindo) return;
+    setSugerindo(true); setErr('');
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setErr('Sessao expirada — entre de novo.'); setSugerindo(false); return; }
+      const r = await fetch('/api/whatsapp-evo/suggest', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, waId: openWa })
+      });
+      let raw=''; try { raw = await r.text(); } catch(_){}
+      let res={}; try { res = JSON.parse(raw); } catch(_){}
+      if(!r.ok || !res.ok){
+        setErr(res.error || ('IA nao respondeu (HTTP ' + r.status + ')'));
+      } else {
+        setText(res.reply || '');
+        if(res.escalate){
+          setErr('⚠️ Esta conversa pede ' + (res.reason === 'preco' ? 'PREÇO' : res.reason === 'orcamento' ? 'ORÇAMENTO' : 'atendimento humano') + ' — a sugestão acima só ganha tempo. Responda você.');
+        }
+      }
+    } catch(_){ setErr('Falha de rede ao pedir a sugestao.'); }
+    setSugerindo(false);
+  };
+
   const resolverAlerta = async (id) => {
     setAlertas(a => a.filter(x => x.id !== id)); // otimista
     await supa.from('portal_alerts').update({ resolved:true, resolved_at:new Date().toISOString() }).eq('id', id);
@@ -4045,6 +4072,13 @@ const WhatsAppTab = () => {
                   onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviar(); } }}
                   placeholder="Escreva uma mensagem…"
                   style={{ flex:1, padding:'10px 14px', borderRadius:12, border:'1.5px solid '+C.border, fontSize:14, outline:'none' }} />
+                {/* COPILOTO: traz a sugestao da IA pro campo, sem enviar.
+                    Funciona a qualquer hora (quem pediu foi uma pessoa). */}
+                <button onClick={sugerirResposta} disabled={sugerindo} title="A IA lê a conversa e escreve a resposta aqui (você revisa antes de enviar)"
+                  style={{ background:'#fff', color:C.p3, border:'1.5px solid '+C.border, borderRadius:12, padding:'0 14px', fontWeight:700, fontSize:13,
+                    cursor: sugerindo ? 'wait' : 'pointer', whiteSpace:'nowrap' }}>
+                  {sugerindo ? '✨ Pensando…' : '✨ Sugerir'}
+                </button>
                 <button onClick={enviar} disabled={sending || !text.trim()}
                   style={{ background:C.p1, color:'#fff', border:'none', borderRadius:12, padding:'0 20px', fontWeight:700, fontSize:14,
                     cursor: sending ? 'wait' : 'pointer', opacity: sending || !text.trim() ? .6 : 1 }}>

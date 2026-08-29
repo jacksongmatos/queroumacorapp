@@ -88,13 +88,44 @@ export function replyLeaksPrice(text: string): boolean {
   return false;
 }
 
-/** Está dentro do horário comercial de Brasília? */
-export function isBusinessHour(now: Date = new Date()): boolean {
+/**
+ * Está dentro do horário comercial de Brasília?
+ *
+ * A janela é CONFIGURÁVEL (app_settings 'whatsapp_ai_hours', formato
+ * "8-19"; "0-24" = sempre; "off" também libera geral) porque o horário
+ * de atendimento é decisão do dono e muda sem precisar de deploy. Os
+ * parâmetros vêm do runner, que lê o banco.
+ */
+export function isBusinessHour(
+  now: Date = new Date(),
+  janela?: { start: number; end: number; domingo?: boolean },
+): boolean {
+  const start = janela?.start ?? BUSINESS_START_HOUR;
+  const end = janela?.end ?? BUSINESS_END_HOUR;
+  // 24h corridas: não precisa nem olhar o relógio.
+  if (start <= 0 && end >= 24) return true;
   // America/Sao_Paulo (UTC-3, sem horário de verão desde 2019).
-  const h = new Date(now.getTime() - 3 * 60 * 60 * 1000).getUTCHours();
-  const dow = new Date(now.getTime() - 3 * 60 * 60 * 1000).getUTCDay();
-  if (dow === 0) return false; // domingo
-  return h >= BUSINESS_START_HOUR && h < BUSINESS_END_HOUR;
+  const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const h = brt.getUTCHours();
+  const dow = brt.getUTCDay();
+  if (dow === 0 && !janela?.domingo) return false; // domingo
+  return h >= start && h < end;
+}
+
+/** Lê "8-19" / "0-24" / "off" → janela. Formato inválido cai no padrão. */
+export function parseHoursSetting(raw: string | null | undefined): {
+  start: number;
+  end: number;
+  domingo: boolean;
+} {
+  const v = (raw || '').trim().toLowerCase();
+  if (v === 'off' || v === '24h' || v === 'sempre') return { start: 0, end: 24, domingo: true };
+  const m = /^(\d{1,2})\s*-\s*(\d{1,2})(\s*\+dom)?$/.exec(v);
+  if (!m) return { start: BUSINESS_START_HOUR, end: BUSINESS_END_HOUR, domingo: false };
+  const start = Math.max(0, Math.min(24, Number(m[1])));
+  const end = Math.max(0, Math.min(24, Number(m[2])));
+  if (end <= start) return { start: BUSINESS_START_HOUR, end: BUSINESS_END_HOUR, domingo: false };
+  return { start, end, domingo: Boolean(m[3]) };
 }
 
 /** Cliente pediu pra parar de receber mensagens. */
