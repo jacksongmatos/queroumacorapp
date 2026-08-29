@@ -3481,16 +3481,24 @@ const WhatsAppTab = () => {
 
   const [sendStage, setSendStage] = useState('');
 
-  // Acorda o Render ANTES do envio, DIRETO do navegador (mode no-cors: a
-  // resposta nao importa, o que vale e a request chegar la e tirar o
-  // servico do sono). O edge do Cloudflare mata a function se ELA ficar
-  // esperando o cold start (~50s) — o navegador pode esperar a vontade.
-  const acordarEvolution = () => new Promise((resolve) => {
-    const done = setTimeout(resolve, 65000); // teto de espera do aquecimento
-    fetch('https://evolution-api-8arv.onrender.com', { mode:'no-cors', cache:'no-store' })
-      .then(() => { clearTimeout(done); resolve(); })
-      .catch(() => { clearTimeout(done); resolve(); });
-  });
+  // Confere se o Render esta acordado ANTES do envio, direto do navegador
+  // (o edge do Cloudflare morre se ELE ficar esperando o cold start ~50s;
+  // o navegador pode esperar a vontade). mode no-cors: a resposta nao
+  // importa, o que vale e a request chegar la.
+  //
+  // CAMINHO RAPIDO: se responder em ate 2,5s o servidor ja esta de pe e
+  // seguimos direto — sem atraso perceptivel e SEM mostrar "Acordando".
+  // So quando passa disso e que avisamos e esperamos o cold start.
+  const acordarEvolution = async () => {
+    let respondeu = false;
+    const ping = fetch('https://evolution-api-8arv.onrender.com', { mode:'no-cors', cache:'no-store' })
+      .then(() => { respondeu = true; })
+      .catch(() => { respondeu = true; }); // erro tambem prova que ta de pe
+    await Promise.race([ping, new Promise(r => setTimeout(r, 2500))]);
+    if(respondeu) return;
+    setSendStage('Acordando o servidor…');
+    await Promise.race([ping, new Promise(r => setTimeout(r, 60000))]);
+  };
 
   const enviar = async () => {
     const body = text.trim();
@@ -3499,9 +3507,8 @@ const WhatsAppTab = () => {
     try {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErr('Sessao expirada — entre de novo.'); setSending(false); return; }
-      setSendStage('Acordando o servidor…');
-      await acordarEvolution();
       setSendStage('Enviando…');
+      await acordarEvolution(); // vira "Acordando…" só se o Render estiver frio
       const r = await fetch('/api/whatsapp/send', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
