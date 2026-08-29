@@ -89,6 +89,12 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
   const [localQuote, setLocalQuote] = useState<Quote | null>(null);
   const [fetching, setFetching] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
+  // Lista de apps NOSSA, mostrada no app instalado depois que o PDF sobe.
+  // Não é a tela de compartilhar do Android — essa não existe pro lado web
+  // dentro da WebView (ver a nota sobre `intent:` em quotePdf.ts). Cada
+  // opção aqui é uma URL comum que o wrapper já sabe abrir.
+  const [enviarPdf, setEnviarPdf] = useState<{ url: string; texto: string } | null>(null);
+
   // Painter profile = dono do orçamento (quote.painter_id), NÃO o user logado.
   // Antes usei useProfile() do current user, mas se admin abrir orçamento de
   // outro pintor, o cabeçalho do PDF mostrava o nome do admin. Fix puxa pelo
@@ -341,6 +347,12 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     window.location.href = `mailto:?subject=${subj}&body=${body}`;
   }
 
+  function abrirDestino(destino: string) {
+    setEnviarPdf(null);
+    const aba = window.open(destino, '_blank', 'noopener,noreferrer');
+    if (!aba) window.location.href = destino;
+  }
+
   async function handleShareNative() {
     if (!quote) return;
     // Compartilhar = mandar o PDF pro cliente. Três caminhos, nessa ordem:
@@ -354,10 +366,12 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     //  3. navegador desktop: baixa o arquivo.
     try {
       const { shareOrDownloadQuotePdf } = await import('@/lib/pdf/quotePdf');
-      const result = await shareOrDownloadQuotePdf(quote, painterProfile, {
-        text: buildQuoteText(quote),
-        phone: quote.client_phone || null,
-      });
+      const result = await shareOrDownloadQuotePdf(
+        quote,
+        painterProfile,
+        { text: buildQuoteText(quote), phone: quote.client_phone || null },
+        (url, texto) => setEnviarPdf({ url, texto }),
+      );
       if (result === 'downloaded') {
         await dialog.alert(
           'PDF baixado. Anexe no WhatsApp/email pra enviar ao cliente.',
@@ -717,6 +731,148 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
           avatar_url?: string | null;
         } | null}
       />
+
+      {enviarPdf && (
+        <EscolherAppSheet
+          info={enviarPdf}
+          clientPhone={quote.client_phone || null}
+          onClose={() => setEnviarPdf(null)}
+          onPick={abrirDestino}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * "Enviar orçamento por" — a lista de apps que aparece no celular depois
+ * que o PDF sobe pro Storage.
+ *
+ * Por que é NOSSA e não a do Android: dentro da WebView do wrapper não
+ * existe `navigator.share`, e pedir a tela do sistema por `intent:` foi
+ * testado em 2026-08-29 e deu errado feio — o wrapper trata a URL do
+ * intent como download, abre o "Save As" com milhares de caracteres no
+ * campo de nome e salvar dali fecha o app. Então as opções aqui são todas
+ * URLs comuns (https/mailto/sms) que o wrapper já sabe entregar pro app
+ * certo.
+ *
+ * O que vai é o LINK do PDF, não o arquivo anexado: anexar exigiria uma
+ * URI `content://`, impossível pelo lado web. Anexo de verdade só com
+ * build nativo.
+ */
+function EscolherAppSheet({
+  info,
+  clientPhone,
+  onClose,
+  onPick,
+}: {
+  info: { url: string; texto: string };
+  clientPhone: string | null;
+  onClose: () => void;
+  onPick: (destino: string) => void;
+}) {
+  const [copiado, setCopiado] = useState(false);
+  const txt = encodeURIComponent(info.texto);
+  const digitos = (clientPhone || '').replace(/\D/g, '');
+  const zap = digitos
+    ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${txt}`
+    : `https://wa.me/?text=${txt}`;
+
+  const opcoes: Array<{ id: string; label: string; run: () => void }> = [
+    {
+      id: 'whats',
+      label: digitos ? '💬 WhatsApp do cliente' : '💬 WhatsApp',
+      run: () => onPick(zap),
+    },
+    {
+      id: 'sms',
+      label: '✉️ Mensagem (SMS)',
+      run: () => onPick(`sms:${digitos ? digitos : ''}?body=${txt}`),
+    },
+    {
+      id: 'email',
+      label: '📧 E-mail',
+      run: () => onPick(`mailto:?subject=${encodeURIComponent('Orçamento')}&body=${txt}`),
+    },
+    {
+      id: 'telegram',
+      label: '➤ Telegram',
+      run: () =>
+        onPick(
+          `https://t.me/share/url?url=${encodeURIComponent(info.url)}&text=${txt}`,
+        ),
+    },
+    {
+      id: 'face',
+      label: '📘 Facebook',
+      run: () =>
+        onPick(
+          `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(info.url)}`,
+        ),
+    },
+    {
+      id: 'baixar',
+      label: '⬇️ Baixar o arquivo',
+      // A URL já vem com `?download=<nome>`: o Android baixa em vez de abrir.
+      run: () => onPick(info.url),
+    },
+  ];
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enviar orçamento por"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-t-2xl bg-white p-4 pb-6"
+        style={{ maxHeight: '80dvh', overflowY: 'auto' }}
+      >
+        <div className="mb-1 flex items-center justify-between">
+          <h3 className="text-base font-bold">Enviar orçamento por</h3>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="px-2 text-xl">
+            ×
+          </button>
+        </div>
+        <p className="mb-3 text-xs text-[color:var(--color-muted)]">
+          O PDF já está pronto. Escolha por onde mandar — vai o link, e o
+          cliente baixa tocando nele.
+        </p>
+
+        <div className="flex flex-col gap-2">
+          {opcoes.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={o.run}
+              className="rounded-xl border border-[color:var(--color-border)] px-4 py-3 text-left text-sm font-semibold"
+            >
+              {o.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(info.url);
+              } catch {
+                // Clipboard bloqueado no wrapper: o link segue visível abaixo.
+              }
+              setCopiado(true);
+            }}
+            className="rounded-xl border border-[color:var(--color-border)] px-4 py-3 text-left text-sm font-semibold"
+          >
+            {copiado ? '✅ Link copiado' : '🔗 Copiar link'}
+          </button>
+        </div>
+
+        {/* Se o clipboard falhar (comum na WebView), ainda dá pra selecionar
+            o link na mão — melhor que um botão que não faz nada. */}
+        <p className="mt-3 break-all text-[11px] text-[color:var(--color-muted)]">{info.url}</p>
+      </div>
+    </div>
   );
 }
