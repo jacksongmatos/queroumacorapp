@@ -40,7 +40,13 @@ export async function POST(request: NextRequest) {
 
   let payload: unknown;
   try {
-    payload = await readBody(request, { maxBytes: 1024 * 1024 });
+    // 20MB porque, com "Webhook Base64" ligado no Manager, o ARQUIVO vem
+    // dentro do JSON — e base64 infla ~37%. Com o limite antigo de 1MB uma
+    // foto grande estourava e a mensagem inteira era descartada (o catch
+    // devolve 200 e nao grava nada): o cliente mandava a foto da parede e
+    // ela sumia do portal. O teto de mídia guardada continua sendo o
+    // MAX_MEDIA_BYTES do whatsapp-media (12MB).
+    payload = await readBody(request, { maxBytes: 20 * 1024 * 1024 });
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
     // Corpo não-JSON: 200 mesmo assim — não vale retry.

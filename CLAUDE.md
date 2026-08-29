@@ -128,9 +128,12 @@
     marcador sem transcrição.
   - Tudo best-effort: falha de download/upload/Whisper não impede a
     mensagem de ser gravada nem derruba o 200 do webhook.
-  - Migration `/migrations/2026-08-29-whatsapp-media.sql`. **Depois de
-    rodar, ligar "Webhook Base64" no Manager da Evolution** — sem isso
-    cada mídia custa uma chamada extra à API.
+  - **O `readBody` do webhook subiu de 1MB pra 20MB** por causa disso: com
+    Base64 ligado o ARQUIVO viaja dentro do JSON e infla ~37%. No limite
+    antigo uma foto grande estourava e a mensagem INTEIRA era descartada
+    (o catch devolve 200 sem gravar) — a foto da parede sumia do portal.
+  - Migration `/migrations/2026-08-29-whatsapp-media.sql` — **JÁ
+    EXECUTADA (2026-08-29)** e "Webhook Base64" JÁ LIGADO no Manager.
 
 - **Leads: "Busca AI" REMOVIDO, importador de planilha no lugar
   (2026-08-29, portal v=20260829o).** O botão "✨ Busca AI" NÃO buscava
