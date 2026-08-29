@@ -1,5 +1,15 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **REGRA FIXA (2026-08-29): NÃO EXISTE BUILD NATIVO. Não sugerir.** O
+  projeto é código no GitHub → Cloudflare Pages → **WebIntoApp** empacota
+  o site num AAB. Capacitor, Bubblewrap/TWA e plugins nativos estão FORA
+  de escopo — o `capacitor.config.ts` e o `docs/IOS_BUILD.md` no repo são
+  restos de uma direção abandonada. Toda limitação de WebView se resolve
+  de duas formas, nesta ordem: (1) uma opção no painel do WebIntoApp, ou
+  (2) se o painel não oferecer, uma alternativa pelo lado web — e, quando
+  não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
+  build nativo" como se fosse um plano.**
+
 - **Coluna TELEFONE nas listas de pessoas (2026-08-29, v=20260829zb).**
   Nenhuma aba mostrava o telefone de quem se cadastrou, embora
   `profiles.phone` já viesse no `select('*')`. Coluna nova (com ✏️ pra
