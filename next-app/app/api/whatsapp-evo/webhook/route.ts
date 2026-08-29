@@ -20,6 +20,7 @@ import { getRuntimeEnv } from '@/lib/api/env';
 import { jsonResponse, readBody, ServiceError, serviceErrorResponse } from '@/lib/api/security';
 import { persistWhatsAppMessage } from '@/lib/api/_services/whatsapp';
 import { parseEvolutionWebhook } from '@/lib/api/_services/whatsapp-evo';
+import { maybeAutoReply } from '@/lib/api/_services/whatsapp-ai-runner';
 
 export const runtime = 'edge';
 
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
   try {
     const messages = parseEvolutionWebhook(payload);
     let persisted = 0;
+    const ia: string[] = [];
     for (const msg of messages) {
       const ok = await persistWhatsAppMessage({
         direction: msg.direction,
@@ -59,8 +61,15 @@ export async function POST(request: NextRequest) {
         waTimestamp: msg.timestamp,
       });
       if (ok) persisted++;
+      // Atendimento automático: só pra mensagem RECEBIDA de texto. Nunca
+      // pra 'out' (senão a IA responderia a si mesma em loop). O runner é
+      // best-effort e decide sozinho se age — ver whatsapp-ai-runner.ts.
+      if (msg.direction === 'in' && msg.type === 'text' && msg.text.trim()) {
+        const r = await maybeAutoReply({ waId: msg.waId, text: msg.text });
+        ia.push(r.why);
+      }
     }
-    return jsonResponse({ ok: true, received: messages.length, persisted });
+    return jsonResponse({ ok: true, received: messages.length, persisted, ia });
   } catch (e) {
     // Nunca 5xx pós-token: loga e devolve 200 pra Evolution não re-entregar.
     console.warn('whatsapp-evo webhook erro:', e instanceof Error ? e.message : e);

@@ -3662,6 +3662,43 @@ const WhatsAppTab = () => {
   // Sem isso, conversa que a LOJA inicia fica so com o numero na tela: o
   // nome do WhatsApp (pushName) so chega quando a pessoa RESPONDE.
   const [leadByPhone, setLeadByPhone] = useState({});
+  // Chave da IA por conversa (Wave 46) + alertas abertos do portal.
+  const [iaState, setIaState] = useState({});   // wa_id → true/false
+  const [iaPadrao, setIaPadrao] = useState(false);
+  const [alertas, setAlertas] = useState([]);
+
+  const loadIa = async () => {
+    const [st, cfg, al] = await Promise.all([
+      supa.from('whatsapp_ai_state').select('wa_id, enabled').limit(2000),
+      supa.from('app_settings').select('value').eq('key','whatsapp_ai_default').maybeSingle(),
+      supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
+        .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
+    ]);
+    const m = {};
+    (st.data || []).forEach(r => { m[r.wa_id] = !!r.enabled; });
+    setIaState(m);
+    setIaPadrao(((cfg.data && cfg.data.value) || 'off') === 'on');
+    setAlertas(al.data || []);
+  };
+
+  // Sem linha propria, vale o padrao global — mesma regra do servidor.
+  const iaLigada = (waId) => (waId in iaState) ? iaState[waId] : iaPadrao;
+
+  const toggleIa = async (waId) => {
+    const novo = !iaLigada(waId);
+    setIaState(s => ({ ...s, [waId]: novo })); // otimista
+    const { error } = await supa.from('whatsapp_ai_state')
+      .upsert({ wa_id: waId, enabled: novo, updated_at: new Date().toISOString() }, { onConflict:'wa_id' });
+    if(error){
+      setIaState(s => ({ ...s, [waId]: !novo }));
+      alert('Nao consegui salvar a chave da IA: ' + error.message);
+    }
+  };
+
+  const resolverAlerta = async (id) => {
+    setAlertas(a => a.filter(x => x.id !== id)); // otimista
+    await supa.from('portal_alerts').update({ resolved:true, resolved_at:new Date().toISOString() }).eq('id', id);
+  };
   const loadProfiles = async () => {
     const [profRes, leadRes] = await Promise.all([
       supa.from('profiles').select('id, name, tag, phone').not('phone','is',null).limit(3000),
@@ -3688,7 +3725,7 @@ const WhatsAppTab = () => {
   // da publication do Supabase).
   const subRef = React.useRef(null);
   useEffect(() => {
-    load(); loadProfiles();
+    load(); loadProfiles(); loadIa();
     subRef.current = supa
       .channel('portal-whatsapp')
       .on('postgres_changes', { event:'INSERT', schema:'public', table:'whatsapp_messages' },
@@ -3697,8 +3734,9 @@ const WhatsAppTab = () => {
         })
       .subscribe();
     const t = setInterval(load, 60000);
+    const tIa = setInterval(loadIa, 30000); // alertas novos da IA
     return () => {
-      clearInterval(t);
+      clearInterval(t); clearInterval(tIa);
       if(subRef.current) supa.removeChannel(subRef.current);
     };
   }, []);
@@ -3852,10 +3890,44 @@ const WhatsAppTab = () => {
       <div style={{ marginBottom:10, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
         <button onClick={testarConexao} disabled={diagLoading}
           style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:10, padding:'7px 14px', fontSize:12, fontWeight:600, cursor: diagLoading?'wait':'pointer', color:C.ink }}>
-          {diagLoading ? 'Testando…' : '🔌 Testar conexao com o WhatsApp'}
+          {diagLoading ? 'Testando…' : '🔌 Testar conexao'}
         </button>
         <span style={{ fontSize:11, color:C.muted }}>Canal: Evolution · +55 11 92072-5935</span>
+        {/* Padrao global da IA: vale pra conversa que ainda nao tem chave
+            propria. Serve de "desliga tudo" em caso de emergencia. */}
+        <span style={{ marginLeft:'auto', fontSize:11, color:C.muted, display:'flex', alignItems:'center', gap:6 }}>
+          IA por padrão em conversas novas:
+          <strong style={{ color: iaPadrao ? C.p6 : C.muted }}>{iaPadrao ? 'ligada' : 'desligada'}</strong>
+        </span>
       </div>
+
+      {/* ALERTAS — pedido de preco/orcamento e escalonamentos da IA. */}
+      {alertas.length > 0 ? (
+        <div style={{ background:'#fff7ed', border:'1px solid #fdba74', borderRadius:12, padding:12, marginBottom:12 }}>
+          <div style={{ fontWeight:800, fontSize:13, color:'#9a3412', marginBottom:8 }}>
+            🔔 {alertas.length} {alertas.length === 1 ? 'pedido aguardando você' : 'pedidos aguardando você'}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {alertas.slice(0, 6).map(a => (
+              <div key={a.id} style={{ display:'flex', alignItems:'center', gap:10, background:'#fff', border:'1px solid '+C.border, borderRadius:10, padding:'8px 12px' }}>
+                <span style={{ background: a.kind==='preco' ? '#fee2e2' : a.kind==='orcamento' ? '#dbeafe' : '#f3f4f6',
+                  color: a.kind==='preco' ? '#b91c1c' : a.kind==='orcamento' ? '#1d4ed8' : '#374151',
+                  borderRadius:6, padding:'2px 8px', fontSize:10, fontWeight:700, textTransform:'uppercase' }}>{a.kind}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:C.ink }}>{a.title}</div>
+                  {a.body ? <div style={{ fontSize:11, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>“{a.body}”</div> : null}
+                </div>
+                <button onClick={()=>{ setOpenWa(a.wa_id); setErr(''); }}
+                  style={{ background:C.p1, color:'#fff', border:'none', borderRadius:8, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                  Abrir conversa
+                </button>
+                <button onClick={()=>resolverAlerta(a.id)} title="Marcar como resolvido"
+                  style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'5px 10px', fontSize:11, cursor:'pointer', color:C.muted }}>✓</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {diag ? (
         <pre style={{ background:'#1a1a2e', color:'#e6e6f0', padding:12, borderRadius:10, fontSize:11, lineHeight:1.5, overflowX:'auto', marginBottom:12, maxHeight:260 }}>
           {typeof diag === 'string' ? diag : JSON.stringify(diag, null, 2)}
@@ -3912,6 +3984,15 @@ const WhatsAppTab = () => {
                   const org = aberta ? origemDe(aberta) : (leadByPhone[openWa.slice(-8)]?.category || null);
                   return org ? <span style={{ marginLeft:8, background:C.p3+'1f', color:C.p3, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{org}</span> : null;
                 })()}
+                {/* CHAVE DA IA — liga/desliga a resposta automatica NESTA
+                    conversa. Desliga sozinha quando escala pra humano. */}
+                <button onClick={()=>toggleIa(openWa)} title={iaLigada(openWa) ? 'IA respondendo — clique pra assumir a conversa' : 'IA desligada — clique pra ela responder'}
+                  style={{ float:'right', display:'flex', alignItems:'center', gap:6, background: iaLigada(openWa) ? C.p6+'1f' : 'transparent',
+                    border:'1px solid '+(iaLigada(openWa) ? C.p6 : C.border), color: iaLigada(openWa) ? C.p6 : C.muted,
+                    borderRadius:20, padding:'4px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                  <span style={{ width:8, height:8, borderRadius:'50%', background: iaLigada(openWa) ? C.p6 : C.border, display:'inline-block' }} />
+                  {iaLigada(openWa) ? 'IA ligada' : 'IA desligada'}
+                </button>
               </div>
               <div ref={threadRef} style={{ flex:1, overflowY:'auto', padding:16, display:'flex', flexDirection:'column', gap:6 }}>
                 {thread.length === 0 ? (

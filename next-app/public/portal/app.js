@@ -8464,6 +8464,55 @@ const WhatsAppTab = () => {
   // Sem isso, conversa que a LOJA inicia fica so com o numero na tela: o
   // nome do WhatsApp (pushName) so chega quando a pessoa RESPONDE.
   const [leadByPhone, setLeadByPhone] = useState({});
+  // Chave da IA por conversa (Wave 46) + alertas abertos do portal.
+  const [iaState, setIaState] = useState({}); // wa_id → true/false
+  const [iaPadrao, setIaPadrao] = useState(false);
+  const [alertas, setAlertas] = useState([]);
+  const loadIa = async () => {
+    const [st, cfg, al] = await Promise.all([supa.from('whatsapp_ai_state').select('wa_id, enabled').limit(2000), supa.from('app_settings').select('value').eq('key', 'whatsapp_ai_default').maybeSingle(), supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at').eq('resolved', false).order('created_at', {
+      ascending: false
+    }).limit(50)]);
+    const m = {};
+    (st.data || []).forEach(r => {
+      m[r.wa_id] = !!r.enabled;
+    });
+    setIaState(m);
+    setIaPadrao((cfg.data && cfg.data.value || 'off') === 'on');
+    setAlertas(al.data || []);
+  };
+
+  // Sem linha propria, vale o padrao global — mesma regra do servidor.
+  const iaLigada = waId => waId in iaState ? iaState[waId] : iaPadrao;
+  const toggleIa = async waId => {
+    const novo = !iaLigada(waId);
+    setIaState(s => ({
+      ...s,
+      [waId]: novo
+    })); // otimista
+    const {
+      error
+    } = await supa.from('whatsapp_ai_state').upsert({
+      wa_id: waId,
+      enabled: novo,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'wa_id'
+    });
+    if (error) {
+      setIaState(s => ({
+        ...s,
+        [waId]: !novo
+      }));
+      alert('Nao consegui salvar a chave da IA: ' + error.message);
+    }
+  };
+  const resolverAlerta = async id => {
+    setAlertas(a => a.filter(x => x.id !== id)); // otimista
+    await supa.from('portal_alerts').update({
+      resolved: true,
+      resolved_at: new Date().toISOString()
+    }).eq('id', id);
+  };
   const loadProfiles = async () => {
     const [profRes, leadRes] = await Promise.all([supa.from('profiles').select('id, name, tag, phone').not('phone', 'is', null).limit(3000), supa.from('leads').select('id, name, phone, category, status').not('phone', 'is', null).limit(3000)]);
     const mapP = {};
@@ -8489,6 +8538,7 @@ const WhatsAppTab = () => {
   useEffect(() => {
     load();
     loadProfiles();
+    loadIa();
     subRef.current = supa.channel('portal-whatsapp').on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
@@ -8497,8 +8547,10 @@ const WhatsAppTab = () => {
       setMsgs(prev => prev.some(m => m.id === payload.new.id) ? prev : [payload.new, ...prev]);
     }).subscribe();
     const t = setInterval(load, 60000);
+    const tIa = setInterval(loadIa, 30000); // alertas novos da IA
     return () => {
       clearInterval(t);
+      clearInterval(tIa);
       if (subRef.current) supa.removeChannel(subRef.current);
     };
   }, []);
@@ -8726,12 +8778,114 @@ const WhatsAppTab = () => {
       cursor: diagLoading ? 'wait' : 'pointer',
       color: C.ink
     }
-  }, diagLoading ? 'Testando…' : '🔌 Testar conexao com o WhatsApp'), /*#__PURE__*/React.createElement("span", {
+  }, diagLoading ? 'Testando…' : '🔌 Testar conexao'), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted
     }
-  }, "Canal: Evolution \xB7 +55 11 92072-5935")), diag ? /*#__PURE__*/React.createElement("pre", {
+  }, "Canal: Evolution \xB7 +55 11 92072-5935"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: 'auto',
+      fontSize: 11,
+      color: C.muted,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6
+    }
+  }, "IA por padr\xE3o em conversas novas:", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: iaPadrao ? C.p6 : C.muted
+    }
+  }, iaPadrao ? 'ligada' : 'desligada'))), alertas.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff7ed',
+      border: '1px solid #fdba74',
+      borderRadius: 12,
+      padding: 12,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 13,
+      color: '#9a3412',
+      marginBottom: 8
+    }
+  }, "\uD83D\uDD14 ", alertas.length, " ", alertas.length === 1 ? 'pedido aguardando você' : 'pedidos aguardando você'), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6
+    }
+  }, alertas.slice(0, 6).map(a => /*#__PURE__*/React.createElement("div", {
+    key: a.id,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      background: '#fff',
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      padding: '8px 12px'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: a.kind === 'preco' ? '#fee2e2' : a.kind === 'orcamento' ? '#dbeafe' : '#f3f4f6',
+      color: a.kind === 'preco' ? '#b91c1c' : a.kind === 'orcamento' ? '#1d4ed8' : '#374151',
+      borderRadius: 6,
+      padding: '2px 8px',
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: 'uppercase'
+    }
+  }, a.kind), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: C.ink
+    }
+  }, a.title), a.body ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap'
+    }
+  }, "\u201C", a.body, "\u201D") : null), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setOpenWa(a.wa_id);
+      setErr('');
+    },
+    style: {
+      background: C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 8,
+      padding: '5px 12px',
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: 'pointer',
+      whiteSpace: 'nowrap'
+    }
+  }, "Abrir conversa"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => resolverAlerta(a.id),
+    title: "Marcar como resolvido",
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '5px 10px',
+      fontSize: 11,
+      cursor: 'pointer',
+      color: C.muted
+    }
+  }, "\u2713"))))) : null, diag ? /*#__PURE__*/React.createElement("pre", {
     style: {
       background: '#1a1a2e',
       color: '#e6e6f0',
@@ -8905,7 +9059,32 @@ const WhatsAppTab = () => {
         fontWeight: 600
       }
     }, org) : null;
-  })()), /*#__PURE__*/React.createElement("div", {
+  })(), /*#__PURE__*/React.createElement("button", {
+    onClick: () => toggleIa(openWa),
+    title: iaLigada(openWa) ? 'IA respondendo — clique pra assumir a conversa' : 'IA desligada — clique pra ela responder',
+    style: {
+      float: 'right',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      background: iaLigada(openWa) ? C.p6 + '1f' : 'transparent',
+      border: '1px solid ' + (iaLigada(openWa) ? C.p6 : C.border),
+      color: iaLigada(openWa) ? C.p6 : C.muted,
+      borderRadius: 20,
+      padding: '4px 12px',
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: '50%',
+      background: iaLigada(openWa) ? C.p6 : C.border,
+      display: 'inline-block'
+    }
+  }), iaLigada(openWa) ? 'IA ligada' : 'IA desligada')), /*#__PURE__*/React.createElement("div", {
     ref: threadRef,
     style: {
       flex: 1,
