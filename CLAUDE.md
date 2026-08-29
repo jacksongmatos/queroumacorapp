@@ -45,7 +45,8 @@
     estrangeiro, passa VERBATIM). `fmtWaPhone` do portal e o "+" (nova
     conversa) seguem a mesma regra. NÃO usar `normalizeBrPhone` no
     caminho da Evolution.
-  - **SQL Wave 45 (2026-08-28) — PENDENTE de rodar.**
+  - **SQL Wave 45 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-29).
+    Não pedir pra rodar de novo.**
     (`/migrations/2026-08-28-whatsapp-realtime.sql`) Põe
     `whatsapp_messages` na publication `supabase_realtime` (+ REPLICA
     IDENTITY FULL). Sem ela a aba do portal só descobre mensagem nova no
