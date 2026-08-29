@@ -52,7 +52,9 @@ const LEADS_STATUS_LABELS = { novo: 'Novo', contactado: 'Contactado', qualificad
 // ============================================================
 const productsService = {
   list: () => buscarTudo(() => supa.from('products').select('*').order('name')),
-  upsert: async (p) => { const r = await supa.from('products').upsert(p); if (r.error) throw r.error; return r.data; },
+  // `.select()` no fim devolve a linha gravada — a tela emenda so ela na
+  // lista em vez de recarregar o catalogo inteiro depois de cada salvamento.
+  upsert: async (p) => { const r = await supa.from('products').upsert(p).select(); if (r.error) throw r.error; return r.data; },
   remove: async (id) => { const r = await supa.from('products').delete().eq('id', id); if (r.error) throw r.error; }
 };
 
@@ -1095,6 +1097,57 @@ const classify = (p) => {
 };
 const MENU_LABEL = Object.fromEntries(MENUS.map(m => [m.key, m.label]).concat([['outros','📦 Outros']]));
 
+// ============================================================
+// Produtos — o catalogo da loja passa de 21 mil linhas. Tudo o que vem
+// abaixo existe por causa desse numero.
+// ============================================================
+
+// So as colunas que o CARD usa. `description` e a ficha tecnica (linha,
+// rendimento, demaos, secagem) ficam de fora: em 21 mil linhas elas sao a
+// maior parte do payload e so interessam ao formulario — que agora busca a
+// linha inteira na hora de editar.
+const PRODUTO_COLS = 'id,name,code,category,volume,price,stock,badge,active,image_url,color_hex,color_gradient';
+const PRODUTOS_PAGE = 1000;    // teto do PostgREST (max-rows do Supabase)
+const PRODUTOS_PARALELO = 4;   // paginas buscadas ao mesmo tempo
+const PRODUTOS_JANELA = 60;    // cards montados por vez na tela
+
+// Categoria e chave de busca calculadas UMA vez, quando a linha chega.
+// Antes `classify` rodava sobre a lista inteira a cada reagrupamento e o
+// `toLowerCase` do filtro rodava 21 mil vezes a cada tecla digitada.
+const prepararProduto = (p) => Object.assign({}, p, {
+  _cat: classify(p),
+  _q: ((p.name || '') + ' ' + (p.code || '')).toLowerCase()
+});
+const ordenarProdutos = (lista) => lista.slice().sort(
+  (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR')
+);
+
+// Cache em memoria (vive enquanto a aba estiver aberta): sair da tela e
+// voltar deixou de refazer as 22 requisicoes. O botao "Atualizar" forca.
+let _produtosCache = null;
+
+// Card isolado e memoizado: com a janela crescendo de 60 em 60, sem isso
+// todo card ja montado re-renderizava a cada passo do scroll.
+const ProdutoCard = React.memo(function ProdutoCard({ p, onEdit, onDelete }) {
+  const bg = p.image_url ? 'center/cover no-repeat url(' + p.image_url + ')' : productBg(p);
+  return (
+    <div style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)', opacity:p.active===false?0.5:1, position:'relative' }}>
+      {p.badge && <div style={{ position:'absolute', top:8, left:8, background:p.badge==='NOVO'?C.p1:'#e63946', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, zIndex:1 }}>{p.badge}</div>}
+      <div style={{ width:'100%', height:60, borderRadius:8, background:bg, marginBottom:12 }}></div>
+      <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
+      <div style={{ fontSize:11, color:C.muted }}>{p.code}{p.code && p.volume ? ' · ' : ''}{p.volume}</div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6 }}>
+        <div style={{ fontWeight:700, color:C.p1 }}>R$ {Number(p.price||0).toFixed(2).replace('.',',')}</div>
+        <div style={{ fontSize:11, color:p.stock<=5?'#e63946':'#2e7d32' }}>{p.stock} unid</div>
+      </div>
+      <div style={{ display:'flex', gap:6, marginTop:10 }}>
+        <button onClick={()=>onEdit(p)} style={{ flex:1, background:C.cream, border:'none', borderRadius:8, padding:'6px', fontSize:12, cursor:'pointer', fontWeight:600, color:C.ink }}>Editar</button>
+        <button aria-label="Excluir produto" onClick={()=>onDelete(p.id)} style={{ background:'none', border:'1px solid #e6394644', borderRadius:8, padding:'6px 10px', fontSize:12, cursor:'pointer', color:'#e63946' }}>×</button>
+      </div>
+    </div>
+  );
+});
+
 const ProdutosList = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1103,32 +1156,85 @@ const ProdutosList = () => {
   const [fotoBusy, setFotoBusy] = useState(false);
   const [menuFilter, setMenuFilter] = useState('all');
   const [busca, setBusca] = useState('');
+  const [buscaDeb, setBuscaDeb] = useState('');
+  const [limite, setLimite] = useState(PRODUTOS_JANELA);
+  const [totalBanco, setTotalBanco] = useState(0);
+  const [carregandoResto, setCarregandoResto] = useState(false);
+  const [erroCarga, setErroCarga] = useState('');
+  // Qual produto a gaveta esta editando AGORA — a ficha completa chega por
+  // uma consulta separada e pode voltar depois de o operador ja ter trocado.
+  const editandoRef = React.useRef(null);
   const [form, setForm] = useState({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
 
-  const loadProducts = async () => {
+  // Carregamento em duas fases. A PRIMEIRA pagina pinta a tela e tira o
+  // "Carregando produtos..." — antes a tela ficava em branco ate a ultima
+  // das 22 requisicoes voltar, porque elas eram uma DEPOIS da outra.
+  // O resto vem em paralelo, no fundo, e vai sendo emendado na lista.
+  const loadProducts = React.useCallback(async (opts) => {
+    const force = !!(opts && opts.force);
+    if(!force && _produtosCache){
+      setProducts(_produtosCache);
+      setTotalBanco(_produtosCache.length);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setErroCarga('');
     try {
-      const PAGE = 1000;
-      const byId = new Map();
-      for(let pageNo = 0; pageNo < 30; pageNo++){
-        const from = pageNo * PAGE;
-        const { data, error } = await supa.from('products').select('*').order('name').range(from, from + PAGE - 1);
-        if(error) throw error;
-        if(!data || data.length === 0) break;
-        const before = byId.size;
-        data.forEach(p => { byId.set(p.id, p); });
-        if(byId.size === before) break;
-        if(data.length < PAGE) break;
-      }
-      setProducts(Array.from(byId.values()));
+      const primeira = await supa.from('products')
+        .select(PRODUTO_COLS, { count: 'exact' })
+        .order('name').range(0, PRODUTOS_PAGE - 1);
+      if(primeira.error) throw primeira.error;
+      const paginas = [(primeira.data || []).map(prepararProduto)];
+      setProducts(paginas[0]);
+      setLoading(false);
+      const total = typeof primeira.count === 'number' ? primeira.count : paginas[0].length;
+      setTotalBanco(total);
+
+      const faltando = [];
+      for(let n = 1; n * PRODUTOS_PAGE < total; n++) faltando.push(n);
+      if(!faltando.length){ _produtosCache = paginas[0]; return; }
+
+      setCarregandoResto(true);
+      let cursor = 0;
+      // `paginas[n]` guarda cada lote na SUA posicao: as respostas chegam
+      // fora de ordem (sao paralelas) e o flat() devolve a ordem por nome.
+      const worker = async () => {
+        while(cursor < faltando.length){
+          const n = faltando[cursor++];
+          const de = n * PRODUTOS_PAGE;
+          const r = await supa.from('products').select(PRODUTO_COLS)
+            .order('name').range(de, de + PRODUTOS_PAGE - 1);
+          if(r.error) throw r.error;
+          paginas[n] = (r.data || []).map(prepararProduto);
+          const parcial = [];
+          for(const lote of paginas) if(lote) parcial.push.apply(parcial, lote);
+          setProducts(parcial);
+        }
+      };
+      const trabalhadores = [];
+      for(let i = 0; i < Math.min(PRODUTOS_PARALELO, faltando.length); i++) trabalhadores.push(worker());
+      await Promise.all(trabalhadores);
+      const completo = [];
+      for(const lote of paginas) if(lote) completo.push.apply(completo, lote);
+      _produtosCache = completo;
+      setProducts(completo);
     } catch(e) {
       console.error('loadProducts error:', e);
-      setProducts([]);
+      setErroCarga(e && e.message ? e.message : String(e));
     }
+    setCarregandoResto(false);
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { loadProducts(); }, []);
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  // Busca com atraso: sem isso cada tecla refiltrava as 21 mil linhas e
+  // remontava a grade inteira.
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaDeb(busca), 250);
+    return () => clearTimeout(t);
+  }, [busca]);
 
   const saveProduct = async () => {
     try {
@@ -1137,32 +1243,57 @@ const ProdutosList = () => {
       if(!productData.name) { alert('Nome obrigatorio'); return; }
       // productsService.upsert cobre insert + update (quando id presente).
       if(editing) productData.id = editing;
-      await productsService.upsert(productData);
-      setShowForm(false); setEditing(null);
+      const salvos = await productsService.upsert(productData);
+      const linha = salvos && salvos[0];
+      // Uma linha mudou — nao ha por que buscar as outras 21 mil de novo.
+      if(linha) aplicarLinha(linha); else loadProducts({ force: true });
+      setShowForm(false); setEditing(null); editandoRef.current = null;
       setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
-      loadProducts();
     } catch(e) { alert('Erro: ' + (e.message || e)); }
   };
 
-  const deleteProduct = async (id) => {
+  // Emenda (ou insere) uma linha na lista ja carregada, mantendo a ordem
+  // por nome, e atualiza o cache junto.
+  const aplicarLinha = React.useCallback((row) => {
+    const p = prepararProduto(row);
+    setProducts(lista => {
+      const existe = lista.some(x => x.id === p.id);
+      const nova = existe
+        ? lista.map(x => x.id === p.id ? Object.assign({}, x, p) : x)
+        : ordenarProdutos(lista.concat(p));
+      _produtosCache = nova;
+      return nova;
+    });
+  }, []);
+
+  const deleteProduct = React.useCallback(async (id) => {
     if(!confirm('Excluir este produto?')) return;
     try {
       await productsService.remove(id);
-      loadProducts();
+      setProducts(lista => { const nova = lista.filter(p => p.id !== id); _produtosCache = nova; return nova; });
     } catch(e) { alert('Erro: ' + (e.message || e)); }
-  };
+  }, []);
 
-  const editProduct = (p) => {
-    setForm({ name:p.name||'', code:p.code||'', category:p.category||'tintas', volume:p.volume||'18L', price:p.price||'', color_hex:p.color_hex||'#c0622d', color_gradient:p.color_gradient||'', image_url:p.image_url||'', stock:p.stock||0, badge:p.badge||'', description:p.description||'', line:p.line||'', rendimento:p.rendimento||'', demaos:p.demaos||'', secagem:p.secagem||'', active:p.active!==false });
+  const preencherForm = (p) => setForm({ name:p.name||'', code:p.code||'', category:p.category||'tintas', volume:p.volume||'18L', price:p.price||'', color_hex:p.color_hex||'#c0622d', color_gradient:p.color_gradient||'', image_url:p.image_url||'', stock:p.stock||0, badge:p.badge||'', description:p.description||'', line:p.line||'', rendimento:p.rendimento||'', demaos:p.demaos||'', secagem:p.secagem||'', active:p.active!==false });
+
+  // A lista carrega so as colunas do card; os campos longos (descricao,
+  // ficha tecnica) vem agora, numa consulta de UMA linha.
+  const editProduct = React.useCallback((p) => {
+    editandoRef.current = p.id;
+    preencherForm(p);
     setEditing(p.id);
     setShowForm(true);
-  };
+    supa.from('products').select('*').eq('id', p.id).maybeSingle().then(({ data }) => {
+      // Trocou de produto (ou fechou a gaveta) antes da resposta: descarta.
+      if(data && editandoRef.current === p.id) preencherForm(data);
+    });
+  }, []);
 
-  // Agrupamento por categoria — pesado quando há milhares de produtos.
-  // Só recalcula quando a lista de produtos muda (não a cada keystroke da busca).
+  // Agrupamento por categoria — a categoria ja veio calculada em
+  // `prepararProduto`, entao aqui e so distribuir nos baldes.
   const grouped = React.useMemo(() => {
     const g = {};
-    products.forEach(p => { const k = classify(p); if(!g[k]) g[k] = []; g[k].push(p); });
+    products.forEach(p => { const k = p._cat || classify(p); if(!g[k]) g[k] = []; g[k].push(p); });
     return g;
   }, [products]);
   const orderedKeys = React.useMemo(
@@ -1170,12 +1301,56 @@ const ProdutosList = () => {
     [grouped]
   );
   const totalItens = products.length;
-  const qLower = React.useMemo(() => busca.trim().toLowerCase(), [busca]);
+  const qLower = React.useMemo(() => buscaDeb.trim().toLowerCase(), [buscaDeb]);
+
+  // Categorias visiveis depois do chip + da busca.
+  const listaFiltrada = React.useMemo(() => {
+    const out = [];
+    orderedKeys.forEach(cat => {
+      if(menuFilter !== 'all' && menuFilter !== cat) return;
+      const items = qLower ? grouped[cat].filter(p => (p._q || '').includes(qLower)) : grouped[cat];
+      if(items.length) out.push({ cat, items });
+    });
+    return out;
+  }, [orderedKeys, grouped, menuFilter, qLower]);
+  const totalFiltrado = React.useMemo(
+    () => listaFiltrada.reduce((s, g) => s + g.items.length, 0),
+    [listaFiltrada]
+  );
+
+  // JANELA: so os primeiros `limite` cards existem no DOM. Era aqui que a
+  // tela travava — em "Todos" o React montava 21 mil cards de uma vez.
+  const blocos = React.useMemo(() => {
+    let resta = limite;
+    const out = [];
+    for(const g of listaFiltrada){
+      if(resta <= 0) break;
+      out.push({ cat: g.cat, total: g.items.length, items: g.items.slice(0, resta) });
+      resta -= g.items.length;
+    }
+    return out;
+  }, [listaFiltrada, limite]);
+  const mostrando = React.useMemo(() => blocos.reduce((s, b) => s + b.items.length, 0), [blocos]);
+
+  // Trocou de chip ou de busca: a janela volta pro comeco.
+  useEffect(() => { setLimite(PRODUTOS_JANELA); }, [menuFilter, qLower]);
+
+  // Sentinela no fim da lista: chegou perto, cresce a janela.
+  const sentinelaRef = React.useRef(null);
+  useEffect(() => {
+    const el = sentinelaRef.current;
+    if(!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(entradas => {
+      if(entradas.some(e => e.isIntersecting)) setLimite(l => l + PRODUTOS_JANELA);
+    }, { rootMargin: '600px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [mostrando, totalFiltrado]);
 
   const inputStyle = { width:'100%', padding:'8px 12px', borderRadius:8, border:'1px solid '+C.border, fontSize:13, outline:'none' };
   const labelStyle = { fontSize:12, color:C.muted, marginBottom:4, display:'block' };
 
-  const closeForm = () => { setShowForm(false); setEditing(null); };
+  const closeForm = () => { setShowForm(false); setEditing(null); editandoRef.current = null; };
 
   // Esc fecha a gaveta — o formulário é modal-ish (fica por cima da lista),
   // então a saída pelo teclado tem que existir.
@@ -1195,9 +1370,17 @@ const ProdutosList = () => {
     // a última coluna de produtos fica atrás dela.
     <div style={{ paddingRight: showForm ? DRAWER_W + 24 : 0, transition:'padding-right .2s ease' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-        <div style={{ fontWeight:700, color:C.ink, fontSize:18 }}>🎨 Produtos / Tintas</div>
+        <div style={{ fontWeight:700, color:C.ink, fontSize:18 }}>
+          🎨 Produtos / Tintas
+          {carregandoResto && totalBanco > 0 && (
+            <span style={{ marginLeft:10, fontSize:12, fontWeight:600, color:C.muted }}>
+              carregando {totalItens.toLocaleString('pt-BR')} de {totalBanco.toLocaleString('pt-BR')}…
+            </span>
+          )}
+        </div>
         <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          <button onClick={()=>{ setEditing(null); setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true }); setShowForm(true); }} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ Novo Produto</button>
+          <button onClick={()=>loadProducts({ force:true })} disabled={loading || carregandoResto} title="Recarregar do banco" style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'8px 14px', fontSize:13, fontWeight:600, cursor: (loading||carregandoResto) ? 'default' : 'pointer', color:C.muted }}>↻ Atualizar</button>
+          <button onClick={()=>{ setEditing(null); editandoRef.current = null; setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true }); setShowForm(true); }} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ Novo Produto</button>
         </div>
       </div>
 
@@ -1289,38 +1472,31 @@ const ProdutosList = () => {
         </div>
       )}
 
+      {erroCarga && (
+        <div style={{ background:'#fdecea', border:'1px solid #f5c2c0', color:'#a4231f', borderRadius:10, padding:'10px 14px', fontSize:13, marginBottom:14 }}>
+          Erro ao carregar produtos: {erroCarga}
+        </div>
+      )}
+
       {loading ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Carregando produtos...</div> :
        products.length === 0 ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Nenhum produto cadastrado. Clique em "+ Novo Produto" para começar.</div> :
-       orderedKeys.filter(cat => menuFilter==='all' || menuFilter===cat).map(cat => {
-        const items = grouped[cat].filter(p => !qLower || (p.name||'').toLowerCase().includes(qLower) || (p.code||'').toLowerCase().includes(qLower));
-        if(items.length === 0) return null;
-        return (
-        <div key={cat} style={{ marginBottom:24 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:C.muted, marginBottom:10, textTransform:'uppercase', letterSpacing:.5 }}>{MENU_LABEL[cat] || cat} <span style={{ color:C.p1 }}>({grouped[cat].length})</span></div>
+       totalFiltrado === 0 ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Nenhum produto encontrado para essa busca.</div> :
+       blocos.map(bloco => (
+        <div key={bloco.cat} style={{ marginBottom:24 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.muted, marginBottom:10, textTransform:'uppercase', letterSpacing:.5 }}>{MENU_LABEL[bloco.cat] || bloco.cat} <span style={{ color:C.p1 }}>({bloco.total})</span></div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
-            {items.map(p => {
-              const bg = p.image_url ? 'center/cover no-repeat url('+p.image_url+')' : productBg(p);
-              return (
-                <div key={p.id} style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)', opacity:p.active===false?0.5:1, position:'relative' }}>
-                  {p.badge && <div style={{ position:'absolute', top:8, left:8, background:p.badge==='NOVO'?C.p1:'#e63946', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, zIndex:1 }}>{p.badge}</div>}
-                  <div style={{ width:'100%', height:60, borderRadius:8, background:bg, marginBottom:12 }}></div>
-                  <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
-                  <div style={{ fontSize:11, color:C.muted }}>{p.code}{p.code && p.volume ? ' · ' : ''}{p.volume}</div>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6 }}>
-                    <div style={{ fontWeight:700, color:C.p1 }}>R$ {Number(p.price||0).toFixed(2).replace('.',',')}</div>
-                    <div style={{ fontSize:11, color:p.stock<=5?'#e63946':'#2e7d32' }}>{p.stock} unid</div>
-                  </div>
-                  <div style={{ display:'flex', gap:6, marginTop:10 }}>
-                    <button onClick={()=>editProduct(p)} style={{ flex:1, background:C.cream, border:'none', borderRadius:8, padding:'6px', fontSize:12, cursor:'pointer', fontWeight:600, color:C.ink }}>Editar</button>
-                    <button aria-label="Excluir produto" onClick={()=>deleteProduct(p.id)} style={{ background:'none', border:'1px solid #e6394644', borderRadius:8, padding:'6px 10px', fontSize:12, cursor:'pointer', color:'#e63946' }}>×</button>
-                  </div>
-                </div>
-              );
-            })}
+            {bloco.items.map(p => (
+              <ProdutoCard key={p.id} p={p} onEdit={editProduct} onDelete={deleteProduct} />
+            ))}
           </div>
         </div>
-        );
-      })}
+      ))}
+
+      {!loading && mostrando < totalFiltrado && (
+        <div ref={sentinelaRef} style={{ textAlign:'center', padding:24, color:C.muted, fontSize:13 }}>
+          Mostrando {mostrando.toLocaleString('pt-BR')} de {totalFiltrado.toLocaleString('pt-BR')} — role para ver mais…
+        </div>
+      )}
     </div>
   );
 };
