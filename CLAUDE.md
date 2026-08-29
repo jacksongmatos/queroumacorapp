@@ -309,7 +309,8 @@
   este igual ao do CF); (4) cada aparelho toca "Ativar notificações" no
   perfil. **Sem a env pública o `PushOptIn` retorna null** — é por isso que a
   opção "não aparece" no celular.
-  - **SQL Wave 36 — PENDENTE.** O gatilho de push escuta `notifications`, e
+  - **SQL Wave 36 — JÁ EXECUTADA (verificado em 2026-08-29: trigger
+    `trg_notify_on_message` existe e `notif_actor_label` também).** O gatilho de push escuta `notifications`, e
     só `likes`/`comments` criavam linha lá: **mensagem de chat não gerava
     notificação nenhuma**, então nunca viraria push. Migration em
     `/migrations/2026-08-22-notify-on-message.sql` cria
@@ -365,7 +366,7 @@
     ou cria a conversa direta com a loja. Antes só existia a ABA "Cali
     Colors", que FILTRA conversas existentes — quem nunca tinha falado com a
     loja precisava adivinhar o nome dela na busca do "+".
-  - **SQL Wave 35 — PENDENTE de rodar.** A policy de SELECT em `messages`
+  - **SQL Wave 35 — JÁ EXECUTADA no Supabase (2026-08-29).** A policy de SELECT em `messages`
     liberava só sender/receiver, e a loja responde escolhendo UM destinatário
     → o terceiro não via a mensagem. A policy nova acrescenta participante
     ESTRUTURAL: `POSITION(auth.uid()::text IN conversation_id) > 0`. **Não usar
