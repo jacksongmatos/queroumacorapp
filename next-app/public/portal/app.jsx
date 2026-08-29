@@ -2174,33 +2174,43 @@ const LEAD_PITCH = {
   // Quem vende e a pessoa; a abordagem so precisa dizer que a loja tem a
   // linha que aquele profissional usa.
   'Funilaria/Auto': { funil:'fornece', linha:'linha automotiva',
+    fecho:'Quer ver como funciona a tinta preparada na hora aqui na loja?',
     oferta:'linha automotiva completa: tinta pronta e tinta preparada na hora, primer, verniz, massa plástica, e os materiais de acabamento e detalhamento (polimento, cera)',
     termos:['automotiv','primer','verniz','poliester','massa pl','fundo'] },
   'Auto Center':    { funil:'fornece', linha:'linha automotiva',
+    fecho:'Quer ver como funciona a tinta preparada na hora aqui na loja?',
     oferta:'linha automotiva completa: tinta pronta e preparada na hora, primer, verniz e material de polimento e cera',
     termos:['automotiv','primer','verniz','fundo','cera','polim'] },
   'Pintor':         { funil:'fornece', linha:'linha residencial e comercial',
+    fecho:'Quer saber qual linha rende mais por lata? Tem uma que costuma surpreender quem testa.',
     oferta:'tintas de várias marcas, da econômica à premium, incluindo linhas de alto rendimento que fecham parede com menos demão — além de massa corrida, selador e textura',
     termos:['latex','acrilic','massa corrida','seladora','fundo'] },
   'Graffiti/Arte':  { funil:'fornece', linha:'linha de spray e arte',
+    fecho:'Quer ver a cartela de cores que temos em spray?',
     oferta:'spray Colorgin e Arte Urbana, com a cartela de cores completa, além de tinta acrílica pra mural e base de parede',
     termos:['colorgin','arte urbana','spray','aerossol'] },
   'Construtora':    { funil:'fornece', linha:'linha de obra em grande volume',
+    fecho:'Quer ver como a gente atende obra em volume?',
     oferta:'linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante, em lata de 18L',
     termos:['acrilic','latex','fundo prepar','textura','18l'] },
   'Reforma':        { funil:'fornece', linha:'linha de reforma',
+    fecho:'Quer ver o que costuma poupar tempo numa reforma?',
     oferta:'tinta econômica e premium, massa corrida, selador e textura — tudo o que a reforma pede',
     termos:['acrilic','latex','massa','seladora'] },
   'Materiais':      { funil:'fornece', linha:'linha completa pra revenda',
+    fecho:'Quer conhecer a nossa lista pra revenda?',
     oferta:'linha completa pra revenda, de várias marcas: acrílico, esmalte, solvente e complementos',
     termos:['acrilic','latex','esmalte','solvente'] },
   'Marmoraria':     { funil:'fornece', linha:'impermeabilizantes e vernizes',
+    fecho:'Quer ver o que a gente indica pra proteger pedra?',
     oferta:'impermeabilizantes, vernizes e resinas pra pedra',
     termos:['verniz','impermeab','resina'] },
   'Limpeza':        { funil:'fornece', linha:'linha de manutencao predial',
+    fecho:'Quer ver a linha que a gente indica pra manutenção predial?',
     oferta:'linha de manutenção predial: acrílico, esmalte e solventes',
     termos:['acrilic','esmalte','solvente'] },
   'Engenharia':     { funil:'fornece', linha:'linha de obra e manutencao predial',
+    fecho:'Quer receber a nossa cartela de cores e as fichas técnicas?',
     oferta:'linhas premium de acabamento e a linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante',
     termos:['acrilic','latex','fundo prepar','textura','impermeab'] },
   'Imobiliária':    { funil:'demanda', linha:'pintura de imoveis pra locacao e venda',
@@ -2228,6 +2238,7 @@ const LEAD_PITCH = {
 const pitchDoLead = (l) => LEAD_PITCH[l.category] ||
   { funil:'demanda', linha:'linha completa de tintas',
     oferta:'linha completa de tintas, das econômicas às premium',
+    fecho:'Quer ver o que temos pra sua linha de trabalho?',
     termos:['acrilic','latex'] };
 
 // Monta o texto da abordagem. Sem preco — ver regra no topo do bloco.
@@ -2248,7 +2259,7 @@ const montarAbordagem = (lead, produtos) => {
   if(p.funil === 'fornece'){
     corpo = '\n\nTemos ' + p.oferta + '.' + citados +
       ' Atendemos profissional com condição especial.' +
-      '\n\nPosso te passar as condições?';
+      '\n\n' + (p.fecho || 'Quer ver o que temos pra sua linha de trabalho?');
   } else {
     corpo = '\n\nTemos ' + p.oferta + '.' + citados +
       ' Fornecemos a tinta e indicamos profissionais de confiança pra execução.' +
