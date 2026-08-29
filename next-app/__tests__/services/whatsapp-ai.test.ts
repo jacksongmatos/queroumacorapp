@@ -105,4 +105,19 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('Cali Colors');
     expect(p).not.toContain('undefined');
   });
+
+  it('PRIMEIRO CONTATO manda recepcionar antes de responder', () => {
+    const p = buildSystemPrompt({ primeiroContato: true });
+    expect(p).toContain('PRIMEIRA MENSAGEM DA CONVERSA');
+    expect(p).toContain('cumprimente');
+    expect(p).toContain('loja de tintas em Guarulhos');
+    expect(p).toContain('agradeça o contato');
+    expect(p).toContain('nunca robótico');
+  });
+
+  it('conversa já em andamento NÃO repete a apresentação', () => {
+    const p = buildSystemPrompt({ primeiroContato: false });
+    expect(p).not.toContain('PRIMEIRA MENSAGEM DA CONVERSA');
+    expect(p).toContain('No máximo 3 frases curtas');
+  });
 });
