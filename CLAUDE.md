@@ -1,5 +1,42 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Captação de leads por WhatsApp com IA (2026-08-29).** Duas etapas, as
+  duas no ar; SQL Wave 46 JÁ EXECUTADA (2026-08-29).
+  - **Etapa A — botão "💬 Abordar"** na lista de Leads (portal). Abre
+    `AbordagemModal`: mostra categoria, sub-funil (fornece obra × precisa
+    de obra, via `LEAD_PITCH`), telefone e se é celular ou fixo
+    (`tipoDeLinha`); sugere produtos do catálogo por palavras no NOME
+    (`LEAD_PITCH[].termos`, marcáveis + busca manual); monta o texto
+    personalizado (`montarAbordagem`) e envia pelo canal da loja. Ao
+    enviar, lead vira `contactado`. Ícone 📱 ao lado mantém o wa.me no
+    aparelho do operador. `normalizeLeadPhone` cobre celular antigo de 8
+    dígitos (ganha o nono).
+  - **REGRA DA LOJA (inegociável):** mensagem e IA **NUNCA** falam preço,
+    valor, desconto, condição de pagamento nem fazem orçamento — isso é
+    de pessoa. Aplicada em DOIS pontos: no prompt E em trava de código
+    (`clientAsksForPrice` escala antes de chamar o modelo;
+    `replyLeaksPrice` barra vazamento na saída). 14 testes em
+    `__tests__/services/whatsapp-ai.test.ts`.
+  - **Etapa B — IA meio-termo.** `whatsapp-ai.ts` (prompt + travas +
+    horário comercial de Brasília 8h-19h, sem domingo + opt-out PARE +
+    modelo por env `WHATSAPP_AI_MODEL`, default gpt-4o-mini) e
+    `whatsapp-ai-runner.ts` (cola com o webhook; ordem: opt-out > IA
+    desligada > fora do horário > teto de 12/dia > responde). Ao escalar,
+    DESLIGA a IA na conversa e cria alerta. Runner é best-effort: nunca
+    derruba o 200 do webhook. Chamado SÓ em mensagem `in` de texto.
+  - **Wave 46** (`/migrations/2026-08-29-whatsapp-ai.sql`):
+    `whatsapp_ai_state` (chave por conversa + contador diário) e
+    `portal_alerts` (preco/orcamento/humano), RLS só `is_portal_admin()`;
+    `app_settings.whatsapp_ai_default` = padrão global ('off').
+  - Portal (v=20260829d): chave "IA ligada/desligada" no cabeçalho da
+    conversa, padrão global visível, faixa de alertas com "Abrir
+    conversa". Nome do contato na aba WhatsApp resolve por 3 fontes:
+    usuário do app > lead > pushName do WhatsApp.
+  - **Próximas fases (não feitas):** classificação automática do lead
+    pela IA (temperatura/resumo) e os funis de PROs e Clientes — a
+    máquina foi construída pra ser reaproveitada trocando roteiro e
+    público.
+
 - **REGRA: TODO horário do QueroUmaCor é BRASÍLIA (2026-08-28).** App e
   portal exibem sempre `America/Sao_Paulo`, independente do fuso do
   aparelho/computador. Implementado por patch na RAIZ (não em cada
