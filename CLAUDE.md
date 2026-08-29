@@ -125,6 +125,25 @@
   acontece quando a galeria abre), mostra "abra pelo navegador". Só arma
   no Android, pra não dar falso positivo. 6 testes.
 
+- **Conta NOVA barrada de publicar: sessão diz "e-mail não confirmado"
+  (2026-08-29).** `getSession()` devolve o usuário GUARDADO no
+  localStorage, **não** o do servidor. Quem confirma o e-mail FORA do app
+  (abre o link no Chrome ou no app de e-mail) fica com uma cópia dizendo
+  não-confirmado → `usePublishPost` barra com "Confirme seu email antes de
+  publicar" e a faixa amarela não sai. O snapshot só se atualiza no refresh
+  do token (1h), que **no WebView quase nunca acontece** (o app é morto e
+  restaurado antes). Por isso só pega conta nova — as antigas já
+  refrescaram alguma vez. Agora, e SÓ quando a cópia local diz
+  não-confirmado, o `AuthProvider` chama `getUser()` (servidor, mesma
+  corrida contra `SESSION_TIMEOUT_MS`) e adota o usuário fresco.
+  - **Falha capturada NÃO chega no `/admin/errors`** — só erro não
+    capturado chega. O catch do avatar vira toast e o erro do publish vira
+    faixa vermelha; os dois morrem na tela. Concluir "a tabela `errors`
+    está vazia, logo não houve falha" é **errado**. `lib/utils/
+    reportFailure.ts` (best-effort, nunca lança) manda
+    `type='avatar-fail'` e `'publish-fail'` com `user_id`, mensagem, UA e
+    URL. **Fluxo novo que engole erro em catch = chamar `reportFailure`.**
+
 - **NÃO LIDAS nos Chats 3-Way (2026-08-29, v=20260829y, Wave 51 —
   PENDENTE).** O número da conversa era `conv.messages.length` (total da
   conversa) e o do menu era o COUNT de `messages` inteiro — o famoso "23".
