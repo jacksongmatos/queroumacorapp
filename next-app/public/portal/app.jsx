@@ -2167,28 +2167,68 @@ const tipoDeLinha = (raw) => {
 // catalogo (busca no NOME, que e mais confiavel que a taxonomia). Ajustar
 // aqui quando a loja quiser mudar o que oferece pra cada tipo de cliente.
 const LEAD_PITCH = {
-  'Funilaria/Auto': { funil:'fornece', linha:'linha automotiva', termos:['automotiv','primer','verniz','poliester','massa pl','fundo'] },
-  'Auto Center':    { funil:'fornece', linha:'linha automotiva', termos:['automotiv','primer','verniz','fundo'] },
-  'Pintor':         { funil:'fornece', linha:'linha residencial e comercial', termos:['latex','acrilic','massa corrida','seladora','fundo'] },
-  'Graffiti/Arte':  { funil:'fornece', linha:'linha de spray e arte', termos:['spray','aerossol','acrilic'] },
-  'Construtora':    { funil:'fornece', linha:'linha de obra em grande volume', termos:['acrilic','latex','fundo prepar','textura','18l'] },
-  'Reforma':        { funil:'fornece', linha:'linha de reforma', termos:['acrilic','latex','massa','seladora'] },
-  'Materiais':      { funil:'fornece', linha:'linha completa pra revenda', termos:['acrilic','latex','esmalte','solvente'] },
-  'Marmoraria':     { funil:'fornece', linha:'impermeabilizantes e vernizes', termos:['verniz','impermeab','resina'] },
-  'Limpeza':        { funil:'fornece', linha:'linha de manutencao predial', termos:['acrilic','esmalte','solvente'] },
-  'Imobiliária':    { funil:'demanda', linha:'pintura de imoveis pra locacao e venda', termos:['acrilic','latex','massa corrida'] },
-  'Condomínio':     { funil:'demanda', linha:'pintura de fachada e areas comuns', termos:['fachada','acrilic','textura','impermeab'] },
-  'Bares':          { funil:'demanda', linha:'pintura de salao e fachada', termos:['acrilic','esmalte','epoxi'] },
-  'Academia':       { funil:'demanda', linha:'pintura de salao e piso', termos:['epoxi','piso','acrilic'] },
-  'Supermercado':   { funil:'demanda', linha:'pintura de loja, piso e fachada', termos:['epoxi','piso','acrilic','fachada'] },
-  'Pousada':        { funil:'demanda', linha:'pintura de quartos e fachada', termos:['acrilic','latex','fachada'] },
-  'Arquitetura':    { funil:'demanda', linha:'especificacao de cores e acabamentos', termos:['acrilic','textura','efeito'] },
-  // Engenharia entrou com a planilha de 986 leads (2026-08-29): engenheiro
-  // e empresa de engenharia tocam obra, entao a loja FORNECE.
-  'Engenharia':     { funil:'fornece', linha:'linha de obra e manutencao predial', termos:['acrilic','latex','fundo prepar','textura','impermeab'] },
+  // `oferta` = o que a loja diz que TEM pra esse publico. Frase generica de
+  // proposito (2026-08-29): antes a mensagem listava SKU com volume, e saia
+  // coisa como "AROMINHA SPRAY CARRO NOVO 60ML (18L)" pra um grafiteiro —
+  // item errado e volume errado (o catalogo tem 18L como padrao em tudo).
+  // Quem vende e a pessoa; a abordagem so precisa dizer que a loja tem a
+  // linha que aquele profissional usa.
+  'Funilaria/Auto': { funil:'fornece', linha:'linha automotiva',
+    oferta:'linha automotiva completa: tinta pronta e tinta preparada na hora, primer, verniz, massa plástica, e os materiais de acabamento e detalhamento (polimento, cera)',
+    termos:['automotiv','primer','verniz','poliester','massa pl','fundo'] },
+  'Auto Center':    { funil:'fornece', linha:'linha automotiva',
+    oferta:'linha automotiva completa: tinta pronta e preparada na hora, primer, verniz e material de polimento e cera',
+    termos:['automotiv','primer','verniz','fundo','cera','polim'] },
+  'Pintor':         { funil:'fornece', linha:'linha residencial e comercial',
+    oferta:'tintas de várias marcas, da econômica à premium, incluindo linhas de alto rendimento que fecham parede com menos demão — além de massa corrida, selador e textura',
+    termos:['latex','acrilic','massa corrida','seladora','fundo'] },
+  'Graffiti/Arte':  { funil:'fornece', linha:'linha de spray e arte',
+    oferta:'spray Colorgin e Arte Urbana, com a cartela de cores completa, além de tinta acrílica pra mural e base de parede',
+    termos:['colorgin','arte urbana','spray','aerossol'] },
+  'Construtora':    { funil:'fornece', linha:'linha de obra em grande volume',
+    oferta:'linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante, em lata de 18L',
+    termos:['acrilic','latex','fundo prepar','textura','18l'] },
+  'Reforma':        { funil:'fornece', linha:'linha de reforma',
+    oferta:'tinta econômica e premium, massa corrida, selador e textura — tudo o que a reforma pede',
+    termos:['acrilic','latex','massa','seladora'] },
+  'Materiais':      { funil:'fornece', linha:'linha completa pra revenda',
+    oferta:'linha completa pra revenda, de várias marcas: acrílico, esmalte, solvente e complementos',
+    termos:['acrilic','latex','esmalte','solvente'] },
+  'Marmoraria':     { funil:'fornece', linha:'impermeabilizantes e vernizes',
+    oferta:'impermeabilizantes, vernizes e resinas pra pedra',
+    termos:['verniz','impermeab','resina'] },
+  'Limpeza':        { funil:'fornece', linha:'linha de manutencao predial',
+    oferta:'linha de manutenção predial: acrílico, esmalte e solventes',
+    termos:['acrilic','esmalte','solvente'] },
+  'Engenharia':     { funil:'fornece', linha:'linha de obra e manutencao predial',
+    oferta:'linhas premium de acabamento e a linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante',
+    termos:['acrilic','latex','fundo prepar','textura','impermeab'] },
+  'Imobiliária':    { funil:'demanda', linha:'pintura de imoveis pra locacao e venda',
+    oferta:'tinta pra imóvel de locação e venda, do custo-benefício ao acabamento premium',
+    termos:['acrilic','latex','massa corrida'] },
+  'Condomínio':     { funil:'demanda', linha:'pintura de fachada e areas comuns',
+    oferta:'linha de fachada e áreas comuns: acrílico, textura e impermeabilizante',
+    termos:['fachada','acrilic','textura','impermeab'] },
+  'Bares':          { funil:'demanda', linha:'pintura de salao e fachada',
+    oferta:'tinta pra salão e fachada, com acabamento lavável',
+    termos:['acrilic','esmalte','epoxi'] },
+  'Academia':       { funil:'demanda', linha:'pintura de salao e piso',
+    oferta:'tinta de piso e de parede pra área de treino',
+    termos:['epoxi','piso','acrilic'] },
+  'Supermercado':   { funil:'demanda', linha:'pintura de loja, piso e fachada',
+    oferta:'tinta de piso, parede e fachada pra loja',
+    termos:['epoxi','piso','acrilic','fachada'] },
+  'Pousada':        { funil:'demanda', linha:'pintura de quartos e fachada',
+    oferta:'tinta pra quarto, área comum e fachada',
+    termos:['acrilic','latex','fachada'] },
+  'Arquitetura':    { funil:'demanda', linha:'especificacao de cores e acabamentos',
+    oferta:'linhas premium de acabamento — acetinado, fosco, efeitos e texturas — com cartela de cores completa pra especificação',
+    termos:['acrilic','textura','efeito'] },
 };
 const pitchDoLead = (l) => LEAD_PITCH[l.category] ||
-  { funil:'demanda', linha:'linha completa de tintas', termos:['acrilic','latex'] };
+  { funil:'demanda', linha:'linha completa de tintas',
+    oferta:'linha completa de tintas, das econômicas às premium',
+    termos:['acrilic','latex'] };
 
 // Monta o texto da abordagem. Sem preco — ver regra no topo do bloco.
 const montarAbordagem = (lead, produtos) => {
@@ -2198,21 +2238,21 @@ const montarAbordagem = (lead, produtos) => {
   const saudacao = 'Olá' + (nome ? ', ' + nome : '') + '!';
   const abre = ' Aqui é a Cali Colors, loja de tintas em Guarulhos.';
   const contexto = ondeEsta ? ' Vi que vocês atuam em ' + ondeEsta + '.' : '';
+  // Produto especifico e OPCIONAL e entra sem volume/cor: o catalogo tem
+  // "18L" como padrao em tudo, entao citar tamanho era mentir.
+  const citados = produtos.length
+    ? ' Tem, por exemplo, ' + produtos.map(x => x.name).slice(0,3).join(', ') + '.'
+    : '';
 
   let corpo;
   if(p.funil === 'fornece'){
-    corpo = '\n\nTrabalhamos com ' + p.linha + ' e atendemos profissionais com condição especial.';
-    if(produtos.length){
-      corpo += ' Por exemplo:\n' + produtos.map(x =>
-        '• ' + x.name + (x.volume ? ' (' + x.volume + ')' : '')).join('\n');
-    }
-    corpo += '\n\nPosso te passar as condições pra profissional? Temos também o QueroUmaCor, nosso app onde pintores recebem pedidos de orçamento da região — entrar é gratuito.';
+    corpo = '\n\nTemos ' + p.oferta + '.' + citados +
+      ' Atendemos profissional com condição especial.' +
+      '\n\nPosso te passar as condições? Temos também o QueroUmaCor, nosso app onde profissionais recebem pedidos de orçamento da região — entrar é gratuito.';
   } else {
-    corpo = '\n\nAtendemos ' + p.linha + ': fornecemos a tinta e indicamos profissionais avaliados pelo nosso app.';
-    if(produtos.length){
-      corpo += ' Trabalhamos com ' + produtos.slice(0,3).map(x => x.name).join(', ') + ', entre outros.';
-    }
-    corpo += '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
+    corpo = '\n\nTemos ' + p.oferta + '.' + citados +
+      ' Fornecemos a tinta e indicamos profissionais avaliados pelo nosso app.' +
+      '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
   }
   return saudacao + abre + contexto + corpo + '\n\n_Se preferir não receber mensagens, é só responder PARE._';
 };
@@ -2243,11 +2283,11 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
       .or(filtro).eq('active', true).limit(12);
     const lista = (data || []).filter(p => (p.stock == null || p.stock > 0)).slice(0, 8);
     setProdutos(lista);
-    if(!termosManuais){
-      const inicial = {};
-      lista.slice(0, 3).forEach(p => { inicial[p.id] = true; });
-      setSel(inicial);
-    }
+    // NADA marcado por padrao (2026-08-29). Marcar sozinho enfiava SKU
+    // aleatorio na mensagem — um grafiteiro recebia "AROMINHA SPRAY CARRO
+    // NOVO 60ML" so porque o termo 'spray' casou. A mensagem ja diz o que a
+    // loja tem pro segmento; produto especifico e escolha do operador.
+    if(!termosManuais) setSel({});
     setCarregando(false);
   };
 
@@ -2313,8 +2353,7 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
         {/* Corpo rolavel */}
         <div style={{ padding:20, overflowY:'auto', flex:1 }}>
           <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:8 }}>
-            Produtos do catálogo pra este segmento
-            <span style={{ fontWeight:400, color:C.muted }}> — marque o que entra na mensagem</span>
+            Citar algum produto? <span style={{ fontWeight:400, color:C.muted }}>— opcional. A mensagem já diz o que a loja tem pra este segmento.</span>
           </div>
           <input value={busca} onChange={e=>setBusca(e.target.value)}
             onKeyDown={e => { if(e.key==='Enter'){ e.preventDefault(); buscarProdutos(busca.trim() || null); } }}
@@ -2324,7 +2363,7 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
             <div style={{ color:C.muted, fontSize:13, padding:'10px 0' }}>Buscando no catálogo…</div>
           ) : produtos.length === 0 ? (
             <div style={{ color:C.muted, fontSize:13, padding:'10px 0' }}>
-              Nenhum produto encontrado pra este segmento. Use a busca acima — ou envie sem produtos mesmo.
+              Nenhum produto casou com este segmento. Tudo bem: a mensagem já fala das linhas que a loja tem. Use a busca acima se quiser citar algo específico.
             </div>
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:16 }}>
@@ -2334,7 +2373,6 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
                     onChange={()=>{ setSel(s => ({ ...s, [p.id]: !s[p.id] })); setEditado(false); }} />
                   <span style={{ fontSize:12, lineHeight:1.35 }}>
                     <span style={{ fontWeight:600, color:C.ink }}>{p.name}</span>
-                    {p.volume ? <span style={{ color:C.muted }}> · {p.volume}</span> : null}
                     {p.line ? <div style={{ color:C.muted, fontSize:11 }}>{p.line}</div> : null}
                   </span>
                 </label>
