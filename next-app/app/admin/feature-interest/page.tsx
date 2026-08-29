@@ -26,7 +26,7 @@ export default async function AdminFeatureInterestPage() {
         Interesse em features
       </h1>
       <p className="text-sm text-[color:var(--color-muted)] mb-6">
-        Quantos usuários clicaram em "tenho interesse" em features que
+        Quantos usuários clicaram em &quot;tenho interesse&quot; em features que
         ainda não estão disponíveis. Use pra priorizar lançamentos.
       </p>
       <FeatureInterestAdmin />
