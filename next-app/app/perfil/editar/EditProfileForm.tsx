@@ -18,7 +18,9 @@
 //    deste form. Input fica readonly informativo.
 //  - avatar preview usa URL.createObjectURL + state local — não mutamos DOM.
 //    objectURL é revogado no useEffect cleanup pra não vazar memory.
-//  - upload do avatar é feito SEPARADO do update do profile: fluxo é
+//  - avatar sobe NA HORA (2026-08-29), igual ao logo: uploadAvatar →
+//    update({avatar_url}) → toast. Antes esperava o submit e virava um
+//    preview que a pessoa achava que tinha salvado. Fluxo antigo era
 //    uploadAvatar → patch.avatar_url = publicUrl → updateProfile. Se o
 //    upload falhar, a UI mostra o erro e NÃO aplica nada (não persiste meio
 //    update — comportamento mais previsível que o "best-effort" do vanilla
@@ -101,10 +103,15 @@ export function EditProfileForm() {
   const { profile, loading, error, update, isUpdating } = useProfile();
   const dialog = useDialog();
 
-  // Avatar local: arquivo selecionado + preview URL via createObjectURL.
-  // Nada é gravado no banco até o submit; até lá só fica em state.
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  // Avatar: sobe NA HORA, igual ao logo do negócio logo abaixo.
+  //
+  // Antes esperava o submit e a foto virava só um preview — a pessoa
+  // escolhia, via a cara nova na tela, saía da página e nada tinha sido
+  // salvo. Nenhuma mensagem, porque nada tinha acontecido mesmo. Pior:
+  // o logo, no mesmo formulário, JÁ salvava sozinho — dois controles
+  // vizinhos com comportamentos opostos.
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
   // Logo do negócio: lê do banco via fetchLogo (sincronizado com camisetas
   // — mesma URL `profiles.business_logo_url` que ShirtCustomizer/AiArt usam).
   // Upload faz commit imediato (não espera o submit do form principal) pra
@@ -120,6 +127,7 @@ export function EditProfileForm() {
     handleSubmit,
     reset,
     watch,
+    setFocus,
     formState: { errors, isDirty },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -271,39 +279,70 @@ export function EditProfileForm() {
     }
   }
 
-  // Cleanup do objectURL quando trocar o arquivo ou desmontar — sem isso
-  // o blob fica no heap até o GC, e em uploads sucessivos vaza.
-  useEffect(() => {
-    if (!avatarFile) {
-      setAvatarPreview(null);
-      return;
-    }
-    const url = URL.createObjectURL(avatarFile);
-    setAvatarPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [avatarFile]);
-
+  // Enquanto sobe, mostra o arquivo local; depois vale o que está no
+  // banco. O objectURL é revogado pra não vazar blob no heap.
   const currentAvatarUrl = useMemo(() => {
     if (avatarPreview) return avatarPreview;
     return profile?.avatar_url ?? null;
   }, [avatarPreview, profile?.avatar_url]);
 
-  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    return () => {
+      if (avatarPreview?.startsWith('blob:')) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
-    if (!f) {
-      setAvatarFile(null);
-      return;
-    }
+    e.target.value = ''; // permite reescolher o MESMO arquivo depois
+    if (!f || !user || avatarBusy) return;
     if (!f.type.startsWith('image/')) {
-      setSubmitError('Selecione um arquivo de imagem');
+      showToast('Selecione um arquivo de imagem', 'error');
       return;
     }
     if (f.size > 5 * 1024 * 1024) {
-      setSubmitError('Imagem muito grande (máx 5MB)');
+      showToast('Imagem muito grande (máx 5MB)', 'error');
       return;
     }
-    setSubmitError(null);
-    setAvatarFile(f);
+    const local = URL.createObjectURL(f);
+    setAvatarPreview(local);
+    setAvatarBusy(true);
+    try {
+      const url = await uploadAvatar(user.id, f);
+      await update({ avatar_url: url } as Parameters<typeof update>[0]);
+      setAvatarPreview(null); // a partir daqui vale a do banco
+      URL.revokeObjectURL(local);
+      showToast('Foto atualizada!', 'success');
+    } catch (err) {
+      setAvatarPreview(null);
+      URL.revokeObjectURL(local);
+      showToast((err as Error).message || 'Não consegui salvar a foto', 'error');
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  /**
+   * Validação reprovou. Sem isto o botão "Salvar" não fazia NADA visível:
+   * o erro aparecia lá embaixo, ao lado do campo, e quem estava no topo
+   * da página (trocando a foto, por exemplo) só via o botão piscar. Agora
+   * a página rola até o primeiro campo com problema e diz o que falta.
+   */
+  function onInvalid(errs: Record<string, { message?: string }>) {
+    setSubmitSuccess(false);
+    const primeiro = Object.keys(errs)[0] as keyof FormData | undefined;
+    const msg = primeiro ? errs[primeiro as string]?.message : '';
+    setSubmitError(msg ? `Falta corrigir: ${msg}` : 'Confira os campos destacados em vermelho.');
+    if (primeiro) {
+      try {
+        setFocus(primeiro);
+        document
+          .querySelector(`[name="${String(primeiro)}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch {
+        /* foco é conforto, não requisito */
+      }
+    }
   }
 
   async function onSubmit(data: FormData) {
@@ -312,11 +351,6 @@ export function EditProfileForm() {
     setSubmitSuccess(false);
 
     try {
-      let avatarUrl: string | undefined;
-      if (avatarFile) {
-        avatarUrl = await uploadAvatar(user.id, avatarFile);
-      }
-
       // bio/address opcionais: enviar string vazia como null pra normalizar
       // no banco (consistente com a coluna nullable).
       await update({
@@ -331,11 +365,9 @@ export function EditProfileForm() {
         business_name: data.business_name ? data.business_name : null,
         instagram_url: data.instagram_url ? data.instagram_url : null,
         website_url: data.website_url ? data.website_url : null,
-        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
       } as Parameters<typeof update>[0] & { business_name?: string | null });
 
       setSubmitSuccess(true);
-      setAvatarFile(null); // limpa preview pós-save
       // Apaga rascunho pra não restaurar valores antigos no próximo mount.
       autosave.clear();
       setDraftSavedAt(0);
@@ -383,7 +415,11 @@ export function EditProfileForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+    <form
+      onSubmit={handleSubmit(onSubmit, onInvalid as Parameters<typeof handleSubmit>[1])}
+      className="space-y-4"
+      noValidate
+    >
       {/* Avatar + upload */}
       <div className="flex items-center gap-4">
         <div className="w-20 h-20 rounded-full bg-[color:var(--color-border)] overflow-hidden flex-shrink-0">
@@ -404,8 +440,9 @@ export function EditProfileForm() {
           <label
             htmlFor="avatar-input"
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
+            style={{ opacity: avatarBusy ? 0.6 : 1, pointerEvents: avatarBusy ? 'none' : 'auto' }}
           >
-            Trocar foto
+            {avatarBusy ? 'Enviando…' : 'Trocar foto'}
           </label>
           <input
             id="avatar-input"
@@ -415,7 +452,7 @@ export function EditProfileForm() {
             onChange={handleAvatarChange}
           />
           <p className="text-xs text-[color:var(--color-muted)] mt-1">
-            JPG/PNG/WebP — máx 5MB
+            JPG/PNG/WebP — máx 5MB. Salva sozinha ao escolher.
           </p>
         </div>
       </div>
@@ -705,7 +742,7 @@ export function EditProfileForm() {
 
       <button
         type="submit"
-        disabled={isUpdating || (!isDirty && !avatarFile)}
+        disabled={isUpdating || !isDirty}
         className="w-full py-3 bg-[color:var(--color-p1)] text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
       >
         {isUpdating ? 'Salvando...' : 'Salvar'}

@@ -111,6 +111,19 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **"Trocar foto" do perfil não salvava (2026-08-29).** A pessoa escolhia
+  a foto, via a cara nova na tela, saía e nada tinha mudado — sem
+  mensagem, porque de fato nada acontecia: o avatar só virava PREVIEW
+  (`createObjectURL`) e o upload esperava o submit lá no fim da página.
+  Pior: o **logo do negócio, no MESMO formulário, já salvava sozinho** —
+  dois controles vizinhos com comportamentos opostos. Agora o avatar sobe
+  na hora (`uploadAvatar` → `update({avatar_url})` → toast), igual ao logo.
+  - **Bug 2, o que escondia o primeiro:** `handleSubmit(onSubmit)` sem
+    `onInvalid`. Perfil antigo com cidade/UF/telefone vazio reprovava na
+    validação e o botão "Salvar" **não fazia nada visível** — o erro
+    aparecia ao lado do campo, fora da tela. Agora `onInvalid` mostra
+    "Falta corrigir: …" e rola até o campo.
+
 - **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL PENDENTE.**
   Foto, áudio, vídeo e documento chegavam como MARCADOR de texto
   (`[áudio]`, `[imagem]`): o evento do WhatsApp não traz o arquivo, só o
