@@ -195,8 +195,9 @@
     `type='avatar-fail'` e `'publish-fail'` com `user_id`, mensagem, UA e
     URL. **Fluxo novo que engole erro em catch = chamar `reportFailure`.**
 
-- **NÃO LIDAS nos Chats 3-Way (2026-08-29, v=20260829y, Wave 51 —
-  PENDENTE).** O número da conversa era `conv.messages.length` (total da
+- **NÃO LIDAS nos Chats 3-Way (2026-08-29, v=20260829y, Wave 51 — JÁ
+  EXECUTADA no Supabase em 2026-08-29; não pedir pra rodar de novo).** O
+  número da conversa era `conv.messages.length` (total da
   conversa) e o do menu era o COUNT de `messages` inteiro — o famoso "23".
   Nenhum dos dois baixava ao abrir. Agora vale a marca em
   `portal_chat_reads` (`/migrations/2026-08-29-portal-chat-reads.sql`),
@@ -215,10 +216,11 @@
   comece no `auth.uid()`** — a RLS teria recusado assim que o (1) fosse
   corrigido. Agora sobe em `<uid>/products/<arquivo>`, com validação de
   tipo/tamanho e "Enviando…". **Wave 50** (`/migrations/
-  2026-08-29-cleanup-preserva-foto-produto.sql`, PENDENTE) ensina
-  `cleanup_orphan_media()` a poupar `products.image_url` — sem ela a foto
+  2026-08-29-cleanup-preserva-foto-produto.sql`) — **JÁ EXECUTADA no
+  Supabase (2026-08-29), não pedir pra rodar de novo** — ensina
+  `cleanup_orphan_media()` a poupar `products.image_url`; sem ela a foto
   entraria na lista de órfãos em 7 dias (o cron só LISTA; quem apaga é
-  `execute_cleanup_orphan_media()` na mão, então é mina desarmada).
+  `execute_cleanup_orphan_media()` na mão, então era mina desarmada).
 
 - **Compartilhar PDF de orçamento NO APP INSTALADO (2026-08-29).** A
   WebView do wrapper não expõe `navigator.share`, então anexar o ARQUIVO

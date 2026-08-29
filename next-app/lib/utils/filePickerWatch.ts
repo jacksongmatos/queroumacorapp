@@ -23,6 +23,40 @@ function ehAndroid(ua: string): boolean {
 }
 
 /**
+ * "A página saiu do ar em até X ms?" — o tijolo por trás do
+ * `watchFilePicker`, sem o filtro de Android.
+ *
+ * Serve pra qualquer coisa que DEVERIA tirar o foco da página: abrir o
+ * seletor de arquivos, disparar um `intent:` de compartilhar, chamar outro
+ * app. Se o foco não saiu, aquilo não aconteceu — e o chamador usa o plano
+ * B. Devolve a função de cancelar.
+ */
+export function watchAppLeave(
+  onNaoSaiu: () => void,
+  opts?: { timeoutMs?: number },
+): () => void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return () => {};
+  }
+  let vivo = true;
+  const cancelar = () => {
+    if (!vivo) return;
+    vivo = false;
+    clearTimeout(timer);
+    window.removeEventListener('blur', cancelar);
+    document.removeEventListener('visibilitychange', cancelar);
+  };
+  const timer = setTimeout(() => {
+    if (!vivo) return;
+    cancelar();
+    onNaoSaiu();
+  }, opts?.timeoutMs ?? 1800);
+  window.addEventListener('blur', cancelar, { once: true });
+  document.addEventListener('visibilitychange', cancelar, { once: true });
+  return cancelar;
+}
+
+/**
  * Chame no MESMO gesto que abre o seletor (o clique). Devolve uma função
  * pra cancelar manualmente, caso o chamador descubra por outro caminho
  * que deu certo (por exemplo, o `change` disparou).
@@ -36,26 +70,7 @@ export function watchFilePicker(
   }
   const ua = opts?.userAgent ?? navigator.userAgent ?? '';
   if (!ehAndroid(ua)) return () => {};
-
-  let vivo = true;
-  const cancelar = () => {
-    if (!vivo) return;
-    vivo = false;
-    clearTimeout(timer);
-    window.removeEventListener('blur', cancelar);
-    document.removeEventListener('visibilitychange', cancelar);
-  };
-
-  const timer = setTimeout(() => {
-    if (!vivo) return;
-    cancelar();
-    onNaoAbriu();
-  }, opts?.timeoutMs ?? 1800);
-
-  window.addEventListener('blur', cancelar, { once: true });
-  document.addEventListener('visibilitychange', cancelar, { once: true });
-
-  return cancelar;
+  return watchAppLeave(onNaoAbriu, { timeoutMs: opts?.timeoutMs });
 }
 
 /** Texto único pros dois lugares que sofrem com isso. */

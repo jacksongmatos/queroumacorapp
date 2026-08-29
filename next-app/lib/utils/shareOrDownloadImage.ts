@@ -35,8 +35,15 @@ export async function shareOrDownloadImage(
     // WebView Android sem share de arquivo: blob: não chega no lado nativo
     // (Save As vazio que não salva). No app, o próprio dataUrl de origem já
     // carrega os bytes — anchor direto nele o wrapper decodifica e grava.
-    const { isAndroidWebView } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
-    const inWebView = isAndroidWebView(navigator.userAgent || '');
+    // Gate era `isAndroidWebView`, que exige o token `wv` (ou "WebIntoApp")
+    // no user agent — e o wrapper não tem nenhum dos dois: os pings
+    // `scrollpin-diag` de produção vieram todos com `wv=false`. Resultado: o
+    // app instalado caía no `blob:` mesmo assim, que é o "Save As" vazio que
+    // esta linha existia pra evitar. Como o navegador Android de verdade já
+    // foi atendido pelo `navigator.share` acima, basta perguntar se é
+    // Android.
+    const { isAndroid } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
+    const inWebView = isAndroid(navigator.userAgent || '');
     const href = inWebView ? dataUrl : URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = href;
