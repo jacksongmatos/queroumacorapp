@@ -129,6 +129,16 @@
     vizinhos 422, media = metropolitana 311, baixa = interior 253).
     `LEAD_PITCH` ganhou a chave **'Engenharia'** (funil `fornece`) — 234
     leads caem nela.
+  - **Cabeçalho da tabela de Leads (2026-08-29, v=20260829q):** as setas
+    "↕" eram DECORATIVAS — o header era `['NOME ↕', …].map()`. Agora cada
+    coluna ordena de verdade (`ThLead`/`ordenarPor`, clique inverte) e tem
+    filtro próprio no "▾" (`OpcoesFiltro`): Nome e Telefone por texto,
+    Cidade/Segmento/Categoria/Prioridade/Status por lista com contagem,
+    Rating por nota mínima. Coluna **CIDADE** nova na tabela (o endereço
+    desceu pra linha de baixo do nome). O select "Ordenar" do topo saiu
+    (virou redundante) e no lugar entrou "✕ Limpar N filtros", que só
+    aparece com filtro ativo. Segmento/Categoria/Status do header escrevem
+    nos MESMOS states dos chips do topo — uma fonte de verdade só.
   - **PEGADINHA (2026-08-29): `leads` NÃO tinha `city` nem
     `neighborhood`.** O portal lê `l.neighborhood || l.city` em 4 lugares
     (por isso todo lead mostrava "—" embaixo do nome) e o antigo Busca AI

@@ -5387,6 +5387,145 @@ const AbordagemModal = ({
     }
   }, enviando ? 'Enviando…' : '📤 Enviar abordagem')))));
 };
+// ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
+// Antes o header era uma lista de textos com "↕" decorativo. Cada coluna
+// agora ordena (clique no titulo, clique de novo inverte) e tem filtro
+// proprio no "▾". O estado vive no componente Leads e chega via `ctx`.
+const filtroInput = {
+  width: '100%',
+  padding: '7px 9px',
+  borderRadius: 8,
+  border: '1px solid #e5e0d8',
+  fontSize: 12,
+  outline: 'none'
+};
+const OpcoesFiltro = ({
+  opcoes,
+  valor,
+  onPick,
+  fechar
+}) => /*#__PURE__*/React.createElement("div", {
+  style: {
+    maxHeight: 260,
+    overflowY: 'auto',
+    margin: -4
+  }
+}, opcoes.map(([v, rot, qtd]) => /*#__PURE__*/React.createElement("button", {
+  key: String(v),
+  onClick: () => {
+    onPick(v);
+    fechar();
+  },
+  style: {
+    display: 'flex',
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    background: valor === v ? C.p1 + '18' : 'none',
+    border: 'none',
+    borderRadius: 7,
+    padding: '7px 9px',
+    fontSize: 12,
+    cursor: 'pointer',
+    color: valor === v ? C.p1 : C.ink,
+    fontWeight: valor === v ? 700 : 400,
+    textAlign: 'left'
+  }
+}, /*#__PURE__*/React.createElement("span", null, rot), qtd != null ? /*#__PURE__*/React.createElement("span", {
+  style: {
+    color: C.muted,
+    fontSize: 11
+  }
+}, qtd) : null)));
+const ThLead = ({
+  rot,
+  campo,
+  ativo,
+  ctx,
+  children
+}) => {
+  const ordenando = campo && ctx.sortCol === campo;
+  const aberto = ctx.menuCol === rot;
+  return /*#__PURE__*/React.createElement("th", {
+    style: {
+      position: 'relative',
+      textAlign: 'left',
+      padding: '12px 10px',
+      color: C.muted,
+      fontWeight: 600,
+      fontSize: 11,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      whiteSpace: 'nowrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6
+    }
+  }, campo ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => ctx.ordenarPor(campo),
+    title: "Ordenar por esta coluna",
+    style: {
+      background: 'none',
+      border: 'none',
+      padding: 0,
+      cursor: 'pointer',
+      font: 'inherit',
+      textTransform: 'inherit',
+      letterSpacing: 'inherit',
+      color: ordenando ? C.p1 : C.muted,
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4
+    }
+  }, rot, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9
+    }
+  }, ordenando ? ctx.sortDir === 'asc' ? '▲' : '▼' : '↕')) : /*#__PURE__*/React.createElement("span", null, rot), children ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => ctx.setMenuCol(aberto ? null : rot),
+    title: "Filtrar esta coluna",
+    style: {
+      background: ativo ? C.p1 : 'none',
+      color: ativo ? '#fff' : C.border,
+      border: 'none',
+      borderRadius: 5,
+      width: 16,
+      height: 16,
+      lineHeight: '14px',
+      fontSize: 9,
+      cursor: 'pointer',
+      padding: 0
+    }
+  }, "\u25BC") : null), children && aberto ? /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    onClick: () => ctx.setMenuCol(null),
+    style: {
+      position: 'fixed',
+      inset: 0,
+      zIndex: 40,
+      display: 'block'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      top: '100%',
+      left: 6,
+      zIndex: 41,
+      background: '#fff',
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      boxShadow: '0 10px 30px rgba(26,26,46,.16)',
+      padding: 8,
+      minWidth: 200,
+      textTransform: 'none',
+      letterSpacing: 0,
+      fontWeight: 400
+    }
+  }, children)) : null);
+};
 const LEAD_PRIO_COLORS = {
   alta: C.p6,
   media: C.p7,
@@ -5399,7 +5538,17 @@ const Leads = () => {
   const [filtroStatus, setFiltroStatus] = useState('Todos');
   const [filtroSegmento, setFiltroSegmento] = useState('TODOS');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
-  const [ordenar, setOrdenar] = useState('rating');
+  // ORDENACAO E FILTRO POR COLUNA (2026-08-29). Antes o cabecalho tinha
+  // setinhas "↕" que eram so enfeite — nao ordenavam nada. Agora cada
+  // coluna ordena de verdade e tem o proprio filtro no "▾".
+  const [sortCol, setSortCol] = useState('rating');
+  const [sortDir, setSortDir] = useState('desc');
+  const [menuCol, setMenuCol] = useState(null); // qual filtro esta aberto
+  const [fNome, setFNome] = useState('');
+  const [fTel, setFTel] = useState('');
+  const [fPrio, setFPrio] = useState('Todas');
+  const [fRating, setFRating] = useState(0);
+  const [fCidade, setFCidade] = useState('Todas');
   const [importOpen, setImportOpen] = useState(false);
   const [abordar, setAbordar] = useState(null); // lead da janela de abordagem
 
@@ -5461,9 +5610,64 @@ const Leads = () => {
     if (filtroStatus !== 'Todos') out = out.filter(l => l.status === filtroStatus.toLowerCase());
     if (filtroSegmento !== 'TODOS') out = out.filter(l => (l.segment || '').toUpperCase() === filtroSegmento);
     if (filtroCategoria !== 'Todas') out = out.filter(l => l.category === filtroCategoria);
-    if (ordenar === 'rating') out = [...out].sort((a, b) => (b.rating || 0) - (a.rating || 0));else if (ordenar === 'reviews') out = [...out].sort((a, b) => (b.review_count || 0) - (a.review_count || 0));else if (ordenar === 'name') out = [...out].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    // Filtros de coluna (cabecalho)
+    if (fNome.trim()) {
+      const q = fNome.trim().toLowerCase();
+      out = out.filter(l => (l.name || '').toLowerCase().includes(q));
+    }
+    if (fTel.trim()) {
+      const d = fTel.replace(/\D/g, '');
+      if (d) out = out.filter(l => (l.phone || '').replace(/\D/g, '').includes(d));
+    }
+    if (fPrio !== 'Todas') out = out.filter(l => (l.priority || 'media') === fPrio);
+    if (fRating > 0) out = out.filter(l => Number(l.rating || 0) >= fRating);
+    if (fCidade !== 'Todas') out = out.filter(l => (l.city || '—') === fCidade);
+
+    // Ordenacao: numero compara como numero, o resto como texto (pt-BR).
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const numerica = sortCol === 'rating' || sortCol === 'review_count';
+    out = [...out].sort((a, b) => {
+      if (numerica) return ((Number(a[sortCol]) || 0) - (Number(b[sortCol]) || 0)) * dir;
+      return String(a[sortCol] || '').localeCompare(String(b[sortCol] || ''), 'pt-BR') * dir;
+    });
     return out;
-  }, [leads, busca, filtroStatus, filtroSegmento, filtroCategoria, ordenar]);
+  }, [leads, busca, filtroStatus, filtroSegmento, filtroCategoria, sortCol, sortDir, fNome, fTel, fPrio, fRating, fCidade]);
+  const cidades = React.useMemo(() => {
+    const c = {};
+    leads.forEach(l => {
+      const k = l.city || '—';
+      c[k] = (c[k] || 0) + 1;
+    });
+    return c;
+  }, [leads]);
+  const filtrosAtivos = (busca ? 1 : 0) + (filtroStatus !== 'Todos' ? 1 : 0) + (filtroSegmento !== 'TODOS' ? 1 : 0) + (filtroCategoria !== 'Todas' ? 1 : 0) + (fNome ? 1 : 0) + (fTel ? 1 : 0) + (fPrio !== 'Todas' ? 1 : 0) + (fRating > 0 ? 1 : 0) + (fCidade !== 'Todas' ? 1 : 0);
+  // Clique no titulo ordena; clique de novo inverte. Coluna nova comeca
+  // decrescente quando e numero (nota/avaliacoes) e crescente em texto.
+  const ordenarPor = campo => {
+    if (sortCol === campo) setSortDir(d => d === 'asc' ? 'desc' : 'asc');else {
+      setSortCol(campo);
+      setSortDir(campo === 'rating' || campo === 'review_count' ? 'desc' : 'asc');
+    }
+  };
+  const thCtx = {
+    sortCol,
+    sortDir,
+    ordenarPor,
+    menuCol,
+    setMenuCol
+  };
+  const limparFiltros = () => {
+    setBusca('');
+    setFiltroStatus('Todos');
+    setFiltroSegmento('TODOS');
+    setFiltroCategoria('Todas');
+    setFNome('');
+    setFTel('');
+    setFPrio('Todas');
+    setFRating(0);
+    setFCidade('Todas');
+    setMenuCol(null);
+  };
 
   // Segment / Category / Status counts — só dependem de leads.
   const segments = React.useMemo(() => {
@@ -5494,8 +5698,8 @@ const Leads = () => {
   const sortedSegments = React.useMemo(() => Object.entries(segments).sort((a, b) => b[1] - a[1]), [segments]);
   const sortedCategories = React.useMemo(() => Object.entries(categories).sort((a, b) => b[1] - a[1]), [categories]);
   const exportCSV = () => {
-    const header = ['#', 'Nome', 'Bairro', 'Segmento', 'Categoria', 'Rating', 'Reviews', 'Telefone', 'Prioridade', 'Status'];
-    const rows = filtered.map((l, i) => [i + 1, l.name || '', l.neighborhood || '', l.segment || '', l.category || '', l.rating || '', l.review_count || '', l.phone || '', l.priority || '', l.status || '']);
+    const header = ['#', 'Nome', 'Cidade', 'Bairro', 'Endereco', 'Segmento', 'Categoria', 'Rating', 'Reviews', 'Telefone', 'Prioridade', 'Status'];
+    const rows = filtered.map((l, i) => [i + 1, l.name || '', l.city || '', l.neighborhood || '', l.address || '', l.segment || '', l.category || '', l.rating || '', l.review_count || '', l.phone || '', l.priority || '', l.status || '']);
     const csv = [header, ...rows].map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], {
       type: 'text/csv;charset=utf-8;'
@@ -5668,26 +5872,21 @@ const Leads = () => {
     value: "Convertido"
   }, "Convertido"), /*#__PURE__*/React.createElement("option", {
     value: "Perdido"
-  }, "Perdido")), /*#__PURE__*/React.createElement("select", {
-    value: ordenar,
-    onChange: e => setOrdenar(e.target.value),
+  }, "Perdido")), filtrosAtivos > 0 ? /*#__PURE__*/React.createElement("button", {
+    onClick: limparFiltros,
+    title: "Voltar a ver todos os leads",
     style: {
-      padding: '10px 14px',
+      padding: '10px 16px',
       borderRadius: 10,
-      border: '1px solid ' + C.border,
-      background: C.bg,
-      color: C.ink,
+      border: '1px solid ' + C.p1,
+      background: C.p1 + '14',
+      color: C.p1,
       fontSize: 12,
-      outline: 'none',
-      cursor: 'pointer'
+      cursor: 'pointer',
+      fontWeight: 700,
+      whiteSpace: 'nowrap'
     }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "rating"
-  }, "Ordenar: Rating \u2193"), /*#__PURE__*/React.createElement("option", {
-    value: "reviews"
-  }, "Ordenar: Reviews \u2193"), /*#__PURE__*/React.createElement("option", {
-    value: "name"
-  }, "Ordenar: Nome A-Z")), /*#__PURE__*/React.createElement("button", {
+  }, "\u2715 Limpar ", filtrosAtivos, " filtro", filtrosAtivos > 1 ? 's' : '') : null, /*#__PURE__*/React.createElement("button", {
     onClick: exportCSV,
     style: {
       padding: '10px 16px',
@@ -5814,19 +6013,93 @@ const Leads = () => {
     style: {
       borderBottom: '2px solid ' + C.border
     }
-  }, ['NOME ↕', 'SEGMENTO ↕', 'CATEGORIA ↕', 'RATING ↕', 'TELEFONE', 'PRIO.', 'STATUS', 'AÇÃO'].map(h => /*#__PURE__*/React.createElement("th", {
-    key: h,
-    style: {
-      textAlign: 'left',
-      padding: '12px 10px',
-      color: C.muted,
-      fontWeight: 600,
-      fontSize: 11,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5
-    }
-  }, h)))), /*#__PURE__*/React.createElement("tbody", null, filtered.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 8,
+  }, /*#__PURE__*/React.createElement(ThLead, {
+    rot: "NOME",
+    campo: "name",
+    ativo: !!fNome,
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement("input", {
+    autoFocus: true,
+    value: fNome,
+    onChange: e => setFNome(e.target.value),
+    placeholder: "Buscar no nome\u2026",
+    style: filtroInput
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "CIDADE",
+    campo: "city",
+    ativo: fCidade !== 'Todas',
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement(OpcoesFiltro, {
+    valor: fCidade,
+    onPick: setFCidade,
+    fechar: () => setMenuCol(null),
+    opcoes: [['Todas', 'Todas as cidades', leads.length]].concat(Object.entries(cidades).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, k, v]))
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "SEGMENTO",
+    campo: "segment",
+    ativo: filtroSegmento !== 'TODOS',
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement(OpcoesFiltro, {
+    valor: filtroSegmento,
+    onPick: setFiltroSegmento,
+    fechar: () => setMenuCol(null),
+    opcoes: [['TODOS', 'Todos os segmentos', leads.length]].concat(Object.entries(segments).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, k, v]))
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "CATEGORIA",
+    campo: "category",
+    ativo: filtroCategoria !== 'Todas',
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement(OpcoesFiltro, {
+    valor: filtroCategoria,
+    onPick: setFiltroCategoria,
+    fechar: () => setMenuCol(null),
+    opcoes: [['Todas', 'Todas as categorias', leads.length]].concat(Object.entries(categories).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, k, v]))
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "RATING",
+    campo: "rating",
+    ativo: fRating > 0,
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement(OpcoesFiltro, {
+    valor: fRating,
+    onPick: setFRating,
+    fechar: () => setMenuCol(null),
+    opcoes: [[0, 'Qualquer nota', null], [4.5, '4,5 ou mais', null], [4, '4,0 ou mais', null], [3, '3,0 ou mais', null]]
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "TELEFONE",
+    campo: "phone",
+    ativo: !!fTel,
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement("input", {
+    autoFocus: true,
+    value: fTel,
+    onChange: e => setFTel(e.target.value),
+    placeholder: "Digitos do telefone\u2026",
+    style: filtroInput
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "PRIO.",
+    campo: "priority",
+    ativo: fPrio !== 'Todas',
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement(OpcoesFiltro, {
+    valor: fPrio,
+    onPick: setFPrio,
+    fechar: () => setMenuCol(null),
+    opcoes: [['Todas', 'Todas', null], ['alta', 'Alta', null], ['media', 'Média', null], ['baixa', 'Baixa', null]]
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "STATUS",
+    campo: "status",
+    ativo: filtroStatus !== 'Todos',
+    ctx: thCtx
+  }, /*#__PURE__*/React.createElement(OpcoesFiltro, {
+    valor: filtroStatus,
+    onPick: setFiltroStatus,
+    fechar: () => setMenuCol(null),
+    opcoes: [['Todos', 'Todos', statusCounts.total]].concat(['novo', 'contactado', 'qualificado', 'convertido', 'perdido'].map(k => [k.charAt(0).toUpperCase() + k.slice(1), LEADS_STATUS_LABELS[k], statusCounts[k]]))
+  })), /*#__PURE__*/React.createElement(ThLead, {
+    rot: "A\xC7\xC3O",
+    ctx: thCtx
+  }))), /*#__PURE__*/React.createElement("tbody", null, filtered.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 9,
     style: {
       padding: '30px 10px',
       color: C.muted,
@@ -5859,7 +6132,21 @@ const Leads = () => {
         fontSize: 11,
         color: C.muted
       }
-    }, l.neighborhood || l.city || '—')), /*#__PURE__*/React.createElement("td", {
+    }, l.address || '—')), /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: '12px 10px'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: C.ink,
+        fontSize: 12
+      }
+    }, l.city || '—'), l.neighborhood ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.muted
+      }
+    }, l.neighborhood) : null), /*#__PURE__*/React.createElement("td", {
       style: {
         padding: '12px 10px'
       }
