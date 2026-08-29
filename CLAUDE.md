@@ -111,6 +111,20 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **Foto de produto no portal (2026-08-29, v=20260829x).** Dois bugs
+  empilhados: (1) o handler chamava `setAiBusy`, que **não existe** nesse
+  componente — sobra de copy/paste; ele estourava na PRIMEIRA linha do
+  try, então o upload nunca acontecia (o alerta "setAiBusy is not
+  defined" era o próprio bug); (2) atrás dele, o path era
+  `products/<arquivo>`, e a **Wave 27 exige que o path no bucket `posts`
+  comece no `auth.uid()`** — a RLS teria recusado assim que o (1) fosse
+  corrigido. Agora sobe em `<uid>/products/<arquivo>`, com validação de
+  tipo/tamanho e "Enviando…". **Wave 50** (`/migrations/
+  2026-08-29-cleanup-preserva-foto-produto.sql`, PENDENTE) ensina
+  `cleanup_orphan_media()` a poupar `products.image_url` — sem ela a foto
+  entraria na lista de órfãos em 7 dias (o cron só LISTA; quem apaga é
+  `execute_cleanup_orphan_media()` na mão, então é mina desarmada).
+
 - **Compartilhar PDF de orçamento NO APP INSTALADO (2026-08-29).** A
   WebView do wrapper não expõe `navigator.share`, então anexar o ARQUIVO
   é impossível pelo lado web — o botão caía no download e o pintor tinha

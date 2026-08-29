@@ -2151,6 +2151,7 @@ const ProdutosList = () => {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [fotoBusy, setFotoBusy] = useState(false);
   const [menuFilter, setMenuFilter] = useState('all');
   const [busca, setBusca] = useState('');
   const [form, setForm] = useState({
@@ -2605,16 +2606,38 @@ const ProdutosList = () => {
     }), /*#__PURE__*/React.createElement("input", {
       type: "file",
       accept: "image/*",
+      disabled: fotoBusy,
       onChange: async e => {
         const f = e.target.files && e.target.files[0];
+        e.target.value = '';
         if (!f) return;
+        if (!f.type.startsWith('image/')) {
+          alert('Selecione um arquivo de imagem.');
+          return;
+        }
+        if (f.size > 5 * 1024 * 1024) {
+          alert('Imagem grande demais (max 5MB).');
+          return;
+        }
+        setFotoBusy(true);
         try {
-          setAiBusy('Enviando foto...');
-          const path = 'products/' + Date.now() + '-' + f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const {
+            data: {
+              user
+            }
+          } = await supa.auth.getUser();
+          if (!user) throw new Error('Sessao expirada — entre de novo.');
+          // O bucket `posts` exige que o path COMECE no id de quem
+          // sobe (Wave 27, path validation). O caminho antigo era
+          // 'products/...' — a RLS recusava. Isso nunca apareceu
+          // porque o `setAiBusy` inexistente estourava antes.
+          const nome = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const path = user.id + '/products/' + Date.now() + '-' + nome;
           const {
             error
           } = await supa.storage.from('posts').upload(path, f, {
-            upsert: true
+            upsert: true,
+            contentType: f.type
           });
           if (error) throw error;
           const {
@@ -2627,13 +2650,19 @@ const ProdutosList = () => {
         } catch (err) {
           alert('Erro ao enviar foto: ' + (err.message || err));
         }
-        setAiBusy('');
+        setFotoBusy(false);
       },
       style: {
         fontSize: 12,
         flex: 1
       }
-    }), form.image_url && /*#__PURE__*/React.createElement("button", {
+    }), fotoBusy ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: C.muted,
+        whiteSpace: 'nowrap'
+      }
+    }, "Enviando\u2026") : null, form.image_url && /*#__PURE__*/React.createElement("button", {
       type: "button",
       onClick: () => setForm({
         ...form,
@@ -9057,6 +9086,17 @@ const AJUDA_WHATSAPP = [{
 // texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
 // se o arquivo nao foi salvo, mostra o marcador de sempre, entao nada
 // quebra em mensagem antiga.
+// Previa na lista de conversas: audio mostra a transcricao em vez de
+// "[audio]" — da pra saber do que a conversa trata sem abrir.
+const previewMsg = m => {
+  if (!m) return '';
+  if (m.transcript) return '🎤 ' + m.transcript;
+  if (m.type === 'image') return '📷 ' + (m.body && m.body !== '[imagem]' ? m.body : 'Foto');
+  if (m.type === 'audio') return '🎤 Áudio';
+  if (m.type === 'video') return '🎬 Vídeo';
+  if (m.type === 'document') return '📎 ' + (m.body || 'Documento');
+  return m.body || '[' + (m.type || 'msg') + ']';
+};
 const BolhaConteudo = ({
   m,
   url
@@ -10128,7 +10168,7 @@ const WhatsAppTab = () => {
       whiteSpace: 'nowrap',
       marginTop: 2
     }
-  }, (c.last.direction === 'out' ? 'Voce: ' : '') + (c.last.body || '[' + (c.last.type || 'msg') + ']')))))), /*#__PURE__*/React.createElement("div", {
+  }, (c.last.direction === 'out' ? 'Voce: ' : '') + previewMsg(c.last)))))), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       display: 'flex',

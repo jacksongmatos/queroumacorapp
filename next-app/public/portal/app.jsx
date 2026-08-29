@@ -1100,6 +1100,7 @@ const ProdutosList = () => {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [fotoBusy, setFotoBusy] = useState(false);
   const [menuFilter, setMenuFilter] = useState('all');
   const [busca, setBusca] = useState('');
   const [form, setForm] = useState({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
@@ -1231,18 +1232,31 @@ const ProdutosList = () => {
             <label style={labelStyle}>Foto do produto (opcional — sobrepõe a cor)</label>
             <div style={{ display:'flex', gap:10, alignItems:'center' }}>
               {form.image_url && <div style={{ width:48, height:48, borderRadius:8, background:'center/cover no-repeat url('+form.image_url+')', border:'1px solid '+C.border, flexShrink:0 }}></div>}
-              <input type="file" accept="image/*" onChange={async e=>{
-                const f = e.target.files && e.target.files[0]; if(!f) return;
+              <input type="file" accept="image/*" disabled={fotoBusy} onChange={async e=>{
+                const f = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if(!f) return;
+                if(!f.type.startsWith('image/')){ alert('Selecione um arquivo de imagem.'); return; }
+                if(f.size > 5 * 1024 * 1024){ alert('Imagem grande demais (max 5MB).'); return; }
+                setFotoBusy(true);
                 try {
-                  setAiBusy('Enviando foto...');
-                  const path = 'products/' + Date.now() + '-' + f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-                  const { error } = await supa.storage.from('posts').upload(path, f, { upsert:true });
+                  const { data: { user } } = await supa.auth.getUser();
+                  if(!user) throw new Error('Sessao expirada — entre de novo.');
+                  // O bucket `posts` exige que o path COMECE no id de quem
+                  // sobe (Wave 27, path validation). O caminho antigo era
+                  // 'products/...' — a RLS recusava. Isso nunca apareceu
+                  // porque o `setAiBusy` inexistente estourava antes.
+                  const nome = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                  const path = user.id + '/products/' + Date.now() + '-' + nome;
+                  const { error } = await supa.storage.from('posts')
+                    .upload(path, f, { upsert:true, contentType: f.type });
                   if(error) throw error;
                   const { data } = supa.storage.from('posts').getPublicUrl(path);
                   setForm(fm => ({ ...fm, image_url: (data && data.publicUrl) || '' }));
                 } catch(err){ alert('Erro ao enviar foto: ' + (err.message||err)); }
-                setAiBusy('');
+                setFotoBusy(false);
               }} style={{ fontSize:12, flex:1 }} />
+              {fotoBusy ? <span style={{ fontSize:12, color:C.muted, whiteSpace:'nowrap' }}>Enviando…</span> : null}
               {form.image_url && <button type="button" onClick={()=>setForm({...form,image_url:''})} style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'6px 12px', fontSize:12, cursor:'pointer', color:C.muted }}>Remover</button>}
             </div>
           </div>
