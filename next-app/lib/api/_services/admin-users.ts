@@ -210,7 +210,33 @@ export async function setName(args: {
 }
 
 /**
- * Edita cidade/estado/especialidades (portal admin). Cada campo é
+ * Normaliza o telefone do jeito que o APP grava (`phoneSchema`): dígitos
+ * puros com o DDI na frente — "(11) 95976-5031" vira "5511959765031". Se o
+ * portal gravasse com máscara, o número deixaria de casar com
+ * `whatsapp_messages` e com os leads, que comparam dígitos.
+ *
+ * Segue a MESMA regra de `normalizeWhatsAppTarget` (whatsapp-evo.ts), e não
+ * a de `normalizeBrPhone`: com 11 dígitos só é celular brasileiro quando o
+ * 3º dígito é 9. Colar '55' em qualquer coisa com 11 dígitos foi o que
+ * transformou o contato dos EUA `16503154274` em `5516503154274` —
+ * inexistente — e derrubou o envio com 502. Número estrangeiro passa
+ * verbatim.
+ */
+function normalizePhoneBr(raw: string): string {
+  const d = raw.replace(/\D+/g, '');
+  if (!d) return '';
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d;
+  if (d.length === 10) return '55' + d;                    // fixo BR
+  if (d.length === 11 && d[2] === '9') return '55' + d;    // celular BR
+  if (d.length >= 11 && d.length <= 15) return d;          // DDI estrangeiro
+  throw new ServiceError(
+    'telefone inválido: use DDD + número (ex.: 11 95976-5031) ou vazio pra limpar',
+    400,
+  );
+}
+
+/**
+ * Edita cidade/estado/especialidades/telefone (portal admin). Cada campo é
  * opcional; string vazia LIMPA o campo (vira null). Pelo menos um campo
  * precisa vir no body.
  */
@@ -219,6 +245,7 @@ export async function setInfo(args: {
   city?: unknown;
   state?: unknown;
   specialties?: unknown;
+  phone?: unknown;
 }): Promise<{ ok: true; patch: Record<string, string | null> }> {
   const patch: Record<string, string | null> = {};
 
@@ -239,8 +266,11 @@ export async function setInfo(args: {
     if (v.length > 200) throw new ServiceError('especialidades muito longas (máx 200 caracteres)', 400);
     patch.specialties = v || null;
   }
+  if (typeof args.phone === 'string') {
+    patch.phone = normalizePhoneBr(args.phone) || null;
+  }
   if (Object.keys(patch).length === 0) {
-    throw new ServiceError('nada pra atualizar (city/state/specialties)', 400);
+    throw new ServiceError('nada pra atualizar (city/state/specialties/phone)', 400);
   }
 
   const serviceKey = getServiceKey();

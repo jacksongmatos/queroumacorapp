@@ -89,6 +89,126 @@ describe('POST /api/admin/users', () => {
     expect(patchBody).toContain('true');
   });
 
+  // O telefone que o portal grava tem que sair no MESMO formato que o app
+  // grava (digitos com o DDI 55). Com mascara, o numero deixaria de casar
+  // com as conversas do WhatsApp e com os leads, que comparam digitos.
+  it('set_info normaliza o telefone com mascara para digitos com o 55', async () => {
+    let patchBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        patchBody = String(init.body);
+        return Promise.resolve(new Response(JSON.stringify([{ id: 'target' }]), { status: 200 }));
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '(11) 95976-5031' })
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(patchBody)).toEqual({ phone: '5511959765031' });
+  });
+
+  it('set_info com telefone vazio LIMPA o campo (null)', async () => {
+    let patchBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        patchBody = String(init.body);
+        return Promise.resolve(new Response(JSON.stringify([{ id: 'target' }]), { status: 200 }));
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '   ' })
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(patchBody)).toEqual({ phone: null });
+  });
+
+  // Numero ESTRANGEIRO nao pode ganhar '55': foi assim que o contato dos
+  // EUA 16503154274 virou 5516503154274 (inexistente) e derrubou o envio
+  // do WhatsApp com 502. Mesma regra de `normalizeWhatsAppTarget`.
+  it('set_info guarda numero estrangeiro verbatim, sem colar o 55', async () => {
+    let patchBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        patchBody = String(init.body);
+        return Promise.resolve(new Response(JSON.stringify([{ id: 'target' }]), { status: 200 }));
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '+1 650 315-4274' })
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(patchBody)).toEqual({ phone: '16503154274' });
+  });
+
+  it('set_info recusa telefone com contagem de digitos impossivel', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '123' })
+    );
+    expect(res.status).toBe(400);
+  });
+
   it('caller in ADMIN_EMAILS but without portal_access returns 403', async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/auth/v1/user')) {

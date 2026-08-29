@@ -1,5 +1,24 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Coluna TELEFONE nas listas de pessoas (2026-08-29, v=20260829zb).**
+  Nenhuma aba mostrava o telefone de quem se cadastrou, embora
+  `profiles.phone` já viesse no `select('*')`. Coluna nova (com ✏️ pra
+  editar e 📱 que abre o wa.me) em **Pintores** — logo Grafiteiros e
+  Funileiros, que reusam `PintoresList` —, **Clientes** e **Usuários com
+  acesso ao Portal**; entre as três, todo perfil cadastrado aparece
+  (`isClienteProfile` pega quem não é profissional nem admin). Célula
+  `PhoneCell` + `editUserPhone`; a action `set_info` de
+  `/api/admin/users` passou a aceitar `phone`.
+  - **A normalização segue `normalizeWhatsAppTarget`, NÃO
+    `normalizeBrPhone`:** com 11 dígitos só é celular BR quando o 3º é 9;
+    10 dígitos = fixo BR; 11-15 em outro formato = estrangeiro, guardado
+    verbatim. A primeira versão colava '55' em qualquer coisa com 11
+    dígitos — o mesmo erro que transformou o contato dos EUA
+    `16503154274` em `5516503154274` e derrubou o envio com 502. Guardar
+    com máscara também está proibido: o número deixaria de casar com
+    `whatsapp_messages` e com os leads, que comparam dígitos. 4 testes
+    novos em `__tests__/api/admin-users.test.ts`.
+
 - **Produtos do portal: carregamento (2026-08-29, v=20260829z).** O catálogo
   passou de **21 mil** linhas e a tela ficava minutos em "Carregando
   produtos...": eram até 22 requisições `select('*')` **em fila** (cada uma
