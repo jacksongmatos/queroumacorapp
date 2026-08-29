@@ -3373,6 +3373,13 @@ const waHora = (m) => {
     : dt.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
 };
 
+// Evolution API no Render FREE: dorme apos ~15min sem request e a primeira
+// request depois disso leva ~50s. A aba mantem o servidor aquecido em vez de
+// pagar esse cold start na hora do envio.
+const EVO_BASE_URL = 'https://evolution-api-8arv.onrender.com';
+const EVO_WARM_TTL = 5 * 60 * 1000;   // ping recente = servidor comprovadamente de pe
+const EVO_WARM_EVERY = 5 * 60 * 1000; // cutucada periodica com a aba aberta
+
 const WhatsAppTab = () => {
   const [msgs, setMsgs] = useState([]);
   const [profByPhone, setProfByPhone] = useState({});
@@ -3383,6 +3390,32 @@ const WhatsAppTab = () => {
   const [err, setErr] = useState('');
   const [busca, setBusca] = useState('');
   const endRef = React.useRef(null);
+
+  // PRE-AQUECIMENTO. Antes, quem pagava o cold start era o operador NA HORA
+  // do envio ("Acordando o servidor…", ate 1min). Agora a aba cutuca o
+  // servidor enquanto ele trabalha — ao abrir, a cada 5min, ao voltar pra
+  // aba e ao comecar a digitar — e o envio sai sem espera nenhuma.
+  // So conta como acordado quando a request VOLTA: falha de rede nao prova
+  // que o servidor esta de pe.
+  const warmRef = React.useRef(0);
+  const warmingRef = React.useRef(null);
+  const evoAquecido = () => Date.now() - warmRef.current < EVO_WARM_TTL;
+  const aquecerEvolution = () => {
+    if(warmingRef.current) return warmingRef.current;
+    const p = fetch(EVO_BASE_URL, { mode:'no-cors', cache:'no-store' })
+      .then(() => { warmRef.current = Date.now(); })
+      .catch(() => {})
+      .then(() => { warmingRef.current = null; });
+    warmingRef.current = p;
+    return p;
+  };
+  useEffect(() => {
+    aquecerEvolution();
+    const t = setInterval(aquecerEvolution, EVO_WARM_EVERY);
+    const onVis = () => { if(document.visibilityState === 'visible' && !evoAquecido()) aquecerEvolution(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
 
   const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, wa_timestamp, created_at';
 
@@ -3481,21 +3514,16 @@ const WhatsAppTab = () => {
 
   const [sendStage, setSendStage] = useState('');
 
-  // Confere se o Render esta acordado ANTES do envio, direto do navegador
-  // (o edge do Cloudflare morre se ELE ficar esperando o cold start ~50s;
-  // o navegador pode esperar a vontade). mode no-cors: a resposta nao
-  // importa, o que vale e a request chegar la.
-  //
-  // CAMINHO RAPIDO: se responder em ate 2,5s o servidor ja esta de pe e
-  // seguimos direto — sem atraso perceptivel e SEM mostrar "Acordando".
-  // So quando passa disso e que avisamos e esperamos o cold start.
+  // No envio so ha espera se o servidor NAO estiver aquecido (raro, com o
+  // pre-aquecimento acima): caminho rapido de 2,5s e, se nem assim
+  // responder, avisa "Acordando…" e da tempo do cold start terminar.
+  // O edge do Cloudflare nao pode fazer isso — ele morre esperando 50s;
+  // o navegador espera a vontade.
   const acordarEvolution = async () => {
-    let respondeu = false;
-    const ping = fetch('https://evolution-api-8arv.onrender.com', { mode:'no-cors', cache:'no-store' })
-      .then(() => { respondeu = true; })
-      .catch(() => { respondeu = true; }); // erro tambem prova que ta de pe
+    if(evoAquecido()) return;
+    const ping = aquecerEvolution();
     await Promise.race([ping, new Promise(r => setTimeout(r, 2500))]);
-    if(respondeu) return;
+    if(evoAquecido()) return;
     setSendStage('Acordando o servidor…');
     await Promise.race([ping, new Promise(r => setTimeout(r, 60000))]);
   };
@@ -3564,7 +3592,7 @@ const WhatsAppTab = () => {
       let raw = ''; try { raw = await r.text(); } catch(_){}
       let j = null; try { j = JSON.parse(raw); } catch(_){}
       if(!j){ setDiag('HTTP ' + r.status + ' — ' + (raw || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,200)); }
-      else setDiag(j);
+      else { setDiag(j); if(j.ok) warmRef.current = Date.now(); }
     } catch(e) { setDiag('Falha de rede: ' + ((e && e.message) || '?')); }
     setDiagLoading(false);
   };
@@ -3647,7 +3675,7 @@ const WhatsAppTab = () => {
               </div>
               {err ? <div style={{ padding:'8px 16px', background:'#fdecea', color:'#b3261e', fontSize:12 }}>{err}</div> : null}
               <div style={{ display:'flex', gap:8, padding:12, background:'#fff', borderTop:'1px solid '+C.border }}>
-                <input value={text} onChange={e=>setText(e.target.value)}
+                <input value={text} onChange={e=>{ setText(e.target.value); if(!evoAquecido()) aquecerEvolution(); }}
                   onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviar(); } }}
                   placeholder="Escreva uma mensagem…"
                   style={{ flex:1, padding:'10px 14px', borderRadius:12, border:'1.5px solid '+C.border, fontSize:14, outline:'none' }} />
