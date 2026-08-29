@@ -630,7 +630,11 @@ const adminUsersRaw = async payload => {
     ok: true
   };
 };
-const adminUsers = async payload => {
+
+// Igual ao adminUsers, mas DEVOLVE o corpo da resposta — algumas actions
+// respondem com DADO (sync_email traz o e-mail de login), nao so ok/erro.
+// Em falha: alerta (mesma mensagem) e devolve null.
+const adminUsersData = async payload => {
   const {
     data: {
       session
@@ -638,7 +642,7 @@ const adminUsers = async payload => {
   } = await supa.auth.getSession();
   if (!session) {
     alert('Sessao expirada. Entre novamente.');
-    return false;
+    return null;
   }
   const r = await fetch('/api/admin/users', {
     method: 'POST',
@@ -660,10 +664,13 @@ const adminUsers = async payload => {
     } else {
       alert('A acao falhou: ' + (res.error || 'HTTP ' + r.status));
     }
-    return false;
+    return null;
   }
-  return true;
+  return res;
 };
+
+// Boolean pra maioria das actions (o resto do portal ja usa assim).
+const adminUsers = async payload => !!(await adminUsersData(payload));
 const promoteToPortal = async (id, after) => {
   if (!confirm('Promover este perfil a usuario do portal? Ele passara a ter acesso ao portal administrativo.')) return;
   if ((await adminUsers({
@@ -795,6 +802,21 @@ const editUserEmail = async (profile, after) => {
   })) && after) after();
 };
 
+// Busca o e-mail de LOGIN no Auth e espelha em profiles.email. O portal
+// lista `profiles.email`, que e so um ESPELHO: perfil antigo (ou criado
+// por fluxo que nao preenchia a coluna) aparece com "—" mesmo tendo login.
+// A chave anon nao ve `auth.users`, entao quem busca e o servidor.
+const pullUserEmail = async (profile, after) => {
+  const res = await adminUsersData({
+    action: 'sync_email',
+    userId: profile.id
+  });
+  if (!res) return null;
+  alert('E-mail de login de ' + (profile.name || 'este perfil') + ':\n\n' + res.email + (res.source === 'profile' ? '\n\n(veio do perfil — sem login no Auth)' : ''));
+  if (after) after();
+  return res.email;
+};
+
 // Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
 // tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
 const deleteUsersPermanently = async (profiles, after) => {
@@ -892,7 +914,9 @@ const NameCell = ({
   }
 }, "\u270F\uFE0F"));
 
-// E-mail com lapis — troca tambem o LOGIN (aviso no prompt).
+// E-mail com lapis — troca tambem o LOGIN (aviso no prompt). Quando o
+// espelho `profiles.email` esta vazio, o 🔄 busca o e-mail de login no
+// Auth (o portal sozinho nao enxerga `auth.users`) e preenche o espelho.
 const EmailCell = ({
   profile,
   after
@@ -906,7 +930,18 @@ const EmailCell = ({
   style: {
     color: C.muted
   }
-}, profile.email || '—'), /*#__PURE__*/React.createElement("button", {
+}, profile.email || '—'), !profile.email && /*#__PURE__*/React.createElement("button", {
+  onClick: () => pullUserEmail(profile, after),
+  title: "Buscar o e-mail de login no Auth",
+  style: {
+    background: 'none',
+    border: '1px solid ' + C.border,
+    borderRadius: 6,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: 11
+  }
+}, "\uD83D\uDD04"), /*#__PURE__*/React.createElement("button", {
   onClick: () => editUserEmail(profile, after),
   title: "Editar e-mail (troca o login)",
   style: {
@@ -1806,7 +1841,7 @@ const PintoresList = ({
     checked: allSel,
     onChange: e => setSelIds(e.target.checked ? pintores.map(x => x.id) : []),
     title: "Selecionar todos"
-  })), ['Nome', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
+  })), ['Nome', 'Email', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -1849,6 +1884,14 @@ const PintoresList = ({
     profile: p,
     after: fetchPintores
   }))), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: '10px 12px',
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement(EmailCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
@@ -7730,17 +7773,18 @@ const PortalUsersList = () => {
     name: u.name,
     avatarUrl: u.avatar_url,
     size: 32
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 600
-    }
-  }, u.name || 'Sem nome'))), /*#__PURE__*/React.createElement("td", {
+  }), /*#__PURE__*/React.createElement(NameCell, {
+    profile: u,
+    after: fetchUsers
+  }))), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px',
-      color: C.muted,
       fontSize: 12
     }
-  }, u.email || '—'), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(EmailCell, {
+    profile: u,
+    after: fetchUsers
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
@@ -8512,9 +8556,9 @@ const WhatsAppTab = () => {
   const [iaPadrao, setIaPadrao] = useState(false);
   const [alertas, setAlertas] = useState([]);
   const loadIa = async () => {
-    const [st, cfg, al] = await Promise.all([supa.from('whatsapp_ai_state').select('wa_id, enabled').limit(2000), supa.from('app_settings').select('value').eq('key', 'whatsapp_ai_default').maybeSingle(), supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at').eq('resolved', false).order('created_at', {
+    const [st, cfg, al, hrs] = await Promise.all([supa.from('whatsapp_ai_state').select('wa_id, enabled').limit(2000), supa.from('app_settings').select('value').eq('key', 'whatsapp_ai_default').maybeSingle(), supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at').eq('resolved', false).order('created_at', {
       ascending: false
-    }).limit(50)]);
+    }).limit(50), supa.from('app_settings').select('value').eq('key', 'whatsapp_ai_hours').maybeSingle()]);
     const m = {};
     (st.data || []).forEach(r => {
       m[r.wa_id] = !!r.enabled;
@@ -8522,10 +8566,32 @@ const WhatsAppTab = () => {
     setIaState(m);
     setIaPadrao((cfg.data && cfg.data.value || 'off') === 'on');
     setAlertas(al.data || []);
+    setHoras(hrs.data && hrs.data.value || '8-19');
   };
 
   // Sem linha propria, vale o padrao global — mesma regra do servidor.
   const iaLigada = waId => waId in iaState ? iaState[waId] : iaPadrao;
+
+  // Janela de atendimento da IA (app_settings 'whatsapp_ai_hours').
+  // '0-24' = responde a qualquer hora; '8-19' = so comercial (padrao).
+  const [horas, setHoras] = useState('8-19');
+  const foraDeHorarioLiberado = horas.trim() === '0-24';
+  const toggleForaDeHorario = async () => {
+    const novo = foraDeHorarioLiberado ? '8-19' : '0-24';
+    setHoras(novo); // otimista
+    const {
+      error
+    } = await supa.from('app_settings').upsert({
+      key: 'whatsapp_ai_hours',
+      value: novo
+    }, {
+      onConflict: 'key'
+    });
+    if (error) {
+      setHoras(foraDeHorarioLiberado ? '0-24' : '8-19');
+      alert('Nao consegui salvar o horario da IA: ' + error.message);
+    }
+  };
   const toggleIa = async waId => {
     const novo = !iaLigada(waId);
     setIaState(s => ({
@@ -8872,17 +8938,44 @@ const WhatsAppTab = () => {
   }, "Canal: Evolution \xB7 +55 11 92072-5935"), /*#__PURE__*/React.createElement("span", {
     style: {
       marginLeft: 'auto',
-      fontSize: 11,
-      color: C.muted,
       display: 'flex',
       alignItems: 'center',
-      gap: 6
+      gap: 12
     }
-  }, "IA por padr\xE3o em conversas novas:", /*#__PURE__*/React.createElement("strong", {
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: toggleForaDeHorario,
+    title: foraDeHorarioLiberado ? 'A IA responde a QUALQUER hora. Clique pra limitar ao horario comercial (8h-19h de Brasilia, sem domingo).' : 'A IA so responde das 8h as 19h de Brasilia (sem domingo). Clique pra liberar 24h.',
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 7,
+      background: foraDeHorarioLiberado ? C.p6 + '1f' : '#fff',
+      border: '1px solid ' + (foraDeHorarioLiberado ? C.p6 : C.border),
+      color: foraDeHorarioLiberado ? C.p6 : C.muted,
+      borderRadius: 20,
+      padding: '5px 12px',
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: '50%',
+      background: foraDeHorarioLiberado ? C.p6 : C.border,
+      display: 'inline-block'
+    }
+  }), foraDeHorarioLiberado ? '🕐 Responde 24h' : '🕐 Só horário comercial'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, "IA por padr\xE3o em conversas novas: ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: iaPadrao ? C.p6 : C.muted
     }
-  }, iaPadrao ? 'ligada' : 'desligada'))), alertas.length > 0 ? /*#__PURE__*/React.createElement("div", {
+  }, iaPadrao ? 'ligada' : 'desligada')))), alertas.length > 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       background: '#fff7ed',
       border: '1px solid #fdba74',

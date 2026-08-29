@@ -278,9 +278,12 @@ const adminUsersRaw = async (payload) => {
   return { ok: true };
 };
 
-const adminUsers = async (payload) => {
+// Igual ao adminUsers, mas DEVOLVE o corpo da resposta — algumas actions
+// respondem com DADO (sync_email traz o e-mail de login), nao so ok/erro.
+// Em falha: alerta (mesma mensagem) e devolve null.
+const adminUsersData = async (payload) => {
   const { data: { session } } = await supa.auth.getSession();
-  if (!session) { alert('Sessao expirada. Entre novamente.'); return false; }
+  if (!session) { alert('Sessao expirada. Entre novamente.'); return null; }
   const r = await fetch('/api/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -297,10 +300,13 @@ const adminUsers = async (payload) => {
     } else {
       alert('A acao falhou: ' + (res.error || ('HTTP ' + r.status)));
     }
-    return false;
+    return null;
   }
-  return true;
+  return res;
 };
+
+// Boolean pra maioria das actions (o resto do portal ja usa assim).
+const adminUsers = async (payload) => !!(await adminUsersData(payload));
 
 const promoteToPortal = async (id, after) => {
   if (!confirm('Promover este perfil a usuario do portal? Ele passara a ter acesso ao portal administrativo.')) return;
@@ -392,6 +398,21 @@ const editUserEmail = async (profile, after) => {
   if (await adminUsers({ action:'set_email', userId: profile.id, email: v }) && after) after();
 };
 
+// Busca o e-mail de LOGIN no Auth e espelha em profiles.email. O portal
+// lista `profiles.email`, que e so um ESPELHO: perfil antigo (ou criado
+// por fluxo que nao preenchia a coluna) aparece com "—" mesmo tendo login.
+// A chave anon nao ve `auth.users`, entao quem busca e o servidor.
+const pullUserEmail = async (profile, after) => {
+  const res = await adminUsersData({ action:'sync_email', userId: profile.id });
+  if (!res) return null;
+  alert(
+    'E-mail de login de ' + (profile.name || 'este perfil') + ':\n\n' + res.email +
+    (res.source === 'profile' ? '\n\n(veio do perfil — sem login no Auth)' : '')
+  );
+  if (after) after();
+  return res.email;
+};
+
 // Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
 // tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
 const deleteUsersPermanently = async (profiles, after) => {
@@ -464,10 +485,16 @@ const NameCell = ({ profile, after }) => (
   </span>
 );
 
-// E-mail com lapis — troca tambem o LOGIN (aviso no prompt).
+// E-mail com lapis — troca tambem o LOGIN (aviso no prompt). Quando o
+// espelho `profiles.email` esta vazio, o 🔄 busca o e-mail de login no
+// Auth (o portal sozinho nao enxerga `auth.users`) e preenche o espelho.
 const EmailCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.muted }}>{profile.email || '—'}</span>
+    {!profile.email && (
+      <button onClick={() => pullUserEmail(profile, after)} title="Buscar o e-mail de login no Auth"
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>🔄</button>
+    )}
     <button onClick={() => editUserEmail(profile, after)} title="Editar e-mail (troca o login)"
       style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
@@ -892,7 +919,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
               <th style={{ padding:'8px 12px', width:34 }}>
                 <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? pintores.map(x => x.id) : [])} title="Selecionar todos" />
               </th>
-              {['Nome','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
+              {['Nome','Email','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -910,6 +937,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
                   <NameCell profile={p} after={fetchPintores} />
                 </div>
               </td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px', fontSize:12 }}><TagCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><CityCell profile={p} after={fetchPintores} /></td>
@@ -3261,10 +3289,10 @@ const PortalUsersList = () => {
                 <td style={{ padding:'10px 12px' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <AvatarCell name={u.name} avatarUrl={u.avatar_url} size={32} />
-                    <span style={{ fontWeight:600 }}>{u.name || 'Sem nome'}</span>
+                    <NameCell profile={u} after={fetchUsers} />
                   </div>
                 </td>
-                <td style={{ padding:'10px 12px', color:C.muted, fontSize:12 }}>{u.email || '—'}</td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={u} after={fetchUsers} /></td>
                 <td style={{ padding:'10px 12px' }}><span style={{ background:C.p5+'22', color:C.p5, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{u.role || u.user_type || 'admin'}</span></td>
                 <td style={{ padding:'10px 12px' }}>
                   <ProBadgeCell profile={u} onChange={fetchUsers} />
@@ -3701,21 +3729,38 @@ const WhatsAppTab = () => {
   const [alertas, setAlertas] = useState([]);
 
   const loadIa = async () => {
-    const [st, cfg, al] = await Promise.all([
+    const [st, cfg, al, hrs] = await Promise.all([
       supa.from('whatsapp_ai_state').select('wa_id, enabled').limit(2000),
       supa.from('app_settings').select('value').eq('key','whatsapp_ai_default').maybeSingle(),
       supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
         .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
+      supa.from('app_settings').select('value').eq('key','whatsapp_ai_hours').maybeSingle(),
     ]);
     const m = {};
     (st.data || []).forEach(r => { m[r.wa_id] = !!r.enabled; });
     setIaState(m);
     setIaPadrao(((cfg.data && cfg.data.value) || 'off') === 'on');
     setAlertas(al.data || []);
+    setHoras(((hrs.data && hrs.data.value) || '8-19'));
   };
 
   // Sem linha propria, vale o padrao global — mesma regra do servidor.
   const iaLigada = (waId) => (waId in iaState) ? iaState[waId] : iaPadrao;
+
+  // Janela de atendimento da IA (app_settings 'whatsapp_ai_hours').
+  // '0-24' = responde a qualquer hora; '8-19' = so comercial (padrao).
+  const [horas, setHoras] = useState('8-19');
+  const foraDeHorarioLiberado = horas.trim() === '0-24';
+  const toggleForaDeHorario = async () => {
+    const novo = foraDeHorarioLiberado ? '8-19' : '0-24';
+    setHoras(novo); // otimista
+    const { error } = await supa.from('app_settings')
+      .upsert({ key:'whatsapp_ai_hours', value: novo }, { onConflict:'key' });
+    if(error){
+      setHoras(foraDeHorarioLiberado ? '0-24' : '8-19');
+      alert('Nao consegui salvar o horario da IA: ' + error.message);
+    }
+  };
 
   const toggleIa = async (waId) => {
     const novo = !iaLigada(waId);
@@ -3950,9 +3995,21 @@ const WhatsAppTab = () => {
         <span style={{ fontSize:11, color:C.muted }}>Canal: Evolution · +55 11 92072-5935</span>
         {/* Padrao global da IA: vale pra conversa que ainda nao tem chave
             propria. Serve de "desliga tudo" em caso de emergencia. */}
-        <span style={{ marginLeft:'auto', fontSize:11, color:C.muted, display:'flex', alignItems:'center', gap:6 }}>
-          IA por padrão em conversas novas:
-          <strong style={{ color: iaPadrao ? C.p6 : C.muted }}>{iaPadrao ? 'ligada' : 'desligada'}</strong>
+        <span style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:12 }}>
+          {/* Chave do horario: responder fora do comercial (8h-19h BRT). */}
+          <button onClick={toggleForaDeHorario}
+            title={foraDeHorarioLiberado
+              ? 'A IA responde a QUALQUER hora. Clique pra limitar ao horario comercial (8h-19h de Brasilia, sem domingo).'
+              : 'A IA so responde das 8h as 19h de Brasilia (sem domingo). Clique pra liberar 24h.'}
+            style={{ display:'flex', alignItems:'center', gap:7, background: foraDeHorarioLiberado ? C.p6+'1f' : '#fff',
+              border:'1px solid '+(foraDeHorarioLiberado ? C.p6 : C.border), color: foraDeHorarioLiberado ? C.p6 : C.muted,
+              borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background: foraDeHorarioLiberado ? C.p6 : C.border, display:'inline-block' }} />
+            {foraDeHorarioLiberado ? '🕐 Responde 24h' : '🕐 Só horário comercial'}
+          </button>
+          <span style={{ fontSize:11, color:C.muted }}>
+            IA por padrão em conversas novas: <strong style={{ color: iaPadrao ? C.p6 : C.muted }}>{iaPadrao ? 'ligada' : 'desligada'}</strong>
+          </span>
         </span>
       </div>
 

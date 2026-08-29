@@ -344,6 +344,86 @@ export async function setEmail(args: {
 }
 
 /**
+ * Lê o e-mail de LOGIN no Auth (GoTrue admin) e espelha em
+ * `profiles.email`. Existe porque a coluna `profiles.email` é só um
+ * ESPELHO: perfil criado antes dela (ou por fluxo que não a preenchia)
+ * fica com email NULL e o portal mostra "—" pra sempre — o login de
+ * verdade mora em `auth.users`, que o portal (chave anon) não enxerga.
+ * Sem `p_email` novo: não troca nada no Auth, só revela e sincroniza.
+ */
+export async function syncEmailFromAuth(args: {
+  userId: string;
+}): Promise<{ ok: true; email: string; mirrored: boolean; source: 'auth' | 'profile' }> {
+  const serviceKey = getServiceKey();
+  if (!serviceKey) throw new ServiceError('Gestão de usuários não configurada', 503);
+  const supaUrl = getSupabaseUrl();
+  const sHeaders = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  // 1) Fonte de verdade: o login no Auth.
+  let ar: Response;
+  try {
+    ar = await fetch(`${supaUrl}/auth/v1/admin/users/${encodeURIComponent(args.userId)}`, {
+      headers: sHeaders,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    throw new ServiceError('não consegui falar com o Auth do Supabase', 502);
+  }
+
+  let authEmail = '';
+  if (ar.ok) {
+    const u = (await ar.json()) as { email?: unknown; new_email?: unknown };
+    if (typeof u?.email === 'string') authEmail = u.email.trim().toLowerCase();
+    // Conta criada por telefone/OAuth sem e-mail confirmado ainda pode ter
+    // só `new_email` pendente — melhor mostrar isso do que "—".
+    if (!authEmail && typeof u?.new_email === 'string') authEmail = u.new_email.trim().toLowerCase();
+  } else if (ar.status !== 404) {
+    console.warn('admin-users syncEmail auth error', ar.status);
+    throw new ServiceError(`o Auth recusou a consulta (HTTP ${ar.status})`, 502);
+  }
+
+  // 2) Sem login (perfil órfão) ou login sem e-mail: cai pro espelho.
+  if (!authEmail) {
+    const pr = await fetch(
+      `${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(args.userId)}&select=email`,
+      { headers: sHeaders, signal: AbortSignal.timeout(TIMEOUT_MS) }
+    );
+    const rows = pr.ok ? ((await pr.json()) as { email?: string | null }[]) : [];
+    const mirrored = Array.isArray(rows) && rows[0] && typeof rows[0].email === 'string'
+      ? rows[0].email.trim()
+      : '';
+    if (mirrored) return { ok: true, email: mirrored, mirrored: false, source: 'profile' };
+    throw new ServiceError(
+      ar.status === 404
+        ? 'este perfil não tem login no Auth (perfil órfão) e não tem e-mail salvo — use o lápis pra cadastrar um'
+        : 'o login desta conta não tem e-mail cadastrado (entrou por telefone/rede social) — use o lápis pra cadastrar um',
+      404,
+    );
+  }
+
+  // 3) Espelha no profile pra próxima listagem já vir preenchida. Falhar
+  //    aqui não custa a resposta — o e-mail já foi descoberto.
+  let mirrored = false;
+  try {
+    const pr = await fetch(`${supaUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(args.userId)}`, {
+      method: 'PATCH',
+      headers: sHeaders,
+      body: JSON.stringify({ email: authEmail }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    mirrored = pr.ok;
+    if (!pr.ok) console.warn('admin-users syncEmail mirror error', pr.status);
+  } catch {
+    /* espelho é best-effort */
+  }
+  return { ok: true, email: authEmail, mirrored, source: 'auth' };
+}
+
+/**
  * Exclusão PERMANENTE: apaga o login no Auth (GoTrue admin API) e a linha
  * de `profiles`. Sem volta. Guardas: nunca a própria conta do caller, e
  * nunca um perfil admin/portal (remova o acesso antes, se for o caso).
