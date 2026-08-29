@@ -17,10 +17,12 @@
   não refaz nada, e há o botão "↻ Atualizar"; (6) salvar/excluir emendam a
   linha na lista (`aplicarLinha`) em vez de recarregar tudo — por isso
   `productsService.upsert` agora termina em `.select()`.
-  - **Wave 52** (`/migrations/2026-08-29-products-name-index.sql`) —
-    **PENDENTE.** `CREATE INDEX CONCURRENTLY idx_products_name` (rodar
-    sozinho, fora de transação): sem ele cada uma das páginas reordena as
-    21 mil linhas. É ganho de servidor; o resto acima já vale sem ele.
+  - **Wave 52** (`/migrations/2026-08-29-products-name-index.sql`) — **JÁ
+    EXECUTADA no Supabase (2026-08-29). Não pedir pra rodar de novo.**
+    `CREATE INDEX CONCURRENTLY idx_products_name` (roda sozinho, fora de
+    transação): sem ele cada uma das ~22 páginas reordenava as 21 mil
+    linhas. Confirmado pelo `EXPLAIN ANALYZE`: "Index Scan using
+    idx_products_name on products", 3,0 ms na fatia OFFSET 5000.
   - **Foto do produto cortada (2026-08-29, v=20260829za).** A caixa da
     imagem era uma faixa de 60px com `cover` — a foto entrava cortada pelo
     meio (quem cadastra não reconhecia a peça). Agora a área de mídia tem
