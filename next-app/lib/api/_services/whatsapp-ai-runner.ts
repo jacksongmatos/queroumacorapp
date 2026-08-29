@@ -120,6 +120,13 @@ async function bumpReplyCount(waId: string, state: AiState | null): Promise<void
   }).catch(() => {});
 }
 
+/**
+ * Cria o alerta — ou ATUALIZA o que já está aberto pra este número.
+ *
+ * Sem isso, cliente insistindo gerava um alerta por mensagem e o portal
+ * virava enxurrada; pior, o operador não via que a pessoa está esperando
+ * há tempo. Agora um alerta por conversa, com a contagem de espera.
+ */
 export async function createAlert(input: {
   kind: 'preco' | 'orcamento' | 'humano';
   waId: string;
@@ -127,6 +134,27 @@ export async function createAlert(input: {
   title: string;
   body?: string;
 }): Promise<void> {
+  const abertos = await dbGet<{ id: string; created_at: string; title: string }>(
+    `portal_alerts?wa_id=eq.${encodeURIComponent(input.waId)}&resolved=is.false&select=id,created_at,title&order=created_at.asc&limit=1`,
+  );
+  const aberto = abertos[0];
+  if (aberto) {
+    // Já tem pendência: atualiza a espera em vez de empilhar alerta novo.
+    const min = Math.max(
+      0,
+      Math.round((Date.now() - new Date(aberto.created_at).getTime()) / 60000),
+    );
+    await fetch(rest(`portal_alerts?id=eq.${encodeURIComponent(aberto.id)}`), {
+      method: 'PATCH',
+      headers: headers({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        title: `${aberto.title.replace(/ · aguardando .*$/, '')} · aguardando há ${min} min`,
+        body: input.body || null,
+      }),
+      signal: AbortSignal.timeout(DB_TIMEOUT_MS),
+    }).catch(() => {});
+    return;
+  }
   await fetch(rest('portal_alerts'), {
     method: 'POST',
     headers: headers({ Prefer: 'return=minimal' }),
@@ -139,6 +167,14 @@ export async function createAlert(input: {
     }),
     signal: AbortSignal.timeout(DB_TIMEOUT_MS),
   }).catch(() => {});
+}
+
+/** Existe pendência aberta (promessa de retorno) nesta conversa? */
+async function temPendenciaAberta(waId: string): Promise<boolean> {
+  const rows = await dbGet<{ id: string }>(
+    `portal_alerts?wa_id=eq.${encodeURIComponent(waId)}&resolved=is.false&select=id&limit=1`,
+  );
+  return rows.length > 0;
 }
 
 /** Últimas trocas da conversa, em ordem cronológica. */
@@ -228,8 +264,16 @@ async function decidirEAgir(opts: {
       return { acted: false, why: 'teto diário de respostas atingido' };
     }
 
-    const [turns, lead] = await Promise.all([loadTurns(opts.waId), loadLead(opts.waId)]);
-    const result = await generateAiReply({ lead: lead?.ctx || null, turns });
+    const [turns, lead, pendente] = await Promise.all([
+      loadTurns(opts.waId),
+      loadLead(opts.waId),
+      temPendenciaAberta(opts.waId),
+    ]);
+    const result = await generateAiReply({
+      lead: lead?.ctx || null,
+      turns,
+      pendenciaAberta: pendente,
+    });
     if (!result.reply) return { acted: false, why: 'IA não produziu resposta' };
 
     // Envia (a Evolution está acordada — ela acabou de nos chamar).
@@ -244,8 +288,12 @@ async function decidirEAgir(opts: {
     await bumpReplyCount(opts.waId, state);
 
     if (result.escalate) {
-      // Desliga a IA e chama gente — preço/orçamento/assunto delicado.
-      await setAiEnabled(opts.waId, false);
+      // Chama gente MAS NÃO desliga a IA (2026-08-29). Desligar por causa
+      // de UM assunto matava a conversa inteira: o cliente perguntava
+      // preço, a IA prometia retorno e depois ficava muda pra "oi",
+      // "tinta?" — vácuo total até alguém abrir o portal. Agora ela segue
+      // atendendo o resto e só o preço/orçamento espera a pessoa.
+      // Pra assumir o volante de vez, existe a chave manual na conversa.
       await createAlert({
         kind: result.reason || 'humano',
         waId: opts.waId,

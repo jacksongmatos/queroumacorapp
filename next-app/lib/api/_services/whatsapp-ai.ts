@@ -141,6 +141,8 @@ export function buildSystemPrompt(opts: {
   produtos?: string[];
   /** Ninguém da loja falou ainda nesta conversa → hora de se apresentar. */
   primeiroContato?: boolean;
+  /** Já existe promessa de retorno em aberto (preço/orçamento na fila). */
+  pendenciaAberta?: boolean;
 }): string {
   const l = opts.lead;
   const quem = l?.name ? `O contato se chama ${l.name}.` : '';
@@ -186,6 +188,19 @@ export function buildSystemPrompt(opts: {
           'Nesta primeira mensagem pode usar até 4 frases.',
         ].join('\n')
       : '',
+    // Promessa em aberto: a pessoa da loja ainda vai responder o valor.
+    // A IA precisa saber pra (a) não repetir "vou verificar" a cada
+    // mensagem, virando robô quebrado, e (b) seguir ajudando no resto.
+    opts.pendenciaAberta
+      ? [
+          'ATENÇÃO: já foi prometido a esta pessoa que a equipe retorna sobre',
+          'valores/orçamento. NÃO repita essa promessa a cada mensagem.',
+          'Siga atendendo normalmente no que NÃO é preço (tipo de tinta,',
+          'cor, rendimento, aplicação, horário, endereço). Se ela cobrar o',
+          'retorno, reconheça em UMA frase que a equipe já foi avisada e',
+          'está chegando — sem prometer prazo.',
+        ].join('\n')
+      : '',
     '',
     'ESTILO: português do Brasil, informal e direto, como se fosse WhatsApp.',
     opts.primeiroContato
@@ -227,6 +242,8 @@ export async function generateAiReply(opts: {
   produtos?: string[];
   /** Histórico em ordem cronológica; só as últimas trocas importam. */
   turns: ConversationTurn[];
+  /** Já existe promessa de retorno em aberto nesta conversa. */
+  pendenciaAberta?: boolean;
 }): Promise<AiReplyResult> {
   const ultima = [...opts.turns].reverse().find((t) => t.direction === 'in');
   const textoCliente = ultima?.body || '';
@@ -244,7 +261,10 @@ export async function generateAiReply(opts: {
       reply: primeiroContato
         ? 'Oi! Aqui é a Cali Colors, loja de tintas em Guarulhos 🎨 Obrigado pelo contato! ' +
           'Sobre valores eu já chamo alguém da equipe pra te passar direitinho — te respondo em breve, tá?'
-        : 'Boa pergunta! Vou verificar isso com a equipe e te respondo em breve, tá? 👍',
+        : opts.pendenciaAberta
+          ? // Já prometemos antes: reconhece sem repetir a mesma frase.
+            'Já avisei a equipe sobre os valores, tá? Enquanto isso, posso te ajudar com tipo de tinta, cor ou rendimento.'
+          : 'Boa pergunta! Vou verificar isso com a equipe e te respondo em breve, tá? 👍',
       escalate: true,
       reason: pedido,
     };
@@ -276,6 +296,7 @@ export async function generateAiReply(opts: {
               lead: opts.lead,
               produtos: opts.produtos,
               primeiroContato,
+              pendenciaAberta: opts.pendenciaAberta,
             }),
           },
           ...historico,
