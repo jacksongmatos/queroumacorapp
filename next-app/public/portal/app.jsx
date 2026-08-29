@@ -3725,20 +3725,24 @@ const WhatsAppTab = () => {
   const [leadByPhone, setLeadByPhone] = useState({});
   // Chave da IA por conversa (Wave 46) + alertas abertos do portal.
   const [iaState, setIaState] = useState({});   // wa_id → true/false
+  const [iaWhy, setIaWhy] = useState({});       // wa_id → ultima decisao da IA
   const [iaPadrao, setIaPadrao] = useState(false);
   const [alertas, setAlertas] = useState([]);
 
   const loadIa = async () => {
     const [st, cfg, al, hrs] = await Promise.all([
-      supa.from('whatsapp_ai_state').select('wa_id, enabled').limit(2000),
+      supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at').limit(2000),
       supa.from('app_settings').select('value').eq('key','whatsapp_ai_default').maybeSingle(),
       supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
         .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
       supa.from('app_settings').select('value').eq('key','whatsapp_ai_hours').maybeSingle(),
     ]);
-    const m = {};
-    (st.data || []).forEach(r => { m[r.wa_id] = !!r.enabled; });
-    setIaState(m);
+    const m = {}; const w = {};
+    (st.data || []).forEach(r => {
+      m[r.wa_id] = !!r.enabled;
+      if(r.last_why) w[r.wa_id] = { why: r.last_why, at: r.last_at };
+    });
+    setIaState(m); setIaWhy(w);
     setIaPadrao(((cfg.data && cfg.data.value) || 'off') === 'on');
     setAlertas(al.data || []);
     setHoras(((hrs.data && hrs.data.value) || '8-19'));
@@ -4105,6 +4109,15 @@ const WhatsAppTab = () => {
                   <span style={{ width:8, height:8, borderRadius:'50%', background: iaLigada(openWa) ? C.p6 : C.border, display:'inline-block' }} />
                   {iaLigada(openWa) ? 'IA ligada' : 'IA desligada'}
                 </button>
+                {/* Ultima decisao da IA nesta conversa — explica o silencio
+                    (horario, teto diario, chave, erro) em vez de deixar o
+                    operador adivinhando. */}
+                {iaWhy[openWa] ? (
+                  <div style={{ clear:'both', textAlign:'right', fontSize:10, color:C.muted, fontWeight:400, marginTop:2 }}>
+                    IA: {iaWhy[openWa].why}
+                    {iaWhy[openWa].at ? ' · ' + new Date(iaWhy[openWa].at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : ''}
+                  </div>
+                ) : null}
               </div>
               <div ref={threadRef} style={{ flex:1, overflowY:'auto', padding:16, display:'flex', flexDirection:'column', gap:6 }}>
                 {thread.length === 0 ? (
