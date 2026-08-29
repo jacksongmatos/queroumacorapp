@@ -5026,11 +5026,15 @@ const montarAbordagem = (lead, produtos) => {
   const citados = produtos.length ? ' Tem, por exemplo, ' + produtos.map(x => x.name).slice(0, 3).join(', ') + '.' : '';
   let corpo;
   if (p.funil === 'fornece') {
-    corpo = '\n\nTemos ' + p.oferta + '.' + citados + ' Atendemos profissional com condição especial.' + '\n\nPosso te passar as condições? Temos também o QueroUmaCor, nosso app onde profissionais recebem pedidos de orçamento da região — entrar é gratuito.';
+    corpo = '\n\nTemos ' + p.oferta + '.' + citados + ' Atendemos profissional com condição especial.' + '\n\nPosso te passar as condições?';
   } else {
-    corpo = '\n\nTemos ' + p.oferta + '.' + citados + ' Fornecemos a tinta e indicamos profissionais avaliados pelo nosso app.' + '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
+    corpo = '\n\nTemos ' + p.oferta + '.' + citados + ' Fornecemos a tinta e indicamos profissionais de confiança pra execução.' + '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
   }
-  return saudacao + abre + contexto + corpo + '\n\n_Se preferir não receber mensagens, é só responder PARE._';
+  // Sem convite pro app e sem rodapé de opt-out, a pedido da loja
+  // (2026-08-29). A palavra PARE continua funcionando: quem responder
+  // isso é marcado como opted_out e não recebe mais nada — só deixou de
+  // ser anunciada na mensagem.
+  return saudacao + abre + contexto + corpo;
 };
 
 // Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
