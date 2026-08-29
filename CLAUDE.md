@@ -111,6 +111,20 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **App instalado NÃO ABRE A GALERIA (2026-08-29) — é o wrapper, não o
+  código.** Um pintor (Bruno) não conseguia trocar a foto de perfil NEM
+  publicar portfólio: as duas coisas dependem do mesmo
+  `<input type="file">`, e a WebView do WebIntoApp só abre a galeria se o
+  wrapper implementar `onShowFileChooser` + permissões. Sem isso o toque
+  **não faz nada** — sem erro, sem log (a tabela `errors` estava limpa; o
+  e-mail dele ESTAVA confirmado e o perfil completo, então não era gate
+  nosso). **Correção de raiz é no painel do WebIntoApp, no próximo AAB**
+  (junto com "Pull to Refresh" — ver `docs/ANDROID_BUILD.md`).
+  Paliativo no código: `lib/utils/filePickerWatch.ts` arma um relógio ao
+  tocar no seletor e, se em 1,8s a página não perdeu o foco (o que
+  acontece quando a galeria abre), mostra "abra pelo navegador". Só arma
+  no Android, pra não dar falso positivo. 6 testes.
+
 - **NÃO LIDAS nos Chats 3-Way (2026-08-29, v=20260829y, Wave 51 —
   PENDENTE).** O número da conversa era `conv.messages.length` (total da
   conversa) e o do menu era o COUNT de `messages` inteiro — o famoso "23".

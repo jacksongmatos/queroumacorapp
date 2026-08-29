@@ -9,6 +9,8 @@
 'use client';
 
 import { useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { showToast } from '@/lib/toast';
+import { AVISO_SELETOR, watchFilePicker } from '@/lib/utils/filePickerWatch';
 
 export interface MediaUploaderProps {
   onFiles: (files: File[]) => void;
@@ -24,14 +26,20 @@ export function MediaUploader({
   accept = 'image/*,video/*',
 }: MediaUploaderProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const cancelarAviso = useRef<(() => void) | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   function handleSelect() {
     if (disabled) return;
+    // No app empacotado a WebView pode simplesmente NÃO abrir a galeria —
+    // sem erro nenhum. Sem este aviso, o toque não faz nada e a pessoa
+    // acha que o app quebrou (ver lib/utils/filePickerWatch).
+    cancelarAviso.current = watchFilePicker(() => showToast(AVISO_SELETOR, 'error'));
     inputRef.current?.click();
   }
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
+    cancelarAviso.current?.();
     const files = Array.from(e.target.files || []);
     if (files.length > 0) onFiles(files);
     // Reset value pra permitir re-selecionar o mesmo arquivo após remover.

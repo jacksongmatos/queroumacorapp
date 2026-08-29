@@ -26,7 +26,7 @@
 //    update — comportamento mais previsível que o "best-effort" do vanilla
 //    que salvava o resto mesmo se avatar quebrasse).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -42,6 +42,7 @@ import {
 import { fetchLogo, uploadLogo, saveLogo } from '@/lib/services/aiLogo';
 import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
+import { AVISO_SELETOR, watchFilePicker } from '@/lib/utils/filePickerWatch';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
 // readonly/immutable na UI.
@@ -112,6 +113,7 @@ export function EditProfileForm() {
   // vizinhos com comportamentos opostos.
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const cancelarAvisoRef = useRef<(() => void) | null>(null);
   // Logo do negócio: lê do banco via fetchLogo (sincronizado com camisetas
   // — mesma URL `profiles.business_logo_url` que ShirtCustomizer/AiArt usam).
   // Upload faz commit imediato (não espera o submit do form principal) pra
@@ -293,6 +295,7 @@ export function EditProfileForm() {
   }, [avatarPreview]);
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    cancelarAvisoRef.current?.();
     const f = e.target.files?.[0] ?? null;
     e.target.value = ''; // permite reescolher o MESMO arquivo depois
     if (!f || !user || avatarBusy) return;
@@ -439,6 +442,13 @@ export function EditProfileForm() {
         <div className="flex-1">
           <label
             htmlFor="avatar-input"
+            onClick={() => {
+              // WebView do wrapper pode nao abrir a galeria — sem erro
+              // nenhum. Ver lib/utils/filePickerWatch.
+              cancelarAvisoRef.current = watchFilePicker(() =>
+                showToast(AVISO_SELETOR, 'error'),
+              );
+            }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
             style={{ opacity: avatarBusy ? 0.6 : 1, pointerEvents: avatarBusy ? 'none' : 'auto' }}
           >
