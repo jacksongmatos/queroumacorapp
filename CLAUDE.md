@@ -111,6 +111,17 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **NÃO LIDAS nos Chats 3-Way (2026-08-29, v=20260829y, Wave 51 —
+  PENDENTE).** O número da conversa era `conv.messages.length` (total da
+  conversa) e o do menu era o COUNT de `messages` inteiro — o famoso "23".
+  Nenhum dos dois baixava ao abrir. Agora vale a marca em
+  `portal_chat_reads` (`/migrations/2026-08-29-portal-chat-reads.sql`),
+  separada de propósito de `messages.read_at`, que é do APP: se a loja
+  escrevesse ali, apagaria o não-lido de quem é o destinatário de verdade.
+  Não conta o que o próprio operador mandou; abrir a conversa zera; chegou
+  mensagem com a conversa aberta, já entra lida. O badge do menu passou pro
+  `loadWaBadge` (agora calcula WhatsApp + chats) e saiu do `loadBadges`.
+
 - **Foto de produto no portal (2026-08-29, v=20260829x).** Dois bugs
   empilhados: (1) o handler chamava `setAiBusy`, que **não existe** nesse
   componente — sobra de copy/paste; ele estourava na PRIMEIRA linha do

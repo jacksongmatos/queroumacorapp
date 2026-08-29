@@ -1678,6 +1678,9 @@ const Chats = () => {
   const [msgText, setMsgText] = useState('');
   const [sending, setSending] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
+  // Ate quando o PORTAL ja leu cada conversa. Antes o numero na lista era
+  // o total de mensagens da conversa — nunca zerava, entao nao dizia nada.
+  const [lidoAte, setLidoAte] = useState({});   // conversation_id -> ISO
   const msgsEndRef = React.useRef(null);
   const subRef = React.useRef(null);
 
@@ -1694,6 +1697,21 @@ const Chats = () => {
       .order('created_at', { ascending: false })
       .limit(200);
     if(error || !data){ setLoading(false); return; }
+
+    const { data: reads } = await supa
+      .from('portal_chat_reads').select('conversation_id, last_read_at').limit(2000);
+    if(reads){
+      const r = {};
+      reads.forEach(x => { r[x.conversation_id] = x.last_read_at; });
+      // Nao sobrescreve marca local mais nova (upsert ainda em voo).
+      setLidoAte(prev => {
+        const merged = { ...r };
+        Object.keys(prev).forEach(k => {
+          if(!merged[k] || new Date(prev[k]) > new Date(merged[k])) merged[k] = prev[k];
+        });
+        return merged;
+      });
+    }
 
     const ids = [...new Set(data.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean))];
     let profMap = {};
@@ -1720,9 +1738,27 @@ const Chats = () => {
 
   useEffect(() => { loadConversations(); }, []);
 
+  // NAO LIDAS: mensagem que chegou depois da ultima vez que o portal abriu
+  // esta conversa, tirando o que o proprio operador mandou.
+  const naoLidasConv = (conv) => {
+    const desde = lidoAte[conv.id];
+    return conv.messages.filter(m =>
+      m.sender_id !== myUserId && (!desde || new Date(m.created_at) > new Date(desde))
+    ).length;
+  };
+
+  const marcarConvLida = async (convId) => {
+    const agora = new Date().toISOString();
+    setLidoAte(s => ({ ...s, [convId]: agora }));       // otimista
+    try { window.dispatchEvent(new CustomEvent('wa-lidas-mudou')); } catch(_){}
+    await supa.from('portal_chat_reads')
+      .upsert({ conversation_id: convId, last_read_at: agora }, { onConflict:'conversation_id' });
+  };
+
   // Open a conversation
   const openChat = async (convId) => {
     setOpenConv(convId);
+    marcarConvLida(convId);
     setChatLoading(true);
     setChatMsgs([]);
 
@@ -1747,6 +1783,7 @@ const Chats = () => {
             if(prev.some(m => m.id === payload.new.id)) return prev;
             return [...prev, payload.new];
           });
+          marcarConvLida(convId); // esta aberta na tela: ja foi lida
           setTimeout(scrollToBottom, 100);
         })
       .subscribe();
@@ -1930,7 +1967,7 @@ const Chats = () => {
             </div>
             <div style={{ textAlign:'right', flexShrink:0 }}>
               <div style={{ fontSize:11, color:C.muted }}>{dt}</div>
-              {conv.messages.length > 1 && <div style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:700, padding:'2px 7px', marginTop:4, display:'inline-block' }}>{conv.messages.length}</div>}
+              {naoLidasConv(conv) > 0 && <div title={naoLidasConv(conv) + ' mensagem(ns) que voce ainda nao abriu'} style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:700, padding:'2px 7px', marginTop:4, display:'inline-block' }}>{naoLidasConv(conv)}</div>}
             </div>
           </div>
         );
@@ -4957,8 +4994,7 @@ function App() {
     try {
       const sb = supa;
       if(!sb) return;
-      const [msgsRes, quotesRes, profiles, leadsRes] = await Promise.all([
-        sb.from('messages').select('id', { count: 'exact', head: true }),
+      const [quotesRes, profiles, leadsRes] = await Promise.all([
         sb.from('quotes').select('id', { count: 'exact', head: true }),
         profilesService.list({ fields: 'role, user_type, profession, portal_access' }),
         sb.from('leads').select('id', { count: 'exact', head: true }),
@@ -4967,7 +5003,8 @@ function App() {
       // por outro caminho (loadWaBadge) e nao pode ser apagado aqui.
       setBadges(b => ({
         ...b,
-        chats: msgsRes.count || 0,
+        // `chats` NAO entra aqui: virou nao-lidas, calculado em
+        // loadNaoLidos junto com o do WhatsApp.
         orcamentos: quotesRes.count || 0,
         pintores: profiles.filter(p => isProProfile(p) && currentRoleKey(p)==='pintor').length,
         grafiteiros: profiles.filter(p => isProProfile(p) && currentRoleKey(p)==='grafiteiro').length,
@@ -4986,16 +5023,32 @@ function App() {
   const loadWaBadge = async () => {
     try {
       const desde = new Date(Date.now() - 30*24*3600*1000).toISOString();
-      const [msgsRes, stRes] = await Promise.all([
+      const { data: { session } } = await supa.auth.getSession();
+      const meuId = session && session.user ? session.user.id : null;
+      const [msgsRes, stRes, chatRes, chatReadRes] = await Promise.all([
         supa.from('whatsapp_messages').select('wa_id, created_at')
           .eq('direction','in').gte('created_at', desde).limit(3000),
         supa.from('whatsapp_ai_state').select('wa_id, last_read_at').limit(3000),
+        supa.from('messages').select('conversation_id, sender_id, created_at')
+          .gte('created_at', desde).limit(3000),
+        supa.from('portal_chat_reads').select('conversation_id, last_read_at').limit(2000),
       ]);
       const lido = {};
       (stRes.data || []).forEach(r => { if(r.last_read_at) lido[r.wa_id] = r.last_read_at; });
       const n = (msgsRes.data || []).filter(m =>
         !lido[m.wa_id] || new Date(m.created_at) > new Date(lido[m.wa_id])).length;
-      setBadges(b => (b.whatsapp === n ? b : { ...b, whatsapp: n }));
+
+      // Chats 3-Way: mesma conta. Antes o badge era o TOTAL de mensagens
+      // da tabela — nao dizia nada e nunca baixava.
+      const lidoChat = {};
+      (chatReadRes.data || []).forEach(r => { lidoChat[r.conversation_id] = r.last_read_at; });
+      const nChat = (chatRes.data || []).filter(m => {
+        if(meuId && m.sender_id === meuId) return false;
+        const marca = lidoChat[m.conversation_id];
+        return !marca || new Date(m.created_at) > new Date(marca);
+      }).length;
+
+      setBadges(b => (b.whatsapp === n && b.chats === nChat ? b : { ...b, whatsapp: n, chats: nChat }));
     } catch(e) { /* badge e enfeite: nunca derruba o portal */ }
   };
 
