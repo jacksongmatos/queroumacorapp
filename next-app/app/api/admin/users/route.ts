@@ -25,6 +25,7 @@ import {
   setInfo,
   setName,
   setTag,
+  syncEmailFromAuth,
 } from '@/lib/api/_services/admin-users';
 import { logAuditEvent } from '@/lib/api/audit';
 
@@ -125,6 +126,11 @@ export async function POST(request: NextRequest) {
         specialties: body?.specialties,
       });
       auditChanges = { patch: result.patch, admin_email: email };
+    } else if (action === 'sync_email') {
+      // Revela o e-mail de LOGIN (auth.users) e espelha em profiles.email.
+      // Não altera identidade nenhuma — só sincroniza o espelho vazio.
+      result = await syncEmailFromAuth({ userId });
+      auditChanges = { email: result.email, source: result.source, admin_email: email };
     } else if (action === 'set_email') {
       // Troca o LOGIN no Auth + espelho em profiles.email.
       result = await setEmail({ userId, email: body?.email });

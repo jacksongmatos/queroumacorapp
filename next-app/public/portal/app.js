@@ -630,7 +630,11 @@ const adminUsersRaw = async payload => {
     ok: true
   };
 };
-const adminUsers = async payload => {
+
+// Igual ao adminUsers, mas DEVOLVE o corpo da resposta — algumas actions
+// respondem com DADO (sync_email traz o e-mail de login), nao so ok/erro.
+// Em falha: alerta (mesma mensagem) e devolve null.
+const adminUsersData = async payload => {
   const {
     data: {
       session
@@ -638,7 +642,7 @@ const adminUsers = async payload => {
   } = await supa.auth.getSession();
   if (!session) {
     alert('Sessao expirada. Entre novamente.');
-    return false;
+    return null;
   }
   const r = await fetch('/api/admin/users', {
     method: 'POST',
@@ -660,10 +664,13 @@ const adminUsers = async payload => {
     } else {
       alert('A acao falhou: ' + (res.error || 'HTTP ' + r.status));
     }
-    return false;
+    return null;
   }
-  return true;
+  return res;
 };
+
+// Boolean pra maioria das actions (o resto do portal ja usa assim).
+const adminUsers = async payload => !!(await adminUsersData(payload));
 const promoteToPortal = async (id, after) => {
   if (!confirm('Promover este perfil a usuario do portal? Ele passara a ter acesso ao portal administrativo.')) return;
   if ((await adminUsers({
@@ -795,6 +802,21 @@ const editUserEmail = async (profile, after) => {
   })) && after) after();
 };
 
+// Busca o e-mail de LOGIN no Auth e espelha em profiles.email. O portal
+// lista `profiles.email`, que e so um ESPELHO: perfil antigo (ou criado
+// por fluxo que nao preenchia a coluna) aparece com "—" mesmo tendo login.
+// A chave anon nao ve `auth.users`, entao quem busca e o servidor.
+const pullUserEmail = async (profile, after) => {
+  const res = await adminUsersData({
+    action: 'sync_email',
+    userId: profile.id
+  });
+  if (!res) return null;
+  alert('E-mail de login de ' + (profile.name || 'este perfil') + ':\n\n' + res.email + (res.source === 'profile' ? '\n\n(veio do perfil — sem login no Auth)' : ''));
+  if (after) after();
+  return res.email;
+};
+
 // Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
 // tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
 const deleteUsersPermanently = async (profiles, after) => {
@@ -892,7 +914,9 @@ const NameCell = ({
   }
 }, "\u270F\uFE0F"));
 
-// E-mail com lapis — troca tambem o LOGIN (aviso no prompt).
+// E-mail com lapis — troca tambem o LOGIN (aviso no prompt). Quando o
+// espelho `profiles.email` esta vazio, o 🔄 busca o e-mail de login no
+// Auth (o portal sozinho nao enxerga `auth.users`) e preenche o espelho.
 const EmailCell = ({
   profile,
   after
@@ -906,7 +930,18 @@ const EmailCell = ({
   style: {
     color: C.muted
   }
-}, profile.email || '—'), /*#__PURE__*/React.createElement("button", {
+}, profile.email || '—'), !profile.email && /*#__PURE__*/React.createElement("button", {
+  onClick: () => pullUserEmail(profile, after),
+  title: "Buscar o e-mail de login no Auth",
+  style: {
+    background: 'none',
+    border: '1px solid ' + C.border,
+    borderRadius: 6,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: 11
+  }
+}, "\uD83D\uDD04"), /*#__PURE__*/React.createElement("button", {
   onClick: () => editUserEmail(profile, after),
   title: "Editar e-mail (troca o login)",
   style: {
@@ -1806,7 +1841,7 @@ const PintoresList = ({
     checked: allSel,
     onChange: e => setSelIds(e.target.checked ? pintores.map(x => x.id) : []),
     title: "Selecionar todos"
-  })), ['Nome', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
+  })), ['Nome', 'Email', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -1849,6 +1884,14 @@ const PintoresList = ({
     profile: p,
     after: fetchPintores
   }))), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: '10px 12px',
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement(EmailCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }
@@ -7730,17 +7773,18 @@ const PortalUsersList = () => {
     name: u.name,
     avatarUrl: u.avatar_url,
     size: 32
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 600
-    }
-  }, u.name || 'Sem nome'))), /*#__PURE__*/React.createElement("td", {
+  }), /*#__PURE__*/React.createElement(NameCell, {
+    profile: u,
+    after: fetchUsers
+  }))), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px',
-      color: C.muted,
       fontSize: 12
     }
-  }, u.email || '—'), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(EmailCell, {
+    profile: u,
+    after: fetchUsers
+  })), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: '10px 12px'
     }

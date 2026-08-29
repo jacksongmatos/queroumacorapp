@@ -113,6 +113,71 @@ describe('POST /api/admin/users', () => {
     expect(res.status).toBe(403);
   });
 
+  it('sync_email reveals the Auth login email and mirrors it into profiles', async () => {
+    let mirrorBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('/auth/v1/admin/users/')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'target', email: 'Bianca@Mail.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        mirrorBody = String(init.body);
+        return Promise.resolve(new Response('[{"id":"target"}]', { status: 200 }));
+      }
+      if (url.includes('/rest/v1/profiles')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(mkReq({ accessToken: 'good', action: 'sync_email', userId: 'target' }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.email).toBe('bianca@mail.com');
+    expect(body.source).toBe('auth');
+    expect(JSON.parse(mirrorBody).email).toBe('bianca@mail.com');
+  });
+
+  it('sync_email 404s when the profile has no Auth login and no mirrored email', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('/auth/v1/admin/users/')) {
+        return Promise.resolve(new Response('{"msg":"not found"}', { status: 404 }));
+      }
+      if (url.includes('/rest/v1/profiles') && url.includes('select=email')) {
+        return Promise.resolve(new Response(JSON.stringify([{ email: null }]), { status: 200 }));
+      }
+      if (url.includes('/rest/v1/profiles')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(mkReq({ accessToken: 'good', action: 'sync_email', userId: 'orphan' }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/órfão/);
+  });
+
   it('invalid action returns 400', async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/auth/v1/user')) {

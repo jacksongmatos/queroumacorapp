@@ -278,9 +278,12 @@ const adminUsersRaw = async (payload) => {
   return { ok: true };
 };
 
-const adminUsers = async (payload) => {
+// Igual ao adminUsers, mas DEVOLVE o corpo da resposta — algumas actions
+// respondem com DADO (sync_email traz o e-mail de login), nao so ok/erro.
+// Em falha: alerta (mesma mensagem) e devolve null.
+const adminUsersData = async (payload) => {
   const { data: { session } } = await supa.auth.getSession();
-  if (!session) { alert('Sessao expirada. Entre novamente.'); return false; }
+  if (!session) { alert('Sessao expirada. Entre novamente.'); return null; }
   const r = await fetch('/api/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -297,10 +300,13 @@ const adminUsers = async (payload) => {
     } else {
       alert('A acao falhou: ' + (res.error || ('HTTP ' + r.status)));
     }
-    return false;
+    return null;
   }
-  return true;
+  return res;
 };
+
+// Boolean pra maioria das actions (o resto do portal ja usa assim).
+const adminUsers = async (payload) => !!(await adminUsersData(payload));
 
 const promoteToPortal = async (id, after) => {
   if (!confirm('Promover este perfil a usuario do portal? Ele passara a ter acesso ao portal administrativo.')) return;
@@ -392,6 +398,21 @@ const editUserEmail = async (profile, after) => {
   if (await adminUsers({ action:'set_email', userId: profile.id, email: v }) && after) after();
 };
 
+// Busca o e-mail de LOGIN no Auth e espelha em profiles.email. O portal
+// lista `profiles.email`, que e so um ESPELHO: perfil antigo (ou criado
+// por fluxo que nao preenchia a coluna) aparece com "—" mesmo tendo login.
+// A chave anon nao ve `auth.users`, entao quem busca e o servidor.
+const pullUserEmail = async (profile, after) => {
+  const res = await adminUsersData({ action:'sync_email', userId: profile.id });
+  if (!res) return null;
+  alert(
+    'E-mail de login de ' + (profile.name || 'este perfil') + ':\n\n' + res.email +
+    (res.source === 'profile' ? '\n\n(veio do perfil — sem login no Auth)' : '')
+  );
+  if (after) after();
+  return res.email;
+};
+
 // Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
 // tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
 const deleteUsersPermanently = async (profiles, after) => {
@@ -464,10 +485,16 @@ const NameCell = ({ profile, after }) => (
   </span>
 );
 
-// E-mail com lapis — troca tambem o LOGIN (aviso no prompt).
+// E-mail com lapis — troca tambem o LOGIN (aviso no prompt). Quando o
+// espelho `profiles.email` esta vazio, o 🔄 busca o e-mail de login no
+// Auth (o portal sozinho nao enxerga `auth.users`) e preenche o espelho.
 const EmailCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.muted }}>{profile.email || '—'}</span>
+    {!profile.email && (
+      <button onClick={() => pullUserEmail(profile, after)} title="Buscar o e-mail de login no Auth"
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>🔄</button>
+    )}
     <button onClick={() => editUserEmail(profile, after)} title="Editar e-mail (troca o login)"
       style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
@@ -892,7 +919,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
               <th style={{ padding:'8px 12px', width:34 }}>
                 <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? pintores.map(x => x.id) : [])} title="Selecionar todos" />
               </th>
-              {['Nome','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
+              {['Nome','Email','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -910,6 +937,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
                   <NameCell profile={p} after={fetchPintores} />
                 </div>
               </td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px', fontSize:12 }}><TagCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><CityCell profile={p} after={fetchPintores} /></td>
@@ -3261,10 +3289,10 @@ const PortalUsersList = () => {
                 <td style={{ padding:'10px 12px' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <AvatarCell name={u.name} avatarUrl={u.avatar_url} size={32} />
-                    <span style={{ fontWeight:600 }}>{u.name || 'Sem nome'}</span>
+                    <NameCell profile={u} after={fetchUsers} />
                   </div>
                 </td>
-                <td style={{ padding:'10px 12px', color:C.muted, fontSize:12 }}>{u.email || '—'}</td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={u} after={fetchUsers} /></td>
                 <td style={{ padding:'10px 12px' }}><span style={{ background:C.p5+'22', color:C.p5, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{u.role || u.user_type || 'admin'}</span></td>
                 <td style={{ padding:'10px 12px' }}>
                   <ProBadgeCell profile={u} onChange={fetchUsers} />

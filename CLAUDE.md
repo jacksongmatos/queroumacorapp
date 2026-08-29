@@ -80,6 +80,23 @@
     nada. Não trocar essa espera por timeout no edge — o CF morre antes
     dos ~50s do cold start (`SEND_TIMEOUT_MS` = 25s).
 
+- **Portal: e-mail sumido ("—") e sem lápis — consertado (2026-08-29,
+  v=20260829e).** Duas coisas diferentes apareciam como um bug só. (1)
+  `profiles.email` é só um ESPELHO: quem se cadastrou por um fluxo que não
+  preenchia a coluna (ou nasceu antes dela) fica com `email` NULL e o
+  portal mostra "—" pra sempre — o login de verdade mora em `auth.users`,
+  invisível pra chave anon do portal. Agora a action `sync_email` de
+  `/api/admin/users` (service `syncEmailFromAuth`) lê o e-mail no GoTrue
+  admin, devolve pro portal e ESPELHA em `profiles.email`; o botão 🔄 na
+  `EmailCell` (só aparece quando o espelho está vazio) dispara isso.
+  Perfil órfão sem login responde 404 com texto explicando (aí é usar o
+  lápis, que cria/troca o login via `set_email`). (2) A coluna de e-mail
+  só existia na aba Clientes: **Pintores** (e Grafiteiros/Funileiros, que
+  reusam `PintoresList`) ganharam a coluna Email, e a lista "Usuarios com
+  acesso ao Portal" trocou nome/e-mail em texto puro por `NameCell` +
+  `EmailCell`. Helper novo `adminUsersData` (irmão do `adminUsers`) devolve
+  o CORPO da resposta — `adminUsers` virou wrapper booleano dele.
+
 - **SQL Wave 44 (2026-08-28) — JÁ EXECUTADA no Supabase (verificado em
   2026-08-29: `admin_delete_user(p_user_id uuid, p_force_admin boolean)`
   existe e 0 FKs public→profiles/auth.users com NO ACTION/RESTRICT).
