@@ -176,11 +176,13 @@ export function textoCobranca(nome?: string | null): string {
 }
 
 export function textoReengajamento(nome?: string | null): string {
+  // Sem o rodapé "responda PARE" (2026-08-29, decisão da loja). A palavra
+  // continua valendo do lado de cá: quem responde isso vira `opted_out` e
+  // não recebe mais nada — só deixou de ser anunciada.
   return (
     `Oi${primeiroNome(nome)}, tudo bem? Aqui é da Cali Colors 🎨 ` +
     `Passando pra saber se ficou alguma dúvida sobre o que conversamos. ` +
-    `Me conta o que você precisa pintar que eu te ajudo a escolher o produto certo. ` +
-    `Se preferir não receber mais mensagens, é só responder PARE.`
+    `Me conta o que você precisa pintar que eu te ajudo a escolher o produto certo.`
   );
 }
 

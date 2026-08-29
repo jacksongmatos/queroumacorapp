@@ -174,8 +174,9 @@ describe('mensagens automáticas', () => {
     expect(textoCobranca(null)).toContain('Oi!');
     expect(textoReengajamento(null)).toContain('Oi, tudo bem?');
   });
-  it('o reengajamento oferece a saída (PARE)', () => {
-    expect(textoReengajamento('Ana')).toContain('PARE');
+  it('nenhuma anuncia o PARE — decisão da loja; a palavra segue valendo no runner', () => {
+    expect(textoReengajamento('Ana')).not.toContain('PARE');
+    expect(textoCobranca('Ana')).not.toContain('PARE');
   });
 });
 

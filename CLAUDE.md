@@ -60,7 +60,10 @@
     resposta há Xh" — cutucão interno, qualquer hora; (2) cobra o cliente
     UMA vez ("seu pedido está na fila"), só em horário de atendimento;
     (3) reengaja quem sumiu depois que a LOJA falou por último (inclui o
-    lead que nunca respondeu à abordagem), 1 toque por semana. Teto de 10
+    lead que nunca respondeu à abordagem), 1 toque por semana. **Nenhum
+    texto automático anuncia o "responda PARE"** (decisão da loja,
+    2026-08-29) — a palavra continua valendo no runner: quem responde vira
+    `opted_out` e não recebe mais nada. Teto de 10
     envios por varredura. Nunca fala com quem pediu PARE (`opted_out`)
     nem com a conversa cuja chave o operador desligou na mão. Lógica pura
     em `lib/api/_services/whatsapp-followup.ts` (`planFollowups`), 25
