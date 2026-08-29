@@ -3384,13 +3384,22 @@ const WhatsAppTab = () => {
   const [busca, setBusca] = useState('');
   const endRef = React.useRef(null);
 
+  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, wa_timestamp, created_at';
+
   const load = async () => {
     const { data } = await supa
       .from('whatsapp_messages')
-      .select('id, direction, wa_id, profile_name, type, body, template, wa_timestamp, created_at')
+      .select(WA_COLS)
       .order('created_at', { ascending:false })
       .limit(500);
-    setMsgs(data || []);
+    if(data){
+      // So troca o state se algo MUDOU de verdade — sem isso cada poll
+      // recriava o array e a tela repintava (a "piscada").
+      setMsgs(prev => {
+        if(prev.length === data.length && prev.length > 0 && prev[0].id === data[0].id) return prev;
+        return data;
+      });
+    }
     setLoading(false);
   };
 
@@ -3406,12 +3415,41 @@ const WhatsAppTab = () => {
     setProfByPhone(map);
   };
 
+  // REALTIME (Wave 45): o banco AVISA quando entra mensagem — a msg
+  // aparece em ~1s, sem poll curto e sem repintar a tela inteira (so a
+  // linha nova entra no array). O poll continua, mas em 60s, apenas como
+  // rede de seguranca (aba que dormiu, websocket caido, tabela ainda fora
+  // da publication do Supabase).
+  const subRef = React.useRef(null);
   useEffect(() => {
     load(); loadProfiles();
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
+    subRef.current = supa
+      .channel('portal-whatsapp')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'whatsapp_messages' },
+        (payload) => {
+          setMsgs(prev => prev.some(m => m.id === payload.new.id) ? prev : [payload.new, ...prev]);
+        })
+      .subscribe();
+    const t = setInterval(load, 60000);
+    return () => {
+      clearInterval(t);
+      if(subRef.current) supa.removeChannel(subRef.current);
+    };
   }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }); }, [openWa, msgs.length]);
+
+  // Rola pro fim so quando FAZ SENTIDO: ao abrir a conversa, ou quando
+  // chega mensagem nova E o operador ja estava olhando o fim. Se ele
+  // subiu pra ler historico, a tela nao arranca dele.
+  const threadRef = React.useRef(null);
+  const [nMsgs, setNMsgs] = useState(0);
+  useEffect(() => {
+    const el = threadRef.current;
+    const abriuConversa = msgs.length === nMsgs;
+    setNMsgs(msgs.length);
+    if(!el) return;
+    const pertoDoFim = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if(abriuConversa || pertoDoFim) endRef.current?.scrollIntoView({ behavior: abriuConversa ? 'auto' : 'smooth' });
+  }, [openWa, msgs.length]);
 
   // Agrupa por numero (mensagem mais recente primeiro).
   const convs = React.useMemo(() => {
@@ -3477,7 +3515,16 @@ const WhatsAppTab = () => {
         const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
         setErr(res.error || ('Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')'));
       }
-      else { setText(''); load(); }
+      else {
+        setText('');
+        // Mostra a mensagem enviada NA HORA (o realtime/poll depois traz a
+        // linha real do banco; o dedupe por id evita duplicar).
+        setMsgs(prev => [{
+          id: 'local-' + Date.now(), direction:'out', wa_id: openWa,
+          type:'text', body, created_at: new Date().toISOString(), wa_timestamp: null
+        }, ...prev]);
+        load();
+      }
     } catch(_) { setErr('Falha de rede ao enviar.'); }
     setSending(false); setSendStage('');
   };
@@ -3574,7 +3621,7 @@ const WhatsAppTab = () => {
                 {aberta ? nomeDe(aberta) : fmtWaPhone(openWa)}
                 <span style={{ fontWeight:400, color:C.muted, fontSize:12, marginLeft:8 }}>{fmtWaPhone(openWa)}</span>
               </div>
-              <div style={{ flex:1, overflowY:'auto', padding:16, display:'flex', flexDirection:'column', gap:6 }}>
+              <div ref={threadRef} style={{ flex:1, overflowY:'auto', padding:16, display:'flex', flexDirection:'column', gap:6 }}>
                 {thread.length === 0 ? (
                   <div style={{ color:C.muted, fontSize:13, textAlign:'center', marginTop:20 }}>Sem historico com este numero — escreva a primeira mensagem abaixo.</div>
                 ) : thread.map(m => (

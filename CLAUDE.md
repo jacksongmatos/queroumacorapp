@@ -45,6 +45,16 @@
     estrangeiro, passa VERBATIM). `fmtWaPhone` do portal e o "+" (nova
     conversa) seguem a mesma regra. NÃO usar `normalizeBrPhone` no
     caminho da Evolution.
+  - **SQL Wave 45 (2026-08-28) — PENDENTE de rodar.**
+    (`/migrations/2026-08-28-whatsapp-realtime.sql`) Põe
+    `whatsapp_messages` na publication `supabase_realtime` (+ REPLICA
+    IDENTITY FULL). Sem ela a aba do portal só descobre mensagem nova no
+    poll. Com ela: banco AVISA, mensagem entra em ~1s. Realtime respeita
+    RLS → só `is_portal_admin()` recebe evento. A tela já está pronta
+    (v=20260828m): subscribe em INSERT + poll de 60s como rede de
+    segurança + `setMsgs` só troca o array quando MUDOU (matava a
+    "piscada" do poll) + auto-scroll só se o operador já estava no fim +
+    eco local otimista no envio.
   - **Diagnóstico**: `GET /api/whatsapp-evo/ping` (admin-only) mede
     conectividade + apikey + estado da instância a partir do edge e
     reporta as envs sem vazar segredo; botão "🔌 Testar conexao" no topo
