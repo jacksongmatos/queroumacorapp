@@ -8,6 +8,8 @@ import {
   isBusinessHour,
   isOptOut,
   replyLeaksPrice,
+  shouldSendAway,
+  textoAusencia,
 } from '../../lib/api/_services/whatsapp-ai';
 
 describe('clientAsksForPrice — pedido do CLIENTE escala antes de chamar a IA', () => {
@@ -83,6 +85,49 @@ describe('isOptOut', () => {
   it('não confunde com conversa normal', () => {
     expect(isOptOut('parece bom')).toBe(false);
     expect(isOptOut('quero sim')).toBe(false);
+  });
+});
+
+describe('mensagem de ausência — quando a IA não vai responder', () => {
+  const NOW = new Date('2026-08-29T17:00:00Z');
+  const hAtras = (h: number) => new Date(NOW.getTime() - h * 3600000).toISOString();
+
+  it('se apresenta, agradece e promete retorno — sem falar preço', () => {
+    const t = textoAusencia({ motivo: 'horario', janela: { start: 8, end: 19 } });
+    expect(t).toContain('Cali Colors');
+    expect(t).toContain('Obrigado pelo seu contato');
+    expect(t).toContain('em breve');
+    expect(t).toContain('das 8h às 19h');
+    expect(replyLeaksPrice(t)).toBe(false);
+  });
+
+  it('com a chave desligada não inventa horário de atendimento', () => {
+    const t = textoAusencia({ motivo: 'desligada' });
+    expect(t).not.toMatch(/\dh às \dh/);
+    expect(t).toContain('em breve');
+    expect(replyLeaksPrice(t)).toBe(false);
+  });
+
+  it('texto customizado do portal manda mais que o padrão', () => {
+    expect(textoAusencia({ motivo: 'horario', custom: 'Voltamos amanhã!' })).toBe('Voltamos amanhã!');
+  });
+
+  it('manda quando a conversa está fria', () => {
+    expect(shouldSendAway({ now: NOW })).toBe(true);
+    expect(shouldSendAway({ awayAt: hAtras(20), now: NOW })).toBe(true);
+  });
+
+  it('NÃO repete dentro de 12h', () => {
+    expect(shouldSendAway({ awayAt: hAtras(3), now: NOW })).toBe(false);
+  });
+
+  it('NÃO atropela pessoa que respondeu agora há pouco', () => {
+    expect(shouldSendAway({ lastHumanOutAt: hAtras(1), now: NOW })).toBe(false);
+    expect(shouldSendAway({ lastHumanOutAt: hAtras(5), now: NOW })).toBe(true);
+  });
+
+  it('NUNCA vai pra quem pediu PARE', () => {
+    expect(shouldSendAway({ optedOut: true, now: NOW })).toBe(false);
   });
 });
 

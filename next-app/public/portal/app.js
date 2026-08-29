@@ -8559,7 +8559,7 @@ const WhatsAppTab = () => {
   const loadIa = async () => {
     // Config em tabela PROPRIA (Wave 47) — app_settings guarda segredo de
     // sistema e recusa escrita do portal, corretamente.
-    const [st, cfg, al] = await Promise.all([supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at').limit(2000), supa.from('whatsapp_ai_config').select('hours, default_on, followup_on, last_sweep_at, last_sweep_note').eq('id', 1).maybeSingle(), supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at').eq('resolved', false).order('created_at', {
+    const [st, cfg, al] = await Promise.all([supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at').limit(2000), supa.from('whatsapp_ai_config').select('hours, default_on, followup_on, away_on, last_sweep_at, last_sweep_note').eq('id', 1).maybeSingle(), supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at').eq('resolved', false).order('created_at', {
       ascending: false
     }).limit(50)]);
     const m = {};
@@ -8579,6 +8579,7 @@ const WhatsAppTab = () => {
     setAlertas(al.data || []);
     setHoras(cfg.data && cfg.data.hours || '8-19');
     setFollowupOn(!cfg.data || cfg.data.followup_on !== false);
+    setAwayOn(!cfg.data || cfg.data.away_on !== false);
     setSweep(cfg.data ? {
       at: cfg.data.last_sweep_at,
       note: cfg.data.last_sweep_note
@@ -8615,6 +8616,27 @@ const WhatsAppTab = () => {
   // hora. A varredura de verdade roda de hora em hora no banco (pg_cron);
   // aqui e so pra ver o resultado sem esperar.
   const [followupOn, setFollowupOn] = useState(true);
+  // Mensagem de ausencia: quando a IA nao vai responder (fora do horario
+  // ou chave desligada), o cliente recebe UMA cortesia da loja em vez de
+  // silencio — no maximo 1 a cada 12h, nunca pra quem pediu PARE.
+  const [awayOn, setAwayOn] = useState(true);
+  const toggleAway = async () => {
+    const novo = !awayOn;
+    setAwayOn(novo); // otimista
+    const {
+      error
+    } = await supa.from('whatsapp_ai_config').upsert({
+      id: 1,
+      away_on: novo,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'id'
+    });
+    if (error) {
+      setAwayOn(!novo);
+      alert('Nao consegui salvar a auto-resposta: ' + error.message);
+    }
+  };
   const [sweep, setSweep] = useState(null);
   const [sweeping, setSweeping] = useState(false);
   const toggleFollowup = async () => {
@@ -9050,6 +9072,30 @@ const WhatsAppTab = () => {
       display: 'inline-block'
     }
   }), foraDeHorarioLiberado ? '🕐 Responde 24h' : '🕐 Só horário comercial'), /*#__PURE__*/React.createElement("button", {
+    onClick: toggleAway,
+    title: awayOn ? 'Auto-resposta LIGADA: fora do horario, ou com a IA desligada, o cliente recebe uma mensagem se apresentando ("aqui e da Cali Colors, obrigado pelo contato, retornamos em breve"). Uma a cada 12h por conversa, nunca pra quem pediu PARE. Clique pra desligar.' : 'Auto-resposta DESLIGADA: quem escrever fora do horario nao recebe nada. Clique pra ligar.',
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 7,
+      background: awayOn ? C.p6 + '1f' : '#fff',
+      border: '1px solid ' + (awayOn ? C.p6 : C.border),
+      color: awayOn ? C.p6 : C.muted,
+      borderRadius: 20,
+      padding: '5px 12px',
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: '50%',
+      background: awayOn ? C.p6 : C.border,
+      display: 'inline-block'
+    }
+  }), awayOn ? '💬 Auto-resposta ligada' : '💬 Auto-resposta desligada'), /*#__PURE__*/React.createElement("button", {
     onClick: toggleFollowup,
     title: followupOn ? 'Follow-up LIGADO: de hora em hora o sistema cobra pendencia sem resposta e da um toque em quem sumiu (1 por semana, so em horario de atendimento, nunca em quem pediu PARE). Clique pra desligar.' : 'Follow-up DESLIGADO: ninguem e cobrado e ninguem recebe toque automatico. Clique pra ligar.',
     style: {

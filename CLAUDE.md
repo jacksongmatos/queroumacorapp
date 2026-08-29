@@ -35,6 +35,19 @@
     (`push_internal_secret`, `push_notify_url`) e a RLS recusa a escrita,
     corretamente (erro visto em produção: "new row violates row-level
     security policy for table app_settings").
+  - **MENSAGEM DE AUSÊNCIA (2026-08-29, junto da Wave 48).** As duas
+    saídas silenciosas do runner deixaram de ser silêncio: fora do horário
+    OU com a chave desligada, o cliente recebe UMA cortesia fixa ("aqui é
+    da Cali Colors, obrigado pelo contato, retornamos em breve" — texto
+    fixo, não é a IA falando, então nem chega perto de preço).
+    `textoAusencia` + `shouldSendAway` em `whatsapp-ai.ts` (puros,
+    testados); `enviarAusencia` no runner. Travas: nada pra `opted_out`,
+    1 a cada 12h por conversa (`whatsapp_ai_state.away_at`), e silêncio
+    se uma PESSOA respondeu nas últimas 2h (ela está no volante). Também
+    abre alerta no portal (`humano`) já marcado `followed_up_at` — a loja
+    vê quem escreveu de madrugada, a varredura cobra depois ("sem resposta
+    há Xh") e NÃO repete a promessa. Config: `whatsapp_ai_config.away_on`
+    (chave no portal) + `away_text` (texto custom, NULL = padrão).
   - **Wave 48** (`/migrations/2026-08-29-whatsapp-followup.sql`) —
     **PENDENTE de rodar no Supabase.** FOLLOW-UP AUTOMÁTICO: varredura de
     hora em hora (pg_cron → pg_net → `POST /api/whatsapp-evo/followup
@@ -59,7 +72,8 @@
       pra NULL). Servidor (`isAiEnabledFor`) e portal (`iaLigada`) checam
       `typeof enabled === 'boolean'`. **Nunca escrever `enabled` em
       upsert que não seja a chave de propósito.**
-  - Portal (v=20260829j): chave "IA ligada/desligada" por conversa +
+  - Portal (v=20260829k): chave "IA ligada/desligada" por conversa +
+    botão "💬 Auto-resposta ligada/desligada" (mensagem de ausência) +
     botão "🔁 Follow-up ligado/desligado" + "👀 Simular" (dryRun, mostra o
     que a varredura FARIA sem enviar) + "▶ Rodar" + linha com a última
     varredura (`last_sweep_at`/`last_sweep_note`) +

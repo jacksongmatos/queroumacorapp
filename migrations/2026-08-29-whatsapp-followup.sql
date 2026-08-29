@@ -33,7 +33,10 @@ ALTER TABLE public.whatsapp_ai_state
 ALTER TABLE public.whatsapp_ai_state
   ADD COLUMN IF NOT EXISTS opted_out     boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS followup_at   timestamptz,
-  ADD COLUMN IF NOT EXISTS followup_kind text;
+  ADD COLUMN IF NOT EXISTS followup_kind text,
+  -- Última mensagem de AUSÊNCIA ("obrigado pelo contato, retornamos em
+  -- breve") mandada nesta conversa. Uma a cada 12h, no máximo.
+  ADD COLUMN IF NOT EXISTS away_at       timestamptz;
 
 -- Backfill do opt-out a partir dos alertas de PARE já registrados.
 UPDATE public.whatsapp_ai_state s
@@ -60,7 +63,12 @@ ALTER TABLE public.whatsapp_ai_config
   -- horas de silêncio do cliente até o toque de reengajamento
   ADD COLUMN IF NOT EXISTS nudge_hours     int     NOT NULL DEFAULT 48,
   ADD COLUMN IF NOT EXISTS last_sweep_at   timestamptz,
-  ADD COLUMN IF NOT EXISTS last_sweep_note text;
+  ADD COLUMN IF NOT EXISTS last_sweep_note text,
+  -- MENSAGEM DE AUSÊNCIA: quando a IA não vai responder (fora do horário
+  -- ou chave desligada), o cliente recebe UMA cortesia da loja em vez de
+  -- silêncio. `away_text` NULL = usa o texto padrão do código.
+  ADD COLUMN IF NOT EXISTS away_on        boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS away_text      text;
 
 -- ── 3. Alerta lembra se o cliente já foi avisado (cobra 1 vez só) ──
 ALTER TABLE public.portal_alerts
@@ -117,6 +125,7 @@ SELECT cron.schedule(
 -- ── Verificação ──
 SELECT
   (SELECT followup_on FROM public.whatsapp_ai_config WHERE id = 1)          AS followup_ligado,
+  (SELECT away_on FROM public.whatsapp_ai_config WHERE id = 1)              AS ausencia_ligada,
   (SELECT followup_hours FROM public.whatsapp_ai_config WHERE id = 1)       AS horas_cobranca,
   (SELECT nudge_hours FROM public.whatsapp_ai_config WHERE id = 1)          AS horas_reengajamento,
   (SELECT count(*) FROM public.whatsapp_ai_state WHERE enabled IS NULL)     AS conversas_no_padrao,

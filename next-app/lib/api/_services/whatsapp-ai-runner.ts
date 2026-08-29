@@ -21,6 +21,8 @@ import {
   isOptOut,
   MAX_AUTO_REPLIES_PER_DAY,
   parseHoursSetting,
+  shouldSendAway,
+  textoAusencia,
   type ConversationTurn,
   type LeadContext,
 } from './whatsapp-ai';
@@ -59,6 +61,8 @@ interface AiState {
   enabled: boolean | null;
   replies_today: number;
   replies_date: string | null;
+  opted_out?: boolean | null;
+  away_at?: string | null;
 }
 
 /**
@@ -80,7 +84,7 @@ async function registrarDecisao(waId: string, why: string): Promise<void> {
 /** Resolve a chave da conversa: linha própria > padrão global > off. */
 export async function isAiEnabledFor(waId: string): Promise<{ enabled: boolean; state: AiState | null }> {
   const rows = await dbGet<AiState>(
-    `whatsapp_ai_state?wa_id=eq.${encodeURIComponent(waId)}&select=wa_id,enabled,replies_today,replies_date`,
+    `whatsapp_ai_state?wa_id=eq.${encodeURIComponent(waId)}&select=wa_id,enabled,replies_today,replies_date,opted_out,away_at`,
   );
   if (rows.length > 0 && typeof rows[0].enabled === 'boolean') {
     return { enabled: rows[0].enabled, state: rows[0] };
@@ -93,11 +97,24 @@ export async function isAiEnabledFor(waId: string): Promise<{ enabled: boolean; 
  * Config da IA (Wave 47) — tabela própria, NÃO `app_settings`: aquela
  * guarda segredo de sistema e o portal precisa escrever esta aqui.
  */
-async function loadConfig(): Promise<{ hours: string; default_on: boolean }> {
-  const rows = await dbGet<{ hours: string; default_on: boolean }>(
-    `whatsapp_ai_config?id=eq.1&select=hours,default_on`,
-  );
-  return { hours: rows[0]?.hours || '8-19', default_on: rows[0]?.default_on === true };
+async function loadConfig(): Promise<{
+  hours: string;
+  default_on: boolean;
+  away_on: boolean;
+  away_text: string | null;
+}> {
+  const rows = await dbGet<{
+    hours: string;
+    default_on: boolean;
+    away_on: boolean | null;
+    away_text: string | null;
+  }>(`whatsapp_ai_config?id=eq.1&select=hours,default_on,away_on,away_text`);
+  return {
+    hours: rows[0]?.hours || '8-19',
+    default_on: rows[0]?.default_on === true,
+    away_on: rows[0]?.away_on !== false,
+    away_text: rows[0]?.away_text || null,
+  };
 }
 
 async function setAiEnabled(waId: string, enabled: boolean, optedOut?: boolean): Promise<void> {
@@ -144,6 +161,9 @@ export async function createAlert(input: {
   leadId?: string | null;
   title: string;
   body?: string;
+  /** O cliente JÁ ouviu "retornamos em breve" (mensagem de ausência) —
+   *  a varredura de follow-up não precisa repetir a promessa. */
+  jaAvisado?: boolean;
 }): Promise<void> {
   const abertos = await dbGet<{ id: string; created_at: string; title: string }>(
     `portal_alerts?wa_id=eq.${encodeURIComponent(input.waId)}&resolved=is.false&select=id,created_at,title&order=created_at.asc&limit=1`,
@@ -175,6 +195,7 @@ export async function createAlert(input: {
       lead_id: input.leadId || null,
       title: input.title,
       body: input.body || null,
+      ...(input.jaAvisado ? { followed_up_at: new Date().toISOString() } : {}),
     }),
     signal: AbortSignal.timeout(DB_TIMEOUT_MS),
   }).catch(() => {});
@@ -186,6 +207,75 @@ async function temPendenciaAberta(waId: string): Promise<boolean> {
     `portal_alerts?wa_id=eq.${encodeURIComponent(waId)}&resolved=is.false&select=id&limit=1`,
   );
   return rows.length > 0;
+}
+
+/** Quando uma PESSOA respondeu por último nesta conversa (a IA grava
+ *  `sent_by` NULL — é o único discriminador que existe). */
+async function ultimaRespostaHumana(waId: string): Promise<string | null> {
+  const rows = await dbGet<{ created_at: string }>(
+    `whatsapp_messages?wa_id=eq.${encodeURIComponent(waId)}&direction=eq.out&sent_by=not.is.null&select=created_at&order=created_at.desc&limit=1`,
+  );
+  return rows[0]?.created_at || null;
+}
+
+/**
+ * MENSAGEM DE AUSÊNCIA. A IA não vai responder (fora do horário ou chave
+ * desligada) — mas o cliente não pode achar que falou com a parede. Vai
+ * UMA cortesia da loja: quem somos, obrigado, retornamos em breve.
+ *
+ * Trava tripla pra não virar chateação: nada pra quem pediu PARE, no
+ * máximo uma a cada 12h por conversa, e silêncio total se uma pessoa
+ * respondeu ali nas últimas 2h (ela está no volante).
+ *
+ * Cria também o alerta no portal — é assim que a loja fica sabendo que
+ * alguém escreveu de madrugada, e é o que faz a varredura de follow-up
+ * cobrar depois ("sem resposta há Xh"). O alerta já nasce marcado como
+ * "cliente avisado", senão a varredura mandaria a mesma promessa de novo.
+ */
+async function enviarAusencia(opts: {
+  waId: string;
+  motivo: 'horario' | 'desligada';
+  state: AiState | null;
+  cfg: { hours: string; away_on: boolean; away_text: string | null };
+}): Promise<boolean> {
+  if (!opts.cfg.away_on) return false;
+  const humano = await ultimaRespostaHumana(opts.waId);
+  const pode = shouldSendAway({
+    optedOut: opts.state?.opted_out === true,
+    awayAt: opts.state?.away_at || null,
+    lastHumanOutAt: humano,
+  });
+  if (!pode) return false;
+
+  const body = textoAusencia({
+    motivo: opts.motivo,
+    janela: parseHoursSetting(opts.cfg.hours),
+    custom: opts.cfg.away_text,
+  });
+  const sent = await sendEvolutionText({ to: opts.waId, body });
+  await persistWhatsAppMessage({
+    direction: 'out',
+    waId: opts.waId,
+    messageId: sent.messageId,
+    type: 'text',
+    body,
+  });
+  await fetch(rest('whatsapp_ai_state?on_conflict=wa_id'), {
+    method: 'POST',
+    headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify({ wa_id: opts.waId, away_at: new Date().toISOString() }),
+    signal: AbortSignal.timeout(DB_TIMEOUT_MS),
+  }).catch(() => {});
+  await createAlert({
+    kind: 'humano',
+    waId: opts.waId,
+    title:
+      opts.motivo === 'horario'
+        ? 'Cliente escreveu fora do horário'
+        : 'Cliente escreveu (IA desligada nesta conversa)',
+    jaAvisado: true,
+  });
+  return true;
 }
 
 /** Últimas trocas da conversa, em ordem cronológica. */
@@ -261,14 +351,25 @@ async function decidirEAgir(opts: {
     }
 
     const { enabled, state } = await isAiEnabledFor(opts.waId);
-    if (!enabled) return { acted: false, why: 'IA desligada nesta conversa' };
+    const cfg = await loadConfig();
+
+    // IA desligada: ninguém fica no vácuo — vai a cortesia da loja.
+    if (!enabled) {
+      const avisou = await enviarAusencia({ waId: opts.waId, motivo: 'desligada', state, cfg });
+      return {
+        acted: avisou,
+        why: avisou ? 'IA desligada — mandei a mensagem de ausência' : 'IA desligada nesta conversa',
+      };
+    }
     if (!isAiConfigured()) return { acted: false, why: 'OPENAI_API_KEY ausente' };
 
     // Janela de atendimento (whatsapp_ai_config.hours): "8-19" padrão,
     // "0-24" pra atender sempre.
-    const janela = parseHoursSetting((await loadConfig()).hours);
+    const janela = parseHoursSetting(cfg.hours);
     if (!isBusinessHour(new Date(), janela)) {
-      return { acted: false, why: `fora do horário de atendimento (${janela.start}h-${janela.end}h BRT)` };
+      const avisou = await enviarAusencia({ waId: opts.waId, motivo: 'horario', state, cfg });
+      const fora = `fora do horário de atendimento (${janela.start}h-${janela.end}h BRT)`;
+      return { acted: avisou, why: avisou ? `${fora} — mandei a mensagem de ausência` : fora };
     }
 
     const hoje = new Date().toISOString().slice(0, 10);

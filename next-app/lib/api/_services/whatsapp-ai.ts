@@ -128,6 +128,59 @@ export function parseHoursSetting(raw: string | null | undefined): {
   return { start, end, domingo: Boolean(m[3]) };
 }
 
+// ─── Mensagem de ausência ───────────────────────────────────────────────────
+// Quando a IA NÃO vai responder — fora do horário ou chave desligada — o
+// cliente não pode ficar no vácuo achando que ninguém viu. Vai UMA cortesia
+// da loja, sem prometer nada além de retorno. Não é a IA falando: é texto
+// fixo, então nem passa perto de preço.
+
+/** Uma cortesia dessas a cada 12h por conversa, no máximo. */
+export const AWAY_COOLDOWN_HOURS = 12;
+/** Se uma PESSOA respondeu há menos que isso, ela está no volante — o
+ *  robô fica quieto pra não atropelar a conversa ao vivo. */
+export const AWAY_HUMAN_GRACE_HOURS = 2;
+
+export function textoAusencia(opts: {
+  motivo: 'horario' | 'desligada';
+  janela?: { start: number; end: number; domingo?: boolean };
+  custom?: string | null;
+}): string {
+  const custom = (opts.custom || '').trim();
+  if (custom) return custom;
+  if (opts.motivo === 'horario') {
+    const s = opts.janela?.start ?? BUSINESS_START_HOUR;
+    const e = opts.janela?.end ?? BUSINESS_END_HOUR;
+    const dias = opts.janela?.domingo ? 'todos os dias' : 'de segunda a sábado';
+    return (
+      `Oi! Aqui é da Cali Colors 🎨 Obrigado pelo seu contato! ` +
+      `Nosso atendimento é ${dias}, das ${s}h às ${e}h. ` +
+      `Sua mensagem já ficou registrada e a nossa equipe te responde em breve. 😊`
+    );
+  }
+  return (
+    `Oi! Aqui é da Cali Colors 🎨 Obrigado pelo seu contato! ` +
+    `Recebemos a sua mensagem e a nossa equipe vai te responder em breve. 😊`
+  );
+}
+
+/**
+ * Vale mandar a cortesia agora? Puro de propósito — é a regra que evita
+ * transformar boa educação em enxurrada.
+ */
+export function shouldSendAway(opts: {
+  optedOut?: boolean;
+  awayAt?: string | null;
+  lastHumanOutAt?: string | null;
+  now?: Date;
+}): boolean {
+  if (opts.optedOut) return false; // pediu PARE: nem cortesia
+  const now = (opts.now || new Date()).getTime();
+  const horas = (iso: string) => (now - new Date(iso).getTime()) / 3600000;
+  if (opts.awayAt && horas(opts.awayAt) < AWAY_COOLDOWN_HOURS) return false;
+  if (opts.lastHumanOutAt && horas(opts.lastHumanOutAt) < AWAY_HUMAN_GRACE_HOURS) return false;
+  return true;
+}
+
 /** Cliente pediu pra parar de receber mensagens. */
 export function isOptOut(text: string): boolean {
   const t = (text || '').trim().toLowerCase();
