@@ -343,12 +343,20 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
 
   async function handleShareNative() {
     if (!quote) return;
-    // Compartilhar = enviar o PDF de fato via share sheet do device.
-    // Web Share API com files funciona em Chrome Android, Safari iOS 15+,
-    // Edge desktop. Fallback: download da arquivo + cópia do texto.
+    // Compartilhar = mandar o PDF pro cliente. Três caminhos, nessa ordem:
+    //
+    //  1. share sheet do sistema com o ARQUIVO anexo (Chrome Android,
+    //     Safari iOS 15+, Edge) — o melhor;
+    //  2. app instalado: a WebView do wrapper NÃO tem share sheet, então
+    //     manda o LINK do PDF pelo WhatsApp (o arquivo vai pro Storage e o
+    //     cliente baixa tocando no link);
+    //  3. navegador desktop: baixa o arquivo.
     try {
       const { shareOrDownloadQuotePdf } = await import('@/lib/pdf/quotePdf');
-      const result = await shareOrDownloadQuotePdf(quote, painterProfile);
+      const result = await shareOrDownloadQuotePdf(quote, painterProfile, {
+        text: buildQuoteText(quote),
+        phone: quote.client_phone || null,
+      });
       if (result === 'downloaded') {
         await dialog.alert(
           'PDF baixado. Anexe no WhatsApp/email pra enviar ao cliente.',

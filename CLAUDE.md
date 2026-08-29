@@ -111,6 +111,20 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **Compartilhar PDF de orçamento NO APP INSTALADO (2026-08-29).** A
+  WebView do wrapper não expõe `navigator.share`, então anexar o ARQUIVO
+  é impossível pelo lado web — o botão caía no download e o pintor tinha
+  que achar o PDF em Downloads e anexar na mão. Agora
+  `shareOrDownloadPdfBlob` aceita `whatsapp?: {text, phone}` e, no
+  WebView, sobe o PDF pro bucket `exports` e abre o **wa.me com o LINK**
+  (já na conversa do cliente quando há telefone) — mesmo mecanismo do
+  botão de WhatsApp que já funciona ali. Ordem: share sheet nativo >
+  link por WhatsApp (app) > download (desktop). Retorno virou
+  `ShareResult` com `'shared-link'`. `window.open` pode ser bloqueado
+  (o await do upload sai do gesto do toque) → cai pra
+  `window.location.href`. **Anexo de arquivo de verdade só com build
+  nativo** (Capacitor Share plugin) — não sai por código web.
+
 - **"Trocar foto" do perfil não salvava (2026-08-29).** A pessoa escolhia
   a foto, via a cara nova na tela, saía e nada tinha mudado — sem
   mensagem, porque de fato nada acontecia: o avatar só virava PREVIEW

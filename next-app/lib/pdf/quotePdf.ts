@@ -329,10 +329,28 @@ export async function generateQuotePdfBlob(
 export async function shareOrDownloadQuotePdf(
   quote: Quote,
   painter: PainterForPdf | null,
-): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  whatsapp?: WhatsAppFallback,
+): Promise<ShareResult> {
   const blob = await generateQuotePdfBlob(quote, painter);
   const filename = `orcamento-${(quote.id || 'novo').slice(0, 8)}.pdf`;
-  return shareOrDownloadPdfBlob(blob, filename, `Orçamento ${quote.service_type || ''}`.trim());
+  return shareOrDownloadPdfBlob(
+    blob,
+    filename,
+    `Orçamento ${quote.service_type || ''}`.trim(),
+    whatsapp,
+  );
+}
+
+export type ShareResult = 'shared' | 'shared-link' | 'downloaded' | 'cancelled';
+
+/**
+ * Plano pro app instalado, onde NÃO existe share sheet: em vez de anexar o
+ * arquivo, manda o LINK dele pelo WhatsApp. `text` é a mensagem que
+ * acompanha; `phone` (dígitos, sem DDI) abre já na conversa do cliente.
+ */
+export interface WhatsAppFallback {
+  text: string;
+  phone?: string | null;
 }
 
 /**
@@ -347,7 +365,8 @@ export async function shareOrDownloadPdfBlob(
   blob: Blob,
   filename: string,
   title: string,
-): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  whatsapp?: WhatsAppFallback,
+): Promise<ShareResult> {
   const file = new File([blob], filename, { type: 'application/pdf' });
 
   // Tenta Web Share API com arquivo (Chrome Android, Safari iOS 15+).
@@ -379,6 +398,27 @@ export async function shareOrDownloadPdfBlob(
   const { isAndroidWebView } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
   if (isAndroidWebView(navigator.userAgent || '')) {
     const url = await uploadPdfForLink(blob, filename);
+    // COMPARTILHAR no app instalado: a WebView do wrapper não expõe o share
+    // sheet do sistema (navigator.share não existe lá), então anexar o
+    // arquivo é impossível pelo lado web. O que funciona é mandar o LINK
+    // HTTPS do PDF pelo WhatsApp — mesmo caminho do botão de WhatsApp que
+    // já roda no app. O cliente toca no link e baixa o orçamento.
+    if (url && whatsapp) {
+      // Texto cortado em 1200: a mensagem inteira vai na URL, e escopo
+      // muito longo estoura o limite do intent do Android. O PDF tem tudo.
+      const texto = `${(whatsapp.text || '').slice(0, 1200)}\n\n${url}`;
+      const digitos = (whatsapp.phone || '').replace(/\D/g, '');
+      const destino = digitos
+        ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${encodeURIComponent(texto)}`
+        : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+      // window.open pode ser bloqueado: já saímos do gesto do toque (houve
+      // await no upload) e a WebView do wrapper costuma barrar popup. Se
+      // vier null, navega a própria página — o wrapper intercepta o wa.me
+      // e abre o WhatsApp do mesmo jeito.
+      const aba = window.open(destino, '_blank', 'noopener,noreferrer');
+      if (!aba) window.location.href = destino;
+      return 'shared-link';
+    }
     if (url) {
       window.location.href = url; // disposition attachment → não navega, baixa
       return 'downloaded';

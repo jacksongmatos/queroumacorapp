@@ -9,7 +9,7 @@
 // Apple 3.1.3(e) — o app só monta a lista; pagamento é combinado com a
 // Cali Colors via WhatsApp).
 
-import { shareOrDownloadPdfBlob } from './quotePdf';
+import { shareOrDownloadPdfBlob, type ShareResult, type WhatsAppFallback } from './quotePdf';
 
 export interface OrderPdfItem {
   name?: string | null;
@@ -131,7 +131,13 @@ export async function generateOrderPdfBlob(order: OrderForPdf): Promise<Blob> {
 /** Gera + compartilha/baixa o PDF da lista de pedido. */
 export async function shareOrDownloadOrderPdf(
   order: OrderForPdf,
-): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  whatsapp?: WhatsAppFallback,
+): Promise<ShareResult> {
   const blob = await generateOrderPdfBlob(order);
-  return shareOrDownloadPdfBlob(blob, `pedido-${order.id.slice(0, 8)}.pdf`, 'Lista de Pedido — Cali Colors');
+  return shareOrDownloadPdfBlob(
+    blob,
+    `pedido-${order.id.slice(0, 8)}.pdf`,
+    'Lista de Pedido — Cali Colors',
+    whatsapp,
+  );
 }
