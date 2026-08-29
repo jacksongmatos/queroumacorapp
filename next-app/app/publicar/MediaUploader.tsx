@@ -11,6 +11,7 @@
 import { useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { showToast } from '@/lib/toast';
 import { AVISO_SELETOR, watchFilePicker } from '@/lib/utils/filePickerWatch';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 export interface MediaUploaderProps {
   onFiles: (files: File[]) => void;
@@ -34,7 +35,13 @@ export function MediaUploader({
     // No app empacotado a WebView pode simplesmente NÃO abrir a galeria —
     // sem erro nenhum. Sem este aviso, o toque não faz nada e a pessoa
     // acha que o app quebrou (ver lib/utils/filePickerWatch).
-    cancelarAviso.current = watchFilePicker(() => showToast(AVISO_SELETOR, 'error'));
+    cancelarAviso.current = watchFilePicker(() => {
+      showToast(AVISO_SELETOR, 'error');
+      // Registra QUAL aparelho falhou. Um Android abre a galeria e outro
+      // não — sem o user agent de cada um, "por que só ele?" fica no
+      // palpite.
+      reportFailure('picker-fail', new Error('galeria nao abriu'), { ctx: 'publicar' });
+    });
     inputRef.current?.click();
   }
 

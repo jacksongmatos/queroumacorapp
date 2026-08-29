@@ -449,8 +449,13 @@ export function EditProfileForm() {
             onClick={() => {
               // WebView do wrapper pode nao abrir a galeria — sem erro
               // nenhum. Ver lib/utils/filePickerWatch.
-              cancelarAvisoRef.current = watchFilePicker(() =>
-                showToast(AVISO_SELETOR, 'error'),
+              cancelarAvisoRef.current = watchFilePicker(() => {
+                showToast(AVISO_SELETOR, 'error');
+                reportFailure('picker-fail', new Error('galeria nao abriu'), {
+                  userId: user?.id,
+                  ctx: 'perfil/editar',
+                });
+              },
               );
             }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"

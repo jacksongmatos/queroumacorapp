@@ -17,7 +17,7 @@
 // usuário nem fica sabendo — ele já tem o erro na tela.
 
 /** Tipos usados hoje. `type` do schema tem teto de 32 chars. */
-export type FailureType = 'publish-fail' | 'avatar-fail';
+export type FailureType = 'publish-fail' | 'avatar-fail' | 'picker-fail';
 
 export function reportFailure(
   type: FailureType,
