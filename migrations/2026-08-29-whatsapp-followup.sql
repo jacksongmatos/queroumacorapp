@@ -36,7 +36,10 @@ ALTER TABLE public.whatsapp_ai_state
   ADD COLUMN IF NOT EXISTS followup_kind text,
   -- Última mensagem de AUSÊNCIA ("obrigado pelo contato, retornamos em
   -- breve") mandada nesta conversa. Uma a cada 12h, no máximo.
-  ADD COLUMN IF NOT EXISTS away_at       timestamptz;
+  ADD COLUMN IF NOT EXISTS away_at       timestamptz,
+  -- Até quando o OPERADOR já leu esta conversa. A IA responder NÃO conta
+  -- como lida: é o que faz o contador de não lidas na lista do portal.
+  ADD COLUMN IF NOT EXISTS last_read_at  timestamptz;
 
 -- Backfill do opt-out a partir dos alertas de PARE já registrados.
 UPDATE public.whatsapp_ai_state s

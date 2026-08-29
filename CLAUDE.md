@@ -75,7 +75,7 @@
       pra NULL). Servidor (`isAiEnabledFor`) e portal (`iaLigada`) checam
       `typeof enabled === 'boolean'`. **Nunca escrever `enabled` em
       upsert que não seja a chave de propósito.**
-  - Portal (v=20260829m): chave "IA ligada/desligada" por conversa +
+  - Portal (v=20260829n): chave "IA ligada/desligada" por conversa +
     botão "💬 Auto-resposta ligada/desligada" (mensagem de ausência) +
     botão "🔁 Follow-up ligado/desligado" + "👀 Simular follow-up" (dryRun, mostra o
     que a varredura FARIA sem enviar) + "▶ Rodar follow-up agora" + linha com a última
@@ -86,7 +86,15 @@
     foi uma pessoa; travas de preço seguem valendo). Embaixo da chave, a
     ÚLTIMA DECISÃO da IA naquela conversa (`last_why`) — silêncio da IA
     deixa de ser caça ao fantasma. Nome do contato resolve por 3 fontes:
-    usuário do app > lead > pushName do WhatsApp. Componente `Ajuda`
+    usuário do app > lead > pushName do WhatsApp. **NÃO LIDAS
+    (2026-08-29):** contador de mensagens recebidas na lista de conversas
+    + badge total no menu lateral. Marca em
+    `whatsapp_ai_state.last_read_at` (banco, não localStorage — vale em
+    qualquer computador); **resposta da IA NÃO zera** — só o operador
+    abrir a conversa. `loadWaBadge` no root (realtime + poll 45s + evento
+    `wa-lidas-mudou`) é separado do `loadBadges` (caro e quase estático);
+    por isso `loadBadges` MESCLA o state em vez de substituir. Componente
+    `Ajuda`
     (o "?" ao lado dos botões, abre no hover E no clique pra funcionar em
     tablet) explica cada controle da barra — conteúdo em
     `AJUDA_WHATSAPP`; **botão novo ali = item novo nessa lista**.

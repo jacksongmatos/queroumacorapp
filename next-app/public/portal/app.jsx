@@ -3772,6 +3772,9 @@ const WhatsAppTab = () => {
   // Chave da IA por conversa (Wave 46) + alertas abertos do portal.
   const [iaState, setIaState] = useState({});   // wa_id → true/false
   const [iaWhy, setIaWhy] = useState({});       // wa_id → ultima decisao da IA
+  // Ate quando o OPERADOR ja viu esta conversa. A IA responder NAO conta
+  // como lida: quem precisa saber que chegou mensagem e a pessoa.
+  const [readAt, setReadAt] = useState({});     // wa_id → ISO
   const [iaPadrao, setIaPadrao] = useState(false);
   const [alertas, setAlertas] = useState([]);
 
@@ -3779,21 +3782,30 @@ const WhatsAppTab = () => {
     // Config em tabela PROPRIA (Wave 47) — app_settings guarda segredo de
     // sistema e recusa escrita do portal, corretamente.
     const [st, cfg, al] = await Promise.all([
-      supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at').limit(2000),
+      supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at, last_read_at').limit(2000),
       supa.from('whatsapp_ai_config')
         .select('hours, default_on, followup_on, away_on, last_sweep_at, last_sweep_note')
         .eq('id',1).maybeSingle(),
       supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
         .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
     ]);
-    const m = {}; const w = {};
+    const m = {}; const w = {}; const rd = {};
     (st.data || []).forEach(r => {
+      if(r.last_read_at) rd[r.wa_id] = r.last_read_at;
       // enabled NULL (Wave 48) = "nunca foi decidido nesta conversa" →
       // segue o padrao global. Guardamos o valor CRU de proposito.
       m[r.wa_id] = r.enabled;
       if(r.last_why) w[r.wa_id] = { why: r.last_why, at: r.last_at };
     });
     setIaState(m); setIaWhy(w);
+    // Nao sobrescreve marca local mais nova (upsert ainda em voo).
+    setReadAt(prev => {
+      const merged = { ...rd };
+      Object.keys(prev).forEach(k => {
+        if(!merged[k] || new Date(prev[k]) > new Date(merged[k])) merged[k] = prev[k];
+      });
+      return merged;
+    });
     setIaPadrao(Boolean(cfg.data && cfg.data.default_on));
     setAlertas(al.data || []);
     setHoras((cfg.data && cfg.data.hours) || '8-19');
@@ -3953,6 +3965,14 @@ const WhatsAppTab = () => {
     };
   }, []);
 
+  // Chegou mensagem na conversa que esta ABERTA na tela? Ja esta sendo
+  // lida — nao deixa o contador subir na cara do operador.
+  useEffect(() => {
+    if(!openWa) return;
+    const c = convs.find(x => x.waId === openWa);
+    if(c && naoLidas(c) > 0) marcarLida(openWa);
+  }, [openWa, msgs.length]);
+
   // Rola pro fim so quando FAZ SENTIDO: ao abrir a conversa, ou quando
   // chega mensagem nova E o operador ja estava olhando o fim. Se ele
   // subiu pra ler historico, a tela nao arranca dele.
@@ -3979,6 +3999,26 @@ const WhatsAppTab = () => {
     });
     return Object.values(map).sort((a,b) => new Date(b.last.created_at) - new Date(a.last.created_at));
   }, [msgs]);
+
+  // NAO LIDAS: mensagens RECEBIDAS depois da ultima vez que o operador
+  // abriu a conversa. A resposta da IA nao zera nada — ela nao substitui
+  // alguem ler. Conversa nunca aberta conta tudo que chegou.
+  const naoLidas = (c) => {
+    const desde = readAt[c.waId];
+    return c.msgs.filter(m => m.direction === 'in' && (!desde || new Date(m.created_at) > new Date(desde))).length;
+  };
+
+  // Marca lida ate agora. Otimista na tela; o banco guarda pra valer
+  // (assim a marca vale em qualquer computador, nao so neste navegador).
+  const marcarLida = async (waId) => {
+    const agora = new Date().toISOString();
+    setReadAt(s => ({ ...s, [waId]: agora }));
+    try { window.dispatchEvent(new CustomEvent('wa-lidas-mudou')); } catch(_){}
+    await supa.from('whatsapp_ai_state')
+      .upsert({ wa_id: waId, last_read_at: agora }, { onConflict:'wa_id' });
+  };
+
+  const abrirConversa = (waId) => { setOpenWa(waId); setErr(''); marcarLida(waId); };
 
   // Prioridade: usuario do app > lead da prospeccao > nome do WhatsApp >
   // numero formatado.
@@ -4071,7 +4111,7 @@ const WhatsAppTab = () => {
     else if(d.length === 11 && d[2] === '9') alvo = '55' + d;
     else if(d.length >= 11 && d.length <= 15) alvo = d;
     if(!alvo){ alert('Numero invalido. Brasil: DDD + numero. Outro pais: DDI + numero.'); return; }
-    setOpenWa(alvo); setErr('');
+    abrirConversa(alvo);
   };
 
   // Area de resultado (varredura de follow-up). O botao "Testar conexao"
@@ -4160,7 +4200,7 @@ const WhatsAppTab = () => {
                   <div style={{ fontSize:12, fontWeight:600, color:C.ink }}>{a.title}</div>
                   {a.body ? <div style={{ fontSize:11, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>“{a.body}”</div> : null}
                 </div>
-                <button onClick={()=>{ setOpenWa(a.wa_id); setErr(''); }}
+                <button onClick={()=>abrirConversa(a.wa_id)}
                   style={{ background:C.p1, color:'#fff', border:'none', borderRadius:8, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
                   Abrir conversa
                 </button>
@@ -4195,12 +4235,20 @@ const WhatsAppTab = () => {
                   : 'Nada encontrado na busca.'}
               </div>
             ) : convsFiltradas.map(c => (
-              <div key={c.waId} onClick={() => { setOpenWa(c.waId); setErr(''); }}
+              <div key={c.waId} onClick={() => abrirConversa(c.waId)}
                 style={{ padding:'12px 14px', cursor:'pointer', borderBottom:'1px solid '+C.cream,
                   background: openWa === c.waId ? C.cream : 'transparent' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
-                  <strong style={{ fontSize:13, color:C.ink, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nomeDe(c)}</strong>
-                  <span style={{ fontSize:11, color:C.muted, whiteSpace:'nowrap' }}>{waHora(c.last)}</span>
+                <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'center' }}>
+                  <strong style={{ fontSize:13, color:C.ink, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                    fontWeight: naoLidas(c) > 0 ? 800 : 600 }}>{nomeDe(c)}</strong>
+                  <span style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                    {naoLidas(c) > 0 ? (
+                      <span title={naoLidas(c) + ' mensagem(ns) que voce ainda nao abriu'}
+                        style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:800,
+                          padding:'1px 7px', lineHeight:'16px' }}>{naoLidas(c) > 99 ? '99+' : naoLidas(c)}</span>
+                    ) : null}
+                    <span style={{ fontSize:11, color:C.muted, whiteSpace:'nowrap' }}>{waHora(c.last)}</span>
+                  </span>
                 </div>
                 {origemDe(c) ? (
                   <div style={{ fontSize:10, color:C.p3, fontWeight:600, marginTop:1 }}>{origemDe(c)}</div>
@@ -4295,7 +4343,7 @@ const PAGES_DEF = [
   { id:'dashboard', icon:'📊', label:'Dashboard', section:'PRINCIPAL', component:<Dashboard /> },
   { id:'avisos', icon:'📢', label:'Avisos / Notificacoes', section:'PRINCIPAL', component:<Avisos /> },
   { id:'chats', icon:'💬', label:'Chats 3-Way', section:'PRINCIPAL', badgeKey:'chats', component:<Chats /> },
-  { id:'whatsapp', icon:'📱', label:'WhatsApp', section:'PRINCIPAL', component:<WhatsAppTab /> },
+  { id:'whatsapp', icon:'📱', label:'WhatsApp', section:'PRINCIPAL', badgeKey:'whatsapp', component:<WhatsAppTab /> },
   { id:'orcamentos', icon:'📋', label:'Orçamentos', section:'PRINCIPAL', badgeKey:'orcamentos', component:<Orcamentos /> },
   { id:'pintores', icon:'🖌️', label:'Pintores', section:'PESSOAS', badgeKey:'pintores', component:<PintoresList key="pintores" roleFilter={p=>currentRoleKey(p)==='pintor'} title="Pintores Cadastrados" defaultRole="pintor" emptyMsg="Nenhum pintor cadastrado." /> },
   { id:'grafiteiros', icon:'🎨', label:'Grafiteiros', section:'PESSOAS', badgeKey:'grafiteiros', component:<PintoresList key="grafiteiros" roleFilter={p=>currentRoleKey(p)==='grafiteiro'} title="Grafiteiros / Muralistas" defaultRole="grafiteiro" emptyMsg="Nenhum grafiteiro cadastrado." /> },
@@ -4456,7 +4504,10 @@ function App() {
         profilesService.list({ fields: 'role, user_type, profession, portal_access' }),
         sb.from('leads').select('id', { count: 'exact', head: true }),
       ]);
-      setBadges({
+      // Mescla em vez de substituir: o badge do WhatsApp e carregado
+      // por outro caminho (loadWaBadge) e nao pode ser apagado aqui.
+      setBadges(b => ({
+        ...b,
         chats: msgsRes.count || 0,
         orcamentos: quotesRes.count || 0,
         pintores: profiles.filter(p => isProProfile(p) && currentRoleKey(p)==='pintor').length,
@@ -4465,11 +4516,46 @@ function App() {
         leads: leadsRes.count || 0,
         clientes: profiles.filter(isClienteProfile).length,
         portalUsers: profiles.filter(p => p.portal_access === true).length,
-      });
+      }));
     } catch(e) { console.error('loadBadges error:', e); }
   };
 
-  useEffect(() => { if(loggedIn) loadBadges(); }, [loggedIn]);
+  // WhatsApp nao lido: mensagens RECEBIDAS depois da ultima vez que o
+  // operador abriu aquela conversa (whatsapp_ai_state.last_read_at). Fica
+  // separado do loadBadges porque precisa ser leve e frequente — o resto
+  // dos badges e caro e quase estatico.
+  const loadWaBadge = async () => {
+    try {
+      const desde = new Date(Date.now() - 30*24*3600*1000).toISOString();
+      const [msgsRes, stRes] = await Promise.all([
+        supa.from('whatsapp_messages').select('wa_id, created_at')
+          .eq('direction','in').gte('created_at', desde).limit(3000),
+        supa.from('whatsapp_ai_state').select('wa_id, last_read_at').limit(3000),
+      ]);
+      const lido = {};
+      (stRes.data || []).forEach(r => { if(r.last_read_at) lido[r.wa_id] = r.last_read_at; });
+      const n = (msgsRes.data || []).filter(m =>
+        !lido[m.wa_id] || new Date(m.created_at) > new Date(lido[m.wa_id])).length;
+      setBadges(b => (b.whatsapp === n ? b : { ...b, whatsapp: n }));
+    } catch(e) { /* badge e enfeite: nunca derruba o portal */ }
+  };
+
+  useEffect(() => {
+    if(!loggedIn) return;
+    loadBadges(); loadWaBadge();
+    // Realtime avisa na hora que chegou mensagem; o intervalo e rede de
+    // seguranca; o evento vem da propria aba quando alguem le a conversa.
+    const canal = supa.channel('portal-wa-badge')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'whatsapp_messages' }, loadWaBadge)
+      .subscribe();
+    const t = setInterval(loadWaBadge, 45000);
+    window.addEventListener('wa-lidas-mudou', loadWaBadge);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('wa-lidas-mudou', loadWaBadge);
+      supa.removeChannel(canal);
+    };
+  }, [loggedIn]);
 
   useEffect(() => {
     (async () => {
