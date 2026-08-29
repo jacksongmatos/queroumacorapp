@@ -4524,7 +4524,8 @@ const ImportarPlanilhaModal = ({
 
     // Em lotes: 1000 linhas num INSERT so estoura tempo/limite do PostgREST.
     let salvos = 0,
-      falhas = 0;
+      falhas = 0,
+      motivo = '';
     const LOTE = 200;
     for (let i = 0; i < rows.length; i += LOTE) {
       const fatia = rows.slice(i, i + LOTE);
@@ -4533,15 +4534,23 @@ const ImportarPlanilhaModal = ({
         await leadsService.insertBatch(fatia);
         salvos += fatia.length;
       } catch (e) {
-        // Lote falhou: tenta linha a linha pra nao perder as boas.
+        // Lote falhou: tenta linha a linha pra nao perder as boas. GUARDA A
+        // MENSAGEM do banco — sem ela "o banco recusou 984" nao diz nada e
+        // vira adivinhacao (RLS? coluna que nao existe? CHECK?).
         for (const row of fatia) {
           try {
             await leadsService.insertBatch([row]);
             salvos++;
-          } catch (_) {
+          } catch (err) {
             falhas++;
+            if (!motivo) motivo = err && (err.message || err.hint || err.details) || String(err);
           }
         }
+      }
+      if (motivo && salvos === 0 && i + LOTE < rows.length) {
+        // Tudo falhando pelo mesmo motivo: para de martelar o banco.
+        falhas += rows.length - (i + fatia.length);
+        break;
       }
     }
     setImportando(false);
@@ -4550,7 +4559,8 @@ const ImportarPlanilhaModal = ({
       salvos,
       semTelefone: semTelefone.length,
       repetidos: repetidos.length,
-      falhas
+      falhas,
+      motivo
     });
     onPronto();
   };
@@ -4658,7 +4668,19 @@ const ImportarPlanilhaModal = ({
     style: {
       color: '#b91c1c'
     }
-  }, "\xB7 ", relatorio.falhas, " o banco recusou") : null), /*#__PURE__*/React.createElement("button", {
+  }, "\xB7 ", relatorio.falhas, " o banco recusou") : null, relatorio.motivo ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      background: '#fef2f2',
+      border: '1px solid #fecaca',
+      borderRadius: 8,
+      padding: '8px 10px',
+      color: '#b91c1c',
+      fontSize: 12,
+      lineHeight: 1.5,
+      wordBreak: 'break-word'
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "Motivo da recusa:"), /*#__PURE__*/React.createElement("br", null), relatorio.motivo) : null), /*#__PURE__*/React.createElement("button", {
     onClick: fechar,
     style: {
       marginTop: 18,

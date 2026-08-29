@@ -2006,21 +2006,32 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
     }
 
     // Em lotes: 1000 linhas num INSERT so estoura tempo/limite do PostgREST.
-    let salvos = 0, falhas = 0;
+    let salvos = 0, falhas = 0, motivo = '';
     const LOTE = 200;
     for (let i = 0; i < rows.length; i += LOTE) {
       const fatia = rows.slice(i, i + LOTE);
       setProgresso('Salvando ' + Math.min(i + LOTE, rows.length) + ' de ' + rows.length + '…');
       try { await leadsService.insertBatch(fatia); salvos += fatia.length; }
       catch(e) {
-        // Lote falhou: tenta linha a linha pra nao perder as boas.
+        // Lote falhou: tenta linha a linha pra nao perder as boas. GUARDA A
+        // MENSAGEM do banco — sem ela "o banco recusou 984" nao diz nada e
+        // vira adivinhacao (RLS? coluna que nao existe? CHECK?).
         for (const row of fatia) {
-          try { await leadsService.insertBatch([row]); salvos++; } catch(_) { falhas++; }
+          try { await leadsService.insertBatch([row]); salvos++; }
+          catch(err) {
+            falhas++;
+            if(!motivo) motivo = (err && (err.message || err.hint || err.details)) || String(err);
+          }
         }
+      }
+      if(motivo && salvos === 0 && i + LOTE < rows.length){
+        // Tudo falhando pelo mesmo motivo: para de martelar o banco.
+        falhas += rows.length - (i + fatia.length);
+        break;
       }
     }
     setImportando(false); setProgresso('');
-    setRelatorio({ salvos, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas });
+    setRelatorio({ salvos, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas, motivo });
     onPronto();
   };
 
@@ -2056,6 +2067,11 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
                 {relatorio.repetidos > 0 ? <div>· {relatorio.repetidos} já existiam (mesmo telefone) e foram pulados</div> : null}
                 {relatorio.semTelefone > 0 ? <div>· {relatorio.semTelefone} sem telefone válido — ficaram de fora</div> : null}
                 {relatorio.falhas > 0 ? <div style={{ color:'#b91c1c' }}>· {relatorio.falhas} o banco recusou</div> : null}
+                {relatorio.motivo ? (
+                  <div style={{ marginTop:10, background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, padding:'8px 10px', color:'#b91c1c', fontSize:12, lineHeight:1.5, wordBreak:'break-word' }}>
+                    <strong>Motivo da recusa:</strong><br/>{relatorio.motivo}
+                  </div>
+                ) : null}
               </div>
               <button onClick={fechar} style={{ marginTop:18, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 22px', fontWeight:700, fontSize:13, cursor:'pointer' }}>Fechar</button>
             </div>
