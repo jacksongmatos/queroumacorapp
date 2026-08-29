@@ -67,7 +67,10 @@ export function ProductCard({ product, onAdd, onOpen, isAdding }: ProductCardPro
             <img
               src={product.image_url}
               alt=""
-              className="w-full h-full object-cover"
+              // `contain`, nao `cover`: a miniatura e um quadrado de 64px e a
+              // foto do produto costuma ser deitada — cortando, some metade
+              // da peca. Melhor a foto inteira com sobra nas laterais.
+              className="w-full h-full object-contain"
               loading="lazy"
             />
           ) : hasColor ? null : (

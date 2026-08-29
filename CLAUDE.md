@@ -1,5 +1,35 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Produtos do portal: carregamento (2026-08-29, v=20260829z).** O catálogo
+  passou de **21 mil** linhas e a tela ficava minutos em "Carregando
+  produtos...": eram até 22 requisições `select('*')` **em fila** (cada uma
+  esperando a anterior) e, no fim, o React montava **um card por produto** —
+  em "Todos", 21 mil cards de uma vez. Agora: (1) só as colunas do card
+  (`PRODUTO_COLS`) — `description` e a ficha técnica saíram do payload e a
+  gaveta busca a linha inteira (`select('*')` de UMA linha) no "Editar";
+  (2) a 1ª página pinta a tela e **tira o "Carregando"**, o resto vem em
+  paralelo (4 conexões) e é emendado — `paginas[n]` guarda cada lote na sua
+  posição, senão a ordem por nome embaralha; (3) **janela de 60 cards**
+  crescendo por IntersectionObserver (`PRODUTOS_JANELA`); (4) `_cat` e `_q`
+  calculados uma vez em `prepararProduto` (antes `classify` e o
+  `toLowerCase` do filtro rodavam 21 mil vezes por tecla) + busca com 250ms
+  de atraso; (5) cache em memória (`_produtosCache`) — sair da tela e voltar
+  não refaz nada, e há o botão "↻ Atualizar"; (6) salvar/excluir emendam a
+  linha na lista (`aplicarLinha`) em vez de recarregar tudo — por isso
+  `productsService.upsert` agora termina em `.select()`.
+  - **Wave 52** (`/migrations/2026-08-29-products-name-index.sql`) —
+    **PENDENTE.** `CREATE INDEX CONCURRENTLY idx_products_name` (rodar
+    sozinho, fora de transação): sem ele cada uma das páginas reordena as
+    21 mil linhas. É ganho de servidor; o resto acima já vale sem ele.
+  - **Foto do produto cortada (2026-08-29, v=20260829za).** A caixa da
+    imagem era uma faixa de 60px com `cover` — a foto entrava cortada pelo
+    meio (quem cadastra não reconhecia a peça). Agora a área de mídia tem
+    96px (`PRODUTO_MIDIA_H`) e a foto entra INTEIRA (`contain`) sobre fundo
+    creme; sem foto, a mesma caixa vira o bloco de cor. Mesma correção na
+    LOJA DO APP, que tinha o mesmo `cover`: miniatura do `ProductCard`
+    (quadrado de 64px) e hero do `ProductDetailSheet` (140px) passaram a
+    `object-contain`.
+
 - **Captação de leads por WhatsApp com IA (2026-08-29).** Duas etapas, as
   duas no ar; SQL Wave 46 JÁ EXECUTADA (2026-08-29).
   - **Etapa A — botão "💬 Abordar"** na lista de Leads (portal). Abre
