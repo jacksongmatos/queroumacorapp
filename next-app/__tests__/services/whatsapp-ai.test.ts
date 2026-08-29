@@ -115,6 +115,18 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('nunca robótico');
   });
 
+  it('com pendência aberta, manda NÃO repetir a promessa e seguir ajudando', () => {
+    const p = buildSystemPrompt({ pendenciaAberta: true });
+    expect(p).toContain('NÃO repita essa promessa');
+    expect(p).toContain('Siga atendendo normalmente');
+    expect(p).toContain('sem prometer prazo');
+  });
+
+  it('sem pendência, não fala em promessa nenhuma', () => {
+    const p = buildSystemPrompt({});
+    expect(p).not.toContain('NÃO repita essa promessa');
+  });
+
   it('conversa já em andamento NÃO repete a apresentação', () => {
     const p = buildSystemPrompt({ primeiroContato: false });
     expect(p).not.toContain('PRIMEIRA MENSAGEM DA CONVERSA');
