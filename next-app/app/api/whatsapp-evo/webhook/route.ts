@@ -21,6 +21,7 @@ import { jsonResponse, readBody, ServiceError, serviceErrorResponse } from '@/li
 import { persistWhatsAppMessage } from '@/lib/api/_services/whatsapp';
 import { parseEvolutionWebhook } from '@/lib/api/_services/whatsapp-evo';
 import { maybeAutoReply } from '@/lib/api/_services/whatsapp-ai-runner';
+import { processarMidia } from '@/lib/api/_services/whatsapp-media';
 
 export const runtime = 'edge';
 
@@ -51,6 +52,20 @@ export async function POST(request: NextRequest) {
     let persisted = 0;
     const ia: string[] = [];
     for (const msg of messages) {
+      // Foto, áudio, vídeo e documento: guarda o ARQUIVO (bucket privado)
+      // e transcreve o áudio. Sem isso o portal só mostrava "[áudio]" e
+      // quem atendia tinha que abrir o celular pra saber o que era.
+      const midia =
+        msg.type !== 'text'
+          ? await processarMidia({
+              waId: msg.waId,
+              messageId: msg.messageId,
+              tipo: msg.type,
+              item: msg.raw,
+              key: msg.key,
+            })
+          : { mediaUrl: null, mediaMime: null, transcript: null };
+
       const ok = await persistWhatsAppMessage({
         direction: msg.direction,
         waId: msg.waId,
@@ -59,13 +74,20 @@ export async function POST(request: NextRequest) {
         type: msg.type,
         body: msg.text,
         waTimestamp: msg.timestamp,
+        mediaUrl: midia.mediaUrl,
+        mediaMime: midia.mediaMime,
+        transcript: midia.transcript,
       });
       if (ok) persisted++;
-      // Atendimento automático: só pra mensagem RECEBIDA de texto. Nunca
-      // pra 'out' (senão a IA responderia a si mesma em loop). O runner é
+
+      // Atendimento automático: só pra mensagem RECEBIDA. Nunca pra 'out'
+      // (senão a IA responderia a si mesma em loop). Áudio TRANSCRITO
+      // entra como texto — antes a IA ficava muda quando o cliente
+      // mandava voz, que é metade das mensagens no Brasil. O runner é
       // best-effort e decide sozinho se age — ver whatsapp-ai-runner.ts.
-      if (msg.direction === 'in' && msg.type === 'text' && msg.text.trim()) {
-        const r = await maybeAutoReply({ waId: msg.waId, text: msg.text });
+      const paraIa = msg.type === 'text' ? msg.text : midia.transcript || '';
+      if (msg.direction === 'in' && paraIa.trim()) {
+        const r = await maybeAutoReply({ waId: msg.waId, text: paraIa });
         ia.push(r.why);
       }
     }

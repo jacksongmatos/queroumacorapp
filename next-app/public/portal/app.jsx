@@ -4054,6 +4054,78 @@ const AJUDA_WHATSAPP = [
     d:'Quando rodou pela última vez, quantas conversas foram analisadas e o que saiu de cada tipo.' },
 ];
 
+// Conteudo de uma bolha: foto, audio com player, video, documento ou
+// texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
+// se o arquivo nao foi salvo, mostra o marcador de sempre, entao nada
+// quebra em mensagem antiga.
+// Previa na lista de conversas: audio mostra a transcricao em vez de
+// "[audio]" — da pra saber do que a conversa trata sem abrir.
+const previewMsg = (m) => {
+  if(!m) return '';
+  if(m.transcript) return '🎤 ' + m.transcript;
+  if(m.type === 'image') return '📷 ' + (m.body && m.body !== '[imagem]' ? m.body : 'Foto');
+  if(m.type === 'audio') return '🎤 Áudio';
+  if(m.type === 'video') return '🎬 Vídeo';
+  if(m.type === 'document') return '📎 ' + (m.body || 'Documento');
+  return m.body || '[' + (m.type || 'msg') + ']';
+};
+
+const BolhaConteudo = ({ m, url }) => {
+  const tipo = m.type || 'text';
+  const legenda = (m.body || '').trim();
+  const marcador = /^\[(áudio|imagem|vídeo|figurinha|documento|msg|mensagem)\]$/i.test(legenda);
+  const [aberta, setAberta] = useState(false);
+
+  if(tipo === 'text' || !m.media_url) {
+    return <span>{legenda || '[' + tipo + ']'}</span>;
+  }
+  if(!url) {
+    return <span style={{ opacity:.75 }}>{legenda || '[' + tipo + ']'} <span style={{ fontSize:11 }}>· carregando…</span></span>;
+  }
+
+  if(tipo === 'image' || tipo === 'sticker') {
+    return (
+      <span>
+        <img src={url} alt={legenda || 'imagem'} onClick={()=>setAberta(true)}
+          style={{ display:'block', maxWidth:260, maxHeight:320, borderRadius:8, cursor:'zoom-in', objectFit:'cover' }} />
+        {legenda && !marcador ? <div style={{ marginTop:6 }}>{legenda}</div> : null}
+        {aberta ? (
+          <span onClick={(e)=>{ e.stopPropagation(); setAberta(false); }}
+            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.85)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
+            <img src={url} alt={legenda || 'imagem'} style={{ maxWidth:'92vw', maxHeight:'92vh', borderRadius:8 }} />
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+  if(tipo === 'audio') {
+    return (
+      <span>
+        <audio controls preload="none" src={url} style={{ display:'block', width:260, maxWidth:'100%' }} />
+        {m.transcript ? (
+          <div style={{ marginTop:6, fontSize:12, fontStyle:'italic', opacity:.85 }}>“{m.transcript}”</div>
+        ) : (
+          <div style={{ marginTop:4, fontSize:11, opacity:.7 }}>sem transcrição</div>
+        )}
+      </span>
+    );
+  }
+  if(tipo === 'video') {
+    return (
+      <span>
+        <video controls preload="metadata" src={url} style={{ display:'block', maxWidth:280, borderRadius:8 }} />
+        {legenda && !marcador ? <div style={{ marginTop:6 }}>{legenda}</div> : null}
+      </span>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      style={{ color:'inherit', textDecoration:'underline' }}>
+      📎 {legenda && !marcador ? legenda : 'Abrir documento'}
+    </a>
+  );
+};
+
 const WhatsAppTab = () => {
   const [msgs, setMsgs] = useState([]);
   const [profByPhone, setProfByPhone] = useState({});
@@ -4091,7 +4163,25 @@ const WhatsAppTab = () => {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
-  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, wa_timestamp, created_at';
+  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at';
+
+  // MIDIA (Wave 49). O bucket e PRIVADO — conversa de cliente nao vira
+  // link publico. Pedimos URL assinada em lote pras mensagens visiveis e
+  // guardamos em memoria; a assinatura vale 1h, e recarregada no proximo
+  // load. Sem isso seria uma chamada de rede por bolha.
+  const [midiaUrls, setMidiaUrls] = useState({});   // path -> url assinada
+  const assinandoRef = React.useRef({});
+  const assinarMidias = async (paths) => {
+    const novos = paths.filter(p => p && !midiaUrls[p] && !assinandoRef.current[p]);
+    if(!novos.length) return;
+    novos.forEach(p => { assinandoRef.current[p] = true; });
+    try {
+      const { data } = await supa.storage.from('whatsapp-media').createSignedUrls(novos, 3600);
+      const map = {};
+      (data || []).forEach(d => { if(d && d.path && d.signedUrl) map[d.path] = d.signedUrl; });
+      if(Object.keys(map).length) setMidiaUrls(u => ({ ...u, ...map }));
+    } catch(_){ /* sem assinatura a bolha cai no marcador de texto */ }
+  };
 
   const load = async () => {
     const { data } = await supa
@@ -4312,6 +4402,13 @@ const WhatsAppTab = () => {
       if(subRef.current) supa.removeChannel(subRef.current);
     };
   }, []);
+
+  // Assina a midia da conversa aberta (so o que esta na tela).
+  useEffect(() => {
+    if(!openWa) return;
+    const paths = msgs.filter(m => m.wa_id === openWa && m.media_url).map(m => m.media_url);
+    if(paths.length) assinarMidias(paths);
+  }, [openWa, msgs.length]);
 
   // Chegou mensagem na conversa que esta ABERTA na tela? Ja esta sendo
   // lida — nao deixa o contador subir na cara do operador.
@@ -4602,7 +4699,7 @@ const WhatsAppTab = () => {
                   <div style={{ fontSize:10, color:C.p3, fontWeight:600, marginTop:1 }}>{origemDe(c)}</div>
                 ) : null}
                 <div style={{ fontSize:12, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>
-                  {(c.last.direction === 'out' ? 'Voce: ' : '') + (c.last.body || '[' + (c.last.type || 'msg') + ']')}
+                  {(c.last.direction === 'out' ? 'Voce: ' : '') + previewMsg(c.last)}
                 </div>
               </div>
             ))}
@@ -4653,7 +4750,7 @@ const WhatsAppTab = () => {
                     color: m.direction === 'out' ? '#fff' : C.ink,
                     boxShadow:'0 1px 3px rgba(0,0,0,.06)', whiteSpace:'pre-wrap', wordBreak:'break-word'
                   }}>
-                    {m.body || '[' + (m.type || 'mensagem') + ']'}
+                    <BolhaConteudo m={m} url={m.media_url ? midiaUrls[m.media_url] : null} />
                     <div style={{ fontSize:10, opacity:.7, marginTop:3, textAlign:'right' }}>{waHora(m)}</div>
                   </div>
                 ))}

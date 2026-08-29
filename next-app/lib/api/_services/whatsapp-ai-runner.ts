@@ -281,13 +281,23 @@ async function enviarAusencia(opts: {
 
 /** Últimas trocas da conversa, em ordem cronológica. */
 async function loadTurns(waId: string): Promise<ConversationTurn[]> {
-  const rows = await dbGet<{ direction: string; body: string | null; created_at: string }>(
-    `whatsapp_messages?wa_id=eq.${encodeURIComponent(waId)}&select=direction,body,created_at&order=created_at.desc&limit=10`,
+  const rows = await dbGet<{
+    direction: string;
+    body: string | null;
+    transcript: string | null;
+    created_at: string;
+  }>(
+    `whatsapp_messages?wa_id=eq.${encodeURIComponent(waId)}&select=direction,body,transcript,created_at&order=created_at.desc&limit=10`,
   );
   return rows
     .reverse()
-    .filter((r) => (r.body || '').trim())
-    .map((r) => ({ direction: r.direction === 'out' ? 'out' : 'in', body: r.body || '' }));
+    // Áudio vira o texto do Whisper: sem isso a IA lia "[áudio]" e
+    // respondia no vácuo. Marcador de mídia sem transcrição fica de fora.
+    .map((r) => ({
+      direction: (r.direction === 'out' ? 'out' : 'in') as 'in' | 'out',
+      body: (r.transcript || r.body || '').trim(),
+    }))
+    .filter((t) => t.body && !/^\[(áudio|imagem|vídeo|figurinha|documento)\]$/i.test(t.body));
 }
 
 /** Lead correspondente ao número (casamento pelos últimos 8 dígitos). */

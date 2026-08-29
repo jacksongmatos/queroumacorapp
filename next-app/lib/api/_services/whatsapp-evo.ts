@@ -189,6 +189,10 @@ export interface EvoInboundMessage {
   profileName: string;
   /** Epoch em segundos (string), como persistWhatsAppMessage espera. */
   timestamp: string;
+  /** Item cru do webhook — onde mora o base64 da mídia, quando vem. */
+  raw?: unknown;
+  /** Chave da mensagem, pra pedir a mídia à Evolution quando não vier. */
+  key?: { id?: string; remoteJid?: string; fromMe?: boolean };
 }
 
 /** Extrai texto de qualquer shape de `message` do Baileys. */
@@ -257,6 +261,10 @@ export function parseEvolutionWebhook(payload: unknown): EvoInboundMessage[] {
       text,
       profileName: d?.pushName || '',
       timestamp,
+      // Cru + chave: o download da mídia precisa deles (o base64 pode vir
+      // no proprio payload ou ser buscado na Evolution pela chave).
+      raw: item,
+      key: d?.key || undefined,
     });
   }
   return out;

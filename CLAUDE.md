@@ -111,6 +111,27 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL PENDENTE.**
+  Foto, áudio, vídeo e documento chegavam como MARCADOR de texto
+  (`[áudio]`, `[imagem]`): o evento do WhatsApp não traz o arquivo, só o
+  aviso. Agora `whatsapp-media.ts` pega o base64 (do payload, se o
+  Manager estiver com **Webhook Base64** ligado, senão busca em
+  `/chat/getBase64FromMediaMessage`), sobe pro bucket PRIVADO
+  `whatsapp-media` e grava o PATH em `whatsapp_messages.media_url` (path,
+  não URL — assinatura expira). Portal (`BolhaConteudo`) pede URL
+  assinada em lote (`createSignedUrls`, 1h) e renderiza foto com lightbox,
+  player de áudio, vídeo e link de documento; a lista de conversas mostra
+  a transcrição em vez de "[áudio]".
+  - **Áudio é transcrito** (Whisper, coluna `transcript`) e **entra no
+    histórico que a IA lê** — antes ela respondia no vácuo quando o
+    cliente mandava voz. `loadTurns` usa `transcript || body` e descarta
+    marcador sem transcrição.
+  - Tudo best-effort: falha de download/upload/Whisper não impede a
+    mensagem de ser gravada nem derruba o 200 do webhook.
+  - Migration `/migrations/2026-08-29-whatsapp-media.sql`. **Depois de
+    rodar, ligar "Webhook Base64" no Manager da Evolution** — sem isso
+    cada mídia custa uma chamada extra à API.
+
 - **Leads: "Busca AI" REMOVIDO, importador de planilha no lugar
   (2026-08-29, portal v=20260829o).** O botão "✨ Busca AI" NÃO buscava
   nada: mandava o modelo INVENTAR empresas plausíveis (nome, telefone,

@@ -9052,6 +9052,126 @@ const AJUDA_WHATSAPP = [{
   t: 'Última varredura (linha de baixo)',
   d: 'Quando rodou pela última vez, quantas conversas foram analisadas e o que saiu de cada tipo.'
 }];
+
+// Conteudo de uma bolha: foto, audio com player, video, documento ou
+// texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
+// se o arquivo nao foi salvo, mostra o marcador de sempre, entao nada
+// quebra em mensagem antiga.
+const BolhaConteudo = ({
+  m,
+  url
+}) => {
+  const tipo = m.type || 'text';
+  const legenda = (m.body || '').trim();
+  const marcador = /^\[(áudio|imagem|vídeo|figurinha|documento|msg|mensagem)\]$/i.test(legenda);
+  const [aberta, setAberta] = useState(false);
+  if (tipo === 'text' || !m.media_url) {
+    return /*#__PURE__*/React.createElement("span", null, legenda || '[' + tipo + ']');
+  }
+  if (!url) {
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        opacity: .75
+      }
+    }, legenda || '[' + tipo + ']', " ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11
+      }
+    }, "\xB7 carregando\u2026"));
+  }
+  if (tipo === 'image' || tipo === 'sticker') {
+    return /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("img", {
+      src: url,
+      alt: legenda || 'imagem',
+      onClick: () => setAberta(true),
+      style: {
+        display: 'block',
+        maxWidth: 260,
+        maxHeight: 320,
+        borderRadius: 8,
+        cursor: 'zoom-in',
+        objectFit: 'cover'
+      }
+    }), legenda && !marcador ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 6
+      }
+    }, legenda) : null, aberta ? /*#__PURE__*/React.createElement("span", {
+      onClick: e => {
+        e.stopPropagation();
+        setAberta(false);
+      },
+      style: {
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.85)',
+        zIndex: 300,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'zoom-out'
+      }
+    }, /*#__PURE__*/React.createElement("img", {
+      src: url,
+      alt: legenda || 'imagem',
+      style: {
+        maxWidth: '92vw',
+        maxHeight: '92vh',
+        borderRadius: 8
+      }
+    })) : null);
+  }
+  if (tipo === 'audio') {
+    return /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("audio", {
+      controls: true,
+      preload: "none",
+      src: url,
+      style: {
+        display: 'block',
+        width: 260,
+        maxWidth: '100%'
+      }
+    }), m.transcript ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 6,
+        fontSize: 12,
+        fontStyle: 'italic',
+        opacity: .85
+      }
+    }, "\u201C", m.transcript, "\u201D") : /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 4,
+        fontSize: 11,
+        opacity: .7
+      }
+    }, "sem transcri\xE7\xE3o"));
+  }
+  if (tipo === 'video') {
+    return /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("video", {
+      controls: true,
+      preload: "metadata",
+      src: url,
+      style: {
+        display: 'block',
+        maxWidth: 280,
+        borderRadius: 8
+      }
+    }), legenda && !marcador ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 6
+      }
+    }, legenda) : null);
+  }
+  return /*#__PURE__*/React.createElement("a", {
+    href: url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: 'inherit',
+      textDecoration: 'underline'
+    }
+  }, "\uD83D\uDCCE ", legenda && !marcador ? legenda : 'Abrir documento');
+};
 const WhatsAppTab = () => {
   const [msgs, setMsgs] = useState([]);
   const [profByPhone, setProfByPhone] = useState({});
@@ -9097,7 +9217,34 @@ const WhatsAppTab = () => {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
-  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, wa_timestamp, created_at';
+  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at';
+
+  // MIDIA (Wave 49). O bucket e PRIVADO — conversa de cliente nao vira
+  // link publico. Pedimos URL assinada em lote pras mensagens visiveis e
+  // guardamos em memoria; a assinatura vale 1h, e recarregada no proximo
+  // load. Sem isso seria uma chamada de rede por bolha.
+  const [midiaUrls, setMidiaUrls] = useState({}); // path -> url assinada
+  const assinandoRef = React.useRef({});
+  const assinarMidias = async paths => {
+    const novos = paths.filter(p => p && !midiaUrls[p] && !assinandoRef.current[p]);
+    if (!novos.length) return;
+    novos.forEach(p => {
+      assinandoRef.current[p] = true;
+    });
+    try {
+      const {
+        data
+      } = await supa.storage.from('whatsapp-media').createSignedUrls(novos, 3600);
+      const map = {};
+      (data || []).forEach(d => {
+        if (d && d.path && d.signedUrl) map[d.path] = d.signedUrl;
+      });
+      if (Object.keys(map).length) setMidiaUrls(u => ({
+        ...u,
+        ...map
+      }));
+    } catch (_) {/* sem assinatura a bolha cai no marcador de texto */}
+  };
   const load = async () => {
     const {
       data
@@ -9404,6 +9551,13 @@ const WhatsAppTab = () => {
       if (subRef.current) supa.removeChannel(subRef.current);
     };
   }, []);
+
+  // Assina a midia da conversa aberta (so o que esta na tela).
+  useEffect(() => {
+    if (!openWa) return;
+    const paths = msgs.filter(m => m.wa_id === openWa && m.media_url).map(m => m.media_url);
+    if (paths.length) assinarMidias(paths);
+  }, [openWa, msgs.length]);
 
   // Chegou mensagem na conversa que esta ABERTA na tela? Ja esta sendo
   // lida — nao deixa o contador subir na cara do operador.
@@ -10090,7 +10244,10 @@ const WhatsAppTab = () => {
       whiteSpace: 'pre-wrap',
       wordBreak: 'break-word'
     }
-  }, m.body || '[' + (m.type || 'mensagem') + ']', /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(BolhaConteudo, {
+    m: m,
+    url: m.media_url ? midiaUrls[m.media_url] : null
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10,
       opacity: .7,

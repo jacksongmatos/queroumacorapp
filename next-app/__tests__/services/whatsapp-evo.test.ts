@@ -117,7 +117,7 @@ describe('parseEvolutionWebhook', () => {
   it('mensagem recebida (data como objeto)', () => {
     const out = parseEvolutionWebhook(inbound);
     expect(out).toHaveLength(1);
-    expect(out[0]).toEqual({
+    expect(out[0]).toMatchObject({
       direction: 'in',
       waId: '5511999998888',
       messageId: 'MSG1',
@@ -126,6 +126,10 @@ describe('parseEvolutionWebhook', () => {
       profileName: 'Cliente Teste',
       timestamp: '1724900000',
     });
+    // O item cru e a chave viajam junto: sao eles que permitem baixar a
+    // midia depois (Wave 49). Sem isso o portal so mostra "[audio]".
+    expect(out[0].raw).toBeTruthy();
+    expect(out[0].key?.id).toBe('MSG1');
   });
 
   it('MESSAGES_UPSERT maiúsculo com underscore também casa', () => {
