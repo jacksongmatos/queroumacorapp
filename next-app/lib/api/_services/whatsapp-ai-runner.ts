@@ -57,6 +57,22 @@ interface AiState {
   replies_date: string | null;
 }
 
+/**
+ * Grava a ÚLTIMA DECISÃO da IA na conversa. Sem isso, quando ela fica
+ * quieta o operador não tem como saber se foi horário, teto diário,
+ * chave desligada ou erro — e o silêncio vira caça ao fantasma (foi o
+ * que aconteceu em 2026-08-29). O portal mostra esse texto embaixo da
+ * chave. Best-effort: falhar aqui não pode atrapalhar o atendimento.
+ */
+async function registrarDecisao(waId: string, why: string): Promise<void> {
+  await fetch(rest('whatsapp_ai_state?on_conflict=wa_id'), {
+    method: 'POST',
+    headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify({ wa_id: waId, last_why: why.slice(0, 120), last_at: new Date().toISOString() }),
+    signal: AbortSignal.timeout(DB_TIMEOUT_MS),
+  }).catch(() => {});
+}
+
 /** Resolve a chave da conversa: linha própria > padrão global > off. */
 export async function isAiEnabledFor(waId: string): Promise<{ enabled: boolean; state: AiState | null }> {
   const rows = await dbGet<AiState>(
@@ -158,6 +174,16 @@ async function loadLead(waId: string): Promise<{ id: string; ctx: LeadContext } 
  * recebida. Nunca lança — devolve o que aconteceu, pra log.
  */
 export async function maybeAutoReply(opts: {
+  waId: string;
+  text: string;
+}): Promise<{ acted: boolean; why: string }> {
+  const r = await decidirEAgir(opts);
+  // Deixa rastro na conversa, seja qual for o desfecho.
+  await registrarDecisao(opts.waId, (r.acted ? '✓ ' : '· ') + r.why);
+  return r;
+}
+
+async function decidirEAgir(opts: {
   waId: string;
   text: string;
 }): Promise<{ acted: boolean; why: string }> {
