@@ -21,6 +21,14 @@
     **PENDENTE.** `CREATE INDEX CONCURRENTLY idx_products_name` (rodar
     sozinho, fora de transação): sem ele cada uma das páginas reordena as
     21 mil linhas. É ganho de servidor; o resto acima já vale sem ele.
+  - **Foto do produto cortada (2026-08-29, v=20260829za).** A caixa da
+    imagem era uma faixa de 60px com `cover` — a foto entrava cortada pelo
+    meio (quem cadastra não reconhecia a peça). Agora a área de mídia tem
+    96px (`PRODUTO_MIDIA_H`) e a foto entra INTEIRA (`contain`) sobre fundo
+    creme; sem foto, a mesma caixa vira o bloco de cor. Mesma correção na
+    LOJA DO APP, que tinha o mesmo `cover`: miniatura do `ProductCard`
+    (quadrado de 64px) e hero do `ProductDetailSheet` (140px) passaram a
+    `object-contain`.
 
 - **Captação de leads por WhatsApp com IA (2026-08-29).** Duas etapas, as
   duas no ar; SQL Wave 46 JÁ EXECUTADA (2026-08-29).

@@ -2178,12 +2178,15 @@ let _produtosCache = null;
 
 // Card isolado e memoizado: com a janela crescendo de 60 em 60, sem isso
 // todo card ja montado re-renderizava a cada passo do scroll.
+// Altura da area da foto/cor. Foto entra INTEIRA (`contain`): a caixa era
+// de 60px com `cover` e cortava o produto pelo meio — quem cadastra precisa
+// reconhecer a peca no card. Sem foto, a mesma caixa vira o bloco de cor.
+const PRODUTO_MIDIA_H = 96;
 const ProdutoCard = React.memo(function ProdutoCard({
   p,
   onEdit,
   onDelete
 }) {
-  const bg = p.image_url ? 'center/cover no-repeat url(' + p.image_url + ')' : productBg(p);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: C.white,
@@ -2206,12 +2209,33 @@ const ProdutoCard = React.memo(function ProdutoCard({
       borderRadius: 10,
       zIndex: 1
     }
-  }, p.badge), /*#__PURE__*/React.createElement("div", {
+  }, p.badge), p.image_url ? /*#__PURE__*/React.createElement("div", {
     style: {
       width: '100%',
-      height: 60,
+      height: PRODUTO_MIDIA_H,
       borderRadius: 8,
-      background: bg,
+      background: C.cream,
+      marginBottom: 12,
+      overflow: 'hidden',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: p.image_url,
+    alt: "",
+    loading: "lazy",
+    style: {
+      maxWidth: '100%',
+      maxHeight: '100%',
+      objectFit: 'contain'
+    }
+  })) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: '100%',
+      height: PRODUTO_MIDIA_H,
+      borderRadius: 8,
+      background: productBg(p),
       marginBottom: 12
     }
   }), /*#__PURE__*/React.createElement("div", {
@@ -2885,7 +2909,7 @@ const ProdutosList = () => {
         width: 48,
         height: 48,
         borderRadius: 8,
-        background: 'center/cover no-repeat url(' + form.image_url + ')',
+        background: C.cream + ' center/contain no-repeat url(' + form.image_url + ')',
         border: '1px solid ' + C.border,
         flexShrink: 0
       }

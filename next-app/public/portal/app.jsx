@@ -1128,12 +1128,22 @@ let _produtosCache = null;
 
 // Card isolado e memoizado: com a janela crescendo de 60 em 60, sem isso
 // todo card ja montado re-renderizava a cada passo do scroll.
+// Altura da area da foto/cor. Foto entra INTEIRA (`contain`): a caixa era
+// de 60px com `cover` e cortava o produto pelo meio — quem cadastra precisa
+// reconhecer a peca no card. Sem foto, a mesma caixa vira o bloco de cor.
+const PRODUTO_MIDIA_H = 96;
+
 const ProdutoCard = React.memo(function ProdutoCard({ p, onEdit, onDelete }) {
-  const bg = p.image_url ? 'center/cover no-repeat url(' + p.image_url + ')' : productBg(p);
   return (
     <div style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)', opacity:p.active===false?0.5:1, position:'relative' }}>
       {p.badge && <div style={{ position:'absolute', top:8, left:8, background:p.badge==='NOVO'?C.p1:'#e63946', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, zIndex:1 }}>{p.badge}</div>}
-      <div style={{ width:'100%', height:60, borderRadius:8, background:bg, marginBottom:12 }}></div>
+      {p.image_url ? (
+        <div style={{ width:'100%', height:PRODUTO_MIDIA_H, borderRadius:8, background:C.cream, marginBottom:12, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <img src={p.image_url} alt="" loading="lazy" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
+        </div>
+      ) : (
+        <div style={{ width:'100%', height:PRODUTO_MIDIA_H, borderRadius:8, background:productBg(p), marginBottom:12 }}></div>
+      )}
       <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
       <div style={{ fontSize:11, color:C.muted }}>{p.code}{p.code && p.volume ? ' · ' : ''}{p.volume}</div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6 }}>
@@ -1414,7 +1424,7 @@ const ProdutosList = () => {
           <div style={{ marginBottom:12 }}>
             <label style={labelStyle}>Foto do produto (opcional — sobrepõe a cor)</label>
             <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-              {form.image_url && <div style={{ width:48, height:48, borderRadius:8, background:'center/cover no-repeat url('+form.image_url+')', border:'1px solid '+C.border, flexShrink:0 }}></div>}
+              {form.image_url && <div style={{ width:48, height:48, borderRadius:8, background:C.cream+' center/contain no-repeat url('+form.image_url+')', border:'1px solid '+C.border, flexShrink:0 }}></div>}
               <input type="file" accept="image/*" disabled={fotoBusy} onChange={async e=>{
                 const f = e.target.files && e.target.files[0];
                 e.target.value = '';

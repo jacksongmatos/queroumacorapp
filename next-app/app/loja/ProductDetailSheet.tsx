@@ -288,7 +288,8 @@ export function ProductDetailSheet({ product, onClose, onAdd }: ProductDetailShe
           <img
             src={effectiveProduct.image_url}
             alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            // Foto inteira (`contain`): `cover` cortava produto deitado.
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         ) : hasColor ? null : (
           <span aria-hidden="true">{categoryEmoji(product.category)}</span>
