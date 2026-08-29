@@ -225,6 +225,21 @@
     (TTL de 5min). Mantido também o `SEND_TIMEOUT_MS` de 25s — sem cold
     start, sobra folga.
 
+- **Portal: alterar o PERÍODO do PRO (2026-08-29, v=20260829t).** Antes, quem
+  já era PRO só tinha "Remover" — pra esticar ou encurtar o plano era
+  desligar e habilitar de novo (perdendo a data atual de vista). Agora o
+  `ProBadgeCell` tem um ✏️ ao lado do "até DD/MM/AAAA" que reabre o mesmo
+  modal em modo edição. `askProDate(opts)` virou reutilizável
+  (`title`/`desc`/`confirmLabel`/`current`/`paid`): mostra a expiração
+  vigente, já vem com ela preenchida e tem atalhos **+1 mês / +3 / +6 /
+  +1 ano** que somam A PARTIR da data que ainda vale (renovação empilha em
+  cima do que sobrou; se já venceu, conta de hoje). Por baixo é o MESMO
+  `set_pro` com `value:true` + `expiresAt` — nenhuma rota nova, nenhum SQL.
+  Assinatura paga do Mercado Pago (`mp_preapproval_id`) também pode ser
+  editada, mas o modal AVISA que a próxima renovação automática pode
+  sobrescrever a data (o botão "Remover" segue escondido nesse caso, como
+  era).
+
 - **Portal: e-mail sumido ("—") e sem lápis — consertado (2026-08-29,
   v=20260829e).** Duas coisas diferentes apareciam como um bug só. (1)
   `profiles.email` é só um ESPELHO: quem se cadastrou por um fluxo que não
