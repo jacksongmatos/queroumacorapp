@@ -61,7 +61,10 @@
     reporta as envs sem vazar segredo; botão "🔌 Testar conexao" no topo
     da aba WhatsApp do portal.
 
-- **SQL Wave 44 (2026-08-28) — PENDENTE de rodar no Supabase.**
+- **SQL Wave 44 (2026-08-28) — JÁ EXECUTADA no Supabase (verificado em
+  2026-08-29: `admin_delete_user(p_user_id uuid, p_force_admin boolean)`
+  existe e 0 FKs public→profiles/auth.users com NO ACTION/RESTRICT).
+  Não pedir pra rodar de novo.**
   (`/migrations/2026-08-28-delete-user-fk-sweep.sql`) CAUSA RAIZ do 502
   de exclusão comprovada: `quotes_painter_id_fkey` (e possivelmente
   outras FKs) referencia profiles SEM ON DELETE → conta com orçamento
