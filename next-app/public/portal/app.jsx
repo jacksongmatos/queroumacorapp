@@ -51,13 +51,30 @@ const LEADS_STATUS_LABELS = { novo: 'Novo', contactado: 'Contactado', qualificad
 // Quem chama DEVE try/catch.
 // ============================================================
 const productsService = {
-  list: async () => { const r = await supa.from('products').select('*').order('name'); if (r.error) throw r.error; return r.data || []; },
+  list: () => buscarTudo(() => supa.from('products').select('*').order('name')),
   upsert: async (p) => { const r = await supa.from('products').upsert(p); if (r.error) throw r.error; return r.data; },
   remove: async (id) => { const r = await supa.from('products').delete().eq('id', id); if (r.error) throw r.error; }
 };
 
+// PostgREST corta a resposta em 1000 linhas (max-rows do Supabase) e NAO
+// avisa: a lista so vem curta. Foi o que aconteceu com os leads — o banco
+// tinha 1072 e a tela mostrava 1000, com 72 invisiveis. Toda listagem que
+// pode passar de mil linhas precisa passar por aqui.
+const PAGINA_SUPA = 1000;
+async function buscarTudo(montarQuery) {
+  const tudo = [];
+  for (let de = 0; de < 50000; de += PAGINA_SUPA) {
+    const r = await montarQuery().range(de, de + PAGINA_SUPA - 1);
+    if (r.error) throw r.error;
+    const lote = r.data || [];
+    tudo.push(...lote);
+    if (lote.length < PAGINA_SUPA) break;
+  }
+  return tudo;
+}
+
 const leadsService = {
-  list: async () => { const r = await supa.from('leads').select('*').order('created_at', {ascending:false}); if (r.error) throw r.error; return r.data || []; },
+  list: () => buscarTudo(() => supa.from('leads').select('*').order('created_at', { ascending:false })),
   updateStatus: async (id, status) => { const r = await supa.from('leads').update({status}).eq('id', id); if (r.error) throw r.error; },
   remove: async (id) => { const r = await supa.from('leads').delete().eq('id', id); if (r.error) throw r.error; },
   insertBatch: async (rows) => { const r = await supa.from('leads').insert(rows); if (r.error) throw r.error; return r.data; }
@@ -657,13 +674,22 @@ function useSupabaseQuery(queryFn, deps) {
 const profilesService = {
   async list(opts) {
     opts = opts || {};
-    let q = supa.from('profiles').select(opts.fields || '*');
-    if (opts.portalOnly) q = q.eq('portal_access', true);
-    if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false });
-    if (opts.limit) q = q.limit(opts.limit);
-    const { data, error } = await q;
-    if (error) throw error;
-    let rows = data || [];
+    const montar = () => {
+      let q = supa.from('profiles').select(opts.fields || '*');
+      if (opts.portalOnly) q = q.eq('portal_access', true);
+      if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false });
+      return q;
+    };
+    // Com limite explicito, respeita o limite. Sem ele, PAGINA — senao a
+    // lista para em 1000 linhas sem avisar ninguem.
+    let rows;
+    if (opts.limit) {
+      const { data, error } = await montar().limit(opts.limit);
+      if (error) throw error;
+      rows = data || [];
+    } else {
+      rows = await buscarTudo(montar);
+    }
     if (opts.painterOnly) rows = rows.filter(isProProfile);
     if (opts.clienteOnly) rows = rows.filter(isClienteProfile);
     if (opts.proOnly) rows = rows.filter(isProActive);
