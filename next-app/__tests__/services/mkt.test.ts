@@ -44,6 +44,8 @@ interface ChainSpies {
   insert: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   eq: ReturnType<typeof vi.fn>;
+  or: ReturnType<typeof vi.fn>;
+  gte: ReturnType<typeof vi.fn>;
   order: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
   range: ReturnType<typeof vi.fn>;
@@ -67,6 +69,8 @@ function makeFakeClient(queue: QueueItem[] = []): {
     insert: vi.fn(),
     update: vi.fn(),
     eq: vi.fn(),
+    or: vi.fn(),
+    gte: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
     range: vi.fn(),
@@ -105,6 +109,21 @@ function makeFakeClient(queue: QueueItem[] = []): {
       spies.eq(col, val);
       return chain;
     },
+    // Filtros que o service encadeia mas o fake não precisa interpretar: o
+    // recorte real é do PostgREST. Faltando aqui, viravam "x is not a
+    // function" e derrubavam 7 testes de fetchProducts/submitOrder.
+    or: (filter: string) => {
+      spies.or(filter);
+      return chain;
+    },
+    gte: (col: string, val: unknown) => {
+      spies.gte(col, val);
+      return chain;
+    },
+    neq: () => chain,
+    ilike: () => chain,
+    in: () => chain,
+    is: () => chain,
     order: (col: string, opts?: { ascending: boolean }) => {
       spies.order(col, opts);
       return chain;
@@ -196,11 +215,16 @@ describe('productBg', () => {
 describe('mktClassify', () => {
   it('categoriza tintas por keyword (acrilica, esmalte, etc.)', () => {
     expect(mktClassify({ name: 'Tinta Acrílica Premium' })).toBe('tintas');
-    expect(mktClassify({ name: 'Esmalte sintético tradicional' })).toBe('tintas');
+    // Esmalte sintético não-automotivo tem regra própria (é tinta de madeira
+    // e metal) e cai em madeiras_metais, não no balaio de tintas imobiliárias.
+    expect(mktClassify({ name: 'Esmalte sintético tradicional' })).toBe('madeiras_metais');
+    expect(mktClassify({ name: 'Esmalte sintético automotivo' })).not.toBe('madeiras_metais');
   });
 
-  it('exceções vanilla: vonixx → outros, metalatex/novacor → tintas', () => {
-    expect(mktClassify({ name: 'Vonixx Cera de Carnaúba' })).toBe('outros');
+  it('overrides por marca: vonixx → estética automotiva, metalatex/novacor → tintas', () => {
+    // O vanilla jogava Vonixx em "outros" porque não existia menu de estética
+    // automotiva; existe desde então, e a marca é inteira dessa categoria.
+    expect(mktClassify({ name: 'Vonixx Cera de Carnaúba' })).toBe('estetica_automotiva');
     expect(mktClassify({ name: 'Metalatex Litoral' })).toBe('tintas');
     expect(mktClassify({ name: 'Novacor Esmalte' })).toBe('tintas');
   });
@@ -478,7 +502,11 @@ describe('submitOrder', () => {
       { id: 'a', name: 'A', price: 10, qty: 2 },
       { id: 'b', name: 'B', price: 5, qty: 4 },
     ];
-    const { client, spies } = makeFakeClient([{ data: { id: 'order-uuid' } }]);
+    // 1a resposta: a busca por pedido pendente recente (dedupe); 2a: o insert.
+    const { client, spies } = makeFakeClient([
+      { data: [] },
+      { data: { id: 'order-uuid' } },
+    ]);
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     const out = await submitOrder('u1', items);
     expect(out).toEqual({ orderId: 'order-uuid', total: 40 });
@@ -497,15 +525,37 @@ describe('submitOrder', () => {
   });
 
   it('insert sem id retornado → NetworkError (não retorna orderId vazio)', async () => {
-    const { client } = makeFakeClient([{ data: {} }]);
+    const { client } = makeFakeClient([{ data: [] }, { data: {} }]);
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     await expect(
       submitOrder('u1', [{ id: 'a', name: 'A', price: 10, qty: 1 }])
     ).rejects.toBeInstanceOf(NetworkError);
   });
 
+  it('pedido pendente recente com os mesmos itens → reusa o id, sem inserir', async () => {
+    // Clicar "Enviar Lista" duas vezes nao pode virar dois pedidos orfaos.
+    const items: CartItem[] = [{ id: 'a', name: 'A', price: 10, qty: 2 }];
+    const { client, spies } = makeFakeClient([
+      {
+        data: [
+          {
+            id: 'order-ja-existente',
+            items,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+          },
+        ],
+      },
+    ]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    const out = await submitOrder('u1', items);
+    expect(out).toEqual({ orderId: 'order-ja-existente', total: 20 });
+    expect(spies.insert).not.toHaveBeenCalled();
+  });
+
   it('error supabase → NetworkError', async () => {
     const { client } = makeFakeClient([
+      { data: [] },
       { data: null, error: { message: 'fk violation' } },
     ]);
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);

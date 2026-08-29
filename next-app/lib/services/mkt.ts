@@ -295,8 +295,11 @@ export const MKT_MENU_LABEL: Record<string, string> = {
 };
 
 /**
- * Classifica um produto numa categoria do menu pelo nome. Espelha o vanilla
- * incluindo as exceções (vonixx → outros, metalatex/novacor → tintas).
+ * Classifica um produto numa categoria do menu por código e nome. Nasceu do
+ * vanilla, mas já DIVERGIU dele onde o catálogo pedia: Vonixx virou
+ * `estetica_automotiva` (menu que o vanilla não tinha) e esmalte sintético
+ * não-automotivo virou `madeiras_metais`. Metalatex/Novacor seguem em
+ * `tintas`. As regras abaixo mandam — este comentário só resume.
  */
 export function mktClassify(p: Pick<Product, 'name' | 'code'> | null | undefined): MktCategory {
   const n = ' ' + String((p && p.name) || '').toLowerCase() + ' ';
