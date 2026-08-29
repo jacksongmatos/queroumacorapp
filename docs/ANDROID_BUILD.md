@@ -343,6 +343,35 @@ web em todos os aparelhos já instalados, sem regenerar AAB. Desligar o
 "Pull to Refresh" no painel do WebIntoApp continua sendo a correção de
 raiz — fazer no próximo rebuild.
 
+### Galeria não abre: `onShowFileChooser` (2026-08-29)
+
+Sintoma: tocar em "Trocar foto" (perfil) ou "Selecionar foto" (publicar /
+portfólio) **não faz nada**. Sem erro, sem log — o `<input type="file">`
+simplesmente não abre nada. Aconteceu com um pintor real, que ficou sem
+foto e sem portfólio até descobrirmos que ele usava o app instalado.
+
+A WebView do Android **não abre seletor de arquivo sozinha**: o app
+hospedeiro precisa implementar `WebChromeClient.onShowFileChooser` e
+declarar as permissões. Se o WebIntoApp tiver a opção de upload de
+arquivo / câmera, **ligar**; se o build passar a ser próprio:
+
+```kotlin
+webView.webChromeClient = object : WebChromeClient() {
+  override fun onShowFileChooser(
+    view: WebView?, callback: ValueCallback<Array<Uri>>?,
+    params: FileChooserParams?
+  ): Boolean {
+    fileCallback = callback
+    startActivityForResult(params!!.createIntent(), RC_FILE)
+    return true
+  }
+}
+```
+
+Paliativo já no ar pelo lado web: `lib/utils/filePickerWatch.ts` percebe
+que a galeria não abriu (a página não perdeu o foco) e manda a pessoa usar
+o navegador — em vez de deixar no silêncio.
+
 **Correção**, no projeto Android:
 
 ```bash
