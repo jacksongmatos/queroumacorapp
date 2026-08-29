@@ -1073,19 +1073,37 @@ const BulkDeleteBar = ({
     }
   }, "Limpar"));
 };
-function askProDate() {
+
+// Modal de data do PRO. Serve pra HABILITAR e tambem pra ALTERAR o periodo
+// de quem ja e PRO — por isso recebe `current` (a expiracao que vale hoje) e
+// os atalhos "+1 mes / +3 / +6 / +1 ano", que somam A PARTIR do que o cliente
+// ainda tem (ou de hoje, se ja venceu). Resolve com Date ou null (cancelou).
+function askProDate(opts) {
+  opts = opts || {};
   return new Promise(resolve => {
     const pad = n => String(n).padStart(2, '0');
     const toISO = dt => dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
-    const d = new Date();
-    d.setFullYear(d.getFullYear() + 1);
+    const now = new Date();
+    const cur = opts.current ? new Date(opts.current) : null;
+    const curOk = !!(cur && !isNaN(cur.getTime()));
+    const vigente = curOk && cur > now;
+    // Base dos atalhos: a data futura que ja existe (renovacao soma em cima
+    // do que sobrou) ou hoje, se venceu / nunca teve.
+    const base = vigente ? new Date(cur) : new Date(now);
+    const addMonths = m => {
+      const d = new Date(base);
+      d.setMonth(d.getMonth() + m);
+      return d;
+    };
+    const initial = vigente ? new Date(cur) : addMonths(12);
     const tomorrow = new Date(Date.now() + 86400000);
+    const ATALHOS = [['+1 mes', 1], ['+3 meses', 3], ['+6 meses', 6], ['+1 ano', 12]];
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99999;font-family:inherit;';
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
     ov.setAttribute('aria-labelledby', '_proDateTitle');
-    ov.innerHTML = '<div style="background:#fff;border-radius:14px;padding:22px;width:340px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.3);">' + '<div id="_proDateTitle" style="font-size:16px;font-weight:800;color:' + C.ink + ';margin-bottom:4px;">Habilitar PRO</div>' + '<div style="font-size:13px;color:' + C.muted + ';margin-bottom:14px;">Escolha a data de expiração do plano PRO.</div>' + '<input id="_proDateInput" type="date" value="' + toISO(d) + '" min="' + toISO(tomorrow) + '" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid ' + C.border + ';font-size:14px;outline:none;box-sizing:border-box;">' + '<div id="_proDateErr" style="color:' + C.p4 + ';font-size:12px;margin-top:8px;display:none;"></div>' + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">' + '<button id="_proDateCancel" style="background:none;border:1px solid ' + C.border + ';color:' + C.ink + ';border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;">Cancelar</button>' + '<button id="_proDateOk" style="background:#16a34a;border:none;color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:700;">Confirmar</button>' + '</div></div>';
+    ov.innerHTML = '<div style="background:#fff;border-radius:14px;padding:22px;width:360px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.3);">' + '<div id="_proDateTitle" style="font-size:16px;font-weight:800;color:' + C.ink + ';margin-bottom:4px;">' + (opts.title || 'Habilitar PRO') + '</div>' + '<div style="font-size:13px;color:' + C.muted + ';margin-bottom:' + (curOk ? '6' : '14') + 'px;">' + (opts.desc || 'Escolha a data de expiracao do plano PRO.') + '</div>' + (curOk ? '<div style="font-size:12px;color:' + C.muted + ';margin-bottom:14px;">Hoje ' + (vigente ? 'expira em' : 'expirou em') + ' <b style="color:' + C.ink + ';">' + cur.toLocaleDateString('pt-BR') + '</b></div>' : '') + (opts.paid ? '<div style="font-size:12px;color:' + C.p4 + ';margin-bottom:12px;">Atencao: assinatura paga no Mercado Pago. A proxima renovacao automatica pode sobrescrever esta data.</div>' : '') + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">' + ATALHOS.map(a => '<button type="button" class="_proQuick" data-m="' + a[1] + '" style="background:#f4f1ec;border:1px solid ' + C.border + ';color:' + C.ink + ';border-radius:999px;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600;">' + a[0] + '</button>').join('') + '</div>' + '<input id="_proDateInput" type="date" value="' + toISO(initial) + '" min="' + toISO(tomorrow) + '" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid ' + C.border + ';font-size:14px;outline:none;box-sizing:border-box;">' + '<div id="_proDateErr" style="color:' + C.p4 + ';font-size:12px;margin-top:8px;display:none;"></div>' + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">' + '<button id="_proDateCancel" style="background:none;border:1px solid ' + C.border + ';color:' + C.ink + ';border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;">Cancelar</button>' + '<button id="_proDateOk" style="background:#16a34a;border:none;color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:700;">' + (opts.confirmLabel || 'Confirmar') + '</button>' + '</div></div>';
     document.body.appendChild(ov);
     const inp = ov.querySelector('#_proDateInput');
     const errEl = ov.querySelector('#_proDateErr');
@@ -1094,6 +1112,15 @@ function askProDate() {
       resolve(val);
     };
     setTimeout(() => inp.focus(), 30);
+    // Atalhos somam sobre a base (expiracao vigente ou hoje) e so preenchem
+    // o campo — quem confirma continua sendo o botao, entao da pra ajustar
+    // no dedo depois de clicar em "+3 meses".
+    Array.prototype.forEach.call(ov.querySelectorAll('._proQuick'), b => {
+      b.onclick = () => {
+        inp.value = toISO(addMonths(Number(b.getAttribute('data-m'))));
+        errEl.style.display = 'none';
+      };
+    });
     ov.querySelector('#_proDateCancel').onclick = () => close(null);
     ov.addEventListener('click', e => {
       if (e.target === ov) close(null);
@@ -1107,7 +1134,7 @@ function askProDate() {
       const p = inp.value.split('-');
       const exp = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 23, 59, 59);
       if (isNaN(exp.getTime()) || exp <= new Date()) {
-        errEl.textContent = 'Informe uma data futura válida.';
+        errEl.textContent = 'Informe uma data futura valida.';
         errEl.style.display = 'block';
         return;
       }
@@ -1120,7 +1147,11 @@ function askProDate() {
     });
   });
 }
-const setProfilePro = async (id, value, after) => {
+
+// `opts` chega inteiro no modal (title/desc/current/paid/confirmLabel) — e
+// como alterar periodo tambem e um set_pro com value=true, o mesmo caminho
+// serve pra habilitar e pra editar.
+const setProfilePro = async (id, value, after, opts) => {
   if (!value) {
     if (!confirm('Remover o acesso PRO deste cliente?')) return;
     if ((await adminUsers({
@@ -1130,7 +1161,7 @@ const setProfilePro = async (id, value, after) => {
     })) && after) after();
     return;
   }
-  const exp = await askProDate();
+  const exp = await askProDate(opts);
   if (!exp) return;
   if ((await adminUsers({
     action: 'set_pro',
@@ -1361,7 +1392,24 @@ const ProBadgeCell = React.memo(function ProBadgeCell({
       fontSize: 11,
       color: '#666'
     }
-  }, "at\xE9 ", exp), !paid && /*#__PURE__*/React.createElement("button", {
+  }, "at\xE9 ", exp), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setProfilePro(profile.id, true, onChange, {
+      title: 'Alterar periodo PRO',
+      desc: 'Escolha a nova data de expiracao do plano PRO.',
+      confirmLabel: 'Salvar',
+      current: profile.pro_expires_at,
+      paid
+    }),
+    title: "Alterar per\xEDodo PRO",
+    style: {
+      padding: '2px 6px',
+      background: 'transparent',
+      border: '1px solid #ddd',
+      borderRadius: 4,
+      cursor: 'pointer',
+      fontSize: 10
+    }
+  }, "\u270F\uFE0F"), !paid && /*#__PURE__*/React.createElement("button", {
     onClick: () => setProfilePro(profile.id, false, onChange),
     style: {
       padding: '2px 6px',
