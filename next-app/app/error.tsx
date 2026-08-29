@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
+import { agendarRetomada } from '@/lib/utils/autoRetry';
 
 export default function Error({
   error,
@@ -10,9 +11,22 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Tenta se recuperar sozinha antes de pedir ajuda. O caso comum não é
+  // um bug da tela: é o app voltando depois de horas fechado, com a rota
+  // falhando por rede. `reset()` refaz o render sem recarregar a página
+  // inteira — se não bastar, o próximo agendamento recarrega. Freio
+  // compartilhado com o service worker (lib/utils/autoRetry).
+  const [tentando, setTentando] = useState(false);
+
   useEffect(() => {
     Sentry.captureException(error, { tags: { boundary: 'route-error' } });
   }, [error]);
+
+  useEffect(() => {
+    const { agendado, cancelar } = agendarRetomada(reset);
+    setTentando(agendado);
+    return cancelar;
+  }, [reset]);
 
   return (
     <main className="min-h-[60vh] flex items-center justify-center px-4">
@@ -21,7 +35,9 @@ export default function Error({
           Algo deu errado
         </h1>
         <p className="text-sm text-[color:var(--color-muted)]">
-          Tivemos um problema ao carregar essa página. A equipe já foi avisada.
+          {tentando
+            ? 'Tivemos um problema ao carregar essa página. Estou tentando de novo sozinho…'
+            : 'Tivemos um problema ao carregar essa página. A equipe já foi avisada.'}
         </p>
         {error.digest && (
           <p className="text-xs text-[color:var(--color-muted)] font-mono">
