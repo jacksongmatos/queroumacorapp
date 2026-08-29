@@ -43,6 +43,7 @@ import { fetchLogo, uploadLogo, saveLogo } from '@/lib/services/aiLogo';
 import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
 import { AVISO_SELETOR, watchFilePicker } from '@/lib/utils/filePickerWatch';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
 // readonly/immutable na UI.
@@ -320,6 +321,9 @@ export function EditProfileForm() {
       setAvatarPreview(null);
       URL.revokeObjectURL(local);
       showToast((err as Error).message || 'Não consegui salvar a foto', 'error');
+      // O toast some em segundos e nunca chegava aqui — sem isso, "não
+      // salvou a foto" continua sendo relato, não evidência.
+      reportFailure('avatar-fail', err, { userId: user.id, ctx: 'perfil/editar' });
     } finally {
       setAvatarBusy(false);
     }

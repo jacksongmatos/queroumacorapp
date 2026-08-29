@@ -22,6 +22,7 @@ import {
   type CreatePostResult,
 } from '@/lib/services/posts';
 import { AuthenticationError, ValidationError } from '@/lib/errors';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 export interface PublishPostInput {
   files: File[];                 // já validados pelo componente
@@ -98,6 +99,11 @@ export function usePublishPost(): UsePublishPostResult {
         artType: input.artType ?? null,
         linkUrl: input.linkUrl ?? null,
       });
+    },
+    // A falha de publicar só existia na faixa vermelha do Composer: se a
+    // pessoa não transcrevesse a mensagem, ninguém aqui ficava sabendo.
+    onError: (err) => {
+      reportFailure('publish-fail', err, { userId: user?.id, ctx: 'composer' });
     },
     onSuccess: () => {
       // Invalida feed (lista pública) + perfil do usuário (lista própria).

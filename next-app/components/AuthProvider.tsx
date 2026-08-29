@@ -106,6 +106,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // usuário cai no /login (que já manda de volta pro /feed sozinho se a
     // sessão aparecer depois pelo onAuthStateChange) em vez de encarar uma
     // tela morta sem saída.
+    // Lê o usuário no SERVIDOR (`/auth/v1/user`) e adota se ele já estiver
+    // confirmado. Mesma corrida contra timeout do syncSession — no WebView
+    // nenhum await de rede pode ficar solto. Falhar aqui não custa nada: o
+    // estado continua sendo o do localStorage.
+    const revalidarEmail = async () => {
+      try {
+        const r = await Promise.race([
+          sb.auth.getUser(),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), SESSION_TIMEOUT_MS),
+          ),
+        ]);
+        if (!mounted || !r) return;
+        const fresco = r.data?.user;
+        if (fresco?.email_confirmed_at) setUser(fresco);
+      } catch {
+        // Sem rede / token recusado: fica com o snapshot local.
+      }
+    };
+
     const syncSession = async () => {
       try {
         const result = await Promise.race([
@@ -116,8 +136,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ]);
         if (!mounted) return;
         if (result) {
-          setSession(result.data.session);
-          setUser(result.data.session?.user ?? null);
+          const sess = result.data.session;
+          setSession(sess);
+          setUser(sess?.user ?? null);
+          // `getSession()` devolve o usuário GUARDADO no localStorage, não o
+          // do servidor. Quem confirma o e-mail FORA do app (abre o link no
+          // Chrome, no e-mail do celular) fica com uma cópia velha dizendo
+          // "não confirmado" — e o app barra publicar post com "Confirme seu
+          // email antes de publicar", mesmo com a conta já confirmada há
+          // horas. O snapshot só se atualiza no refresh do token (1h), que no
+          // WebView quase nunca acontece: o app é morto e restaurado antes.
+          // Então, e SÓ quando a cópia local diz não-confirmado, perguntamos
+          // ao servidor. Some sozinho assim que confirmar.
+          if (sess?.user && !sess.user.email_confirmed_at) {
+            void revalidarEmail();
+          }
         }
       } catch {
         // Falha de rede/refresh — segue pro finally e destrava a tela.
