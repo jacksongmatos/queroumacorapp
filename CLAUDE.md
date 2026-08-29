@@ -26,7 +26,8 @@
   `whatsapp_messages` → aparece em /admin/whatsapp). A rota
   `/api/whatsapp/send` DESPACHA: texto → Evolution quando configurada
   (senão Meta); template → SÓ Meta (503 amigável sem ela). 4 ENVS no CF
-  Pages (PENDENTES de configurar): `EVOLUTION_API_URL`,
+  Pages (JÁ CONFIGURADAS em 2026-08-28, confirmadas pelo ping):
+  `EVOLUTION_API_URL`,
   `EVOLUTION_API_KEY` (= AUTHENTICATION_API_KEY do Render, secret),
   `EVOLUTION_INSTANCE` (opcional, default meu-whatsapp),
   `EVOLUTION_WEBHOOK_TOKEN` (string aleatória nossa, secret). Depois do
