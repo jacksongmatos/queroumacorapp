@@ -61,6 +61,24 @@
     conectividade + apikey + estado da instância a partir do edge e
     reporta as envs sem vazar segredo; botão "🔌 Testar conexao" no topo
     da aba WhatsApp do portal.
+  - **Cold start do Render — 2 camadas (2026-08-29).** (1) Workflow
+    `.github/workflows/keepalive-evolution.yml` pinga a URL base a cada
+    10min pra o serviço não dormir (e o WhatsApp não desconectar). **Em
+    2026-08-29 01:00 UTC ele ainda NÃO tinha disparado nenhuma execução
+    AGENDADA** (só a manual) — cron do GitHub é best-effort e demora pra
+    "pegar" workflow novo; se continuar mudo, trocar por cron externo
+    (cron-job.org/UptimeRobot) ou Render pago. Obs.: o workflow "Uptime
+    monitor" está `disabled_manually` desde 17/08 — foi desligado no
+    painel, não é apagão de agendamento. (2) Pré-aquecimento no portal
+    (v=20260829b): a aba WhatsApp cutuca o Render ao abrir, a cada 5min,
+    ao voltar pra aba e ao começar a digitar (`aquecerEvolution`), então
+    o envio não espera nada. `acordarEvolution` só espera quando NÃO há
+    ping recente (TTL 5min) — aí mantém o caminho rápido de 2,5s +
+    "Acordando o servidor…" até 60s. **Falha de rede não conta mais como
+    "servidor de pé"** (a versão anterior marcava `respondeu=true` no
+    catch): com `mode:'no-cors'`, rejeição = erro real de rede, não prova
+    nada. Não trocar essa espera por timeout no edge — o CF morre antes
+    dos ~50s do cold start (`SEND_TIMEOUT_MS` = 25s).
 
 - **SQL Wave 44 (2026-08-28) — JÁ EXECUTADA no Supabase (verificado em
   2026-08-29: `admin_delete_user(p_user_id uuid, p_force_admin boolean)`
