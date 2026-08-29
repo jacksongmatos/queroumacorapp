@@ -8481,6 +8481,103 @@ const EVO_BASE_URL = 'https://evolution-api-8arv.onrender.com';
 const EVO_WARM_TTL = 5 * 60 * 1000; // ping recente = servidor comprovadamente de pe
 const EVO_WARM_EVERY = 5 * 60 * 1000; // cutucada periodica com a aba aberta
 
+// Balaozinho de ajuda: um "?" discreto que abre a explicacao ao passar o
+// mouse (e no clique, pra quem esta no celular/tablet). Existe porque o
+// nome do botao nunca cabe a explicacao inteira — e o custo de errar em
+// "Rodar follow-up" e mandar mensagem pra cliente de verdade.
+const Ajuda = ({
+  titulo,
+  itens,
+  largura
+}) => {
+  const [aberto, setAberto] = useState(false);
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: 'relative',
+      display: 'inline-flex',
+      alignItems: 'center'
+    },
+    onMouseEnter: () => setAberto(true),
+    onMouseLeave: () => setAberto(false)
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setAberto(a => !a),
+    "aria-label": "Ajuda",
+    style: {
+      width: 19,
+      height: 19,
+      borderRadius: '50%',
+      border: '1px solid ' + C.border,
+      background: '#fff',
+      color: C.muted,
+      fontSize: 11,
+      fontWeight: 800,
+      lineHeight: '17px',
+      textAlign: 'center',
+      cursor: 'help',
+      padding: 0,
+      flexShrink: 0
+    }
+  }, "?"), aberto ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      top: 26,
+      right: 0,
+      zIndex: 60,
+      width: largura || 360,
+      background: '#fff',
+      border: '1px solid ' + C.border,
+      borderRadius: 12,
+      boxShadow: '0 10px 34px rgba(26,26,46,.18)',
+      padding: 14,
+      textAlign: 'left',
+      fontSize: 12,
+      lineHeight: 1.5,
+      color: C.ink,
+      fontWeight: 400,
+      cursor: 'default',
+      whiteSpace: 'normal'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 13,
+      marginBottom: 9
+    }
+  }, titulo), itens.map((it, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      marginBottom: i === itens.length - 1 ? 0 : 9
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700
+    }
+  }, it.t), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted
+    }
+  }, it.d)))) : null);
+};
+const AJUDA_WHATSAPP = [{
+  t: '🕐 Só horário comercial ⟷ Responde 24h',
+  d: 'Se a IA atende a qualquer hora ou só das 8h às 19h de Brasília, sem domingo.'
+}, {
+  t: '💬 Auto-resposta',
+  d: 'Quando a IA NÃO vai responder (fora do horário ou com a chave desligada), o cliente recebe uma mensagem se apresentando, agradecendo e prometendo retorno — em vez de ficar sem resposta nenhuma. No máximo uma a cada 12h por conversa.'
+}, {
+  t: '🔁 Follow-up',
+  d: 'De hora em hora o sistema: cobra pendência parada há mais de 3h sem resposta sua, avisa o cliente UMA vez que o pedido está na fila, e dá um toque em quem sumiu há 48h (no máximo 1 por semana). Nunca fala com quem pediu PARE.'
+}, {
+  t: '👀 Simular follow-up',
+  d: 'Faz a varredura inteira e mostra o que ela FARIA — sem enviar nada a ninguém. É o ensaio, use à vontade.'
+}, {
+  t: '▶ Rodar follow-up agora',
+  d: 'Faz a varredura DE VERDADE, enviando as mensagens. No dia a dia não precisa: o sistema já roda sozinho de hora em hora. Serve só pra antecipar.'
+}, {
+  t: 'Última varredura (linha de baixo)',
+  d: 'Quando rodou pela última vez, quantas conversas foram analisadas e o que saiu de cada tipo.'
+}];
 const WhatsAppTab = () => {
   const [msgs, setMsgs] = useState([]);
   const [profByPhone, setProfByPhone] = useState({});
@@ -9070,7 +9167,10 @@ const WhatsAppTab = () => {
       background: followupOn ? C.p6 : C.border,
       display: 'inline-block'
     }
-  }), followupOn ? '🔁 Follow-up ligado' : '🔁 Follow-up desligado'), /*#__PURE__*/React.createElement("button", {
+  }), followupOn ? '🔁 Follow-up ligado' : '🔁 Follow-up desligado'), /*#__PURE__*/React.createElement(Ajuda, {
+    titulo: "O que cada bot\xE3o faz",
+    itens: AJUDA_WHATSAPP
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: () => rodarFollowup(true),
     disabled: sweeping,
     title: "Simula a varredura agora e mostra o que ela FARIA, sem enviar nada.",
