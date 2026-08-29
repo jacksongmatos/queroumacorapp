@@ -806,7 +806,7 @@ export function ProductDetailSheet({ product, onClose, onAdd }: ProductDetailShe
               const truncated = filteredLeque.length > RENDER_CAP;
               return filteredLeque.length === 0 ? (
                 <p style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-                  Nenhuma cor encontrada para "{lequeSearch}".
+                  Nenhuma cor encontrada para &quot;{lequeSearch}&quot;.
                 </p>
               ) : (
               <>

@@ -149,7 +149,7 @@ export function ProductEditor({ productId }: { productId: string }) {
       ) : variants.length === 0 ? (
         <div className="text-center py-8 px-4 rounded-xl bg-white border border-[color:var(--color-border)] mb-4">
           <p className="text-sm text-[color:var(--color-muted)]">
-            Nenhuma variante. Use "Gerar 3 padrão" pra criar quartinho/galão/lata
+            Nenhuma variante. Use &quot;Gerar 3 padrão&quot; pra criar quartinho/galão/lata
             de uma vez.
           </p>
         </div>
