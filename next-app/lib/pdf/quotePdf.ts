@@ -14,6 +14,7 @@
 // Dynamic import do jsPDF pra não pesar o bundle inicial (~150kb gz).
 
 import type { Quote } from '@/lib/types';
+import { watchAppLeave } from '@/lib/utils/filePickerWatch';
 
 export interface PainterForPdf {
   name?: string | null;
@@ -332,13 +333,42 @@ export async function shareOrDownloadQuotePdf(
   whatsapp?: WhatsAppFallback,
 ): Promise<ShareResult> {
   const blob = await generateQuotePdfBlob(quote, painter);
-  const filename = `orcamento-${(quote.id || 'novo').slice(0, 8)}.pdf`;
   return shareOrDownloadPdfBlob(
     blob,
-    filename,
+    nomeArquivoOrcamento(quote),
     `Orçamento ${quote.service_type || ''}`.trim(),
     whatsapp,
   );
+}
+
+/**
+ * Nome do arquivo do PDF: `orcamento-<numero>-<cliente>.pdf`.
+ *
+ * Antes era só `orcamento-<8 chars do id>.pdf`, e no app instalado nem
+ * isso aparecia — o "Save As" abria com o campo VAZIO, porque o wrapper
+ * recebia uma URL `blob:` e não tem de onde tirar nome. Quem salvava
+ * ficava com um monte de arquivo sem identificação na pasta Downloads.
+ *
+ * O "número" são os mesmos 8 caracteres do id que o PDF imprime no
+ * cabeçalho ("ORÇAMENTO #..."), então papel e arquivo batem. É recorte de
+ * UUID: não se repete na prática.
+ */
+export function nomeArquivoOrcamento(quote: Quote): string {
+  const numero = (quote.id || 'novo').slice(0, 8);
+  const cliente = apelidoArquivo(quote.client_name || quote.client?.name || '');
+  return `orcamento-${numero}${cliente ? '-' + cliente : ''}.pdf`;
+}
+
+/** Vira pedaço de nome de arquivo: sem acento, sem espaço, sem surpresa. */
+function apelidoArquivo(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
 }
 
 export type ShareResult = 'shared' | 'shared-link' | 'downloaded' | 'cancelled';
@@ -395,38 +425,52 @@ export async function shareOrDownloadPdfBlob(
   // canal à prova de wrapper é um LINK HTTPS de verdade: sobe o PDF pro
   // Storage (bucket `exports`, Wave 41) e navega pra URL pública com
   // `?download=` — o Android baixa como qualquer download normal.
-  const { isAndroidWebView } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
-  if (isAndroidWebView(navigator.userAgent || '')) {
+  // ATENÇÃO ao gate (2026-08-29): aqui havia `isAndroidWebView(ua)`, que
+  // exige o token `wv` ou "WebIntoApp" no user agent. O wrapper NÃO tem
+  // nenhum dos dois — os pings `scrollpin-diag` em produção chegaram todos
+  // com `wv=false`. Ou seja: no app instalado esse gate dava FALSE e todo
+  // este caminho era pulado; o compartilhar caía no branch de navegador,
+  // com uma URL `blob:` que o wrapper não sabe nomear — o "Save As" abria
+  // com o campo VAZIO. Agora o gate é só Android: navegador Android de
+  // verdade já foi atendido pelo `navigator.share` acima, então quem chega
+  // aqui é justamente quem não tem share de arquivo.
+  const { isAndroid } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
+  if (isAndroid(navigator.userAgent || '')) {
     const url = await uploadPdfForLink(blob, filename);
-    // COMPARTILHAR no app instalado: a WebView do wrapper não expõe o share
-    // sheet do sistema (navigator.share não existe lá), então anexar o
-    // arquivo é impossível pelo lado web. O que funciona é mandar o LINK
-    // HTTPS do PDF pelo WhatsApp — mesmo caminho do botão de WhatsApp que
-    // já roda no app. O cliente toca no link e baixa o orçamento.
-    if (url && whatsapp) {
-      // Texto cortado em 1200: a mensagem inteira vai na URL, e escopo
-      // muito longo estoura o limite do intent do Android. O PDF tem tudo.
-      const texto = `${(whatsapp.text || '').slice(0, 1200)}\n\n${url}`;
-      const digitos = (whatsapp.phone || '').replace(/\D/g, '');
+    if (!url) {
+      // Bucket ausente/sem sessão: última tentativa via data URL.
+      const dataUrl = await blobToDataUrl(blob);
+      clickDownloadAnchor(dataUrl, filename);
+      return 'downloaded';
+    }
+    // Texto cortado em 1200: ele viaja dentro da URL do intent, e escopo
+    // muito longo estoura o limite. O PDF tem tudo mesmo.
+    const texto = `${(whatsapp?.text || title || '').slice(0, 1200)}\n\n${url}`;
+
+    // Plano A — a TELA DE COMPARTILHAR do Android (WhatsApp, Mensagens,
+    // Facebook, Gmail…). `navigator.share` não existe na WebView, mas o
+    // Android aceita um `intent:` com ACTION_SEND, e aí quem abre a lista
+    // de apps é o próprio sistema. Vai por iframe, não por
+    // `location.href`: se o wrapper não souber tratar o esquema, um iframe
+    // falha calado, enquanto a navegação de topo trocaria a tela do
+    // orçamento por um ERR_UNKNOWN_URL_SCHEME.
+    const plent = abrirShareSheetAndroid(texto);
+
+    // Plano B — não saímos do app em 1,4s, então o intent não pegou: manda
+    // pelo WhatsApp, que é o caminho que já funciona aqui.
+    watchAppLeave(() => {
+      plent();
+      const digitos = (whatsapp?.phone || '').replace(/\D/g, '');
       const destino = digitos
         ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${encodeURIComponent(texto)}`
         : `https://wa.me/?text=${encodeURIComponent(texto)}`;
-      // window.open pode ser bloqueado: já saímos do gesto do toque (houve
-      // await no upload) e a WebView do wrapper costuma barrar popup. Se
-      // vier null, navega a própria página — o wrapper intercepta o wa.me
-      // e abre o WhatsApp do mesmo jeito.
+      // window.open costuma ser barrado (já saímos do gesto do toque no
+      // await do upload); o wrapper intercepta o wa.me na navegação.
       const aba = window.open(destino, '_blank', 'noopener,noreferrer');
       if (!aba) window.location.href = destino;
-      return 'shared-link';
-    }
-    if (url) {
-      window.location.href = url; // disposition attachment → não navega, baixa
-      return 'downloaded';
-    }
-    // Bucket ausente/sem sessão: última tentativa via data URL.
-    const dataUrl = await blobToDataUrl(blob);
-    clickDownloadAnchor(dataUrl, filename);
-    return 'downloaded';
+    }, { timeoutMs: 1400 });
+
+    return 'shared-link';
   }
 
   // Navegador: download direto via anchor + blob.
@@ -458,6 +502,40 @@ async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | 
   } catch {
     return null;
   }
+}
+
+/**
+ * Pede ao Android a tela de compartilhar (ACTION_SEND, texto puro) via um
+ * `intent:` num iframe escondido. Devolve a função que limpa o iframe.
+ *
+ * Por que só TEXTO: anexar o ARQUIVO exigiria uma `content://` URI, que
+ * código web não tem como produzir. Então o que vai é o link HTTPS do PDF
+ * — o cliente toca e baixa. Anexo de verdade só com build nativo
+ * (Capacitor Share plugin).
+ *
+ * Se o wrapper não tratar `intent:`, nada acontece — e é justamente por
+ * isso que quem chama arma o `watchAppLeave` com o plano B.
+ */
+function abrirShareSheetAndroid(texto: string): () => void {
+  const intent =
+    'intent:#Intent;action=android.intent.action.SEND;type=text/plain;' +
+    `S.android.intent.extra.TEXT=${encodeURIComponent(texto)};end`;
+  let frame: HTMLIFrameElement | null = null;
+  try {
+    frame = document.createElement('iframe');
+    frame.style.display = 'none';
+    frame.src = intent;
+    document.body.appendChild(frame);
+  } catch {
+    /* esquema recusado: o plano B assume */
+  }
+  return () => {
+    try {
+      frame?.remove();
+    } catch {
+      /* nada a fazer */
+    }
+  };
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

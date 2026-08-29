@@ -347,9 +347,10 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     //
     //  1. share sheet do sistema com o ARQUIVO anexo (Chrome Android,
     //     Safari iOS 15+, Edge) — o melhor;
-    //  2. app instalado: a WebView do wrapper NÃO tem share sheet, então
-    //     manda o LINK do PDF pelo WhatsApp (o arquivo vai pro Storage e o
-    //     cliente baixa tocando no link);
+    //  2. app instalado: `navigator.share` não existe na WebView, então o
+    //     PDF sobe pro Storage e o LINK dele vai pra tela de compartilhar
+    //     do Android (intent ACTION_SEND — WhatsApp, Mensagens, Facebook…);
+    //     se o wrapper não tratar o intent, cai no WhatsApp direto;
     //  3. navegador desktop: baixa o arquivo.
     try {
       const { shareOrDownloadQuotePdf } = await import('@/lib/pdf/quotePdf');
