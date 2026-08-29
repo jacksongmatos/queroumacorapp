@@ -3730,12 +3730,13 @@ const WhatsAppTab = () => {
   const [alertas, setAlertas] = useState([]);
 
   const loadIa = async () => {
-    const [st, cfg, al, hrs] = await Promise.all([
+    // Config em tabela PROPRIA (Wave 47) — app_settings guarda segredo de
+    // sistema e recusa escrita do portal, corretamente.
+    const [st, cfg, al] = await Promise.all([
       supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at').limit(2000),
-      supa.from('app_settings').select('value').eq('key','whatsapp_ai_default').maybeSingle(),
+      supa.from('whatsapp_ai_config').select('hours, default_on').eq('id',1).maybeSingle(),
       supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
         .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
-      supa.from('app_settings').select('value').eq('key','whatsapp_ai_hours').maybeSingle(),
     ]);
     const m = {}; const w = {};
     (st.data || []).forEach(r => {
@@ -3743,9 +3744,9 @@ const WhatsAppTab = () => {
       if(r.last_why) w[r.wa_id] = { why: r.last_why, at: r.last_at };
     });
     setIaState(m); setIaWhy(w);
-    setIaPadrao(((cfg.data && cfg.data.value) || 'off') === 'on');
+    setIaPadrao(Boolean(cfg.data && cfg.data.default_on));
     setAlertas(al.data || []);
-    setHoras(((hrs.data && hrs.data.value) || '8-19'));
+    setHoras((cfg.data && cfg.data.hours) || '8-19');
   };
 
   // Sem linha propria, vale o padrao global — mesma regra do servidor.
@@ -3758,8 +3759,8 @@ const WhatsAppTab = () => {
   const toggleForaDeHorario = async () => {
     const novo = foraDeHorarioLiberado ? '8-19' : '0-24';
     setHoras(novo); // otimista
-    const { error } = await supa.from('app_settings')
-      .upsert({ key:'whatsapp_ai_hours', value: novo }, { onConflict:'key' });
+    const { error } = await supa.from('whatsapp_ai_config')
+      .upsert({ id:1, hours: novo, updated_at: new Date().toISOString() }, { onConflict:'id' });
     if(error){
       setHoras(foraDeHorarioLiberado ? '0-24' : '8-19');
       alert('Nao consegui salvar o horario da IA: ' + error.message);

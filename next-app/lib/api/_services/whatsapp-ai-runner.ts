@@ -79,10 +79,19 @@ export async function isAiEnabledFor(waId: string): Promise<{ enabled: boolean; 
     `whatsapp_ai_state?wa_id=eq.${encodeURIComponent(waId)}&select=wa_id,enabled,replies_today,replies_date`,
   );
   if (rows.length > 0) return { enabled: !!rows[0].enabled, state: rows[0] };
-  const cfg = await dbGet<{ value: string }>(
-    `app_settings?key=eq.whatsapp_ai_default&select=value`,
+  const cfg = await loadConfig();
+  return { enabled: cfg.default_on, state: null };
+}
+
+/**
+ * Config da IA (Wave 47) — tabela própria, NÃO `app_settings`: aquela
+ * guarda segredo de sistema e o portal precisa escrever esta aqui.
+ */
+async function loadConfig(): Promise<{ hours: string; default_on: boolean }> {
+  const rows = await dbGet<{ hours: string; default_on: boolean }>(
+    `whatsapp_ai_config?id=eq.1&select=hours,default_on`,
   );
-  return { enabled: (cfg[0]?.value || 'off') === 'on', state: null };
+  return { hours: rows[0]?.hours || '8-19', default_on: rows[0]?.default_on === true };
 }
 
 async function setAiEnabled(waId: string, enabled: boolean): Promise<void> {
@@ -206,12 +215,9 @@ async function decidirEAgir(opts: {
     if (!enabled) return { acted: false, why: 'IA desligada nesta conversa' };
     if (!isAiConfigured()) return { acted: false, why: 'OPENAI_API_KEY ausente' };
 
-    // Janela de atendimento configurável no banco (app_settings
-    // 'whatsapp_ai_hours'): "8-19" padrão, "0-24" pra atender sempre.
-    const cfgHoras = await dbGet<{ value: string }>(
-      `app_settings?key=eq.whatsapp_ai_hours&select=value`,
-    );
-    const janela = parseHoursSetting(cfgHoras[0]?.value);
+    // Janela de atendimento (whatsapp_ai_config.hours): "8-19" padrão,
+    // "0-24" pra atender sempre.
+    const janela = parseHoursSetting((await loadConfig()).hours);
     if (!isBusinessHour(new Date(), janela)) {
       return { acted: false, why: `fora do horário de atendimento (${janela.start}h-${janela.end}h BRT)` };
     }
