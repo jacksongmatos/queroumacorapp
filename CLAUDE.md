@@ -26,11 +26,22 @@
     derruba o 200 do webhook. Chamado SÓ em mensagem `in` de texto.
   - **Wave 46** (`/migrations/2026-08-29-whatsapp-ai.sql`):
     `whatsapp_ai_state` (chave por conversa + contador diário) e
-    `portal_alerts` (preco/orcamento/humano), RLS só `is_portal_admin()`;
-    `app_settings.whatsapp_ai_default` = padrão global ('off').
-  - Portal (v=20260829d): chave "IA ligada/desligada" no cabeçalho da
-    conversa, padrão global visível, faixa de alertas com "Abrir
-    conversa". Nome do contato na aba WhatsApp resolve por 3 fontes:
+    `portal_alerts` (preco/orcamento/humano), RLS só `is_portal_admin()`.
+  - **Wave 47** (`/migrations/2026-08-29-whatsapp-ai-config.sql`) — JÁ
+    EXECUTADA (2026-08-29). `whatsapp_ai_config` (linha única id=1:
+    `hours` '8-19'|'0-24'|'8-19 +dom', `default_on`) + `last_why`/
+    `last_at` em `whatsapp_ai_state`. **NÃO usar `app_settings` pra
+    config que o portal ESCREVE** — ela guarda segredo de sistema
+    (`push_internal_secret`, `push_notify_url`) e a RLS recusa a escrita,
+    corretamente (erro visto em produção: "new row violates row-level
+    security policy for table app_settings").
+  - Portal (v=20260829i): chave "IA ligada/desligada" por conversa +
+    botão 🕐 "Só horário comercial ⟷ Responde 24h" + faixa de alertas
+    com "Abrir conversa" + botão "✨ Sugerir" (copiloto: rota
+    `/api/whatsapp-evo/suggest`, ignora horário e teto porque quem pediu
+    foi uma pessoa; travas de preço seguem valendo). Embaixo da chave, a
+    ÚLTIMA DECISÃO da IA naquela conversa (`last_why`) — silêncio da IA
+    deixa de ser caça ao fantasma. Nome do contato resolve por 3 fontes:
     usuário do app > lead > pushName do WhatsApp.
   - **Próximas fases (não feitas):** classificação automática do lead
     pela IA (temperatura/resumo) e os funis de PROs e Clientes — a
