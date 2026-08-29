@@ -129,6 +129,13 @@
     vizinhos 422, media = metropolitana 311, baixa = interior 253).
     `LEAD_PITCH` ganhou a chave **'Engenharia'** (funil `fornece`) — 234
     leads caem nela.
+  - **PEGADINHA (2026-08-29): `leads` NÃO tinha `city` nem
+    `neighborhood`.** O portal lê `l.neighborhood || l.city` em 4 lugares
+    (por isso todo lead mostrava "—" embaixo do nome) e o antigo Busca AI
+    também mandava as duas no INSERT — o banco recusava com 42703 e o erro
+    era engolido. A migration de importação cria as duas colunas antes de
+    inserir. **Conferir o schema real antes de escrever INSERT em `leads`**
+    (a lista de colunas do código não bate com a tabela).
 
 - **REGRA: TODO horário do QueroUmaCor é BRASÍLIA (2026-08-28).** App e
   portal exibem sempre `America/Sao_Paulo`, independente do fuso do

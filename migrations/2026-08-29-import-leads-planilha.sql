@@ -1,29 +1,35 @@
 -- ════════════════════════════════════════════════════════════════════
 -- IMPORTAR 986 LEADS DA PLANILHA (contatos publicos do Google Maps, SP)
 --
--- Gerado de leads_cali_colors_sao_paulo_1000.xlsx. Colunas removidas a
--- pedido: E-mail, Verificacao, Fonte, Status, Observacoes e Distancia da
--- Cali Colors (todas tinham valor unico ou "a calcular" — nao diziam
--- nada). Tambem saiu "Pessoa identificada": 987 das 1000 eram "—".
+-- PASSO 1 — as colunas de localizacao NAO EXISTIAM na tabela `leads`.
+-- O portal ja tentava mostrar bairro/cidade ha tempos (por isso todo lead
+-- aparece com "—" embaixo do nome) e o antigo "Busca AI" tambem mandava
+-- essas colunas no INSERT — e o banco recusava calado, o que explica a
+-- base nunca ter crescido por ali.
 --
--- O que foi ORGANIZADO:
+-- PASSO 2 — os 986 leads. Colunas removidas a pedido: E-mail, Verificacao,
+-- Fonte, Status, Observacoes e Distancia (todas com valor unico ou "a
+-- calcular"). Saiu tambem "Pessoa identificada": 987 de 1000 eram "—".
+--
+-- O que foi organizado:
 --   * categoria crua do Google ("Architect", "Auto bodywork mechanic",
---     "Closed") traduzida pras chaves que o portal ja usa — assim o
---     filtro por categoria e a abordagem por WhatsApp funcionam;
---   * quando a categoria brigava com o segmento (a "Studio Grafite" veio
+--     "Closed") traduzida pras chaves que o portal ja usa, senao o filtro
+--     por categoria e a abordagem por WhatsApp nao funcionariam;
+--   * quando a categoria brigava com o segmento ("Studio Grafite" veio
 --     como "Lighting consultant"), o segmento ganhou;
---   * "Regiao" separada em CIDADE e BAIRRO: a planilha misturava bairro
---     de Guarulhos com o TERMO DE BUSCA usado no Maps ("arquiteto Osasco
---     SP") — 696 linhas eram termo de busca, nao regiao;
+--   * "Regiao" separada em CIDADE e BAIRRO — 696 linhas traziam o TERMO DE
+--     BUSCA do Maps ("arquiteto Osasco SP"), nao uma regiao;
 --   * prioridade pela distancia da loja: alta = Guarulhos, Aruja,
---     Itaquaquecetuba e Mairipora (422); media = regiao metropolitana
---     (311); baixa = interior, de Campinas a Bauru (253).
+--     Itaquaquecetuba e Mairipora (422); media = metropolitana (311);
+--     baixa = interior, de Campinas a Bauru (253).
 --
 -- Das 1000 linhas: 13 telefones repetidos e 1 sem telefone ficaram fora.
---
--- Rodar duas vezes NAO duplica: o NOT EXISTS compara os 8 ultimos digitos
--- do telefone contra o que ja esta na base.
+-- Rodar duas vezes NAO duplica (NOT EXISTS pelos 8 ultimos digitos).
 -- ════════════════════════════════════════════════════════════════════
+
+ALTER TABLE public.leads
+  ADD COLUMN IF NOT EXISTS city         text,
+  ADD COLUMN IF NOT EXISTS neighborhood text;
 
 INSERT INTO public.leads
   (name, phone, segment, category, city, neighborhood, address,
