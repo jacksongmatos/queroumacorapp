@@ -3734,23 +3734,30 @@ const WhatsAppTab = () => {
     // sistema e recusa escrita do portal, corretamente.
     const [st, cfg, al] = await Promise.all([
       supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at').limit(2000),
-      supa.from('whatsapp_ai_config').select('hours, default_on').eq('id',1).maybeSingle(),
+      supa.from('whatsapp_ai_config')
+        .select('hours, default_on, followup_on, last_sweep_at, last_sweep_note')
+        .eq('id',1).maybeSingle(),
       supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
         .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
     ]);
     const m = {}; const w = {};
     (st.data || []).forEach(r => {
-      m[r.wa_id] = !!r.enabled;
+      // enabled NULL (Wave 48) = "nunca foi decidido nesta conversa" →
+      // segue o padrao global. Guardamos o valor CRU de proposito.
+      m[r.wa_id] = r.enabled;
       if(r.last_why) w[r.wa_id] = { why: r.last_why, at: r.last_at };
     });
     setIaState(m); setIaWhy(w);
     setIaPadrao(Boolean(cfg.data && cfg.data.default_on));
     setAlertas(al.data || []);
     setHoras((cfg.data && cfg.data.hours) || '8-19');
+    setFollowupOn(!cfg.data || cfg.data.followup_on !== false);
+    setSweep(cfg.data ? { at: cfg.data.last_sweep_at, note: cfg.data.last_sweep_note } : null);
   };
 
-  // Sem linha propria, vale o padrao global — mesma regra do servidor.
-  const iaLigada = (waId) => (waId in iaState) ? iaState[waId] : iaPadrao;
+  // Sem decisao propria (linha ausente ou enabled NULL), vale o padrao
+  // global — mesma regra do servidor.
+  const iaLigada = (waId) => (typeof iaState[waId] === 'boolean') ? iaState[waId] : iaPadrao;
 
   // Janela de atendimento da IA (app_settings 'whatsapp_ai_hours').
   // '0-24' = responde a qualquer hora; '8-19' = so comercial (padrao).
@@ -3765,6 +3772,40 @@ const WhatsAppTab = () => {
       setHoras(foraDeHorarioLiberado ? '0-24' : '8-19');
       alert('Nao consegui salvar o horario da IA: ' + error.message);
     }
+  };
+
+  // FOLLOW-UP AUTOMATICO (Wave 48). Chave mestra + botao pra rodar na
+  // hora. A varredura de verdade roda de hora em hora no banco (pg_cron);
+  // aqui e so pra ver o resultado sem esperar.
+  const [followupOn, setFollowupOn] = useState(true);
+  const [sweep, setSweep] = useState(null);
+  const [sweeping, setSweeping] = useState(false);
+  const toggleFollowup = async () => {
+    const novo = !followupOn;
+    setFollowupOn(novo); // otimista
+    const { error } = await supa.from('whatsapp_ai_config')
+      .upsert({ id:1, followup_on: novo, updated_at: new Date().toISOString() }, { onConflict:'id' });
+    if(error){
+      setFollowupOn(!novo);
+      alert('Nao consegui salvar o follow-up: ' + error.message);
+    }
+  };
+  const rodarFollowup = async (dryRun) => {
+    if(sweeping) return;
+    setSweeping(true); setDiag(null);
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setDiag('Sessao expirada — entre de novo.'); setSweeping(false); return; }
+      const r = await fetch('/api/whatsapp-evo/followup', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, dryRun: !!dryRun })
+      });
+      let raw=''; try { raw = await r.text(); } catch(_){}
+      let j=null; try { j = JSON.parse(raw); } catch(_){}
+      setDiag(j || ('HTTP ' + r.status + ' — ' + (raw||'').slice(0,200)));
+      loadIa(); load();
+    } catch(e){ setDiag('Falha de rede: ' + ((e && e.message) || '?')); }
+    setSweeping(false);
   };
 
   const toggleIa = async (waId) => {
@@ -4012,11 +4053,38 @@ const WhatsAppTab = () => {
             <span style={{ width:8, height:8, borderRadius:'50%', background: foraDeHorarioLiberado ? C.p6 : C.border, display:'inline-block' }} />
             {foraDeHorarioLiberado ? '🕐 Responde 24h' : '🕐 Só horário comercial'}
           </button>
+          {/* Follow-up: cobra pendencia esquecida e reengaja quem sumiu. */}
+          <button onClick={toggleFollowup}
+            title={followupOn
+              ? 'Follow-up LIGADO: de hora em hora o sistema cobra pendencia sem resposta e da um toque em quem sumiu (1 por semana, so em horario de atendimento, nunca em quem pediu PARE). Clique pra desligar.'
+              : 'Follow-up DESLIGADO: ninguem e cobrado e ninguem recebe toque automatico. Clique pra ligar.'}
+            style={{ display:'flex', alignItems:'center', gap:7, background: followupOn ? C.p6+'1f' : '#fff',
+              border:'1px solid '+(followupOn ? C.p6 : C.border), color: followupOn ? C.p6 : C.muted,
+              borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background: followupOn ? C.p6 : C.border, display:'inline-block' }} />
+            {followupOn ? '🔁 Follow-up ligado' : '🔁 Follow-up desligado'}
+          </button>
+          <button onClick={()=>rodarFollowup(true)} disabled={sweeping}
+            title="Simula a varredura agora e mostra o que ela FARIA, sem enviar nada."
+            style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:600, cursor: sweeping?'wait':'pointer', color:C.muted }}>
+            {sweeping ? '…' : '👀 Simular'}
+          </button>
+          <button onClick={()=>{ if(confirm('Rodar o follow-up AGORA? Mensagens podem ser enviadas aos clientes.')) rodarFollowup(false); }} disabled={sweeping}
+            title="Roda a varredura de verdade agora, sem esperar a proxima hora."
+            style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:600, cursor: sweeping?'wait':'pointer', color:C.muted }}>
+            {sweeping ? '…' : '▶ Rodar'}
+          </button>
           <span style={{ fontSize:11, color:C.muted }}>
             IA por padrão em conversas novas: <strong style={{ color: iaPadrao ? C.p6 : C.muted }}>{iaPadrao ? 'ligada' : 'desligada'}</strong>
           </span>
         </span>
       </div>
+      {sweep && sweep.at ? (
+        <div style={{ fontSize:11, color:C.muted, marginTop:-4, marginBottom:10 }}>
+          Última varredura de follow-up: {new Date(sweep.at).toLocaleString('pt-BR')}
+          {sweep.note ? ' — ' + sweep.note : ''}
+        </div>
+      ) : null}
 
       {/* ALERTAS — pedido de preco/orcamento e escalonamentos da IA. */}
       {alertas.length > 0 ? (

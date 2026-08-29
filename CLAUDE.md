@@ -35,7 +35,34 @@
     (`push_internal_secret`, `push_notify_url`) e a RLS recusa a escrita,
     corretamente (erro visto em produção: "new row violates row-level
     security policy for table app_settings").
-  - Portal (v=20260829i): chave "IA ligada/desligada" por conversa +
+  - **Wave 48** (`/migrations/2026-08-29-whatsapp-followup.sql`) —
+    **PENDENTE de rodar no Supabase.** FOLLOW-UP AUTOMÁTICO: varredura de
+    hora em hora (pg_cron → pg_net → `POST /api/whatsapp-evo/followup
+    ?token=<EVOLUTION_WEBHOOK_TOKEN>`, URL guardada em `app_settings.
+    whatsapp_followup_url`) que olha TODAS as conversas já existentes
+    (janela de 30 dias) e faz 3 coisas: (1) alerta parado vira "⏰ sem
+    resposta há Xh" — cutucão interno, qualquer hora; (2) cobra o cliente
+    UMA vez ("seu pedido está na fila"), só em horário de atendimento;
+    (3) reengaja quem sumiu depois que a LOJA falou por último (inclui o
+    lead que nunca respondeu à abordagem), 1 toque por semana. Teto de 10
+    envios por varredura. Nunca fala com quem pediu PARE (`opted_out`)
+    nem com a conversa cuja chave o operador desligou na mão. Lógica pura
+    em `lib/api/_services/whatsapp-followup.ts` (`planFollowups`), 25
+    testes. **"Resposta de gente" = `whatsapp_messages.sent_by NOT NULL`**
+    — a IA grava NULL; é o único discriminador que existe.
+    - **Correção junto (importante):** `whatsapp_ai_state.enabled` era
+      NOT NULL DEFAULT false, mas várias escritas criam a linha de raspão
+      (`registrarDecisao`, marca de follow-up) — cada uma DESLIGAVA a IA
+      naquela conversa sem ninguém pedir (invisível só porque o padrão
+      global também é off). Agora **NULL = "nunca decidido" → vale o
+      padrão global**; a wave faz backfill (`enabled=false` sem PARE volta
+      pra NULL). Servidor (`isAiEnabledFor`) e portal (`iaLigada`) checam
+      `typeof enabled === 'boolean'`. **Nunca escrever `enabled` em
+      upsert que não seja a chave de propósito.**
+  - Portal (v=20260829j): chave "IA ligada/desligada" por conversa +
+    botão "🔁 Follow-up ligado/desligado" + "👀 Simular" (dryRun, mostra o
+    que a varredura FARIA sem enviar) + "▶ Rodar" + linha com a última
+    varredura (`last_sweep_at`/`last_sweep_note`) +
     botão 🕐 "Só horário comercial ⟷ Responde 24h" + faixa de alertas
     com "Abrir conversa" + botão "✨ Sugerir" (copiloto: rota
     `/api/whatsapp-evo/suggest`, ignora horário e teto porque quem pediu

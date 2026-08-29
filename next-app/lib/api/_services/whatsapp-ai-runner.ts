@@ -52,7 +52,11 @@ async function dbGet<T>(path: string): Promise<T[]> {
 
 interface AiState {
   wa_id: string;
-  enabled: boolean;
+  // NULL = "nunca foi decidido nesta conversa" → vale o padrão global.
+  // Existe porque VÁRIAS escritas criam a linha de raspão (registro da
+  // última decisão, marca de follow-up) e, com NOT NULL DEFAULT false,
+  // essas linhas desligavam a IA sem ninguém ter pedido.
+  enabled: boolean | null;
   replies_today: number;
   replies_date: string | null;
 }
@@ -78,9 +82,11 @@ export async function isAiEnabledFor(waId: string): Promise<{ enabled: boolean; 
   const rows = await dbGet<AiState>(
     `whatsapp_ai_state?wa_id=eq.${encodeURIComponent(waId)}&select=wa_id,enabled,replies_today,replies_date`,
   );
-  if (rows.length > 0) return { enabled: !!rows[0].enabled, state: rows[0] };
+  if (rows.length > 0 && typeof rows[0].enabled === 'boolean') {
+    return { enabled: rows[0].enabled, state: rows[0] };
+  }
   const cfg = await loadConfig();
-  return { enabled: cfg.default_on, state: null };
+  return { enabled: cfg.default_on, state: rows[0] || null };
 }
 
 /**
@@ -94,11 +100,16 @@ async function loadConfig(): Promise<{ hours: string; default_on: boolean }> {
   return { hours: rows[0]?.hours || '8-19', default_on: rows[0]?.default_on === true };
 }
 
-async function setAiEnabled(waId: string, enabled: boolean): Promise<void> {
+async function setAiEnabled(waId: string, enabled: boolean, optedOut?: boolean): Promise<void> {
   await fetch(rest('whatsapp_ai_state?on_conflict=wa_id'), {
     method: 'POST',
     headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
-    body: JSON.stringify({ wa_id: waId, enabled, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({
+      wa_id: waId,
+      enabled,
+      ...(optedOut === undefined ? {} : { opted_out: optedOut }),
+      updated_at: new Date().toISOString(),
+    }),
     signal: AbortSignal.timeout(DB_TIMEOUT_MS),
   }).catch(() => {});
 }
@@ -110,8 +121,8 @@ async function bumpReplyCount(waId: string, state: AiState | null): Promise<void
     method: 'POST',
     headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
     body: JSON.stringify({
+      // Sem `enabled` de propósito: contar resposta não é decidir a chave.
       wa_id: waId,
-      enabled: true,
       replies_today: zerou ? 1 : (state?.replies_today || 0) + 1,
       replies_date: hoje,
       updated_at: new Date().toISOString(),
@@ -237,7 +248,9 @@ async function decidirEAgir(opts: {
 
     // 1. Opt-out manda em tudo, inclusive fora do horário.
     if (isOptOut(opts.text)) {
-      await setAiEnabled(opts.waId, false);
+      // `opted_out` é definitivo: além de calar a IA, tira o número da
+      // varredura de follow-up (que ignora até a chave manual).
+      await setAiEnabled(opts.waId, false, true);
       await createAlert({
         kind: 'humano',
         waId: opts.waId,
