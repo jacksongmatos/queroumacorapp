@@ -225,7 +225,7 @@
     (TTL de 5min). Mantido também o `SEND_TIMEOUT_MS` de 25s — sem cold
     start, sobra folga.
 
-- **Portal: alterar o PERÍODO do PRO (2026-08-29, v=20260829r).** Antes, quem
+- **Portal: alterar o PERÍODO do PRO (2026-08-29, v=20260829s).** Antes, quem
   já era PRO só tinha "Remover" — pra esticar ou encurtar o plano era
   desligar e habilitar de novo (perdendo a data atual de vista). Agora o
   `ProBadgeCell` tem um ✏️ ao lado do "até DD/MM/AAAA" que reabre o mesmo
