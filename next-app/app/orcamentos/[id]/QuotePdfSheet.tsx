@@ -10,6 +10,7 @@
 // nativo ("Salvar como PDF"). Sem jspdf — economiza 150kb.
 
 import { useState } from 'react';
+import { showToast } from '@/lib/toast';
 import type { Quote } from '@/lib/types';
 
 interface PainterProfile {
@@ -47,7 +48,13 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
     setPdfBusy(true);
     try {
       const { shareOrDownloadQuotePdf } = await import('@/lib/pdf/quotePdf');
-      await shareOrDownloadQuotePdf(quote, painter);
+      const r = await shareOrDownloadQuotePdf(quote, painter);
+      // Sem isto o toque nao dizia nada: no app empacotado o arquivo cai
+      // na pasta Downloads e a tela fica igual — o pintor nao sabe se
+      // gerou. (No navegador o share sheet ja e o proprio aviso.)
+      if (r === 'downloaded') {
+        showToast('PDF salvo no aparelho (pasta Downloads).', 'success');
+      }
     } catch {
       // Último recurso: diálogo de impressão (funciona no navegador).
       try { window.print(); } catch { /* no-op */ }
