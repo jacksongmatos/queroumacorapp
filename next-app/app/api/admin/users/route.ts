@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     city?: unknown;
     state?: unknown;
     specialties?: unknown;
+    phone?: unknown;
   };
   try {
     body = (await readBody(request, { maxBytes: 1024 * 1024 })) as typeof body;

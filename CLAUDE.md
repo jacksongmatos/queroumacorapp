@@ -18,6 +18,14 @@
     com máscara também está proibido: o número deixaria de casar com
     `whatsapp_messages` e com os leads, que comparam dígitos. 4 testes
     novos em `__tests__/api/admin-users.test.ts`.
+  - **Campo novo no body de `/api/admin/users` = campo novo no TIPO do
+    `body`** (o `let body: { … }` no topo do `route.ts`). Esquecer disso
+    QUEBRA O DEPLOY: `next build` roda "Checking validity of types" e
+    falha com TS2339 ("Property 'phone' does not exist on type…"), o
+    Cloudflare não gera deployment nenhum e o painel mostra só "No
+    deployment available" — inclusive pros commits seguintes, que herdam
+    o erro. Aconteceu com `phone` em 2026-08-29. `vitest` NÃO pega isso
+    (roda por transpilação, sem type-check).
 
 - **Produtos do portal: carregamento (2026-08-29, v=20260829z).** O catálogo
   passou de **21 mil** linhas e a tela ficava minutos em "Carregando
