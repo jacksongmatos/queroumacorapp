@@ -794,6 +794,28 @@ const editUserSpecialties = async (profile, after) => {
   })) && after) after();
 };
 
+// Edita o telefone (vazio limpa). O backend normaliza pro mesmo formato
+// que o app grava (digitos com o 55 na frente) — telefone com mascara nao
+// casaria com as conversas do WhatsApp nem com os leads, que comparam
+// digitos.
+const editUserPhone = async (profile, after) => {
+  let v = prompt('Telefone / WhatsApp de ' + (profile.name || 'este perfil') + '\n(com DDD — ex.: 11 95976-5031; vazio pra limpar)', fmtTelefonePerfil(profile.phone) || '');
+  if (v === null) return;
+  v = v.trim();
+  // 10 a 15 digitos: cobre fixo e celular BR e tambem numero estrangeiro
+  // (que o servidor guarda verbatim, sem colar o 55).
+  const so = v.replace(/\D/g, '');
+  if (v && !(so.length >= 10 && so.length <= 15)) {
+    alert('Telefone invalido: use DDD + numero (ex.: 11 95976-5031).');
+    return;
+  }
+  if ((await adminUsers({
+    action: 'set_info',
+    userId: profile.id,
+    phone: v
+  })) && after) after();
+};
+
 // Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
 // pede confirmacao. O backend recusa formato invalido e e-mail em uso.
 const editUserEmail = async (profile, after) => {
@@ -1034,6 +1056,52 @@ const SpecialtiesCell = ({
     fontSize: 11
   }
 }, "\u270F\uFE0F"));
+
+// Telefone com lapis + atalho de WhatsApp. `profiles.phone` guarda digitos
+// ("5511959765031"), entao a exibicao passa pelo mesmo formatador das
+// conversas — sem ele a tabela mostrava a string crua.
+const fmtTelefonePerfil = raw => {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  return fmtWaPhone(normalizeLeadPhone(d) || d);
+};
+const PhoneCell = ({
+  profile,
+  after
+}) => {
+  const alvo = normalizeLeadPhone(profile.phone);
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      whiteSpace: 'nowrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", null, fmtTelefonePerfil(profile.phone) || '—'), alvo && /*#__PURE__*/React.createElement("a", {
+    href: 'https://wa.me/' + alvo,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    title: "Abrir no WhatsApp",
+    style: {
+      textDecoration: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 6,
+      padding: '2px 6px',
+      fontSize: 11
+    }
+  }, "\uD83D\uDCF1"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => editUserPhone(profile, after),
+    title: "Editar telefone",
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 6,
+      padding: '2px 6px',
+      cursor: 'pointer',
+      fontSize: 11
+    }
+  }, "\u270F\uFE0F"));
+};
 
 // Barra de selecao em massa (checkbox master + excluir selecionados).
 const BulkDeleteBar = ({
@@ -1909,7 +1977,7 @@ const PintoresList = ({
     checked: allSel,
     onChange: e => setSelIds(e.target.checked ? pintores.map(x => x.id) : []),
     title: "Selecionar todos"
-  })), ['Nome', 'Email', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
+  })), ['Nome', 'Email', 'Telefone', 'Tipo', 'Tag', 'Cidade', 'Estado', 'Especialidades', 'Avaliacao', 'Status', 'PRO', 'Portal', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -1957,6 +2025,14 @@ const PintoresList = ({
       fontSize: 12
     }
   }, /*#__PURE__*/React.createElement(EmailCell, {
+    profile: p,
+    after: fetchPintores
+  })), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: '10px 12px',
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement(PhoneCell, {
     profile: p,
     after: fetchPintores
   })), /*#__PURE__*/React.createElement("td", {
@@ -6966,7 +7042,7 @@ const ClientesList = () => {
     checked: allSel,
     onChange: e => setSelIds(e.target.checked ? clientes.map(x => x.id) : []),
     title: "Selecionar todos"
-  })), ['Nome', 'Tipo', '@Tag', 'Email', 'Cidade', 'Estado', 'Cadastro', 'Codigo Gerado', 'Codigo Utilizado', 'PRO', 'Portal'].map(h => /*#__PURE__*/React.createElement("th", {
+  })), ['Nome', 'Tipo', '@Tag', 'Email', 'Telefone', 'Cidade', 'Estado', 'Cadastro', 'Codigo Gerado', 'Codigo Utilizado', 'PRO', 'Portal'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -7034,6 +7110,14 @@ const ClientesList = () => {
         fontSize: 12
       }
     }, /*#__PURE__*/React.createElement(EmailCell, {
+      profile: c,
+      after: fetchClientes
+    })), /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: '10px 12px',
+        fontSize: 12
+      }
+    }, /*#__PURE__*/React.createElement(PhoneCell, {
       profile: c,
       after: fetchClientes
     })), /*#__PURE__*/React.createElement("td", {
@@ -8537,7 +8621,7 @@ const PortalUsersList = () => {
     style: {
       borderBottom: '2px solid ' + C.border
     }
-  }, ['Nome', 'Email', 'Papel', 'PRO', 'Criado em', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
+  }, ['Nome', 'Email', 'Telefone', 'Papel', 'PRO', 'Criado em', 'Acoes'].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       textAlign: 'left',
@@ -8576,6 +8660,14 @@ const PortalUsersList = () => {
       fontSize: 12
     }
   }, /*#__PURE__*/React.createElement(EmailCell, {
+    profile: u,
+    after: fetchUsers
+  })), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: '10px 12px',
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement(PhoneCell, {
     profile: u,
     after: fetchUsers
   })), /*#__PURE__*/React.createElement("td", {

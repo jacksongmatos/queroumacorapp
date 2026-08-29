@@ -118,12 +118,13 @@ export async function POST(request: NextRequest) {
       result = await setName({ userId, name: body?.name });
       auditChanges = { name: result.name, admin_email: email };
     } else if (action === 'set_info') {
-      // Cidade/estado/especialidades — campos livres do perfil.
+      // Cidade/estado/especialidades/telefone — campos livres do perfil.
       result = await setInfo({
         userId,
         city: body?.city,
         state: body?.state,
         specialties: body?.specialties,
+        phone: body?.phone,
       });
       auditChanges = { patch: result.patch, admin_email: email };
     } else if (action === 'sync_email') {

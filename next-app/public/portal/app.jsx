@@ -401,6 +401,28 @@ const editUserSpecialties = async (profile, after) => {
   if (await adminUsers({ action:'set_info', userId: profile.id, specialties: v }) && after) after();
 };
 
+// Edita o telefone (vazio limpa). O backend normaliza pro mesmo formato
+// que o app grava (digitos com o 55 na frente) — telefone com mascara nao
+// casaria com as conversas do WhatsApp nem com os leads, que comparam
+// digitos.
+const editUserPhone = async (profile, after) => {
+  let v = prompt(
+    'Telefone / WhatsApp de ' + (profile.name || 'este perfil') +
+    '\n(com DDD — ex.: 11 95976-5031; vazio pra limpar)',
+    fmtTelefonePerfil(profile.phone) || ''
+  );
+  if (v === null) return;
+  v = v.trim();
+  // 10 a 15 digitos: cobre fixo e celular BR e tambem numero estrangeiro
+  // (que o servidor guarda verbatim, sem colar o 55).
+  const so = v.replace(/\D/g, '');
+  if (v && !(so.length >= 10 && so.length <= 15)) {
+    alert('Telefone invalido: use DDD + numero (ex.: 11 95976-5031).');
+    return;
+  }
+  if (await adminUsers({ action:'set_info', userId: profile.id, phone: v }) && after) after();
+};
+
 // Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
 // pede confirmacao. O backend recusa formato invalido e e-mail em uso.
 const editUserEmail = async (profile, after) => {
@@ -541,6 +563,30 @@ const SpecialtiesCell = ({ profile, after }) => (
       style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
+
+// Telefone com lapis + atalho de WhatsApp. `profiles.phone` guarda digitos
+// ("5511959765031"), entao a exibicao passa pelo mesmo formatador das
+// conversas — sem ele a tabela mostrava a string crua.
+const fmtTelefonePerfil = (raw) => {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  return fmtWaPhone(normalizeLeadPhone(d) || d);
+};
+
+const PhoneCell = ({ profile, after }) => {
+  const alvo = normalizeLeadPhone(profile.phone);
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+      <span>{fmtTelefonePerfil(profile.phone) || '—'}</span>
+      {alvo && (
+        <a href={'https://wa.me/' + alvo} target="_blank" rel="noopener noreferrer" title="Abrir no WhatsApp"
+          style={{ textDecoration:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', fontSize:11 }}>📱</a>
+      )}
+      <button onClick={() => editUserPhone(profile, after)} title="Editar telefone"
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+    </span>
+  );
+};
 
 // Barra de selecao em massa (checkbox master + excluir selecionados).
 const BulkDeleteBar = ({ list, selIds, setSelIds, after }) => {
@@ -994,7 +1040,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
               <th style={{ padding:'8px 12px', width:34 }}>
                 <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? pintores.map(x => x.id) : [])} title="Selecionar todos" />
               </th>
-              {['Nome','Email','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
+              {['Nome','Email','Telefone','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -1013,6 +1059,7 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
                 </div>
               </td>
               <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><PhoneCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px', fontSize:12 }}><TagCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><CityCell profile={p} after={fetchPintores} /></td>
@@ -3254,7 +3301,7 @@ const ClientesList = () => {
               <th style={{ padding:'8px 12px', width:34 }}>
                 <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? clientes.map(x => x.id) : [])} title="Selecionar todos" />
               </th>
-              {['Nome','Tipo','@Tag','Email','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado','PRO','Portal'].map(h => (
+              {['Nome','Tipo','@Tag','Email','Telefone','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado','PRO','Portal'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -3277,6 +3324,7 @@ const ClientesList = () => {
                 <td style={{ padding:'10px 12px' }}><RoleSelect profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px' }}><TagCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={c} after={fetchClientes} /></td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><PhoneCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px' }}><CityCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px' }}><StateCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>
@@ -3863,7 +3911,7 @@ const PortalUsersList = () => {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:600 }}>
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['Nome','Email','Papel','PRO','Criado em','Acoes'].map(h => (
+              {['Nome','Email','Telefone','Papel','PRO','Criado em','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -3878,6 +3926,7 @@ const PortalUsersList = () => {
                   </div>
                 </td>
                 <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={u} after={fetchUsers} /></td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><PhoneCell profile={u} after={fetchUsers} /></td>
                 <td style={{ padding:'10px 12px' }}><span style={{ background:C.p5+'22', color:C.p5, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{u.role || u.user_type || 'admin'}</span></td>
                 <td style={{ padding:'10px 12px' }}>
                   <ProBadgeCell profile={u} onChange={fetchUsers} />
