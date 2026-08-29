@@ -98,24 +98,21 @@
     conectividade + apikey + estado da instância a partir do edge e
     reporta as envs sem vazar segredo; botão "🔌 Testar conexao" no topo
     da aba WhatsApp do portal.
-  - **Cold start do Render — 2 camadas (2026-08-29).** (1) Workflow
-    `.github/workflows/keepalive-evolution.yml` pinga a URL base a cada
-    10min pra o serviço não dormir (e o WhatsApp não desconectar). **Em
-    2026-08-29 01:00 UTC ele ainda NÃO tinha disparado nenhuma execução
-    AGENDADA** (só a manual) — cron do GitHub é best-effort e demora pra
-    "pegar" workflow novo; se continuar mudo, trocar por cron externo
-    (cron-job.org/UptimeRobot) ou Render pago. Obs.: o workflow "Uptime
-    monitor" está `disabled_manually` desde 17/08 — foi desligado no
-    painel, não é apagão de agendamento. (2) Pré-aquecimento no portal
-    (v=20260829b): a aba WhatsApp cutuca o Render ao abrir, a cada 5min,
-    ao voltar pra aba e ao começar a digitar (`aquecerEvolution`), então
-    o envio não espera nada. `acordarEvolution` só espera quando NÃO há
-    ping recente (TTL 5min) — aí mantém o caminho rápido de 2,5s +
-    "Acordando o servidor…" até 60s. **Falha de rede não conta mais como
-    "servidor de pé"** (a versão anterior marcava `respondeu=true` no
-    catch): com `mode:'no-cors'`, rejeição = erro real de rede, não prova
-    nada. Não trocar essa espera por timeout no edge — o CF morre antes
-    dos ~50s do cold start (`SEND_TIMEOUT_MS` = 25s).
+  - **Render é PAGO desde 2026-08-29 (Starter US$7/mês) — NÃO dorme mais.**
+    O plano free dormia com 15min parado e derrubava a conexão do
+    WhatsApp junto (o pior efeito; a lentidão de ~50s era só o sintoma
+    visível). O keep-alive por cron do GitHub
+    (`.github/workflows/keepalive-evolution.yml`) foi **removido**: além
+    de nunca ter disparado nenhuma execução AGENDADA, o histórico do
+    outro cron `*/10` deste repo (o "Uptime monitor", 1118 runs) mostra
+    o que o agendador do GitHub entrega de verdade — 12 a 36min de
+    intervalo de dia e **45 a 79min de madrugada**, contra os 15min de
+    sono do Render. Ou seja: não resolveria. Não recriar esse workflow.
+    O pré-aquecimento do portal (`aquecerEvolution`, v=20260829b) FICA:
+    agora só cobre os segundos de reinício pós-deploy do Evolution, e
+    `acordarEvolution` virou fallback que praticamente nunca espera
+    (TTL de 5min). Mantido também o `SEND_TIMEOUT_MS` de 25s — sem cold
+    start, sobra folga.
 
 - **Portal: e-mail sumido ("—") e sem lápis — consertado (2026-08-29,
   v=20260829e).** Duas coisas diferentes apareciam como um bug só. (1)
