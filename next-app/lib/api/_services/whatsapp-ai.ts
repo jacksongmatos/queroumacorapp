@@ -28,7 +28,18 @@ export const BUSINESS_START_HOUR = 8;
 export const BUSINESS_END_HOUR = 19; // responde até 18:59
 
 /** Teto de respostas automáticas por conversa por dia (anti-loop). */
-export const MAX_AUTO_REPLIES_PER_DAY = 12;
+export const MAX_AUTO_REPLIES_PER_DAY = 30;
+
+/**
+ * O "dia" do contador é o dia de BRASÍLIA, não o UTC.
+ *
+ * Com `toISOString()` cru o contador virava às 21h daqui — conversa da
+ * noite era cortada no meio e o dia seguinte começava antes da hora.
+ * Regra do projeto: todo horário do QueroUmaCor é America/Sao_Paulo.
+ */
+export function diaBrt(now: Date = new Date()): string {
+  return new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 export interface LeadContext {
   name?: string | null;

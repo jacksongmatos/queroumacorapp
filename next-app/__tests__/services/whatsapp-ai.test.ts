@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSystemPrompt,
   clientAsksForPrice,
+  diaBrt,
   isBusinessHour,
   isOptOut,
   replyLeaksPrice,
@@ -73,6 +74,17 @@ describe('isBusinessHour — horário de Brasília', () => {
   it('domingo nunca responde', () => {
     // 2026-08-30 é domingo. 15:00 UTC = 12:00 BRT.
     expect(isBusinessHour(utc('2026-08-30T15:00:00Z'))).toBe(false);
+  });
+});
+
+describe('diaBrt — o "dia" do teto de respostas é o de Brasília', () => {
+  it('23h de Brasília ainda é o MESMO dia (com UTC cru já teria virado)', () => {
+    // 2026-08-29T02:54Z = 28/08 23:54 em Brasília.
+    expect(diaBrt(new Date('2026-08-29T02:54:00Z'))).toBe('2026-08-28');
+  });
+  it('vira à meia-noite daqui, não às 21h', () => {
+    expect(diaBrt(new Date('2026-08-29T02:59:00Z'))).toBe('2026-08-28'); // 23:59 BRT
+    expect(diaBrt(new Date('2026-08-29T03:01:00Z'))).toBe('2026-08-29'); // 00:01 BRT
   });
 });
 

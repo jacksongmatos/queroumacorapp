@@ -19,7 +19,10 @@
     `__tests__/services/whatsapp-ai.test.ts`.
   - **Etapa B — IA meio-termo.** `whatsapp-ai.ts` (prompt + travas +
     horário comercial de Brasília 8h-19h, sem domingo + opt-out PARE +
-    modelo por env `WHATSAPP_AI_MODEL`, default gpt-4o-mini) e
+    modelo por env `WHATSAPP_AI_MODEL`, default gpt-4o-mini). **Teto de
+    30 respostas automáticas por CONVERSA por DIA** (anti-loop/custo) —
+    o "dia" é o de Brasília via `diaBrt()`, não o UTC (com `toISOString`
+    cru o contador virava às 21h daqui e cortava conversa de noite). e
     `whatsapp-ai-runner.ts` (cola com o webhook; ordem: opt-out > IA
     desligada > fora do horário > teto de 12/dia > responde). Ao escalar,
     DESLIGA a IA na conversa e cria alerta. Runner é best-effort: nunca

@@ -19,6 +19,7 @@ import {
   isAiConfigured,
   isBusinessHour,
   isOptOut,
+  diaBrt,
   MAX_AUTO_REPLIES_PER_DAY,
   parseHoursSetting,
   shouldSendAway,
@@ -132,7 +133,7 @@ async function setAiEnabled(waId: string, enabled: boolean, optedOut?: boolean):
 }
 
 async function bumpReplyCount(waId: string, state: AiState | null): Promise<void> {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = diaBrt();
   const zerou = !state || state.replies_date !== hoje;
   await fetch(rest('whatsapp_ai_state?on_conflict=wa_id'), {
     method: 'POST',
@@ -372,7 +373,7 @@ async function decidirEAgir(opts: {
       return { acted: avisou, why: avisou ? `${fora} — mandei a mensagem de ausência` : fora };
     }
 
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = diaBrt();
     const jaHoje = state && state.replies_date === hoje ? state.replies_today : 0;
     if (jaHoje >= MAX_AUTO_REPLIES_PER_DAY) {
       return { acted: false, why: 'teto diário de respostas atingido' };
