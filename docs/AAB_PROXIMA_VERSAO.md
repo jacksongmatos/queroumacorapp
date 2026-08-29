@@ -16,6 +16,43 @@ Contexto técnico: `docs/ANDROID_BUILD.md`.
 
 ---
 
+## 0. PRAZO DA PLAY STORE: target API 36 até 1º de novembro ⏰
+
+O Play Console abriu aviso de política: **"App must target Android 16 (API
+level 36) or higher"**, com *Action by Nov 1* e prorrogação já concedida.
+Hoje o app está em **API 35**. Passado o prazo, o Google **não aceita mais
+atualização nenhuma** — o app continua na loja, mas congelado.
+
+Isso não é código nosso: **quem define o target SDK é o WebIntoApp**, na
+hora de gerar o AAB. Então a primeira pergunta, antes de qualquer opção de
+painel, é:
+
+> **O WebIntoApp já gera com targetSdk 36?**
+
+- **Se sim:** regerar resolve, e é a hora de marcar tudo da seção 1 de uma
+  vez.
+- **Se não:** abrir chamado com eles AGORA. Sem targetSdk 36 não há
+  atualização depois de 1º/11 — inclusive a que destrava a galeria.
+
+### Efeito colateral do target novo: tela de borda a borda
+
+Do targetSdk 35 em diante o Android desenha o app **de borda a borda** por
+padrão: a WebView passa por baixo da barra de status e da barra de
+navegação. O app inteiro já reservava espaço com `env(safe-area-inset-*)`
+(TopNav, BottomNav, AppShell, bottom sheets, toasts), mas no Android esses
+valores voltam **zero** enquanto a página não declara `viewport-fit:
+cover` — ou seja, a reserva estava no código e não valia nada.
+
+Corrigido pelo lado web em 29/08 (`viewport` do `app/layout.tsx`). Como o
+app já está em API 35, isso provavelmente **já afetava** aparelhos com
+Android 15.
+
+**Conferir depois de gerar o AAB novo:** o cabeçalho não pode ficar embaixo
+do relógio, e a barra de baixo não pode ficar embaixo dos botões do
+sistema.
+
+---
+
 ## 1. Opções pra procurar no painel do WebIntoApp
 
 ### 1.1 Upload de arquivo / câmera — `onShowFileChooser` 🔴 URGENTE

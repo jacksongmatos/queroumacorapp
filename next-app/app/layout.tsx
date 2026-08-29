@@ -66,6 +66,21 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
+  // `viewport-fit: cover` (2026-08-29). O app inteiro já reserva espaço com
+  // `env(safe-area-inset-*)` — TopNav, BottomNav, AppShell, bottom sheets,
+  // toasts. Só que no Android esses valores voltam ZERO enquanto a página
+  // não declara `cover`: a reserva existia no código e não valia nada.
+  //
+  // Isso deixou de ser detalhe: a partir do targetSdk 35 (Android 15) o
+  // sistema desenha o app DE BORDA A BORDA por padrão — a WebView passa por
+  // baixo da barra de status e da barra de navegação. Sem `cover`, o
+  // cabeçalho fica embaixo do relógio e a barra de baixo embaixo dos botões
+  // do sistema. Com `cover`, os `env()` que já estão no código passam a
+  // devolver a medida real e cada barra se afasta sozinha.
+  //
+  // No iPhone o efeito é o mesmo que o `black-translucent` do PWA já pedia,
+  // agora consistente entre os dois sistemas.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
