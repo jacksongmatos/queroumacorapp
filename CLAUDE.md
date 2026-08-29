@@ -51,8 +51,13 @@
     vê quem escreveu de madrugada, a varredura cobra depois ("sem resposta
     há Xh") e NÃO repete a promessa. Config: `whatsapp_ai_config.away_on`
     (chave no portal) + `away_text` (texto custom, NULL = padrão).
-  - **Wave 48** (`/migrations/2026-08-29-whatsapp-followup.sql`) —
-    **PENDENTE de rodar no Supabase.** FOLLOW-UP AUTOMÁTICO: varredura de
+  - **Wave 48** (`/migrations/2026-08-29-whatsapp-followup.sql`) — **JÁ
+    EXECUTADA no Supabase (2026-08-29), incluindo os complementos
+    `away_on`/`away_text`/`away_at` e `last_read_at`. Cron confirmado:
+    `run_whatsapp_followup()` devolveu 200 com
+    `{"ok":true,"ran":true,"conversas":5}` e o `app_settings.
+    whatsapp_followup_url` já está com o token real. Não pedir pra rodar
+    de novo.** FOLLOW-UP AUTOMÁTICO: varredura de
     hora em hora (pg_cron → pg_net → `POST /api/whatsapp-evo/followup
     ?token=<EVOLUTION_WEBHOOK_TOKEN>`, URL guardada em `app_settings.
     whatsapp_followup_url`) que olha TODAS as conversas já existentes
