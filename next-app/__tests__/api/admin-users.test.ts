@@ -188,6 +188,15 @@ describe('POST /api/admin/users', () => {
       if (url.includes('/rpc/check_rate_limit')) {
         return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
       }
+      // Sem esta linha o caller não tem portal_access e a rota devolve 403
+      // ANTES de olhar a action — foi o que quebrou este teste. A ordem é
+      // proposital (autorização antes de validar payload) e está coberta
+      // pelo teste seguinte.
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
       return Promise.resolve(new Response('[]', { status: 200 }));
     });
     const { POST } = await import('@/app/api/admin/users/route');
@@ -195,5 +204,29 @@ describe('POST /api/admin/users', () => {
       mkReq({ accessToken: 'good', action: 'bogus', userId: 'target' })
     );
     expect(res.status).toBe(400);
+  });
+
+  it('caller sem portal_access leva 403 — autorização vem antes de validar a action', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: false }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'promote', userId: 'target' })
+    );
+    expect(res.status).toBe(403);
   });
 });

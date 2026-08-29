@@ -139,6 +139,8 @@ export function isOptOut(text: string): boolean {
 export function buildSystemPrompt(opts: {
   lead?: LeadContext | null;
   produtos?: string[];
+  /** Ninguém da loja falou ainda nesta conversa → hora de se apresentar. */
+  primeiroContato?: boolean;
 }): string {
   const l = opts.lead;
   const quem = l?.name ? `O contato se chama ${l.name}.` : '';
@@ -169,8 +171,26 @@ export function buildSystemPrompt(opts: {
     '5. Você é um assistente; se perguntarem, diga que é o atendimento virtual',
     '   da Cali Colors e que uma pessoa pode continuar o atendimento.',
     '',
+    // Primeira mensagem: recepção calorosa. Sem isso a IA respondia um
+    // "oi" seco de robô — quem chega no WhatsApp da loja tem que sentir
+    // que foi bem recebido, e saber COM QUEM está falando.
+    opts.primeiroContato
+      ? [
+          'ESTA É A PRIMEIRA MENSAGEM DA CONVERSA. Antes de responder o que',
+          'a pessoa perguntou, RECEPCIONE bem:',
+          '  • cumprimente (use o nome dela se você souber);',
+          '  • diga que aqui é a Cali Colors, loja de tintas em Guarulhos;',
+          '  • agradeça o contato;',
+          '  • e então responda / pergunte no que pode ajudar.',
+          'Tom acolhedor e humano, de quem gosta de atender — nunca robótico.',
+          'Nesta primeira mensagem pode usar até 4 frases.',
+        ].join('\n')
+      : '',
+    '',
     'ESTILO: português do Brasil, informal e direto, como se fosse WhatsApp.',
-    'No máximo 3 frases curtas. Sem emoji em excesso (no máximo 1).',
+    opts.primeiroContato
+      ? 'Depois da apresentação, mantenha as respostas curtas.'
+      : 'No máximo 3 frases curtas. Sem emoji em excesso (no máximo 1).',
     '',
     'Responda SEMPRE em JSON puro, sem markdown, no formato:',
     '{"resposta":"texto pro cliente","precisa_humano":true|false,"motivo":"preco|orcamento|humano|null"}',
@@ -210,13 +230,21 @@ export async function generateAiReply(opts: {
 }): Promise<AiReplyResult> {
   const ultima = [...opts.turns].reverse().find((t) => t.direction === 'in');
   const textoCliente = ultima?.body || '';
+  // Ninguém da loja escreveu ainda → é o primeiro contato, a IA se
+  // apresenta. Se a loja já abordou (abordagem de lead, por exemplo),
+  // não repete a apresentação.
+  const primeiroContato = !opts.turns.some((t) => t.direction === 'out');
 
   // Trava 1: pedido explícito de preço/orçamento nem chega no modelo.
   const pedido = clientAsksForPrice(textoCliente);
   if (pedido) {
+    // Mesmo escalando, recepciona: pode ser a PRIMEIRA coisa que a pessoa
+    // fala com a loja, e um "vou verificar" seco espanta.
     return {
-      reply:
-        'Boa pergunta! Vou verificar isso com a equipe e te respondo em breve, tá? 👍',
+      reply: primeiroContato
+        ? 'Oi! Aqui é a Cali Colors, loja de tintas em Guarulhos 🎨 Obrigado pelo contato! ' +
+          'Sobre valores eu já chamo alguém da equipe pra te passar direitinho — te respondo em breve, tá?'
+        : 'Boa pergunta! Vou verificar isso com a equipe e te respondo em breve, tá? 👍',
       escalate: true,
       reason: pedido,
     };
@@ -242,7 +270,14 @@ export async function generateAiReply(opts: {
         max_tokens: 300,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: buildSystemPrompt({ lead: opts.lead, produtos: opts.produtos }) },
+          {
+            role: 'system',
+            content: buildSystemPrompt({
+              lead: opts.lead,
+              produtos: opts.produtos,
+              primeiroContato,
+            }),
+          },
           ...historico,
         ],
       }),
