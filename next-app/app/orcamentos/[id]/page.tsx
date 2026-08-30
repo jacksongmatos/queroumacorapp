@@ -30,7 +30,7 @@ import {
 } from '@/lib/services/pipeline';
 import type { Quote } from '@/lib/types';
 import { QuotePdfSheet } from './QuotePdfSheet';
-import { urlParaBaixar } from '@/lib/pdf/quotePdf';
+import { urlParaBaixar, waMeTarget } from '@/lib/pdf/quotePdf';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -94,7 +94,7 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
   // Não é a tela de compartilhar do Android — essa não existe pro lado web
   // dentro da WebView (ver a nota sobre `intent:` em quotePdf.ts). Cada
   // opção aqui é uma URL comum que o wrapper já sabe abrir.
-  const [enviarPdf, setEnviarPdf] = useState<{ url: string; texto: string } | null>(null);
+  const [enviarPdf, setEnviarPdf] = useState<{ url: string; texto: string; arquivo: string } | null>(null);
 
   // Painter profile = dono do orçamento (quote.painter_id), NÃO o user logado.
   // Antes usei useProfile() do current user, mas se admin abrir orçamento de
@@ -371,7 +371,7 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
         quote,
         painterProfile,
         { text: buildQuoteText(quote), phone: quote.client_phone || null },
-        (url, texto) => setEnviarPdf({ url, texto }),
+        (url, texto, arquivo) => setEnviarPdf({ url, texto, arquivo }),
       );
       if (result === 'downloaded') {
         await dialog.alert(
@@ -775,18 +775,18 @@ function EscolherAppSheet({
   onClose,
   onPick,
 }: {
-  info: { url: string; texto: string };
+  info: { url: string; texto: string; arquivo: string };
   clientPhone: string | null;
   onClose: () => void;
   onPick: (destino: string) => void;
 }) {
   const [copiado, setCopiado] = useState(false);
   const txt = encodeURIComponent(info.texto);
-  const digitos = (clientPhone || '').replace(/\D/g, '');
-  const zap = digitos
-    ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${txt}`
-    : `https://wa.me/?text=${txt}`;
-  const baixarUrl = urlParaBaixar(info.url, 'orcamento.pdf');
+  // Regra do repo: 11 dígitos só é celular BR se o 3º for 9 — '55' cego já
+  // transformou contato dos EUA em número inexistente (o 502 de 2026-08-28).
+  const alvo = waMeTarget(clientPhone);
+  const zap = alvo ? `https://wa.me/${alvo}?text=${txt}` : `https://wa.me/?text=${txt}`;
+  const baixarUrl = urlParaBaixar(info.url, info.arquivo);
 
   const opcoes: Array<{ id: string; label: string; run: () => void }> = [
     {
@@ -799,13 +799,13 @@ function EscolherAppSheet({
     },
     {
       id: 'whats',
-      label: digitos ? '💬 WhatsApp do cliente' : '💬 WhatsApp',
+      label: alvo ? '💬 WhatsApp do cliente' : '💬 WhatsApp',
       run: () => onPick(zap),
     },
     {
       id: 'sms',
       label: '✉️ Mensagem (SMS)',
-      run: () => onPick(`sms:${digitos ? digitos : ''}?body=${txt}`),
+      run: () => onPick(`sms:${(clientPhone || '').replace(/\D/g, '')}?body=${txt}`),
     },
     {
       id: 'email',

@@ -392,7 +392,7 @@ export interface WhatsAppFallback {
  * nativo (ver a nota sobre `intent:` lá embaixo). Sem ele, vai direto pro
  * WhatsApp.
  */
-export type LinkPronto = (url: string, texto: string) => void;
+export type LinkPronto = (url: string, texto: string, filename: string) => void;
 
 /**
  * Compartilha OU baixa um Blob de PDF qualquer. Extraído do fluxo do
@@ -457,7 +457,20 @@ export async function shareOrDownloadPdfBlob(
       // "QueroUmaCor isn't responding". O remédio era pior que a doença —
       // e ainda mentia, dizendo "Download concluído".
       //
-      // Sem link não há caminho: melhor falhar dizendo isso.
+      // MAS: navegador Android DE VERDADE (Firefox etc., que não passou no
+      // canShare de arquivo lá em cima) baixa por âncora+blob numa boa — só
+      // no wrapper isso vira o "Save As" vazio. O discriminador é o
+      // `navigator.share`: todo navegador Android real tem; a WebView do
+      // wrapper não tem NENHUM. (Achado da revisão de 2026-08-30 — o gate
+      // largado pra /Android/i tinha tirado o download local de quem podia
+      // usá-lo.)
+      if (typeof nav?.share === 'function') {
+        const local = URL.createObjectURL(blob);
+        clickDownloadAnchor(local, filename);
+        setTimeout(() => URL.revokeObjectURL(local), 5000);
+        return 'downloaded';
+      }
+      // Wrapper sem link: não há caminho — melhor falhar dizendo isso.
       return 'failed';
     }
     // Texto cortado em 1200: ele viaja dentro da URL do destino, e escopo
@@ -474,15 +487,15 @@ export async function shareOrDownloadPdfBlob(
     // (`onLink`), com destinos que são URLs comuns que o wrapper já sabe
     // abrir.
     if (onLink) {
-      onLink(url, texto);
+      onLink(url, texto, filename);
       return 'shared-link';
     }
 
     if (whatsapp) {
       // Sem lista mas com destino: WhatsApp, o caminho conhecido.
-      const digitos = (whatsapp.phone || '').replace(/\D/g, '');
-      const destino = digitos
-        ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${encodeURIComponent(texto)}`
+      const alvo = waMeTarget(whatsapp.phone);
+      const destino = alvo
+        ? `https://wa.me/${alvo}?text=${encodeURIComponent(texto)}`
         : `https://wa.me/?text=${encodeURIComponent(texto)}`;
       // window.open costuma ser barrado (já saímos do gesto do toque no
       // await do upload); o wrapper intercepta o wa.me na navegação.
@@ -602,6 +615,22 @@ async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | 
     reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-rota' });
     return null;
   }
+}
+
+/**
+ * Dígitos prontos pro wa.me, na REGRA DO REPO (2026-08-28, a mesma do
+ * `normalizeWhatsAppTarget` do servidor): 12+ dígitos = já tem DDI, passa
+ * verbatim; 11 dígitos SÓ é celular BR se o 3º for 9 (o contato dos EUA
+ * `16503154274` tem 11 e não é); 10-11 BR locais ganham '55'. O `'55' +`
+ * cego daqui era exatamente o erro que derrubou o envio com 502.
+ */
+export function waMeTarget(raw: string | null | undefined): string {
+  const d = (raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length > 11) return d;
+  if (d.length === 11 && d[2] !== '9') return d;
+  if (d.length >= 10) return '55' + d;
+  return d;
 }
 
 /** Mesma URL, mas pedindo download em vez de abrir. */

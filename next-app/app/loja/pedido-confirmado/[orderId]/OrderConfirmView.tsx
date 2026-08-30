@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
+import { showToast } from '@/lib/toast';
 import type { CartItem } from '@/lib/services/mkt';
 
 interface OrderData {
@@ -123,7 +124,14 @@ export function OrderConfirmView({ orderId }: { orderId: string }) {
     setPdfBusy(true);
     try {
       const { shareOrDownloadOrderPdf } = await import('@/lib/pdf/orderPdf');
-      await shareOrDownloadOrderPdf(order);
+      const r = await shareOrDownloadOrderPdf(order);
+      // 'failed' RETORNA, não lança — sem isto o toque era mudo no app
+      // instalado (achado da revisão de 2026-08-30): nem toast, nem erro.
+      if (r === 'downloaded') {
+        showToast('PDF salvo no aparelho (pasta Downloads).', 'success');
+      } else if (r === 'failed') {
+        showToast('Não consegui preparar o PDF agora. Tente de novo em instantes.', 'error');
+      }
     } catch {
       // Último recurso: diálogo de impressão (funciona no navegador).
       try { window.print(); } catch { /* no-op */ }
