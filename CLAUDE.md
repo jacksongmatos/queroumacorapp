@@ -10,6 +10,22 @@
   não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
   build nativo" como se fosse um plano.**
 
+- **`quotes.post_id` NÃO EXISTIA — Wave 53 (2026-08-30), PENDENTE.**
+  "Enviar orçamento" morria com `42703: column "post_id" of relation
+  "quotes" does not exist`. A **Wave 42** recriou `create_quote_from_post`
+  passando a GRAVAR `post_id` (antes a RPC recebia `p_post_id` e jogava
+  fora em silêncio), mas a coluna nunca existiu — a migration foi escrita a
+  partir do que o CÓDIGO mandava, não do schema real. Enquanto o parâmetro
+  era ignorado ninguém notava; ao passar a gravar, estourou na cara do
+  cliente. **Mesmo erro de `leads.city`.** `/migrations/
+  2026-08-30-quotes-post-id.sql` cria a coluna (FK pra `posts` com ON
+  DELETE SET NULL) + índice parcial `(painter_id, post_id)`, que é o que o
+  filtro de leads comprados consulta (`lib/services/leads.ts`) e que nunca
+  casou por falta da coluna.
+  - **REGRA: conferir o schema real antes de escrever INSERT/UPDATE em SQL.**
+    A lista de colunas do código não é a da tabela. Já custou dois
+    incidentes em dois dias.
+
 - **Coluna TELEFONE nas listas de pessoas (2026-08-29, v=20260829zb).**
   Nenhuma aba mostrava o telefone de quem se cadastrou, embora
   `profiles.phone` já viesse no `select('*')`. Coluna nova (com ✏️ pra
