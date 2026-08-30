@@ -10,6 +10,29 @@
   não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
   build nativo" como se fosse um plano.**
 
+- **Wave 54 (2026-08-30) — contador de seguidores em DOBRO — JÁ
+  EXECUTADA no Supabase (2026-08-30). Não pedir pra rodar de novo.**
+  Perfil novo com 3 follows mostrava 6 (2× exato, sem backfill no meio =
+  veio só de trigger; o app não escreve nos contadores). Causa: DOIS
+  triggers de contador vivos em `follows` — um legado além do
+  `trg_maintain_follow_counts` da Wave 40, que só derruba o homônimo.
+  `/migrations/2026-08-30-follow-counts-dedupe.sql` derruba todo trigger
+  de contador não-canônico (filtro: a função toca followers/following/
+  posts_count — triggers de pontos/notificação passam) e RECONTA os três
+  contadores da verdade. **Lição: wave nova de trigger precisa varrer
+  duplicatas por FUNÇÃO, não só pelo próprio nome.**
+
+- **Wave 55 (2026-08-30) — origem das mensagens do WhatsApp — JÁ
+  EXECUTADA no Supabase (2026-08-30). Não pedir pra rodar de novo.**
+  `whatsapp_messages.origin` ('portal'|'ia'|'celular'): rota de envio
+  grava portal; runner da IA + follow-up gravam ia; o webhook grava
+  celular em toda 'out' que chega de fora (o eco do que portal/IA
+  enviaram colide no `message_id` UNIQUE e o ignore-duplicates descarta —
+  só sobra o que nasceu no aparelho). Portal (v=20260830a): chip
+  📱 celular / 🖥️ portal / 🤖 IA por conversa (lista + cabeçalho),
+  decidido pela ÚLTIMA 'out' com origem conhecida; histórico sem pista
+  fica sem chip. Backfill só do afirmável (sent_by NOT NULL = portal).
+
 - **PDF do orçamento: as DUAS causas de produção nomeadas (2026-08-30).**
   A telemetria `pdf-link-fail` provou: (1) o bucket `exports` EXISTE mas as
   **policies da Wave 41 nunca rodaram** ("new row violates row-level
