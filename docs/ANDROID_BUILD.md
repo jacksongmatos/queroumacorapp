@@ -368,9 +368,21 @@ webView.webChromeClient = object : WebChromeClient() {
 }
 ```
 
-Paliativo já no ar pelo lado web: `lib/utils/filePickerWatch.ts` percebe
-que a galeria não abriu (a página não perdeu o foco) e manda a pessoa usar
-o navegador — em vez de deixar no silêncio.
+Pelo lado web (no ar desde 30/08), a falha deixou de ser um beco:
+`lib/utils/filePickerWatch.ts` percebe que a galeria não abriu (a página
+não perdeu o foco) e o app abre o `components/GaleriaBloqueadaSheet` com
+duas saídas — **📷 tirar foto na hora** (`components/CameraCapture.tsx`:
+`getUserMedia` + canvas geram o File sem passar pelo seletor) e **🌐 abrir
+no navegador** (URL `intent:`, que é o que a WebView entende como "sair pro
+Chrome"). O botão de câmera também fica visível o tempo todo ao lado de
+"Trocar foto", do dropzone de publicar e no cadastro.
+
+Atenção: a câmera na WebView depende de o wrapper responder ao
+`WebChromeClient.onPermissionRequest` (`VIDEO_CAPTURE`) e declarar
+`android.permission.CAMERA` — no painel do WebIntoApp, ligar *Camera
+access* junto com *File upload*. A diferença é que a falha de câmera
+**aparece** (a promessa rejeita, vira `camera-fail` no `/admin/errors`),
+enquanto a da galeria é silêncio.
 
 **Correção**, no projeto Android:
 

@@ -73,6 +73,6 @@ export function watchFilePicker(
   return watchAppLeave(onNaoAbriu, { timeoutMs: opts?.timeoutMs });
 }
 
-/** Texto único pros dois lugares que sofrem com isso. */
-export const AVISO_SELETOR =
-  'O app não conseguiu abrir a galeria. Abra o QueroUmaCor pelo navegador do celular (queroumacor.com.br) e tente por lá — pelo navegador funciona.';
+// O texto do aviso saiu daqui em 2026-08-30: quando o seletor não abre, o
+// app não avisa mais por toast (some em 3s e não resolve nada) — abre o
+// `components/GaleriaBloqueadaSheet`, que oferece a câmera e o navegador.

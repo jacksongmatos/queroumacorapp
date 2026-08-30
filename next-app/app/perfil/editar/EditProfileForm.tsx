@@ -42,7 +42,10 @@ import {
 import { fetchLogo, uploadLogo, saveLogo } from '@/lib/services/aiLogo';
 import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
-import { AVISO_SELETOR, watchFilePicker } from '@/lib/utils/filePickerWatch';
+import { CameraCapture } from '@/components/CameraCapture';
+import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
+import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
+import { watchFilePicker } from '@/lib/utils/filePickerWatch';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
@@ -115,6 +118,10 @@ export function EditProfileForm() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const cancelarAvisoRef = useRef<(() => void) | null>(null);
+  // Galeria não abriu (app empacotado) / câmera aberta na mão.
+  const [galeriaBloqueada, setGaleriaBloqueada] = useState(false);
+  const [camAberta, setCamAberta] = useState(false);
+  const podeCamera = useOfereceCamera();
   // Logo do negócio: lê do banco via fetchLogo (sincronizado com camisetas
   // — mesma URL `profiles.business_logo_url` que ShirtCustomizer/AiArt usam).
   // Upload faz commit imediato (não espera o submit do form principal) pra
@@ -299,6 +306,15 @@ export function EditProfileForm() {
     cancelarAvisoRef.current?.();
     const f = e.target.files?.[0] ?? null;
     e.target.value = ''; // permite reescolher o MESMO arquivo depois
+    await processarAvatar(f);
+  }
+
+  /**
+   * Sobe a foto de perfil. Recebe o File pronto — venha ele da galeria ou
+   * da câmera (`CameraCapture`), que é o caminho de quem está no app
+   * empacotado, onde a galeria não abre.
+   */
+  async function processarAvatar(f: File | null) {
     if (!f || !user || avatarBusy) return;
     if (!f.type.startsWith('image/')) {
       showToast('Selecione um arquivo de imagem', 'error');
@@ -448,15 +464,17 @@ export function EditProfileForm() {
             htmlFor="avatar-input"
             onClick={() => {
               // WebView do wrapper pode nao abrir a galeria — sem erro
-              // nenhum. Ver lib/utils/filePickerWatch.
+              // nenhum. Ver lib/utils/filePickerWatch. Quando não abre, o
+              // app oferece a câmera (que não passa pelo seletor) em vez
+              // de um toast que some em 3s.
+              cancelarAvisoRef.current?.();
               cancelarAvisoRef.current = watchFilePicker(() => {
-                showToast(AVISO_SELETOR, 'error');
+                setGaleriaBloqueada(true);
                 reportFailure('picker-fail', new Error('galeria nao abriu'), {
                   userId: user?.id,
                   ctx: 'perfil/editar',
                 });
-              },
-              );
+              });
             }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
             style={{ opacity: avatarBusy ? 0.6 : 1, pointerEvents: avatarBusy ? 'none' : 'auto' }}
@@ -470,11 +488,44 @@ export function EditProfileForm() {
             className="sr-only"
             onChange={handleAvatarChange}
           />
+          {podeCamera ? (
+            <button
+              type="button"
+              onClick={() => setCamAberta(true)}
+              disabled={avatarBusy}
+              className="inline-block ml-2 px-4 py-2 bg-white border border-[color:var(--color-border)] rounded-xl text-sm font-semibold"
+              style={{ opacity: avatarBusy ? 0.6 : 1 }}
+              data-testid="avatar-camera"
+            >
+              📷 Tirar foto
+            </button>
+          ) : null}
           <p className="text-xs text-[color:var(--color-muted)] mt-1">
             JPG/PNG/WebP — máx 5MB. Salva sozinha ao escolher.
           </p>
         </div>
       </div>
+
+      {/* Câmera: o caminho que NÃO depende do seletor de arquivos — no app
+          empacotado a galeria não abre (ver lib/utils/filePickerWatch). */}
+      <CameraCapture
+        open={camAberta}
+        facing="user"
+        title="Foto de perfil"
+        onClose={() => setCamAberta(false)}
+        onCapture={(f) => void processarAvatar(f)}
+        ctx="perfil/editar"
+        userId={user?.id}
+      />
+      <GaleriaBloqueadaSheet
+        open={galeriaBloqueada}
+        onClose={() => setGaleriaBloqueada(false)}
+        onFoto={(f) => void processarAvatar(f)}
+        facing="user"
+        urlNoNavegador="https://queroumacor.com.br/perfil/editar"
+        ctx="perfil/editar"
+        userId={user?.id}
+      />
 
       {/* Logo do negócio — espelha profiles.business_logo_url, mesma fonte
           que /camisetas e arte-ig leem. Upload imediato (não espera submit

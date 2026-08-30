@@ -249,19 +249,45 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
-- **App instalado NÃO ABRE A GALERIA (2026-08-29) — é o wrapper, não o
-  código.** Um pintor (Bruno) não conseguia trocar a foto de perfil NEM
-  publicar portfólio: as duas coisas dependem do mesmo
-  `<input type="file">`, e a WebView do WebIntoApp só abre a galeria se o
-  wrapper implementar `onShowFileChooser` + permissões. Sem isso o toque
-  **não faz nada** — sem erro, sem log (a tabela `errors` estava limpa; o
-  e-mail dele ESTAVA confirmado e o perfil completo, então não era gate
-  nosso). **Correção de raiz é no painel do WebIntoApp, no próximo AAB**
-  (junto com "Pull to Refresh" — ver `docs/ANDROID_BUILD.md`).
-  Paliativo no código: `lib/utils/filePickerWatch.ts` arma um relógio ao
-  tocar no seletor e, se em 1,8s a página não perdeu o foco (o que
-  acontece quando a galeria abre), mostra "abra pelo navegador". Só arma
-  no Android, pra não dar falso positivo. 6 testes.
+- **App instalado NÃO ABRE A GALERIA — a saída pela CÂMERA (2026-08-30).**
+  Voltou em 30/08 com DOIS pintores (Bruno Valentim e Leo): não trocam a
+  foto de perfil nem publicam portfólio. Causa é a mesma de 29/08 e não é
+  código nosso: as duas telas usam o mesmo `<input type="file">` e a
+  WebView do WebIntoApp só abre a galeria se o wrapper implementar
+  `onShowFileChooser` + permissões de mídia. Sem isso o toque **não faz
+  nada** — sem erro, sem log. **Correção de raiz continua no painel do
+  WebIntoApp** (`docs/AAB_PROXIMA_VERSAO.md` §1.1).
+  - **O que mudou agora: o beco virou saída.** `filePickerWatch` (relógio
+    de 1,8s; se a página não perdeu o foco, o seletor não abriu) deixou de
+    mostrar um toast vermelho — o toast some em 3s, manda DIGITAR
+    "queroumacor.com.br" e não resolve nada. No lugar entra o
+    `components/GaleriaBloqueadaSheet` com duas saídas: **📷 tirar foto
+    agora** (`components/CameraCapture.tsx` — `getUserMedia` + canvas
+    geram o File na mão, sem passar pelo seletor) e **🌐 abrir no
+    navegador** (`lib/utils/openInBrowser.ts`: URL `intent:` com
+    `action=VIEW`, que é o que a WebView entende como "sair pro Chrome";
+    `window.open` dentro dela abre outra tela do próprio app). Se nem o
+    intent abrir, copia o link.
+  - O botão de câmera também aparece **sem precisar falhar antes**: ao
+    lado de "Trocar foto" (`/perfil/editar`), embaixo do dropzone de
+    `/publicar` e no passo 2 do cadastro. Só em tela de toque com câmera
+    (`ofereceCamera`) — no desktop o seletor funciona e o botão só poluiria.
+  - **A câmera na WebView é a MESMA classe de dependência** (o wrapper
+    precisa responder `onPermissionRequest` + `android.permission.CAMERA`):
+    pode falhar também. A diferença é que ela falha **visível** — a
+    promessa rejeita, a tela diz o que fazer e o `/admin/errors` recebe
+    `camera-fail`. Também tem TETO DE TEMPO de 12s no `getUserMedia`: em
+    WebView promessa pendurada não rejeita (mesma lição do `getSession`).
+  - **Bug real achado junto — o aviso DUPLICADO da foto do pintor.** O
+    `inputRef.click()` do `MediaUploader` sobe (bubbling) até a div do
+    dropzone, que tem `onClick={handleSelect}`: um toque armava DOIS
+    relógios e mostrava a mensagem duas vezes (a segunda chamada de
+    `click()` é barrada pelo próprio browser, então parava em 2). Corrigido
+    com `stopPropagation` no input + cancelar o relógio anterior antes de
+    armar outro. Teste de regressão em
+    `__tests__/components/MediaUploaderPicker.test.tsx` (falha sem o fix).
+  - Foto tirada aqui sai no máximo com 1600px no lado maior e JPEG 0.9 —
+    foto crua de celular passa dos 5MB do avatar.
 
 - **Conta NOVA barrada de publicar: sessão diz "e-mail não confirmado"
   (2026-08-29).** `getSession()` devolve o usuário GUARDADO no
