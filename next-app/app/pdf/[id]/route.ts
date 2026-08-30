@@ -25,7 +25,11 @@ export async function GET(
   const { id } = await params;
   // Formato estrito do id gerado pela rota de upload: nada além dele
   // sai daqui — isto NÃO é um proxy genérico pro bucket.
-  if (!/^[a-z0-9]{10,24}$/.test(id)) {
+  // {8,24} e não {10,24}: o gerador cria 9 caracteres, e a primeira
+  // versão daqui exigia 10 — todo link curto respondia "não encontrado"
+  // (visto em produção, 2026-08-30). Dois arquivos com o mesmo número
+  // mágico é convite pra esse desencontro.
+  if (!/^[a-z0-9]{8,24}$/.test(id)) {
     return new Response('não encontrado', { status: 404 });
   }
   let base: string;
