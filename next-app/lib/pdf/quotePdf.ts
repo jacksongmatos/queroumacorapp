@@ -478,16 +478,26 @@ export async function shareOrDownloadPdfBlob(
       return 'shared-link';
     }
 
-    // Sem lista: WhatsApp, que é o caminho conhecido.
-    const digitos = (whatsapp?.phone || '').replace(/\D/g, '');
-    const destino = digitos
-      ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${encodeURIComponent(texto)}`
-      : `https://wa.me/?text=${encodeURIComponent(texto)}`;
-    // window.open costuma ser barrado (já saímos do gesto do toque no
-    // await do upload); o wrapper intercepta o wa.me na navegação.
-    const aba = window.open(destino, '_blank', 'noopener,noreferrer');
-    if (!aba) window.location.href = destino;
-    return 'shared-link';
+    if (whatsapp) {
+      // Sem lista mas com destino: WhatsApp, o caminho conhecido.
+      const digitos = (whatsapp.phone || '').replace(/\D/g, '');
+      const destino = digitos
+        ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${encodeURIComponent(texto)}`
+        : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+      // window.open costuma ser barrado (já saímos do gesto do toque no
+      // await do upload); o wrapper intercepta o wa.me na navegação.
+      const aba = window.open(destino, '_blank', 'noopener,noreferrer');
+      if (!aba) window.location.href = destino;
+      return 'shared-link';
+    }
+
+    // Sem lista e sem WhatsApp = o chamador quer o ARQUIVO ("Salvar PDF").
+    // Bug de 2026-08-29 corrigido em 2026-08-30: este caso caía no wa.me
+    // vazio — quem pedia pra salvar era jogado no WhatsApp. `?download=`
+    // liga o Content-Disposition: attachment e o DownloadManager baixa sem
+    // navegar a página.
+    window.location.href = urlParaBaixar(url, filename);
+    return 'downloaded';
   }
 
   // Navegador: download direto via anchor + blob.
@@ -502,33 +512,72 @@ export async function shareOrDownloadPdfBlob(
 // `?download=` (Content-Disposition: attachment). Best-effort: null =
 // caller usa o fallback local.
 async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | null> {
+  // 1) Sessão com TETO. `getSession()` pode fazer refresh pela rede e, no
+  //    WebView, promessa pendurada não rejeita nunca (regra do boot,
+  //    2026-08-22) — sem o race o toque ficava "pensando" pra sempre.
+  let uid = '';
+  let token = '';
   try {
     const { getSupabase } = await import('@/lib/supabase');
     const sb = getSupabase();
-    const { data } = await sb.auth.getSession();
-    const uid = data.session?.user?.id;
-    if (!uid) {
-      reportFailure('pdf-link-fail', new Error('sem sessao'), { ctx: 'exports' });
-      return null;
+    const result = await Promise.race([
+      sb.auth.getSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+    ]);
+    uid = result?.data.session?.user?.id || '';
+    token = result?.data.session?.access_token || '';
+
+    // 2) Caminho rápido: upload direto do app pro bucket. Quando o bucket e
+    //    as policies estão certos, resolve sem passar pelo edge.
+    if (uid) {
+      const path = `${uid}/${Date.now()}-${filename}`;
+      const up = await sb.storage
+        .from('exports')
+        .upload(path, blob, { contentType: 'application/pdf', upsert: true });
+      if (!up.error) {
+        const pub = sb.storage.from('exports').getPublicUrl(path);
+        // URL CRUA, sem `?download=`: o link ABRE o PDF em vez de baixar
+        // calado. Quem quer salvar usa `urlParaBaixar()`.
+        if (pub.data?.publicUrl) return pub.data.publicUrl;
+      } else {
+        reportFailure('pdf-link-fail', up.error, { userId: uid, ctx: 'exports-direto' });
+      }
     }
-    const path = `${uid}/${Date.now()}-${filename}`;
-    const up = await sb.storage
-      .from('exports')
-      .upload(path, blob, { contentType: 'application/pdf', upsert: true });
-    if (up.error) {
-      reportFailure('pdf-link-fail', up.error, { userId: uid, ctx: 'exports' });
-      return null;
-    }
-    const pub = sb.storage.from('exports').getPublicUrl(path);
-    // URL CRUA, sem `?download=`. Assim o Android ABRE o PDF no visualizador
-    // em vez de baixar calado — e de dentro do visualizador a pessoa tem o
-    // compartilhar do sistema, com todos os apps. Quem quiser o arquivo
-    // salvo usa `urlParaBaixar()`.
-    return pub.data?.publicUrl || null;
   } catch (e) {
-    // Falhar aqui deixava a pessoa sem nada e sem explicação. Agora vira
-    // linha no /admin/errors com o motivo (bucket, sessão, rede).
-    reportFailure('pdf-link-fail', e, { ctx: 'exports' });
+    reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-direto' });
+  }
+
+  // 3) Plano B — o SERVIDOR sobe (2026-08-30). Em produção o upload direto
+  //    falhou desde o primeiro dia (bucket/policy/sessão — qualquer um cala
+  //    o caminho de cima). A rota usa a service role, então não depende de
+  //    policy, e cria o próprio bucket se ele não existir. Só precisa do
+  //    token do usuário.
+  if (!token) {
+    reportFailure('pdf-link-fail', new Error('sem sessao pro plano B'), { ctx: 'exports-rota' });
+    return null;
+  }
+  try {
+    const r = await fetch('/api/quote-pdf-upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/pdf',
+        Authorization: `Bearer ${token}`,
+        'x-filename': filename,
+      },
+      body: blob,
+    });
+    if (!r.ok) {
+      const corpo = await r.text().catch(() => '');
+      reportFailure('pdf-link-fail', new Error(`rota ${r.status}: ${corpo.slice(0, 200)}`), {
+        userId: uid || null,
+        ctx: 'exports-rota',
+      });
+      return null;
+    }
+    const j = (await r.json().catch(() => null)) as { url?: string } | null;
+    return j?.url || null;
+  } catch (e) {
+    reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-rota' });
     return null;
   }
 }
