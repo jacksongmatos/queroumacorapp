@@ -99,7 +99,19 @@ export async function POST(request: NextRequest) {
     const filename =
       (cru.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 80) ||
         'orcamento').replace(/(\.pdf)?$/, '') + '.pdf';
-    const path = `${sub}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${filename}`;
+
+    // Dois formatos de path, um por degrau:
+    //  - degrau 1 (service role): `l/<id curto>.pdf` — vira o link
+    //    `queroumacor.com.br/pdf/<id>` (rota /pdf/[id] redireciona). O
+    //    endereço gigante do Supabase no WhatsApp era queixa do usuário.
+    //  - degrau 2 (token do usuário): PRECISA começar no uid, porque é a
+    //    policy que valida; o link sai comprido, mas esse degrau é raro.
+    const idCurto = Array.from(crypto.getRandomValues(new Uint8Array(9)))
+      .map((b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36])
+      .join('');
+    const pathCurto = `l/${idCurto}.pdf`;
+    const pathUid = `${sub}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${filename}`;
+    const path = auth.user && serviceKey ? pathCurto : pathUid;
 
     const upload = (bearer: string, key: string) =>
       fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${path}`, {
@@ -159,10 +171,14 @@ export async function POST(request: NextRequest) {
       throw new ServiceError('não consegui guardar o PDF', 502);
     }
 
-    return jsonResponse({
-      ok: true,
-      url: `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${path}`,
-    });
+    // Link curto no NOSSO domínio quando o path é o curto; senão o público
+    // do Storage (degrau 2). `new URL(request.url).origin` acompanha o
+    // domínio que atendeu (produção ou preview .pages.dev).
+    const url =
+      path === pathCurto
+        ? `${new URL(request.url).origin}/pdf/${idCurto}`
+        : `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${path}`;
+    return jsonResponse({ ok: true, url });
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
     console.error('quote-pdf-upload:', e);

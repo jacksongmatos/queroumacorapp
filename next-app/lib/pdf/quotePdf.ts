@@ -16,6 +16,33 @@
 import type { Quote } from '@/lib/types';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
+/**
+ * Texto que a fonte embutida do jsPDF consegue DESENHAR. A Helvetica dele
+ * é WinAnsi (Latin-1): acento do pt-BR passa, mas emoji vira lixo na tela
+ * ("Ø=ÜÌ" — visto em produção em 2026-08-30, no bloco ESCOPO TÉCNICO).
+ * Tudo fora do alcance da fonte é removido; espaço duplicado, recolhido.
+ */
+export function textoPdfSeguro(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .replace(/[^\n\r\t\u0020-\u007E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]/gu, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^[ \t]+/gm, '');
+}
+
+/**
+ * Tira emoji do texto que viaja em URL (wa.me, sms:). O wrapper decodifica
+ * a URL errado e cada emoji chega como "�" no WhatsApp — melhor a linha
+ * limpa ("Tipo: ...") que uma interrogação por item.
+ */
+export function semEmoji(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}]/gu, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^[ \t]+/gm, '');
+}
+
 export interface PainterForPdf {
   name?: string | null;
   tag?: string | null;
@@ -89,10 +116,11 @@ export async function generateQuotePdfBlob(
   // Prioridade: name primeiro, business_name como fallback. Antes priorizávamos
   // business_name (legado vanilla salvava label do logo da camisa lá), o que
   // poluía os PDFs com nomes de teste antigos.
-  const painterName =
+  const painterName = textoPdfSeguro(
     painter?.name ||
     painter?.business_name ||
-    (painter?.tag ? '@' + painter.tag : 'Pintor');
+    (painter?.tag ? '@' + painter.tag : 'Pintor'),
+  ) || 'Pintor';
   const painterTag = painter?.tag ? '@' + painter.tag : '';
   const painterPhone = painter?.phone || '';
   const painterEmail = painter?.email || '';
@@ -184,14 +212,14 @@ export async function generateQuotePdfBlob(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(INK);
-  doc.text(quote.client_name || 'Cliente não informado', margin + 4, cardY + 5.5);
+  doc.text(textoPdfSeguro(quote.client_name) || 'Cliente não informado', margin + 4, cardY + 5.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(85, 85, 85);
   const clientLine = [
-    quote.client_phone ? `Tel: ${quote.client_phone}` : '',
-    quote.address ? `End: ${quote.address}` : '',
+    quote.client_phone ? `Tel: ${textoPdfSeguro(quote.client_phone)}` : '',
+    quote.address ? `End: ${textoPdfSeguro(quote.address)}` : '',
   ]
     .filter(Boolean)
     .join('   ·   ');
@@ -209,7 +237,9 @@ export async function generateQuotePdfBlob(
 
   const rows: Array<[string, string]> = [];
   const push = (k: string, v: string | null | undefined) => {
-    if (v && v !== '—') rows.push([k, String(v)]);
+    // textoPdfSeguro em todo valor dinâmico: campo livre pode trazer emoji.
+    const limpo = textoPdfSeguro(v == null ? '' : String(v));
+    if (limpo && limpo !== '—') rows.push([k, limpo]);
   };
 
   push('Serviço', quote.service_type || quote.title || '');
@@ -266,7 +296,7 @@ export async function generateQuotePdfBlob(
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(INK);
-    const scopeLines = doc.splitTextToSize(quote.description, contentW) as string[];
+    const scopeLines = doc.splitTextToSize(textoPdfSeguro(quote.description), contentW) as string[];
     for (const line of scopeLines) {
       if (cursorY > 280) {
         doc.addPage();
@@ -475,7 +505,8 @@ export async function shareOrDownloadPdfBlob(
     }
     // Texto cortado em 1200: ele viaja dentro da URL do destino, e escopo
     // muito longo estoura o limite do intent do Android. O PDF tem tudo.
-    const texto = `${(whatsapp?.text || title || '').slice(0, 1200)}\n\n${url}`;
+    // Sem emoji: o wrapper decodifica a URL errado e cada emoji chega "�".
+    const texto = `${semEmoji(whatsapp?.text || title || '').slice(0, 1200)}\n\n${url}`;
 
     // NÃO TENTAR `intent:` COM ACTION_SEND AQUI (tentado e revertido em
     // 2026-08-29). A ideia era pedir a tela de compartilhar do próprio
@@ -530,91 +561,97 @@ async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | 
   //    2026-08-22) — sem o race o toque ficava "pensando" pra sempre.
   let uid = '';
   let token = '';
+  let sb: Awaited<ReturnType<typeof importaSupabase>> | null = null;
   try {
-    const { getSupabase } = await import('@/lib/supabase');
-    const sb = getSupabase();
+    sb = await importaSupabase();
     const result = await Promise.race([
       sb.auth.getSession(),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
     ]);
     uid = result?.data.session?.user?.id || '';
     token = result?.data.session?.access_token || '';
+  } catch {
+    // Sem cliente/sessão: os dois caminhos abaixo vão reportar.
+  }
 
-    // 2) Caminho rápido: upload direto do app pro bucket. Quando o bucket e
-    //    as policies estão certos, resolve sem passar pelo edge.
-    if (uid) {
+  // 2) Caminho principal: a ROTA. Além de imune a policy (service role) e
+  //    de criar o bucket se faltar, é ela que devolve o LINK CURTO
+  //    (queroumacor.com.br/pdf/<id>) — o endereço gigante do Supabase no
+  //    WhatsApp era queixa do usuário (2026-08-30).
+  if (token) {
+    try {
+      const chamarRota = (t: string) =>
+        fetch('/api/quote-pdf-upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            Authorization: `Bearer ${t}`,
+            'x-filename': filename,
+          },
+          body: blob,
+        });
+
+      let r = await chamarRota(token);
+
+      if (r.status === 401 && sb) {
+        // Visto em produção (2026-08-30): token com assinatura válida que o
+        // GoTrue não reconhece mais — sessão rotacionada (app + Chrome na
+        // mesma conta). Renovar a sessão UMA vez resolve; com teto, porque
+        // no WebView promessa de rede pendurada não rejeita nunca.
+        try {
+          const renovada = await Promise.race([
+            sb.auth.refreshSession(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+          ]);
+          const novoToken = renovada?.data.session?.access_token;
+          if (novoToken && novoToken !== token) r = await chamarRota(novoToken);
+        } catch {
+          // Renovação falhou: o 401 original segue pro report abaixo.
+        }
+      }
+
+      if (r.ok) {
+        const j = (await r.json().catch(() => null)) as { url?: string } | null;
+        if (j?.url) return j.url;
+      } else {
+        const corpo = await r.text().catch(() => '');
+        reportFailure('pdf-link-fail', new Error(`rota ${r.status}: ${corpo.slice(0, 200)}`), {
+          userId: uid || null,
+          ctx: 'exports-rota',
+        });
+      }
+    } catch (e) {
+      reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-rota' });
+    }
+  } else {
+    reportFailure('pdf-link-fail', new Error('sem sessao'), { ctx: 'exports-rota' });
+  }
+
+  // 3) Reserva: upload direto do app pro bucket (precisa das policies da
+  //    Wave 41). O link sai no formato longo do Storage — funciona, só não
+  //    é bonito. Melhor um link feio que nenhum.
+  if (uid && sb) {
+    try {
       const path = `${uid}/${Date.now()}-${filename}`;
       const up = await sb.storage
         .from('exports')
         .upload(path, blob, { contentType: 'application/pdf', upsert: true });
       if (!up.error) {
         const pub = sb.storage.from('exports').getPublicUrl(path);
-        // URL CRUA, sem `?download=`: o link ABRE o PDF em vez de baixar
-        // calado. Quem quer salvar usa `urlParaBaixar()`.
         if (pub.data?.publicUrl) return pub.data.publicUrl;
       } else {
         reportFailure('pdf-link-fail', up.error, { userId: uid, ctx: 'exports-direto' });
       }
+    } catch (e) {
+      reportFailure('pdf-link-fail', e, { userId: uid, ctx: 'exports-direto' });
     }
-  } catch (e) {
-    reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-direto' });
   }
+  return null;
+}
 
-  // 3) Plano B — o SERVIDOR sobe (2026-08-30). Em produção o upload direto
-  //    falhou desde o primeiro dia (bucket/policy/sessão — qualquer um cala
-  //    o caminho de cima). A rota usa a service role, então não depende de
-  //    policy, e cria o próprio bucket se ele não existir. Só precisa do
-  //    token do usuário.
-  if (!token) {
-    reportFailure('pdf-link-fail', new Error('sem sessao pro plano B'), { ctx: 'exports-rota' });
-    return null;
-  }
-  try {
-    const chamarRota = (t: string) =>
-      fetch('/api/quote-pdf-upload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/pdf',
-          Authorization: `Bearer ${t}`,
-          'x-filename': filename,
-        },
-        body: blob,
-      });
-
-    let r = await chamarRota(token);
-
-    if (r.status === 401) {
-      // Visto em produção (2026-08-30): token com assinatura válida que o
-      // GoTrue não reconhece mais — sessão rotacionada (app + Chrome na
-      // mesma conta). Renovar a sessão UMA vez resolve; com teto, porque
-      // no WebView promessa de rede pendurada não rejeita nunca.
-      try {
-        const { getSupabase } = await import('@/lib/supabase');
-        const renovada = await Promise.race([
-          getSupabase().auth.refreshSession(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
-        ]);
-        const novoToken = renovada?.data.session?.access_token;
-        if (novoToken && novoToken !== token) r = await chamarRota(novoToken);
-      } catch {
-        // Renovação falhou: o 401 original segue pro report abaixo.
-      }
-    }
-
-    if (!r.ok) {
-      const corpo = await r.text().catch(() => '');
-      reportFailure('pdf-link-fail', new Error(`rota ${r.status}: ${corpo.slice(0, 200)}`), {
-        userId: uid || null,
-        ctx: 'exports-rota',
-      });
-      return null;
-    }
-    const j = (await r.json().catch(() => null)) as { url?: string } | null;
-    return j?.url || null;
-  } catch (e) {
-    reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-rota' });
-    return null;
-  }
+async function importaSupabase() {
+  const { getSupabase } = await import('@/lib/supabase');
+  return getSupabase();
 }
 
 /**

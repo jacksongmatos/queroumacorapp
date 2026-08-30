@@ -46,3 +46,34 @@ describe('nomeArquivoOrcamento', () => {
     expect(nomeArquivoOrcamento(base({ id: '' }))).toBe('orcamento-novo.pdf');
   });
 });
+
+// Os dois filtros de texto novos (2026-08-30): emoji não pode chegar nem
+// na fonte do jsPDF (vira "Ø=ÜÌ") nem na URL do wa.me (o wrapper entrega
+// "�" no WhatsApp). Acento do pt-BR passa ileso nos dois.
+import { semEmoji, textoPdfSeguro } from '../../lib/pdf/quotePdf';
+
+describe('textoPdfSeguro', () => {
+  it('remove emoji e preserva acento', () => {
+    expect(textoPdfSeguro('📌 Tipo: Pintura três cômodos, 80 m²'))
+      .toBe('Tipo: Pintura três cômodos, 80 m²');
+  });
+  it('linhas do escopo ficam limpas, uma por linha', () => {
+    expect(textoPdfSeguro('📌 Tipo: X\n🧱 Superfície: Chão'))
+      .toBe('Tipo: X\nSuperfície: Chão');
+  });
+  it('vazio e null não quebram', () => {
+    expect(textoPdfSeguro(null)).toBe('');
+    expect(textoPdfSeguro('')).toBe('');
+  });
+});
+
+describe('semEmoji', () => {
+  it('tira o emoji do texto do WhatsApp mas mantém o resto', () => {
+    expect(semEmoji('📌 Tipo: Pintura externa / fachada'))
+      .toBe('Tipo: Pintura externa / fachada');
+  });
+  it('acento e pontuação sobrevivem', () => {
+    expect(semEmoji('Área: 80 m² — orçamento válido'))
+      .toBe('Área: 80 m² — orçamento válido');
+  });
+});
