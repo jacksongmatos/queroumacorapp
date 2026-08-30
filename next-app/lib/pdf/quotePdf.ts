@@ -557,15 +557,37 @@ async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | 
     return null;
   }
   try {
-    const r = await fetch('/api/quote-pdf-upload', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/pdf',
-        Authorization: `Bearer ${token}`,
-        'x-filename': filename,
-      },
-      body: blob,
-    });
+    const chamarRota = (t: string) =>
+      fetch('/api/quote-pdf-upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/pdf',
+          Authorization: `Bearer ${t}`,
+          'x-filename': filename,
+        },
+        body: blob,
+      });
+
+    let r = await chamarRota(token);
+
+    if (r.status === 401) {
+      // Visto em produção (2026-08-30): token com assinatura válida que o
+      // GoTrue não reconhece mais — sessão rotacionada (app + Chrome na
+      // mesma conta). Renovar a sessão UMA vez resolve; com teto, porque
+      // no WebView promessa de rede pendurada não rejeita nunca.
+      try {
+        const { getSupabase } = await import('@/lib/supabase');
+        const renovada = await Promise.race([
+          getSupabase().auth.refreshSession(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+        ]);
+        const novoToken = renovada?.data.session?.access_token;
+        if (novoToken && novoToken !== token) r = await chamarRota(novoToken);
+      } catch {
+        // Renovação falhou: o 401 original segue pro report abaixo.
+      }
+    }
+
     if (!r.ok) {
       const corpo = await r.text().catch(() => '');
       reportFailure('pdf-link-fail', new Error(`rota ${r.status}: ${corpo.slice(0, 200)}`), {
