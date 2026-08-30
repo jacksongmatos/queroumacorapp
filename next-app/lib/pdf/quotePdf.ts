@@ -14,6 +14,7 @@
 // Dynamic import do jsPDF pra não pesar o bundle inicial (~150kb gz).
 
 import type { Quote } from '@/lib/types';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 export interface PainterForPdf {
   name?: string | null;
@@ -372,7 +373,7 @@ function apelidoArquivo(nome: string): string {
     .replace(/-+$/, '');
 }
 
-export type ShareResult = 'shared' | 'shared-link' | 'downloaded' | 'cancelled';
+export type ShareResult = 'shared' | 'shared-link' | 'downloaded' | 'cancelled' | 'failed';
 
 /**
  * Plano pro app instalado, onde NÃO existe share sheet: em vez de anexar o
@@ -449,10 +450,15 @@ export async function shareOrDownloadPdfBlob(
   if (isAndroid(navigator.userAgent || '')) {
     const url = await uploadPdfForLink(blob, filename);
     if (!url) {
-      // Bucket ausente/sem sessão: última tentativa via data URL.
-      const dataUrl = await blobToDataUrl(blob);
-      clickDownloadAnchor(dataUrl, filename);
-      return 'downloaded';
+      // NUNCA cair pra data URL aqui (tentado e revertido em 2026-08-29).
+      // Havia um "último recurso" que transformava o PDF inteiro numa data
+      // URL e colava no `href` de uma âncora. No WebView isso são megabytes
+      // de string numa única atribuição: o app CONGELA e o Android mostra
+      // "QueroUmaCor isn't responding". O remédio era pior que a doença —
+      // e ainda mentia, dizendo "Download concluído".
+      //
+      // Sem link não há caminho: melhor falhar dizendo isso.
+      return 'failed';
     }
     // Texto cortado em 1200: ele viaja dentro da URL do destino, e escopo
     // muito longo estoura o limite do intent do Android. O PDF tem tudo.
@@ -501,27 +507,35 @@ async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | 
     const sb = getSupabase();
     const { data } = await sb.auth.getSession();
     const uid = data.session?.user?.id;
-    if (!uid) return null;
+    if (!uid) {
+      reportFailure('pdf-link-fail', new Error('sem sessao'), { ctx: 'exports' });
+      return null;
+    }
     const path = `${uid}/${Date.now()}-${filename}`;
     const up = await sb.storage
       .from('exports')
       .upload(path, blob, { contentType: 'application/pdf', upsert: true });
-    if (up.error) return null;
+    if (up.error) {
+      reportFailure('pdf-link-fail', up.error, { userId: uid, ctx: 'exports' });
+      return null;
+    }
     const pub = sb.storage.from('exports').getPublicUrl(path);
-    const url = pub.data?.publicUrl;
-    return url ? `${url}?download=${encodeURIComponent(filename)}` : null;
-  } catch {
+    // URL CRUA, sem `?download=`. Assim o Android ABRE o PDF no visualizador
+    // em vez de baixar calado — e de dentro do visualizador a pessoa tem o
+    // compartilhar do sistema, com todos os apps. Quem quiser o arquivo
+    // salvo usa `urlParaBaixar()`.
+    return pub.data?.publicUrl || null;
+  } catch (e) {
+    // Falhar aqui deixava a pessoa sem nada e sem explicação. Agora vira
+    // linha no /admin/errors com o motivo (bucket, sessão, rede).
+    reportFailure('pdf-link-fail', e, { ctx: 'exports' });
     return null;
   }
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = () => reject(fr.error ?? new Error('read fail'));
-    fr.readAsDataURL(blob);
-  });
+/** Mesma URL, mas pedindo download em vez de abrir. */
+export function urlParaBaixar(url: string, filename: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}download=${encodeURIComponent(filename)}`;
 }
 
 function clickDownloadAnchor(href: string, filename: string): void {

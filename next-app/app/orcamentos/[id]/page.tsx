@@ -30,6 +30,7 @@ import {
 } from '@/lib/services/pipeline';
 import type { Quote } from '@/lib/types';
 import { QuotePdfSheet } from './QuotePdfSheet';
+import { urlParaBaixar } from '@/lib/pdf/quotePdf';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -376,6 +377,14 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
         await dialog.alert(
           'PDF baixado. Anexe no WhatsApp/email pra enviar ao cliente.',
           { title: 'Download concluído' },
+        );
+      } else if (result === 'failed') {
+        // No app instalado o PDF precisa subir pro Storage pra virar link.
+        // Falhando isso não há entrega possível — e o antigo "último
+        // recurso" (data URL com o PDF inteiro) CONGELAVA o app.
+        await dialog.alert(
+          'Não consegui preparar o PDF agora. Tente de novo em instantes.',
+          { title: 'Não deu' },
         );
       }
     } catch (e) {
@@ -777,8 +786,17 @@ function EscolherAppSheet({
   const zap = digitos
     ? `https://wa.me/${digitos.length > 11 ? digitos : '55' + digitos}?text=${txt}`
     : `https://wa.me/?text=${txt}`;
+  const baixarUrl = urlParaBaixar(info.url, 'orcamento.pdf');
 
   const opcoes: Array<{ id: string; label: string; run: () => void }> = [
+    {
+      // Primeiro da lista de propósito: abrir é o que mais gente quer, e é
+      // por dentro do visualizador de PDF do Android que existe o
+      // compartilhar DE VERDADE do sistema, com todos os apps.
+      id: 'abrir',
+      label: '📄 Abrir o PDF',
+      run: () => onPick(info.url),
+    },
     {
       id: 'whats',
       label: digitos ? '💬 WhatsApp do cliente' : '💬 WhatsApp',
@@ -813,8 +831,9 @@ function EscolherAppSheet({
     {
       id: 'baixar',
       label: '⬇️ Baixar o arquivo',
-      // A URL já vem com `?download=<nome>`: o Android baixa em vez de abrir.
-      run: () => onPick(info.url),
+      // `?download=` liga o Content-Disposition: attachment — aí o Android
+      // salva em vez de abrir.
+      run: () => onPick(baixarUrl),
     },
   ];
 
@@ -822,7 +841,7 @@ function EscolherAppSheet({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Enviar orçamento por"
+      aria-label="Orçamento em PDF"
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
     >
@@ -832,14 +851,14 @@ function EscolherAppSheet({
         style={{ maxHeight: '80dvh', overflowY: 'auto' }}
       >
         <div className="mb-1 flex items-center justify-between">
-          <h3 className="text-base font-bold">Enviar orçamento por</h3>
+          <h3 className="text-base font-bold">Orçamento em PDF</h3>
           <button type="button" onClick={onClose} aria-label="Fechar" className="px-2 text-xl">
             ×
           </button>
         </div>
         <p className="mb-3 text-xs text-[color:var(--color-muted)]">
-          O PDF já está pronto. Escolha por onde mandar — vai o link, e o
-          cliente baixa tocando nele.
+          O PDF já está pronto. Abra pra conferir, ou escolha por onde
+          mandar — vai o link, e o cliente abre tocando nele.
         </p>
 
         <div className="flex flex-col gap-2">

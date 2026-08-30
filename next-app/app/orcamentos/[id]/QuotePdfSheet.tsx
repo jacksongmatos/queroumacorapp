@@ -54,6 +54,11 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
       // gerou. (No navegador o share sheet ja e o proprio aviso.)
       if (r === 'downloaded') {
         showToast('PDF salvo no aparelho (pasta Downloads).', 'success');
+      } else if (r === 'failed') {
+        // No app instalado o PDF precisa subir pro Storage — sem isso não
+        // há como entregar. Antes daqui saía uma data URL gigante que
+        // CONGELAVA o app; agora falha dizendo o que aconteceu.
+        showToast('Não consegui preparar o PDF agora. Tente de novo em instantes.', 'error');
       }
     } catch {
       // Último recurso: diálogo de impressão (funciona no navegador).
