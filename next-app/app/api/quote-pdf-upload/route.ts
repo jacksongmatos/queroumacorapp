@@ -29,7 +29,6 @@ import type { NextRequest } from 'next/server';
 import {
   ServiceError,
   checkRateLimit,
-  getClientIp,
   getServiceKey,
   getSupabaseAnonKey,
   getSupabaseUrl,
@@ -60,8 +59,13 @@ export async function POST(request: NextRequest) {
     const sub = auth.user?.id || decodeJwtSub(token);
     if (!sub) throw new ServiceError('token ilegível', 401);
 
+    // A chave PRECISA ser um uuid puro: check_rate_limit declara
+    // `p_user_id uuid`, e chave decorada ('quote-pdf:<uuid>') faz o cast
+    // falhar → o helper abre em silêncio e a rota fica sem proteção
+    // (achado da revisão de 2026-08-30). O escopo por rota já vem do
+    // campo `endpoint`.
     const rl = await checkRateLimit({
-      userId: `quote-pdf:${sub}:${getClientIp(request)}`,
+      userId: sub,
       endpoint: 'quote-pdf-upload',
       limit: 20,
     });
@@ -174,7 +178,12 @@ function decodeJwtSub(token: string): string | null {
     if (!payload) return null;
     const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
     const sub = (JSON.parse(json) as { sub?: unknown }).sub;
-    return typeof sub === 'string' && sub.length >= 16 ? sub : null;
+    // Formato de uuid OBRIGATÓRIO: o sub vira prefixo de path e chave do
+    // rate limit — um sub forjado com '/' ou lixo não passa daqui.
+    return typeof sub === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub)
+      ? sub
+      : null;
   } catch {
     return null;
   }
