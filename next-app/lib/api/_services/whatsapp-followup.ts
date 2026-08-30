@@ -342,6 +342,7 @@ export async function runFollowupSweep(opts?: {
         const body = a.kind === 'cobranca' ? textoCobranca(nome) : textoReengajamento(nome);
         const sent = await sendEvolutionText({ to: a.waId, body });
         await persistWhatsAppMessage({
+          origin: 'ia',
           direction: 'out',
           waId: a.waId,
           messageId: sent.messageId,

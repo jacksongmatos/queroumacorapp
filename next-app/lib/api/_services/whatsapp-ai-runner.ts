@@ -255,6 +255,7 @@ async function enviarAusencia(opts: {
   });
   const sent = await sendEvolutionText({ to: opts.waId, body });
   await persistWhatsAppMessage({
+    origin: 'ia',
     direction: 'out',
     waId: opts.waId,
     messageId: sent.messageId,
@@ -404,6 +405,7 @@ async function decidirEAgir(opts: {
     // Envia (a Evolution está acordada — ela acabou de nos chamar).
     const sent = await sendEvolutionText({ to: opts.waId, body: result.reply });
     await persistWhatsAppMessage({
+      origin: 'ia',
       direction: 'out',
       waId: opts.waId,
       messageId: sent.messageId,

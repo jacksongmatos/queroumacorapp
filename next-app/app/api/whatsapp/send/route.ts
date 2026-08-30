@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
       body: input.body,
       template: input.template,
       sentBy: callerId,
+      origin: 'portal',
     });
 
     // Trilha: quem mandou o quê pra quem, pelo número oficial. Fail-open

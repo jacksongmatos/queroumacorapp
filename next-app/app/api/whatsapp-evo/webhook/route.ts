@@ -74,6 +74,10 @@ export async function POST(request: NextRequest) {
 
       const ok = await persistWhatsAppMessage({
         direction: msg.direction,
+        // 'out' vindo do webhook = digitada no CELULAR. O eco do que o
+        // portal/IA enviou chega aqui também, mas colide no message_id e o
+        // ignore-duplicates descarta — só sobra o que nasceu no aparelho.
+        origin: msg.direction === 'out' ? 'celular' : null,
         waId: msg.waId,
         profileName: msg.profileName,
         messageId: msg.messageId,

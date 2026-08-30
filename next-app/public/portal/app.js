@@ -9640,7 +9640,7 @@ const WhatsAppTab = () => {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
-  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at';
+  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
 
   // MIDIA (Wave 49). O bucket e PRIVADO — conversa de cliente nao vira
   // link publico. Pedimos URL assinada em lote pras mensagens visiveis e
@@ -10067,6 +10067,61 @@ const WhatsAppTab = () => {
     return c.name || fmtWaPhone(c.waId);
   };
   // Etiqueta de origem, pra saber com quem se esta falando.
+  // QUEM esta tocando a conversa: a ultima mensagem enviada com origem
+  // conhecida decide. 'origin' e gravado desde 2026-08-30 (portal/ia/
+  // celular); pra mensagem antiga, sent_by preenchido ja denuncia portal.
+  // Sem nenhuma pista (historico velho), sem chip — nada de adivinhar.
+  const canalDe = c => {
+    let melhor = null;
+    c.msgs.forEach(m => {
+      if (m.direction !== 'out') return;
+      const o = m.origin || (m.sent_by ? 'portal' : null);
+      if (!o) return;
+      if (!melhor || new Date(m.created_at) > new Date(melhor.t)) melhor = {
+        o,
+        t: m.created_at
+      };
+    });
+    return melhor ? melhor.o : null;
+  };
+  const CANAL_CHIP = {
+    celular: {
+      rotulo: '📱 celular',
+      cor: C.p6,
+      dica: 'Última resposta enviada pelo WhatsApp do CELULAR da loja'
+    },
+    portal: {
+      rotulo: '🖥️ portal',
+      cor: C.p3,
+      dica: 'Última resposta enviada por uma pessoa AQUI no portal'
+    },
+    ia: {
+      rotulo: '🤖 IA',
+      cor: C.p1,
+      dica: 'Última resposta enviada pela IA automática'
+    }
+  };
+  const ChipCanal = ({
+    c,
+    mini
+  }) => {
+    const canal = canalDe(c);
+    if (!canal) return null;
+    const cfg = CANAL_CHIP[canal];
+    return /*#__PURE__*/React.createElement("span", {
+      title: cfg.dica,
+      style: {
+        fontSize: mini ? 9 : 11,
+        fontWeight: 700,
+        color: cfg.cor,
+        border: '1px solid ' + cfg.cor + '55',
+        background: cfg.cor + '14',
+        borderRadius: 8,
+        padding: mini ? '0px 5px' : '2px 8px',
+        whiteSpace: 'nowrap'
+      }
+    }, cfg.rotulo);
+  };
   const origemDe = c => {
     const chave = c.waId.slice(-8);
     if (profByPhone[chave]) return null; // usuario do app ja aparece com @tag
@@ -10529,7 +10584,10 @@ const WhatsAppTab = () => {
       padding: '1px 7px',
       lineHeight: '16px'
     }
-  }, naoLidas(c) > 99 ? '99+' : naoLidas(c)) : null, /*#__PURE__*/React.createElement("span", {
+  }, naoLidas(c) > 99 ? '99+' : naoLidas(c)) : null, /*#__PURE__*/React.createElement(ChipCanal, {
+    c: c,
+    mini: true
+  }), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted,
@@ -10598,7 +10656,13 @@ const WhatsAppTab = () => {
         fontWeight: 600
       }
     }, org) : null;
-  })(), /*#__PURE__*/React.createElement("button", {
+  })(), aberta ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: 8
+    }
+  }, /*#__PURE__*/React.createElement(ChipCanal, {
+    c: aberta
+  })) : null, /*#__PURE__*/React.createElement("button", {
     onClick: () => toggleIa(openWa),
     title: iaLigada(openWa) ? 'IA respondendo — clique pra assumir a conversa' : 'IA desligada — clique pra ela responder',
     style: {
