@@ -10,6 +10,23 @@
   não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
   build nativo" como se fosse um plano.**
 
+- **PDF do orçamento: as DUAS causas de produção nomeadas (2026-08-30).**
+  A telemetria `pdf-link-fail` provou: (1) o bucket `exports` EXISTE mas as
+  **policies da Wave 41 nunca rodaram** ("new row violates row-level
+  security policy" no upload direto — desde o primeiro dia); (2) o GoTrue
+  recusa token cuja SESSÃO rotacionou ("401 token inválido") enquanto
+  Storage/PostgREST aceitam o mesmo token — eles validam só a assinatura.
+  Correções: rota `/api/quote-pdf-upload` (edge) com autenticação em DOIS
+  degraus — GoTrue ok → service role (imune a policy, cria o bucket se
+  faltar); GoTrue recusou → upload com o token do PRÓPRIO usuário e quem
+  valida é a policy do Storage (path amarrado ao `auth.uid()`; o `sub`
+  decodificado do JWT NÃO é prova de identidade, só prefixo). Client tenta
+  direto → rota; 401 na rota ganha UMA `refreshSession` com teto de 6s.
+  **SQL das policies do `exports` PENDENTE** (bloco da Wave 41; sem ele o
+  degrau 2 não funciona — o 1 sim). **Regra nova: fluxo do app que
+  autentica em rota própria NÃO deve depender só do GoTrue `/auth/v1/user`
+  — token session-stale é estado normal de WebView.**
+
 - **`quotes.post_id` NÃO EXISTIA — Wave 53 (2026-08-30), PENDENTE.**
   "Enviar orçamento" morria com `42703: column "post_id" of relation
   "quotes" does not exist`. A **Wave 42** recriou `create_quote_from_post`
