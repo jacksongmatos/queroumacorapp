@@ -111,10 +111,9 @@ export async function POST(request: NextRequest) {
       .join('');
     const pathCurto = `l/${idCurto}.pdf`;
     const pathUid = `${sub}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${filename}`;
-    const path = auth.user && serviceKey ? pathCurto : pathUid;
 
-    const upload = (bearer: string, key: string) =>
-      fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${path}`, {
+    const upload = (alvo: string, bearer: string, key: string) =>
+      fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${alvo}`, {
         method: 'POST',
         headers: {
           apikey: key,
@@ -127,10 +126,12 @@ export async function POST(request: NextRequest) {
 
     let res: Response;
     let comoFalhou = '';
+    let linkCurto = false;
 
     if (auth.user && serviceKey) {
       // Degrau 1: identidade confirmada → service role, imune a policy.
-      res = await upload(serviceKey, serviceKey);
+      res = await upload(pathCurto, serviceKey, serviceKey);
+      linkCurto = res.ok;
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         comoFalhou = `service ${res.status}: ${errText.slice(0, 200)}`;
@@ -154,15 +155,32 @@ export async function POST(request: NextRequest) {
             signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
           });
           // 409 = alguém criou no meio tempo — ótimo, segue pro retry.
-          if (criar.ok || criar.status === 409) res = await upload(serviceKey, serviceKey);
+          if (criar.ok || criar.status === 409) {
+            res = await upload(pathCurto, serviceKey, serviceKey);
+            linkCurto = res.ok;
+          }
         }
       }
     } else {
-      // Degrau 2: GoTrue recusou (sessão rotacionada) ou service key
-      // ausente → o token do usuário vai direto pro Storage, que valida a
-      // assinatura e amarra o path ao auth.uid() via policy.
-      res = await upload(token, anonKey);
+      // Degrau 2: GoTrue recusou (sessão rotacionada) → o token do usuário
+      // vai direto pro Storage, que valida a assinatura e amarra o path ao
+      // auth.uid() via policy.
+      res = await upload(pathUid, token, anonKey);
       if (!res.ok) comoFalhou = `user-token ${res.status}`;
+      // Identidade PROVADA pelo Storage (a policy aceitou o token no path
+      // do próprio uid) → agora pode ganhar o link curto também: a service
+      // role regrava os mesmos bytes no path curto. Era o ÚNICO caso que
+      // ainda saía com o endereço gigante do Supabase no WhatsApp
+      // (2026-08-30, captura do usuário) — o aparelho dele vive nesse
+      // degrau. Best-effort: falhou, vai o link longo, que funciona.
+      if (res.ok && serviceKey) {
+        try {
+          const copia = await upload(pathCurto, serviceKey, serviceKey);
+          linkCurto = copia.ok;
+        } catch {
+          /* fica o link longo */
+        }
+      }
     }
 
     if (!res.ok) {
@@ -171,13 +189,12 @@ export async function POST(request: NextRequest) {
       throw new ServiceError('não consegui guardar o PDF', 502);
     }
 
-    // Link curto no NOSSO domínio quando o path é o curto; senão o público
-    // do Storage (degrau 2). `new URL(request.url).origin` acompanha o
-    // domínio que atendeu (produção ou preview .pages.dev).
-    const url =
-      path === pathCurto
-        ? `${new URL(request.url).origin}/pdf/${idCurto}`
-        : `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${path}`;
+    // Link curto no NOSSO domínio sempre que o path curto existir; senão o
+    // público do Storage. `new URL(request.url).origin` acompanha o domínio
+    // que atendeu (produção ou preview .pages.dev).
+    const url = linkCurto
+      ? `${new URL(request.url).origin}/pdf/${idCurto}`
+      : `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${pathUid}`;
     return jsonResponse({ ok: true, url });
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
