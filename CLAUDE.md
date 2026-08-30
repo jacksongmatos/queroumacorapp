@@ -624,14 +624,14 @@
   drenava o pin 2→0 e re-armava o reload no meio do movimento. Com o
   documento fora do topo, o nativo responde "pode subir" e o gesto nunca
   arma. **Constantes espelhadas** entre o hook e o script inline do
-  layout — mudou um, mudar o outro. **Diagnóstico TEMPORÁRIO ativo**:
-  1 ping/sessão de aparelho Android pro `/api/log-error`
-  (`type='scrollpin-diag'`, aparece no `/admin/errors` com o UA real do
-  wrapper) — REMOVER depois de confirmar que o AAB entra no gate.
-  **Correção de raiz continua pendente**: desmarcar "Pull to Refresh" no
-  painel do WebIntoApp no próximo rebuild do AAB (checklist do
-  `docs/ANDROID_BUILD.md`). Testes em
-  `__tests__/hooks/useAndroidWebViewScrollPin.test.tsx`.
+  layout — mudou um, mudar o outro. **Diagnóstico `scrollpin-diag`
+  REMOVIDO em 2026-08-30** — cumpriu a missão: os pings de produção
+  provaram que o UA do wrapper é `Dalvik/2.1.0 (Linux; U; Android 16;
+  SM-...)` (sem token `wv`, sem "Chrome") → o gate `/Android/i` pega o
+  app instalado; qualquer gate estrito de WebView ficaria mudo nele. O
+  filtro segue no `/admin/errors` pras linhas históricas. AAB novo com
+  "Pull to Refresh" desmarcado no painel foi publicado em 2026-08-30.
+  Testes em `__tests__/hooks/useAndroidWebViewScrollPin.test.tsx`.
 
 - **WhatsApp Cloud API — LIVE ponta a ponta (2026-08-25).** O número
   oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA

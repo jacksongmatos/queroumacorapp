@@ -83,42 +83,12 @@ function hasScrollableUpAncestor(from: EventTarget | null): boolean {
   return false;
 }
 
-/**
- * Diagnóstico TEMPORÁRIO (2026-08-28): 1 ping por sessão pro
- * /api/log-error com UA + estado do pin, pra confirmar no /admin/errors
- * que o wrapper da Play Store está mesmo entrando no gate (o user-agent
- * real dele é desconhecido — o eruda só liga com window.Capacitor, que o
- * WebIntoApp não tem). Remover depois de confirmado.
- */
-function sendDiagPing(): void {
-  try {
-    if (sessionStorage.getItem('scrollpin_diag')) return;
-    sessionStorage.setItem('scrollpin_diag', '1');
-    const ua = navigator.userAgent || '';
-    const standalone =
-      typeof matchMedia === 'function' &&
-      matchMedia('(display-mode: standalone)').matches;
-    // `sw`: o service worker está controlando a página? Diferencia "as
-    // defesas do sw.js valem neste ambiente" de "o wrapper desligou SW".
-    const sw =
-      'serviceWorker' in navigator
-        ? String(Boolean(navigator.serviceWorker.controller))
-        : 'na';
-    fetch('/api/log-error', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'scrollpin-diag',
-        msg: `scrollpin wv=${isAndroidWebView(ua)} standalone=${standalone} sw=${sw} scrollY=${Math.round(window.scrollY)} vw=${window.innerWidth} vh=${window.innerHeight}`,
-        ua,
-        ctx: 'scrollpin',
-      }),
-    }).catch(() => {});
-  } catch {
-    // sessionStorage indisponível (modo privado etc.) — diagnóstico é
-    // best-effort, nunca custa o pin.
-  }
-}
+// O diagnóstico temporário (`scrollpin-diag`, 1 ping/sessão pro
+// /api/log-error) foi REMOVIDO em 2026-08-30: cumpriu a missão — os pings
+// de produção provaram que o UA do wrapper é "Dalvik/2.1.0 (Linux; U;
+// Android 16; ...)" (sem token `wv`, sem Chrome), ou seja, o gate
+// `/Android/i` pega o app instalado e o `isAndroidWebView` estrito não
+// pegaria. A mesma telemetria fica registrada no /admin/errors histórico.
 
 export function useAndroidWebViewScrollPin(): void {
   useEffect(() => {
@@ -159,8 +129,6 @@ export function useAndroidWebViewScrollPin(): void {
 
     // rAF: espera o layout aplicar o minHeight antes do primeiro pin.
     const raf = requestAnimationFrame(pin);
-    // Diagnóstico depois do pin assentar (3s cobre boot + primeiro paint).
-    const diagTimer = setTimeout(sendDiagPing, 3000);
     // Re-pin em tudo que pode devolver o documento ao topo: scroll
     // programático/autoscroll de foco (scroll), teclado abre/fecha (resize)
     // e retomada do WebView congelado pelo sistema (pageshow/visibility —
@@ -176,7 +144,6 @@ export function useAndroidWebViewScrollPin(): void {
 
     return () => {
       cancelAnimationFrame(raf);
-      clearTimeout(diagTimer);
       window.removeEventListener('scroll', pin);
       window.removeEventListener('resize', pin);
       window.removeEventListener('pageshow', pin);

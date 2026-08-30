@@ -105,9 +105,6 @@ describe('useAndroidWebViewScrollPin', () => {
       return 1;
     });
     vi.stubGlobal('cancelAnimationFrame', () => {});
-    // Ping de diagnóstico não pode bater na rede em teste.
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}'))));
-    sessionStorage.clear();
     setScrollY(0);
     document.body.style.minHeight = '';
   });
@@ -174,26 +171,6 @@ describe('useAndroidWebViewScrollPin', () => {
     expect(scrollTo).not.toHaveBeenCalled();
     // Guarda de dreno também não instala.
     expect(swipeDoc(100, 180, document.body)).toBe(false);
-  });
-
-  it('agenda o ping de diagnóstico e o cancela no unmount sem disparar', () => {
-    vi.useFakeTimers();
-    try {
-      setUserAgent(UA_WEBVIEW);
-      const { unmount } = renderHook(() => useAndroidWebViewScrollPin());
-      vi.advanceTimersByTime(3000);
-      expect(fetch).toHaveBeenCalledTimes(1);
-      const body = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-      expect(body.type).toBe('scrollpin-diag');
-      expect(body.msg).toContain('wv=true');
-      // 1 por sessão: remontar não re-envia (sessionStorage guarda).
-      unmount();
-      renderHook(() => useAndroidWebViewScrollPin());
-      vi.advanceTimersByTime(3000);
-      expect(fetch).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('unmount restaura o body (inclusive valor pré-existente) e solta os listeners', () => {

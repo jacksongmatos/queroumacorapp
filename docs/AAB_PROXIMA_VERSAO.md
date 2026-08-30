@@ -171,9 +171,12 @@ ar. Para avisos que realmente precisam chegar, é por ali.
 - [ ] Keystore guardada em cofre, com as duas senhas.
 - [ ] Bumpar a versão do app no painel (`appVersion` / `appVersionCode`).
 - [ ] Notas de versão em pt-BR.
-- [ ] Remover o ping de diagnóstico `scrollpin-diag`
-      (`lib/hooks/useAndroidWebViewScrollPin.ts`) — era temporário, pra
-      descobrir se o AAB entrava no gate. Já respondeu: não entra.
+- [x] ~~Remover o ping de diagnóstico `scrollpin-diag`~~ — **feito em
+      2026-08-30.** O ping cumpriu a missão: o UA real do wrapper é
+      `Dalvik/2.1.0 (Linux; U; Android 16; ...)` (sem `wv`, sem Chrome),
+      então o gate largo `/Android/i` pega o app instalado e o pin está
+      ativo nele. O filtro `scrollpin-diag` segue no `/admin/errors` só
+      pra ler as linhas históricas.
 - [ ] Os `assetlinks.json` do repo estão com placeholders
       (`package_name: br.com.queroumacor` e um SHA-256 falso). Só importam
       no caminho TWA/Bubblewrap, que **não é o nosso** — ou corrigir com
