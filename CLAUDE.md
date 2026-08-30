@@ -10,6 +10,19 @@
   não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
   build nativo" como se fosse um plano.**
 
+- **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
+  no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
+  "Cliente não informado" em pedido de cliente LOGADO:
+  `create_quote_from_post` grava `client_id` mas nunca preencheu
+  `client_name`/`client_phone`. Forma final: **trigger BEFORE INSERT**
+  `trg_fill_quote_client_info` em `quotes` (não a recriação da RPC — o
+  bloco grande corrompia na colagem pelo celular, e o trigger cobre
+  qualquer caminho de criação futuro). Congela nome+telefone do perfil na
+  ÉPOCA do pedido; só preenche se `client_id` existe e o nome veio vazio.
+  Backfill feito. `OrcamentoSheet` mostra "Em nome de <nome> · <fone>" no
+  topo. **Colagem de SQL pelo CELULAR corta/emenda blocos grandes — SQL
+  pra rodar no aparelho tem que ser curto, e a aba precisa estar vazia.**
+
 - **Wave 54 (2026-08-30) — contador de seguidores em DOBRO — JÁ
   EXECUTADA no Supabase (2026-08-30). Não pedir pra rodar de novo.**
   Perfil novo com 3 follows mostrava 6 (2× exato, sem backfill no meio =
