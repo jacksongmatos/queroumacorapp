@@ -38,9 +38,28 @@ export async function GET(
   } catch {
     return new Response('indisponível', { status: 503 });
   }
+  // PROXY, não redirect (2026-08-30): o 302 abria o PDF, mas a barra de
+  // endereço do navegador trocava pro endereço do Supabase — e o usuário
+  // lia aquilo como "vazou a chave" (não vazou; é path público, mas a
+  // percepção conta). Servindo os bytes daqui, a URL fica
+  // queroumacor.com.br/pdf/<id> do início ao fim.
+  const upstream = await fetch(
+    `${base}/storage/v1/object/public/exports/l/${id}.pdf`,
+    { signal: AbortSignal.timeout(20_000) },
+  );
+  if (!upstream.ok) return new Response('não encontrado', { status: 404 });
+
   const download = request.nextUrl.searchParams.get('download');
-  const destino =
-    `${base}/storage/v1/object/public/exports/l/${id}.pdf` +
-    (download !== null ? `?download=${encodeURIComponent(download || '')}` : '');
-  return Response.redirect(destino, 302);
+  const nome = (download || 'orcamento.pdf')
+    .toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(0, 80) || 'orcamento.pdf';
+  const headers = new Headers({
+    'Content-Type': 'application/pdf',
+    // attachment baixa; inline abre no visualizador.
+    'Content-Disposition': `${download !== null ? 'attachment' : 'inline'}; filename="${nome}"`,
+    // O arquivo nunca muda (id aleatório, sem sobrescrita) — cache à vontade.
+    'Cache-Control': 'public, max-age=31536000, immutable',
+  });
+  const len = upstream.headers.get('content-length');
+  if (len) headers.set('Content-Length', len);
+  return new Response(upstream.body, { status: 200, headers });
 }
