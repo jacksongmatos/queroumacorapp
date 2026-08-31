@@ -21,6 +21,7 @@ export type FailureType =
   | 'publish-fail'
   | 'avatar-fail'
   | 'picker-fail'
+  | 'camera-fail'
   | 'pdf-link-fail';
 
 export function reportFailure(

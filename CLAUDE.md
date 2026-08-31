@@ -1,5 +1,43 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **"502 Bad gateway" VOLTOU no envio de WhatsApp — agora na ABORDAGEM DE
+  LEAD (2026-08-31).** Não é a causa de 28/08 (número estrangeiro): o
+  telefone do caso (`11 96268-0094`) é celular BR e passa correto pelo
+  `normalizeWhatsAppTarget`. A página de 502 é do PRÓPRIO Cloudflare — ou
+  seja, a function do edge morreu antes de responder. Duas falhas de
+  estrutura, as duas corrigidas:
+  - **A rota não tinha ORÇAMENTO TOTAL.** Cada hop tinha o seu teto (auth
+    10s + rate limit 10s + envio 25s + gravar 8s + audit 5s = **até 58s**),
+    mas ninguém somava — e o CF mata a function bem antes disso. Agora:
+    `ROUTE_DEADLINE_MS` de 22s embrulha o handler inteiro (`Promise.race`,
+    responde 504 explicando em vez de deixar o CF responder HTML cru),
+    `SEND_TIMEOUT_MS` caiu 25s → **14s**, e gravar+audit passaram a rodar
+    **em paralelo** com teto próprio de 6s (`BOOKKEEPING_BUDGET_MS`).
+    Escrituração depois do envio era caminho real pro 502 **com a mensagem
+    já entregue** — o operador via "falhou" e mandava de novo.
+    **REGRA: rota de edge = orçamento total, não só timeout por hop.**
+  - **A abordagem nunca aquecia a Evolution.** `aquecerEvolution` /
+    `acordarEvolution` viviam DENTRO do componente da tela de WhatsApp;
+    a `AbordagemModal` (aba Leads) chamava `/api/whatsapp/send` direto, com
+    o servidor possivelmente frio, e pagava o cold start DENTRO do edge —
+    exatamente o que a arquitetura diz que só o navegador pode fazer. As
+    duas funções subiram pra escopo de MÓDULO (estado compartilhado: aquecer
+    numa tela vale na outra); o modal aquece ao abrir (enquanto o operador
+    lê o texto) e mostra "Acordando o servidor…" antes de enviar.
+    **REGRA: tela nova que chama `/api/whatsapp/send` chama
+    `acordarEvolution` antes.**
+  - **Bônus: o erro de timeout deixou de mentir.** Dizia sempre "o Render
+    dorme após 15min" — falso desde 29/08 (plano pago). Agora, ao estourar,
+    o service sonda `GET /instance/connectionState/<instância>` (4s) e diz a
+    causa: `close`/`connecting` → "reconecte o QR no Manager" (aí o Baileys
+    pendura pra sempre e timeout maior não resolve); `open` → "só lentidão,
+    a mensagem NÃO saiu, tente de novo". 4 testes novos.
+  - **Ainda não confirmado qual dos dois gatilhos disparou** (Render frio ×
+    sessão do WhatsApp caída) — sem acesso ao banco nem à rede daqui. O
+    próprio erro passa a dizer na próxima vez. Diagnóstico manual:
+    `GET /api/whatsapp-evo/ping` com token de admin (a rota continua no ar,
+    só o botão saiu da tela).
+
 - **REGRA FIXA (2026-08-29): NÃO EXISTE BUILD NATIVO. Não sugerir.** O
   projeto é código no GitHub → Cloudflare Pages → **WebIntoApp** empacota
   o site num AAB. Capacitor, Bubblewrap/TWA e plugins nativos estão FORA
@@ -249,19 +287,45 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
-- **App instalado NÃO ABRE A GALERIA (2026-08-29) — é o wrapper, não o
-  código.** Um pintor (Bruno) não conseguia trocar a foto de perfil NEM
-  publicar portfólio: as duas coisas dependem do mesmo
-  `<input type="file">`, e a WebView do WebIntoApp só abre a galeria se o
-  wrapper implementar `onShowFileChooser` + permissões. Sem isso o toque
-  **não faz nada** — sem erro, sem log (a tabela `errors` estava limpa; o
-  e-mail dele ESTAVA confirmado e o perfil completo, então não era gate
-  nosso). **Correção de raiz é no painel do WebIntoApp, no próximo AAB**
-  (junto com "Pull to Refresh" — ver `docs/ANDROID_BUILD.md`).
-  Paliativo no código: `lib/utils/filePickerWatch.ts` arma um relógio ao
-  tocar no seletor e, se em 1,8s a página não perdeu o foco (o que
-  acontece quando a galeria abre), mostra "abra pelo navegador". Só arma
-  no Android, pra não dar falso positivo. 6 testes.
+- **App instalado NÃO ABRE A GALERIA — a saída pela CÂMERA (2026-08-30).**
+  Voltou em 30/08 com DOIS pintores (Bruno Valentim e Leo): não trocam a
+  foto de perfil nem publicam portfólio. Causa é a mesma de 29/08 e não é
+  código nosso: as duas telas usam o mesmo `<input type="file">` e a
+  WebView do WebIntoApp só abre a galeria se o wrapper implementar
+  `onShowFileChooser` + permissões de mídia. Sem isso o toque **não faz
+  nada** — sem erro, sem log. **Correção de raiz continua no painel do
+  WebIntoApp** (`docs/AAB_PROXIMA_VERSAO.md` §1.1).
+  - **O que mudou agora: o beco virou saída.** `filePickerWatch` (relógio
+    de 1,8s; se a página não perdeu o foco, o seletor não abriu) deixou de
+    mostrar um toast vermelho — o toast some em 3s, manda DIGITAR
+    "queroumacor.com.br" e não resolve nada. No lugar entra o
+    `components/GaleriaBloqueadaSheet` com duas saídas: **📷 tirar foto
+    agora** (`components/CameraCapture.tsx` — `getUserMedia` + canvas
+    geram o File na mão, sem passar pelo seletor) e **🌐 abrir no
+    navegador** (`lib/utils/openInBrowser.ts`: URL `intent:` com
+    `action=VIEW`, que é o que a WebView entende como "sair pro Chrome";
+    `window.open` dentro dela abre outra tela do próprio app). Se nem o
+    intent abrir, copia o link.
+  - O botão de câmera também aparece **sem precisar falhar antes**: ao
+    lado de "Trocar foto" (`/perfil/editar`), embaixo do dropzone de
+    `/publicar` e no passo 2 do cadastro. Só em tela de toque com câmera
+    (`ofereceCamera`) — no desktop o seletor funciona e o botão só poluiria.
+  - **A câmera na WebView é a MESMA classe de dependência** (o wrapper
+    precisa responder `onPermissionRequest` + `android.permission.CAMERA`):
+    pode falhar também. A diferença é que ela falha **visível** — a
+    promessa rejeita, a tela diz o que fazer e o `/admin/errors` recebe
+    `camera-fail`. Também tem TETO DE TEMPO de 12s no `getUserMedia`: em
+    WebView promessa pendurada não rejeita (mesma lição do `getSession`).
+  - **Bug real achado junto — o aviso DUPLICADO da foto do pintor.** O
+    `inputRef.click()` do `MediaUploader` sobe (bubbling) até a div do
+    dropzone, que tem `onClick={handleSelect}`: um toque armava DOIS
+    relógios e mostrava a mensagem duas vezes (a segunda chamada de
+    `click()` é barrada pelo próprio browser, então parava em 2). Corrigido
+    com `stopPropagation` no input + cancelar o relógio anterior antes de
+    armar outro. Teste de regressão em
+    `__tests__/components/MediaUploaderPicker.test.tsx` (falha sem o fix).
+  - Foto tirada aqui sai no máximo com 1600px no lado maior e JPEG 0.9 —
+    foto crua de celular passa dos 5MB do avatar.
 
 - **Conta NOVA barrada de publicar: sessão diz "e-mail não confirmado"
   (2026-08-29).** `getSession()` devolve o usuário GUARDADO no

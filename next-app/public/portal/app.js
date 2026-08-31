@@ -5524,6 +5524,7 @@ const AbordagemModal = ({
   const [busca, setBusca] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
+  const [estagio, setEstagio] = useState('');
   const [erro, setErro] = useState('');
   const [editado, setEditado] = useState(false);
   const pitch = pitchDoLead(lead);
@@ -5549,6 +5550,13 @@ const AbordagemModal = ({
   };
   useEffect(() => {
     buscarProdutos();
+  }, []);
+
+  // Aquece o Evolution assim que a janela abre. O operador ainda vai marcar
+  // produto e reler o texto — o servidor sobe de graca nesse tempo, e o
+  // envio nao paga cold start dentro do edge (que morre esperando).
+  useEffect(() => {
+    aquecerEvolution();
   }, []);
 
   // Recompoe o texto sempre que a selecao muda — a menos que o operador
@@ -5579,6 +5587,8 @@ const AbordagemModal = ({
         setEnviando(false);
         return;
       }
+      setEstagio('Enviando…');
+      await acordarEvolution(setEstagio); // vira "Acordando…" só com o servidor frio
       const r = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: {
@@ -5602,6 +5612,7 @@ const AbordagemModal = ({
         const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
         setErro(res.error || 'Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')');
         setEnviando(false);
+        setEstagio('');
         return;
       }
       // Enviou: marca o lead como contactado (best-effort — a mensagem ja saiu).
@@ -5616,6 +5627,7 @@ const AbordagemModal = ({
       setErro('Falha de rede ao enviar.');
     }
     setEnviando(false);
+    setEstagio('');
   };
   return /*#__PURE__*/React.createElement("div", {
     onClick: onClose,
@@ -5873,7 +5885,7 @@ const AbordagemModal = ({
       cursor: enviando ? 'wait' : 'pointer',
       opacity: enviando || !alvo ? .6 : 1
     }
-  }, enviando ? 'Enviando…' : '📤 Enviar abordagem')))));
+  }, enviando ? estagio || 'Enviando…' : '📤 Enviar abordagem')))));
 };
 // ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
 // Antes o header era uma lista de textos com "↕" decorativo. Cada coluna
@@ -9360,12 +9372,51 @@ const waHora = m => {
   });
 };
 
-// Evolution API no Render FREE: dorme apos ~15min sem request e a primeira
-// request depois disso leva ~50s. A aba mantem o servidor aquecido em vez de
-// pagar esse cold start na hora do envio.
+// ── Aquecimento do Evolution API (COMPARTILHADO) ────────────────────────
+// O edge do Cloudflare morre esperando um upstream lento — e quando morre,
+// quem chega na tela e a pagina "502 Bad gateway" do PROPRIO Cloudflare, sem
+// dizer nada. Por isso quem espera o servidor subir e o NAVEGADOR, que espera
+// a vontade: a aba cutuca o Evolution direto e so chama /api/whatsapp/send
+// quando ele ja respondeu.
+//
+// Estas funcoes viviam DENTRO da tela de WhatsApp, e por isso a abordagem de
+// lead (outra aba, outro componente) nunca aquecia nada: ela chamava a rota
+// de envio direto, com o servidor possivelmente frio, e pagava o cold start
+// dentro do edge — que e exatamente o que o edge nao aguenta. Foi o 502 de
+// 2026-08-31. Agora o estado e do modulo: aquecer numa tela vale pra outra.
 const EVO_BASE_URL = 'https://evolution-api-8arv.onrender.com';
 const EVO_WARM_TTL = 5 * 60 * 1000; // ping recente = servidor comprovadamente de pe
 const EVO_WARM_EVERY = 5 * 60 * 1000; // cutucada periodica com a aba aberta
+
+let evoWarmAt = 0; // quando a ultima request VOLTOU (falha nao conta)
+let evoWarming = null; // ping em voo, pra nao empilhar
+
+const evoAquecido = () => Date.now() - evoWarmAt < EVO_WARM_TTL;
+const aquecerEvolution = () => {
+  if (evoWarming) return evoWarming;
+  const p = fetch(EVO_BASE_URL, {
+    mode: 'no-cors',
+    cache: 'no-store'
+  }).then(() => {
+    evoWarmAt = Date.now();
+  }).catch(() => {}).then(() => {
+    evoWarming = null;
+  });
+  evoWarming = p;
+  return p;
+};
+
+// Antes de enviar: se o servidor ja respondeu ha pouco, segue direto. Senao
+// da 2,5s de silencio e, se ainda nao voltou, avisa a pessoa ("Acordando o
+// servidor…") e espera ate 60s — o navegador pode, o edge nao pode.
+const acordarEvolution = async onStage => {
+  if (evoAquecido()) return;
+  const ping = aquecerEvolution();
+  await Promise.race([ping, new Promise(r => setTimeout(r, 2500))]);
+  if (evoAquecido()) return;
+  if (onStage) onStage('Acordando o servidor…');
+  await Promise.race([ping, new Promise(r => setTimeout(r, 60000))]);
+};
 
 // Balaozinho de ajuda: um "?" discreto que abre a explicacao ao passar o
 // mouse (e no clique, pra quem esta no celular/tablet). Existe porque o
@@ -9610,24 +9661,8 @@ const WhatsAppTab = () => {
   // do envio ("Acordando o servidor…", ate 1min). Agora a aba cutuca o
   // servidor enquanto ele trabalha — ao abrir, a cada 5min, ao voltar pra
   // aba e ao comecar a digitar — e o envio sai sem espera nenhuma.
-  // So conta como acordado quando a request VOLTA: falha de rede nao prova
-  // que o servidor esta de pe.
-  const warmRef = React.useRef(0);
-  const warmingRef = React.useRef(null);
-  const evoAquecido = () => Date.now() - warmRef.current < EVO_WARM_TTL;
-  const aquecerEvolution = () => {
-    if (warmingRef.current) return warmingRef.current;
-    const p = fetch(EVO_BASE_URL, {
-      mode: 'no-cors',
-      cache: 'no-store'
-    }).then(() => {
-      warmRef.current = Date.now();
-    }).catch(() => {}).then(() => {
-      warmingRef.current = null;
-    });
-    warmingRef.current = p;
-    return p;
-  };
+  // A mecanica mora no modulo (ver "Aquecimento do Evolution API"), porque a
+  // abordagem de lead precisa dela tambem.
   useEffect(() => {
     aquecerEvolution();
     const t = setInterval(aquecerEvolution, EVO_WARM_EVERY);
@@ -10136,20 +10171,6 @@ const WhatsAppTab = () => {
   const aberta = convs.find(c => c.waId === openWa);
   const thread = aberta ? [...aberta.msgs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)) : [];
   const [sendStage, setSendStage] = useState('');
-
-  // No envio so ha espera se o servidor NAO estiver aquecido (raro, com o
-  // pre-aquecimento acima): caminho rapido de 2,5s e, se nem assim
-  // responder, avisa "Acordando…" e da tempo do cold start terminar.
-  // O edge do Cloudflare nao pode fazer isso — ele morre esperando 50s;
-  // o navegador espera a vontade.
-  const acordarEvolution = async () => {
-    if (evoAquecido()) return;
-    const ping = aquecerEvolution();
-    await Promise.race([ping, new Promise(r => setTimeout(r, 2500))]);
-    if (evoAquecido()) return;
-    setSendStage('Acordando o servidor…');
-    await Promise.race([ping, new Promise(r => setTimeout(r, 60000))]);
-  };
   const enviar = async () => {
     const body = text.trim();
     if (!body || !openWa || sending) return;
@@ -10167,7 +10188,7 @@ const WhatsAppTab = () => {
         return;
       }
       setSendStage('Enviando…');
-      await acordarEvolution(); // vira "Acordando…" só se o Render estiver frio
+      await acordarEvolution(setSendStage); // vira "Acordando…" só se o Render estiver frio
       const r = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: {

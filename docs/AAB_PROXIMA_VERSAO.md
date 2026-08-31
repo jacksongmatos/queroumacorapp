@@ -12,7 +12,7 @@ com um app novo publicado** — deploy web não resolve nenhum destes.
 > duas, está escrito aqui o que fica de fora.
 
 Contexto técnico: `docs/ANDROID_BUILD.md`.
-Última revisão: 2026-08-29.
+Última revisão: 2026-08-30.
 
 ---
 
@@ -61,10 +61,10 @@ Sem isso a WebView **não abre a galeria**: tocar em "Trocar foto" (perfil)
 ou "Selecionar foto" (publicar/portfólio) não faz absolutamente nada — sem
 erro, sem log.
 
-- Bloqueia hoje um pintor real (Bruno Valentim): sem foto de perfil e sem
-  portfólio desde o cadastro.
-- Confirmado em campo em 29/08: o aviso do paliativo
-  (`lib/utils/filePickerWatch.ts`) disparou na tela dele. Ele só aparece
+- Bloqueia hoje **dois** pintores reais (Bruno Valentim e Leo): sem foto de
+  perfil e sem portfólio desde o cadastro. Segue acontecendo em 30/08.
+- Confirmado em campo em 29/08 e de novo em 30/08: o aviso do paliativo
+  (`lib/utils/filePickerWatch.ts`) disparou na tela deles. Ele só aparece
   quando a página **não perde o foco**, ou seja, quando o seletor de fato
   não abriu.
 - Precisa também das **permissões de mídia**. Se o app mirar Android 13+
@@ -73,10 +73,28 @@ erro, sem log.
   provável pra um Android abrir a galeria e outro não com o mesmo APK.
 - Procurar no painel por: *File upload*, *Camera access*, *Gallery*,
   *Permissions*.
-- **Se o painel não oferecer:** não há alternativa web. O paliativo atual
-  (mandar a pessoa usar o navegador) vira permanente, e o app fica sem
-  foto de perfil e sem portfólio. Nesse caso, abrir chamado com o
-  WebIntoApp — é funcionalidade básica de WebView.
+
+**Alternativa web JÁ NO AR desde 30/08 — e ela depende da CÂMERA.** Se a
+galeria não abre, o app agora oferece **"📷 Tirar foto agora"**
+(`components/CameraCapture.tsx`): `getUserMedia` + canvas produzem o
+arquivo na mão, sem passar pelo seletor. O botão também aparece direto ao
+lado de "Trocar foto" e do dropzone de publicar, em qualquer celular.
+
+Só que a câmera na WebView tem a **mesma natureza de dependência**: o
+wrapper precisa responder ao `WebChromeClient.onPermissionRequest`
+(`PermissionRequest.VIDEO_CAPTURE`) e declarar `android.permission.CAMERA`.
+Então, no painel:
+
+- **"Camera access" / "Camera permission" é a opção mais importante depois
+  do file upload** — é o que faz a saída de emergência funcionar sem AAB
+  novo a cada tropeço.
+- Falha de câmera **é visível** (a promessa rejeita) e chega no
+  `/admin/errors` como `camera-fail`; a da galeria é silêncio puro. Se os
+  dois falharem no aparelho do pintor, sobra o botão "🌐 Abrir no
+  navegador", que sai pro Chrome por URL `intent:`.
+- **Se o painel não oferecer nem upload nem câmera:** abrir chamado com o
+  WebIntoApp — é funcionalidade básica de WebView; o app fica dependendo do
+  Chrome pra qualquer foto.
 
 ### 1.2 Desmarcar "Pull to Refresh"
 
