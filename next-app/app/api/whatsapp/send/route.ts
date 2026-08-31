@@ -42,7 +42,40 @@ import { logAuditEvent } from '@/lib/api/audit';
 
 export const runtime = 'edge';
 
+// ORÇAMENTO TOTAL da rota. Cada hop já tinha o seu timeout (auth 10s, rate
+// limit 10s, envio, gravação 8s, audit 5s), mas ninguém somava: bastava um
+// hop lento pra passar da linha em que o Cloudflare mata a function do edge,
+// e aí quem chega na tela é a página "502 Bad gateway" do PRÓPRIO CF — HTML
+// cru, sem dizer nada — em vez do nosso JSON. Foi o que voltou em
+// 2026-08-31 na abordagem de lead. Este teto garante que a resposta é
+// SEMPRE nossa: se o trabalho não terminou, respondemos 504 explicando.
+const ROUTE_DEADLINE_MS = 22000;
+
+// Teto do que roda DEPOIS do envio (gravar a mensagem + audit). Passou
+// disso, a resposta sai assim mesmo: o cliente já recebeu a mensagem, e
+// segurar a tela do operador por causa de escrituração é o que criava o
+// 502 em envio que deu certo.
+const BOOKKEEPING_BUDGET_MS = 6000;
+
+/** Resposta honesta quando o orçamento acaba: a mensagem PODE ter saído. */
+function deadlineResponse() {
+  return jsonResponse(
+    {
+      error:
+        'o envio passou de 22s e foi interrompido pra não morrer no gateway. A mensagem PODE ter saído — confira a conversa em /admin/whatsapp antes de mandar de novo.',
+    },
+    504
+  );
+}
+
 export async function POST(request: NextRequest) {
+  const deadline = new Promise<Response>((resolve) =>
+    setTimeout(() => resolve(deadlineResponse()), ROUTE_DEADLINE_MS)
+  );
+  return Promise.race([handle(request), deadline]);
+}
+
+async function handle(request: NextRequest): Promise<Response> {
   // Canal preferido pra TEXTO: Evolution API (número secundário, sem janela
   // de 24h) enquanto a Cloud API da Meta não autentica (2026-08-28).
   // Templates seguem exclusivos da Meta. Basta UM dos dois configurado.
@@ -111,43 +144,54 @@ export async function POST(request: NextRequest) {
       result = await sendWhatsAppText({ to: input.to, body: input.body as string });
     }
 
-    // SQL Wave 38: histórico da conversa em `whatsapp_messages` (best-effort
-    // — mensagem já saiu, gravar não pode custar o sucesso da resposta).
-    await persistWhatsAppMessage({
-      direction: 'out',
-      // Fallback do wa_id respeita DDI estrangeiro (ver
-      // normalizeWhatsAppTarget) — com normalizeBrPhone, resposta pra
-      // número dos EUA era gravada na conversa errada.
-      waId:
-        result.waId ||
-        (channel === 'evolution' ? normalizeWhatsAppTarget(input.to) : normalizeBrPhone(input.to)) ||
-        input.to,
-      messageId: result.messageId,
-      type: input.type,
-      body: input.body,
-      template: input.template,
-      sentBy: callerId,
-      origin: 'portal',
-    });
-
-    // Trilha: quem mandou o quê pra quem, pelo número oficial. Fail-open
-    // (perder o log não pode custar a mensagem já enviada). Sem o corpo
-    // completo no `changes` — só o preview — pra não acumular conversa de
-    // cliente no audit_log (LGPD data minimization).
-    await logAuditEvent({
-      actorId: callerId,
-      action: 'whatsapp.send',
-      targetTable: null,
-      targetId: result.waId || null,
-      changes: {
-        type: input.type,
-        channel,
-        template: input.template || null,
-        bodyPreview: (input.body || '').slice(0, 80),
+    // SQL Wave 38: histórico da conversa em `whatsapp_messages` + trilha no
+    // audit_log. Os dois são best-effort — a mensagem JÁ SAIU, escrituração
+    // não pode custar o sucesso da resposta. "Não pode custar" agora é
+    // código e não só comentário: em série e sem teto, eles somavam até 13s
+    // DEPOIS do envio dentro do mesmo orçamento do edge, e era assim que um
+    // envio bem-sucedido ainda terminava na página 502 do Cloudflare — com
+    // a mensagem já entregue ao cliente e o operador achando que falhou.
+    // Agora correm em paralelo e com teto próprio.
+    const bookkeeping = Promise.allSettled([
+      persistWhatsAppMessage({
+        direction: 'out',
+        // Fallback do wa_id respeita DDI estrangeiro (ver
+        // normalizeWhatsAppTarget) — com normalizeBrPhone, resposta pra
+        // número dos EUA era gravada na conversa errada.
+        waId:
+          result.waId ||
+          (channel === 'evolution'
+            ? normalizeWhatsAppTarget(input.to)
+            : normalizeBrPhone(input.to)) ||
+          input.to,
         messageId: result.messageId,
-      },
-      request,
-    }).catch(() => {});
+        type: input.type,
+        body: input.body,
+        template: input.template,
+        sentBy: callerId,
+        origin: 'portal',
+      }),
+      // Sem o corpo completo no `changes` — só o preview — pra não acumular
+      // conversa de cliente no audit_log (LGPD data minimization).
+      logAuditEvent({
+        actorId: callerId,
+        action: 'whatsapp.send',
+        targetTable: null,
+        targetId: result.waId || null,
+        changes: {
+          type: input.type,
+          channel,
+          template: input.template || null,
+          bodyPreview: (input.body || '').slice(0, 80),
+          messageId: result.messageId,
+        },
+        request,
+      }),
+    ]);
+    await Promise.race([
+      bookkeeping,
+      new Promise((r) => setTimeout(r, BOOKKEEPING_BUDGET_MS)),
+    ]);
 
     return jsonResponse({
       ok: true,

@@ -1,5 +1,43 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **"502 Bad gateway" VOLTOU no envio de WhatsApp — agora na ABORDAGEM DE
+  LEAD (2026-08-31).** Não é a causa de 28/08 (número estrangeiro): o
+  telefone do caso (`11 96268-0094`) é celular BR e passa correto pelo
+  `normalizeWhatsAppTarget`. A página de 502 é do PRÓPRIO Cloudflare — ou
+  seja, a function do edge morreu antes de responder. Duas falhas de
+  estrutura, as duas corrigidas:
+  - **A rota não tinha ORÇAMENTO TOTAL.** Cada hop tinha o seu teto (auth
+    10s + rate limit 10s + envio 25s + gravar 8s + audit 5s = **até 58s**),
+    mas ninguém somava — e o CF mata a function bem antes disso. Agora:
+    `ROUTE_DEADLINE_MS` de 22s embrulha o handler inteiro (`Promise.race`,
+    responde 504 explicando em vez de deixar o CF responder HTML cru),
+    `SEND_TIMEOUT_MS` caiu 25s → **14s**, e gravar+audit passaram a rodar
+    **em paralelo** com teto próprio de 6s (`BOOKKEEPING_BUDGET_MS`).
+    Escrituração depois do envio era caminho real pro 502 **com a mensagem
+    já entregue** — o operador via "falhou" e mandava de novo.
+    **REGRA: rota de edge = orçamento total, não só timeout por hop.**
+  - **A abordagem nunca aquecia a Evolution.** `aquecerEvolution` /
+    `acordarEvolution` viviam DENTRO do componente da tela de WhatsApp;
+    a `AbordagemModal` (aba Leads) chamava `/api/whatsapp/send` direto, com
+    o servidor possivelmente frio, e pagava o cold start DENTRO do edge —
+    exatamente o que a arquitetura diz que só o navegador pode fazer. As
+    duas funções subiram pra escopo de MÓDULO (estado compartilhado: aquecer
+    numa tela vale na outra); o modal aquece ao abrir (enquanto o operador
+    lê o texto) e mostra "Acordando o servidor…" antes de enviar.
+    **REGRA: tela nova que chama `/api/whatsapp/send` chama
+    `acordarEvolution` antes.**
+  - **Bônus: o erro de timeout deixou de mentir.** Dizia sempre "o Render
+    dorme após 15min" — falso desde 29/08 (plano pago). Agora, ao estourar,
+    o service sonda `GET /instance/connectionState/<instância>` (4s) e diz a
+    causa: `close`/`connecting` → "reconecte o QR no Manager" (aí o Baileys
+    pendura pra sempre e timeout maior não resolve); `open` → "só lentidão,
+    a mensagem NÃO saiu, tente de novo". 4 testes novos.
+  - **Ainda não confirmado qual dos dois gatilhos disparou** (Render frio ×
+    sessão do WhatsApp caída) — sem acesso ao banco nem à rede daqui. O
+    próprio erro passa a dizer na próxima vez. Diagnóstico manual:
+    `GET /api/whatsapp-evo/ping` com token de admin (a rota continua no ar,
+    só o botão saiu da tela).
+
 - **REGRA FIXA (2026-08-29): NÃO EXISTE BUILD NATIVO. Não sugerir.** O
   projeto é código no GitHub → Cloudflare Pages → **WebIntoApp** empacota
   o site num AAB. Capacitor, Bubblewrap/TWA e plugins nativos estão FORA
