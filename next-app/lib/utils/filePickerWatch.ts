@@ -17,8 +17,14 @@
 // diálogo nativo nem sempre tira o foco da página) e o problema não
 // existe lá.
 
-/** Só o Android tem o problema — e o wrapper pode mascarar o UA. */
-function ehAndroid(ua: string): boolean {
+/**
+ * Só o Android tem o problema — e o wrapper pode mascarar o UA, por isso o
+ * gate é largo (`/Android/i`) em vez de procurar o token `wv`.
+ *
+ * Exportado porque o `pickerRecovery` precisa do MESMO gate: se os dois
+ * divergirem, uma tela arma a marca de recuperação e a outra não a limpa.
+ */
+export function ehAndroid(ua: string): boolean {
   return /Android/i.test(ua || '');
 }
 

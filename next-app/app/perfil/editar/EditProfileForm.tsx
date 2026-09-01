@@ -45,7 +45,7 @@ import { showToast } from '@/lib/toast';
 import { CameraCapture } from '@/components/CameraCapture';
 import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
-import { watchFilePicker } from '@/lib/utils/filePickerWatch';
+import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
@@ -120,8 +120,21 @@ export function EditProfileForm() {
   const cancelarAvisoRef = useRef<(() => void) | null>(null);
   // Galeria não abriu (app empacotado) / câmera aberta na mão.
   const [galeriaBloqueada, setGaleriaBloqueada] = useState(false);
+  const [reiniciouNaEscolha, setReiniciouNaEscolha] = useState(false);
   const [camAberta, setCamAberta] = useState(false);
   const podeCamera = useOfereceCamera();
+
+  // Voltamos de um app que o Android matou com a galeria aberta? A foto se
+  // perdeu no caminho e ninguém contou pra pessoa — ela só viu o app voltar
+  // pro início. Conta aqui, com as saídas (ver lib/utils/pickerRecovery).
+  useEffect(() => {
+    if (!consumirEscolhaPendente('perfil/editar')) return;
+    setReiniciouNaEscolha(true);
+    setGaleriaBloqueada(true);
+    reportFailure('picker-restart', new Error('app reiniciou com a galeria aberta'), {
+      ctx: 'perfil/editar',
+    });
+  }, []);
   // Logo do negócio: lê do banco via fetchLogo (sincronizado com camisetas
   // — mesma URL `profiles.business_logo_url` que ShirtCustomizer/AiArt usam).
   // Upload faz commit imediato (não espera o submit do form principal) pra
@@ -468,12 +481,17 @@ export function EditProfileForm() {
               // app oferece a câmera (que não passa pelo seletor) em vez
               // de um toast que some em 3s.
               cancelarAvisoRef.current?.();
-              cancelarAvisoRef.current = watchFilePicker(() => {
-                setGaleriaBloqueada(true);
-                reportFailure('picker-fail', new Error('galeria nao abriu'), {
-                  userId: user?.id,
-                  ctx: 'perfil/editar',
-                });
+              cancelarAvisoRef.current = armarSelecao({
+                rota: '/perfil/editar',
+                ctx: 'perfil/editar',
+                onNaoAbriu: () => {
+                  setReiniciouNaEscolha(false);
+                  setGaleriaBloqueada(true);
+                  reportFailure('picker-fail', new Error('galeria nao abriu'), {
+                    userId: user?.id,
+                    ctx: 'perfil/editar',
+                  });
+                },
               });
             }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
@@ -523,6 +541,12 @@ export function EditProfileForm() {
         onFoto={(f) => void processarAvatar(f)}
         facing="user"
         urlNoNavegador="https://queroumacor.com.br/perfil/editar"
+        titulo={reiniciouNaEscolha ? 'O app reiniciou no meio da escolha' : undefined}
+        descricao={
+          reiniciouNaEscolha
+            ? 'O Android fechou o app pra liberar memória enquanto a galeria estava aberta, e a foto se perdeu no caminho. Duas saídas:'
+            : undefined
+        }
         ctx="perfil/editar"
         userId={user?.id}
       />

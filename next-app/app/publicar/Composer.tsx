@@ -24,7 +24,7 @@ import { MediaUploader } from './MediaUploader';
 import { MediaPreview } from './MediaPreview';
 import { CaptionInput } from './CaptionInput';
 import { usePublishPost } from '@/lib/hooks/usePublishPost';
-import { useAutosave } from '@/lib/hooks/useAutosave';
+import { useAutosave, writeDraft } from '@/lib/hooks/useAutosave';
 import {
   uploadMedia,
   compressImage,
@@ -368,6 +368,14 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         <MediaUploader
           onFiles={handleFiles}
           disabled={submitting}
+          // Abrir a galeria no Android pode ser a última coisa que este
+          // processo faz (o sistema mata o app pra liberar RAM enquanto o
+          // seletor está na frente). O autosave normal é throttled em 5s —
+          // quem digita a legenda e toca em seguida perderia o texto junto
+          // com a foto. Aqui a gravação é imediata.
+          onAntesDeAbrir={() => {
+            writeDraft('post_composer', autosaveValues);
+          }}
           accept={
             isVideoMode
               ? 'video/*'

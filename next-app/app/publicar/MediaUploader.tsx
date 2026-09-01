@@ -11,19 +11,30 @@
 // seletor de sempre e o botão "Tirar foto", que passa pela câmera e não
 // depende do seletor. Quando o seletor falha, o app oferece os dois de
 // novo no `GaleriaBloqueadaSheet` em vez de só avisar.
+//
+// Desde 2026-09-01 o seletor tem uma SEGUNDA forma de falhar: ele abre, e
+// o Android mata o app enquanto a galeria está na frente (ver
+// `lib/utils/pickerRecovery.ts`). A pessoa volta no /feed sem foto. Por
+// isso o `armarSelecao` cobre os dois casos, e a legenda é gravada ANTES
+// de abrir o seletor — o autosave normal é throttled em 5s e quem digita
+// e toca em seguida perderia o texto junto com a foto.
 
 'use client';
 
-import { useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { CameraCapture } from '@/components/CameraCapture';
 import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
-import { watchFilePicker } from '@/lib/utils/filePickerWatch';
+import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 export interface MediaUploaderProps {
   onFiles: (files: File[]) => void;
   disabled?: boolean;
+  /** Chamado no gesto que abre o seletor, ANTES dele abrir. O Composer usa
+   *  pra gravar o rascunho na hora: se o app morrer com a galeria aberta, a
+   *  legenda tem que estar no disco. */
+  onAntesDeAbrir?: () => void;
   // accept default `image/*,video/*` — o composer pode restringir (ex.: só
   // image quando já tem um video selecionado).
   accept?: string;
@@ -32,13 +43,27 @@ export interface MediaUploaderProps {
 export function MediaUploader({
   onFiles,
   disabled,
+  onAntesDeAbrir,
   accept = 'image/*,video/*',
 }: MediaUploaderProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const cancelarAviso = useRef<(() => void) | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [bloqueada, setBloqueada] = useState(false);
+  const [reiniciou, setReiniciou] = useState(false);
   const [camAberta, setCamAberta] = useState(false);
+
+  // Voltamos de um app que morreu com a galeria aberta? Então a foto se
+  // perdeu no caminho e ninguém contou pra pessoa. Conta aqui, com as
+  // saídas — a câmera não passa pelo seletor, então não repete o problema.
+  useEffect(() => {
+    if (!consumirEscolhaPendente('publicar')) return;
+    setReiniciou(true);
+    setBloqueada(true);
+    reportFailure('picker-restart', new Error('app reiniciou com a galeria aberta'), {
+      ctx: 'publicar',
+    });
+  }, []);
 
   // Só faz sentido com câmera de verdade (celular) e quando foto é aceita:
   // no modo "só vídeo" a câmera daqui não serve.
@@ -50,12 +75,20 @@ export function MediaUploader({
     // sem erro nenhum. Sem este aviso, o toque não faz nada e a pessoa
     // acha que o app quebrou (ver lib/utils/filePickerWatch).
     cancelarAviso.current?.();
-    cancelarAviso.current = watchFilePicker(() => {
-      setBloqueada(true);
-      // Registra QUAL aparelho falhou. Um Android abre a galeria e outro
-      // não — sem o user agent de cada um, "por que só ele?" fica no
-      // palpite.
-      reportFailure('picker-fail', new Error('galeria nao abriu'), { ctx: 'publicar' });
+    // A legenda vai pro disco AGORA (o autosave normal só escreve a cada
+    // 5s): daqui pra frente o processo pode morrer a qualquer momento.
+    onAntesDeAbrir?.();
+    cancelarAviso.current = armarSelecao({
+      rota: '/publicar',
+      ctx: 'publicar',
+      onNaoAbriu: () => {
+        setReiniciou(false);
+        setBloqueada(true);
+        // Registra QUAL aparelho falhou. Um Android abre a galeria e outro
+        // não — sem o user agent de cada um, "por que só ele?" fica no
+        // palpite.
+        reportFailure('picker-fail', new Error('galeria nao abriu'), { ctx: 'publicar' });
+      },
     });
     inputRef.current?.click();
   }
@@ -168,6 +201,12 @@ export function MediaUploader({
         onClose={() => setBloqueada(false)}
         onFoto={(f) => onFiles([f])}
         urlNoNavegador="https://queroumacor.com.br/publicar"
+        titulo={reiniciou ? 'O app reiniciou no meio da escolha' : undefined}
+        descricao={
+          reiniciou
+            ? 'O Android fechou o app pra liberar memória enquanto a galeria estava aberta, e a foto se perdeu no caminho. Sua legenda foi salva. Duas saídas:'
+            : undefined
+        }
         ctx="publicar"
       />
     </div>
