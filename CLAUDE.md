@@ -387,6 +387,29 @@
     registro/controle do SW antes de qualquer palpite sobre a causa do
     500.** Não escrever correção especulativa antes disso.
 
+- **Story: o X existia, mas ficava POR BAIXO das barras do app
+  (2026-09-01).** O relato foi "não tem um X pra fechar?". Tinha — só que o
+  `StoryViewer` era `fixed inset-0 z-50` e a **BottomNav é `z-[300]`**, a
+  TopNav `z-50`. As barras de progresso (`top-2`) e o botão de fechar
+  (`top-6`) nasciam atrás delas. O `fixed inset-0` sempre cobriu a tela
+  toda; o que faltava era z-index. Agora **`z-[400]`**, o story fica
+  imersivo (as barras do app somem enquanto ele está aberto, como no
+  Instagram) e o X virou alvo de 40px com fundo próprio — antes era um `×`
+  de texto solto, invisível sobre story claro. Progresso e header respeitam
+  `env(safe-area-inset-top)`.
+  - **Botão VOLTAR do Android fecha o story.** Ao abrir, o viewer empurra
+    uma entrada no histórico; o "voltar" consome ela e dispara `popstate`,
+    que fecha sem navegar. Fechando pelo X ou pelo arrasto, a entrada
+    fantasma é desfeita na limpeza — senão o próximo "voltar" não sairia da
+    tela, só apagaria a sobra. `onClose` fica numa ref pra o efeito não
+    rearmar e empilhar uma entrada por render.
+  - **PLAY gigante no vídeo:** a WebView bloqueia `autoPlay` até haver gesto
+    (`setMediaPlaybackRequiresUserGesture` é true por padrão no wrapper) e o
+    player nativo desenha o botão. Correção em dois tempos: `play()`
+    explícito quando o story entra em cena (aproveita o gesto que abriu o
+    viewer) + `poster` 1×1 transparente, pra que o intervalo até o primeiro
+    quadro fique preto em vez de exibir a arte do player.
+
 - **Auditoria 2 (2026-09-01) — A1..A4 corrigidos.**
   - **A1: o selo PRO mentia pra quem venceu.** Havia DUAS fontes de verdade:
     o `TopNav` dizia PRO com `is_pro=true` sozinho, enquanto
