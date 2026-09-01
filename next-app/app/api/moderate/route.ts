@@ -26,6 +26,7 @@ import {
   enqueueMediaReview,
 } from '@/lib/api/mediaHash';
 import { moderateSchema, formatZodError } from '@/lib/api/schemas/moderate';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
@@ -47,7 +48,7 @@ function isAllowedMediaHost(urlStr: string): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  if (!process.env.GEMINI_API_KEY) {
+  if (!getRuntimeEnv('GEMINI_API_KEY')) {
     return NextResponse.json(
       {
         flagged: false,

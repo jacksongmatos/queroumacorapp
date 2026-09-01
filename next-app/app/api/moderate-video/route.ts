@@ -12,6 +12,7 @@ import {
   serviceErrorResponse,
 } from '@/lib/api/security';
 import { errorResponse } from '@/lib/api/errors';
+import { getRuntimeEnv } from '../../../lib/api/env';
 import {
   moderateVideoPost,
   verifyOwnerToken,
@@ -21,7 +22,7 @@ export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
   const serviceKey = getServiceKey();
-  if (!process.env.GEMINI_API_KEY || !serviceKey) {
+  if (!getRuntimeEnv('GEMINI_API_KEY') || !serviceKey) {
     return NextResponse.json(
       { status: 'pending', error: 'moderação de vídeo não configurada' },
       { status: 503 }

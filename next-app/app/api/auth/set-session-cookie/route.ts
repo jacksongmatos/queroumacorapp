@@ -14,6 +14,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { enforceRateLimit } from '@/lib/api/security';
+import { getRuntimeEnv } from '../../../../lib/api/env';
 
 // Cloudflare Pages (next-on-pages) exige edge runtime explícito por rota.
 export const runtime = 'edge';
@@ -25,7 +26,7 @@ const COOKIE_MAX_AGE = 60 * 60; // 1h
 function getSupabaseUrl(): string | null {
   const url =
     process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.SUPABASE_URL ||
+    getRuntimeEnv('SUPABASE_URL') ||
     '';
   return url ? url.replace(/\/$/, '') : null;
 }
@@ -33,7 +34,7 @@ function getSupabaseUrl(): string | null {
 function getAnonKey(): string | null {
   return (
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
+    getRuntimeEnv('SUPABASE_ANON_KEY') ||
     null
   );
 }

@@ -2,6 +2,7 @@
 // `functions/api/_services/transcribe.js`. Whisper STT.
 
 import { ServiceError } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const MAX_BYTES = 25 * 1024 * 1024; // Whisper aceita até 25 MB
 const TIMEOUT_MS = 60000;
@@ -17,7 +18,7 @@ export async function transcribeAudio(args: {
   const size = file.size || 0;
   if (size > MAX_BYTES) throw new ServiceError('Áudio acima de 25 MB', 413);
 
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
   const upstream = new FormData();
   upstream.append('file', file, 'audio.webm');
   upstream.append('model', 'whisper-1');

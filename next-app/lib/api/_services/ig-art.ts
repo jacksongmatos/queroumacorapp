@@ -9,6 +9,7 @@
 
 import { ServiceError, getSupabaseUrl } from '../security';
 import { callAIText } from '../_ai';
+import { getRuntimeEnv } from '../env';
 
 const OPENAI_IMG_MODEL = 'gpt-image-1';
 const OPENAI_IMG_QUALITY = 'medium';
@@ -158,7 +159,7 @@ export async function generateIgArt(args: {
   captionHint?: unknown;
   businessName?: unknown;
 }): Promise<IgArtResult> {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY')) {
     throw new ServiceError('OPENAI_API_KEY não configurada', 503);
   }
 
@@ -362,15 +363,15 @@ async function generateImageWithFallback(args: {
   const openaiErr = openaiRes.error || 'sem detalhe';
   console.warn('[ig-art-fail] openai-img-falhou:', openaiErr.slice(0, 240));
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!getRuntimeEnv('GEMINI_API_KEY')) {
     return { error: openaiErr, modelTried: OPENAI_IMG_MODEL };
   }
   if (/timeout/i.test(openaiErr)) {
     return { error: openaiErr, modelTried: OPENAI_IMG_MODEL };
   }
 
-  const imgModel = process.env.GEMINI_IMG_MODEL || GEMINI_FALLBACK_DEFAULT_MODEL;
-  const modelChain = process.env.GEMINI_IMG_MODEL
+  const imgModel = getRuntimeEnv('GEMINI_IMG_MODEL') || GEMINI_FALLBACK_DEFAULT_MODEL;
+  const modelChain = getRuntimeEnv('GEMINI_IMG_MODEL')
     ? [imgModel]
     : [imgModel, ...GEMINI_FALLBACK_MODELS];
   // ⚠️ photo2 CRÍTICO: sem ele, fallback Gemini perde "depois" do antes/depois.
@@ -445,7 +446,7 @@ async function generateImageOpenAI(args: {
 
     const r = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      headers: { Authorization: `Bearer ${getRuntimeEnv('OPENAI_API_KEY')}` },
       body: form,
       signal: ac.signal,
     });
@@ -540,7 +541,7 @@ async function generateImageGemini(args: {
     }
 
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(args.model)}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(args.model)}:generateContent?key=${getRuntimeEnv('GEMINI_API_KEY')}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

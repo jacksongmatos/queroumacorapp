@@ -548,6 +548,22 @@
   - **`eslint.ignoreDuringBuilds: true`** no `next.config.mjs`: os ~17
     avisos do linter nunca aparecem no deploy. Rodar `next lint` na mão.
 
+- **57 leituras de `process.env` cruas corrigidas (2026-09-01).** A regra de
+  22/08 ("ler sempre por `getRuntimeEnv()`, nunca `process.env` direto")
+  estava sendo violada em **38 arquivos**: toda a camada de IA (legenda,
+  transcrição, TTS, moderação, análise financeira, OCR, arte-IG, resolver
+  cor, as 4 personas) e os pagamentos (`checkout`, `mp-webhook`), além do
+  `/api/health` — que por isso podia reportar saúde errada. No edge do
+  Cloudflare esses secrets não estão em `process.env`, então ou essas
+  funções estavam quebradas em produção, ou a regra é mais forte do que
+  precisa ser — a conversão é segura nos dois casos, porque `getRuntimeEnv`
+  tenta o contexto da request e CAI PRO `process.env`.
+  - **Teste de arquitetura novo** (`__tests__/lib/env-runtime-rule.test.ts`)
+    varre `lib/api` e `app/api` e falha se a leitura crua voltar. Regra que
+    ninguém verifica é sugestão.
+  - Verificado no worker REAL (`wrangler pages dev .vercel/output/static`):
+    `/api/health` responde `supabase: true` e as rotas seguem de pé.
+
 - **Carrossel de fotos no post — Wave 57 (2026-09-01) — JÁ EXECUTADA no
   Supabase (2026-09-01). Não pedir pra rodar de novo.** O
   composer sempre deixou escolher **até 5 fotos**, subia TODAS pro bucket

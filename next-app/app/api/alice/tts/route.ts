@@ -12,11 +12,12 @@ import {
   serviceErrorResponse,
 } from '@/lib/api/security';
 import { synthesizeSpeech } from '@/lib/api/_services/tts';
+import { getRuntimeEnv } from '../../../../lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY')) {
     return NextResponse.json(
       { error: 'TTS não configurado: defina OPENAI_API_KEY' },
       { status: 503 }

@@ -10,11 +10,12 @@ import {
   serviceErrorResponse,
 } from '@/lib/api/security';
 import { estimateAreaFromPhoto } from '@/lib/api/_services/area-from-photo';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY')) {
     return NextResponse.json(
       { error: 'IA de visão não configurada: defina OPENAI_API_KEY' },
       { status: 503 }

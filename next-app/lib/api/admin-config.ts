@@ -86,6 +86,8 @@ export function isAdminEmail(email: string | null | undefined): boolean {
  * Sem `raw` apenas re-lê `ADMIN_EMAILS` atual.
  */
 export function __resetAdminEmailsCacheForTests(opts?: { raw?: string }): void {
+  // Helper de teste: escreve em `process.env` mesmo — é de onde o
+  // `getRuntimeEnv` lê fora de um request do Cloudflare.
   if (opts?.raw !== undefined) process.env.ADMIN_EMAILS = opts.raw;
   ADMIN_EMAILS_CACHE = parseAdminEmails();
 }

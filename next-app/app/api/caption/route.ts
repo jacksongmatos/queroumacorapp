@@ -9,11 +9,12 @@ import {
   serviceErrorResponse,
 } from '@/lib/api/security';
 import { generateCaption } from '@/lib/api/_services/caption';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY')) {
     return NextResponse.json(
       { error: 'IA não configurada: defina OPENAI_API_KEY' },
       { status: 503 }
