@@ -18,6 +18,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { getSupabase } from '@/lib/supabase';
 import { useQualifications } from '@/lib/hooks/useQualifications';
 import type { Qualification, UpdateQualInput } from '@/lib/services/formacao';
+import { mimeConfiavel } from '@/lib/utils/mediaType';
 
 function SkeletonRow() {
   return (
@@ -236,7 +237,9 @@ export function QualsSection() {
         const path = `certificates/${user.id}/${Date.now()}.${ext}`;
         const sb = getSupabase();
         const { error: upErr } = await sb.storage.from('posts').upload(path, certFile, {
-          contentType: certFile.type || 'image/jpeg',
+          // Pela extensão quando o Android não manda o tipo — o default
+          // antigo etiquetava até um PDF como image/jpeg.
+          contentType: mimeConfiavel(certFile) || 'application/octet-stream',
           upsert: false,
         });
         if (upErr) { setSubmitError('Erro ao enviar imagem: ' + upErr.message); setUploading(false); return; }

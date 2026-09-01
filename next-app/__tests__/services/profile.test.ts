@@ -254,6 +254,29 @@ function makeFile(name: string, type: string, size: number): File {
 }
 
 describe('uploadAvatar', () => {
+  // Regressão 2026-09-01: era ESTE o erro que o usuário via no app —
+  // "Selecione um arquivo de imagem" ao trocar a foto de perfil, porque o
+  // seletor do wrapper entrega o File sem MIME type.
+  it('aceita a foto SEM MIME e corrige o content type do upload', async () => {
+    const { client, spies } = makeFakeClient({
+      storage: { avatars: { publicUrl: 'https://cdn/avatar.jpg' } },
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await uploadAvatar('user-1', makeFile('IMG_20260901.jpg', '', 1000));
+    // O fake registra (bucket, path, file, options).
+    const [, , enviado, opts] = spies.upload.mock.calls[0];
+    expect((opts as { contentType?: string }).contentType).toBe('image/jpeg');
+    expect((enviado as File).type).toBe('image/jpeg');
+  });
+
+  it('continua recusando o que não é imagem nem por tipo nem por extensão', async () => {
+    const { client } = makeFakeClient();
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(uploadAvatar('user-1', makeFile('doc.pdf', '', 1000))).rejects.toThrow(
+      ValidationError,
+    );
+  });
+
   it('userId vazio → ValidationError', async () => {
     const { client } = makeFakeClient();
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);

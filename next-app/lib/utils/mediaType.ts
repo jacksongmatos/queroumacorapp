@@ -104,3 +104,94 @@ export function comMimeCorrigido(file: File): File {
     return file;
   }
 }
+
+// ─── Último recurso: os BYTES ───────────────────────────────────────────────
+//
+// Quando o Android não declara o tipo E o nome não tem extensão (alguns
+// content providers devolvem "image" ou um id puro), nem `file.type` nem o
+// nome ajudam. Aí sobra o único informante que não mente: o começo do
+// arquivo. É isso que torna a decisão definitiva em vez de provável.
+
+/** Assinaturas de arquivo (magic numbers) que o app precisa reconhecer. */
+const ASSINATURAS: Array<{ mime: string; offset: number; bytes: number[] }> = [
+  { mime: 'image/jpeg', offset: 0, bytes: [0xff, 0xd8, 0xff] },
+  { mime: 'image/png', offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
+  { mime: 'image/gif', offset: 0, bytes: [0x47, 0x49, 0x46, 0x38] },
+  { mime: 'image/bmp', offset: 0, bytes: [0x42, 0x4d] },
+  // RIFF....WEBP — o tamanho fica nos 4 bytes do meio, por isso só o 'WEBP'.
+  { mime: 'image/webp', offset: 8, bytes: [0x57, 0x45, 0x42, 0x50] },
+];
+
+/**
+ * Contêineres ISO-BMFF: todos começam com `ftyp` no offset 4 e só se
+ * distinguem pela MARCA nos 4 bytes seguintes. Sem isso, uma foto HEIC do
+ * iPhone e um vídeo MP4 teriam a mesma assinatura.
+ */
+const MARCAS_ISOBMFF: Record<string, string> = {
+  heic: 'image/heic',
+  heix: 'image/heic',
+  hevc: 'image/heic',
+  mif1: 'image/heif',
+  msf1: 'image/heif',
+  qt: 'video/quicktime',
+  isom: 'video/mp4',
+  iso2: 'video/mp4',
+  mp41: 'video/mp4',
+  mp42: 'video/mp4',
+  avc1: 'video/mp4',
+};
+
+function casa(buf: Uint8Array, offset: number, bytes: number[]): boolean {
+  if (buf.length < offset + bytes.length) return false;
+  return bytes.every((b, i) => buf[offset + i] === b);
+}
+
+/**
+ * O MIME lido do CONTEÚDO. Devolve '' quando não reconhece — nunca chuta.
+ *
+ * Lê só os 16 primeiros bytes: é o suficiente pra toda assinatura acima e
+ * não custa nada nem num vídeo de 50MB.
+ */
+export async function mimePorConteudo(file: File): Promise<string> {
+  try {
+    const buf = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    for (const a of ASSINATURAS) {
+      if (casa(buf, a.offset, a.bytes)) return a.mime;
+    }
+    // ISO-BMFF: 'ftyp' no offset 4, marca no 8.
+    if (casa(buf, 4, [0x66, 0x74, 0x79, 0x70])) {
+      const marca = String.fromCharCode(...buf.slice(8, 12))
+        .toLowerCase()
+        .trim();
+      return MARCAS_ISOBMFF[marca] || 'video/mp4';
+    }
+    return '';
+  } catch {
+    // Blob ilegível (arquivo removido do provider entre a escolha e o uso):
+    // melhor seguir sem palpite que estourar na cara de quem só quer postar.
+    return '';
+  }
+}
+
+/**
+ * A resposta final sobre o que é este arquivo, na ordem de confiança:
+ * tipo declarado → extensão do nome → bytes.
+ */
+export async function mimeDefinitivo(file: File): Promise<string> {
+  return mimeConfiavel(file) || (await mimePorConteudo(file));
+}
+
+/**
+ * O arquivo pronto pra validar e subir: mesmo conteúdo, com o `type` que
+ * ele realmente tem. Use ANTES de `ehImagem`/`ehVideo` em qualquer caminho
+ * que aceite arquivo escolhido pela pessoa.
+ */
+export async function normalizarArquivo(file: File): Promise<File> {
+  const bom = await mimeDefinitivo(file);
+  if (!bom || file.type === bom) return file;
+  try {
+    return new File([file], file.name, { type: bom, lastModified: file.lastModified });
+  } catch {
+    return file;
+  }
+}
