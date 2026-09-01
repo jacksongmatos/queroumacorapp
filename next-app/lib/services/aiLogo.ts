@@ -25,7 +25,7 @@
 import { NetworkError, ValidationError } from '@/lib/errors';
 import { getSupabase } from '@/lib/supabase';
 import { markBrandLogoApplied, recordBrandLogo } from '@/lib/services/brandLogos';
-import { ehImagem, normalizarArquivo } from '@/lib/utils/mediaType';
+import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
 
 // Input do form do logo. `style` é opcional — o backend tolera ausência e
 // usa estilo padrão. `name` é o único required (vai virar o texto do logo).
@@ -182,8 +182,10 @@ export async function uploadLogo(
   // Tipo declarado > extensão > bytes; e corrige o `contentType` do upload,
   // que vazio seria recusado pelo bucket.
   file = await normalizarArquivo(file);
-  if (!ehImagem(file)) {
-    throw new ValidationError('Selecione um arquivo de imagem');
+  if (provadoNaoImagem(file)) {
+    throw new ValidationError(
+      `Esse arquivo não é imagem (${file.type}) — ${descreverArquivo(file)}`,
+    );
   }
   // 5MB cap igual ao vanilla (uploadBusinessLogo linha 311).
   if (file.size > 5 * 1024 * 1024) {

@@ -37,7 +37,14 @@ describe('mimeConfiavel', () => {
 
   it('devolve vazio quando nada identifica o arquivo', () => {
     expect(mimeConfiavel(arquivo('semextensao', ''))).toBe('');
-    expect(mimeConfiavel(arquivo('doc.pdf', ''))).toBe('');
+    expect(mimeConfiavel(arquivo('arquivo.xyz', ''))).toBe('');
+  });
+
+  // Extensão de NÃO-mídia também é resposta: serve pra recusar com prova
+  // (ver provadoNaoImagem) e pro certificado em PDF subir com o tipo certo.
+  it('reconhece não-mídia pela extensão em vez de dar de ombros', () => {
+    expect(mimeConfiavel(arquivo('contrato.pdf', ''))).toBe('application/pdf');
+    expect(mimeConfiavel(arquivo('planilha.csv', ''))).toBe('text/csv');
   });
 });
 
@@ -97,7 +104,13 @@ describe('extensaoDe', () => {
 // devolvem o arquivo SEM tipo E com nome sem extensão ("image", um id puro).
 // Aí o único informante que não mente é o começo do arquivo.
 
-import { mimeDefinitivo, mimePorConteudo, normalizarArquivo } from '@/lib/utils/mediaType';
+import {
+  descreverArquivo,
+  mimeDefinitivo,
+  mimePorConteudo,
+  normalizarArquivo,
+  provadoNaoImagem,
+} from '@/lib/utils/mediaType';
 
 function comBytes(nome: string, tipo: string, bytes: number[]): File {
   return new File([new Uint8Array(bytes)], nome, { type: tipo });
@@ -154,5 +167,38 @@ describe('mimeDefinitivo / normalizarArquivo', () => {
   it('não promove a imagem o arquivo que não é imagem', async () => {
     const f = comBytes('coisa', '', [0x25, 0x50, 0x44, 0x46]); // %PDF
     expect(ehImagem(await normalizarArquivo(f))).toBe(false);
+  });
+});
+
+// A regra que decide quem fica de fora. "Não provei que é imagem" NÃO pode
+// recusar — foi assim que a troca de foto ficou travada no app, punindo a
+// pessoa por uma omissão do Android. Só recusa com prova.
+describe('provadoNaoImagem', () => {
+  it('deixa passar o arquivo que ninguém conseguiu identificar', async () => {
+    const f = comBytes('1000012345', '', [1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(provadoNaoImagem(await normalizarArquivo(f))).toBe(false);
+  });
+
+  it('recusa o que TEM prova de não ser imagem', async () => {
+    const pdf = comBytes('coisa', '', [0x25, 0x50, 0x44, 0x46, 0, 0, 0, 0]);
+    expect(provadoNaoImagem(await normalizarArquivo(pdf))).toBe(true);
+    expect(provadoNaoImagem(comBytes('x.pdf', 'application/pdf', []))).toBe(true);
+  });
+
+  it('não recusa imagem identificada por qualquer um dos três degraus', async () => {
+    expect(provadoNaoImagem(comBytes('a.png', 'image/png', []))).toBe(false);
+    expect(provadoNaoImagem(await normalizarArquivo(comBytes('a.png', '', [])))).toBe(false);
+    expect(
+      provadoNaoImagem(await normalizarArquivo(comBytes('semnome', '', PNG))),
+    ).toBe(false);
+  });
+});
+
+describe('descreverArquivo', () => {
+  it('mostra o que foi detectado — sem isso "não é imagem" vira adivinhação', () => {
+    const d = descreverArquivo(comBytes('foto.jpg', '', [1, 2, 3]));
+    expect(d).toContain('nome=foto.jpg');
+    expect(d).toContain('tipo=(vazio)');
+    expect(d).toContain('bytes=3');
   });
 });

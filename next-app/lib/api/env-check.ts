@@ -15,6 +15,24 @@
 //
 // Edge runtime não tem process.exit; throw é a única opção. O Next vai
 // capturar e devolver 500 — preferível ao "fail-open por env ausente".
+//
+// 2026-09-01 — DUAS correções depois do 500 em produção:
+//
+// 1. Lia `process.env` DIRETO. No edge do Cloudflare os secrets do painel
+//    não estão lá: vivem no contexto da request (ver `lib/api/env.ts`). E
+//    `process.env[k]` com `k` variável nem é substituído no build pelo
+//    Next (só a forma literal `process.env.NEXT_PUBLIC_X` é). Ou seja, a
+//    lista podia sair TODA "ausente" e o throw disparar com as envs
+//    perfeitamente configuradas. Agora lê por `getRuntimeEnv`.
+//
+// 2. Era chamado no MODULE-LOAD de `security.ts` — o que o CLAUDE.md
+//    proíbe justamente porque no boot não existe request, logo não existe
+//    env. Um throw ali derruba a carga do módulo e vira 500 na cara de
+//    quem só abriu o app. A checagem fail-closed que importa já roda POR
+//    REQUEST dentro de `requirePro`/`gateAiUsage` (503 quando falta a
+//    service key), então tirar o boot-check não reabre o fail-open.
+
+import { getRuntimeEnv } from './env';
 
 const REQUIRED_IN_PROD = [
   'NEXT_PUBLIC_SUPABASE_URL',
@@ -35,7 +53,7 @@ export function assertProductionEnvs(opts: { force?: boolean } = {}): void {
   if (!opts.force && (process.env.VITEST === 'true' || process.env.VITEST_WORKER_ID)) {
     return;
   }
-  const missing = REQUIRED_IN_PROD.filter((k) => !process.env[k]);
+  const missing = REQUIRED_IN_PROD.filter((k) => !getRuntimeEnv(k));
   if (missing.length > 0) {
     // Edge runtime não tem process.exit; throw é a única opção.
     throw new Error(

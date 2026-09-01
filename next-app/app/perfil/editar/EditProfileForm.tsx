@@ -46,7 +46,7 @@ import { CameraCapture } from '@/components/CameraCapture';
 import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
-import { ehImagem, normalizarArquivo } from '@/lib/utils/mediaType';
+import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
@@ -263,8 +263,12 @@ export function EditProfileForm() {
     // `file.type` VAZIO é rotina no seletor do wrapper (ver
     // lib/utils/mediaType.ts) — validar por ele recusava foto de verdade.
     file = await normalizarArquivo(file);
-    if (!ehImagem(file)) {
-      showToast('Selecione uma imagem (PNG, JPG, WebP, SVG)', 'error');
+    if (provadoNaoImagem(file)) {
+      showToast(`Esse arquivo não é imagem (${file.type})`, 'error');
+      reportFailure('avatar-fail', new Error(`logo nao-imagem: ${descreverArquivo(file)}`), {
+        userId: user?.id,
+        ctx: 'perfil/editar/logo',
+      });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -338,8 +342,14 @@ export function EditProfileForm() {
     // que barrava a troca de foto com "Selecione um arquivo de imagem" na
     // cara de quem tinha selecionado exatamente isso.
     f = await normalizarArquivo(f);
-    if (!ehImagem(f)) {
-      showToast('Selecione um arquivo de imagem', 'error');
+    // Recusa só com PROVA. Antes bastava o Android não declarar o tipo pra
+    // barrar a foto — era o bug que travou a troca de foto no app.
+    if (provadoNaoImagem(f)) {
+      showToast(`Esse arquivo não é imagem (${f.type})`, 'error');
+      reportFailure('avatar-fail', new Error(`avatar nao-imagem: ${descreverArquivo(f)}`), {
+        userId: user?.id,
+        ctx: 'perfil/editar',
+      });
       return;
     }
     if (f.size > 5 * 1024 * 1024) {
