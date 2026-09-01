@@ -245,6 +245,7 @@ async function fetchFeedV2(params: FetchFeedParams): Promise<FeedPage | null> {
       user_id: r.user_id,
       caption: r.caption,
       media_url: r.media_url,
+      media_urls: null as string[] | null,
       media_type: (r.media_type ?? null) as Post['media_type'],
       media_width: r.media_width ?? null,
       media_height: r.media_height ?? null,
@@ -257,6 +258,8 @@ async function fetchFeedV2(params: FetchFeedParams): Promise<FeedPage | null> {
       comments,
     };
   });
+
+  await anexarFotosExtras(items);
 
   const lastRow = rows[rows.length - 1];
   const nextCursor = lastRow?.created_at ?? null;
@@ -659,4 +662,56 @@ export async function fetchPostById(
     likeCount,
     comments: commentsArr,
   };
+}
+
+/**
+ * Preenche `media_urls` dos posts da página que têm mais de uma foto.
+ *
+ * Por que uma consulta separada: o feed vem do RPC `get_feed_v2`, e incluir
+ * a coluna nova ali exigiria recriar a função — um bloco de SQL grande, que
+ * o CLAUDE.md registra como perigoso de colar pelo celular (corta e emenda).
+ * Esta consulta traz SÓ os posts que realmente têm carrossel, então na
+ * prática volta pouquíssima linha — a maioria dos posts tem uma foto só.
+ *
+ * Best-effort de propósito: se a coluna ainda não existe (migration não
+ * rodada) ou a query falha, o feed segue mostrando a primeira foto, que é
+ * exatamente o comportamento de antes. Carrossel não pode custar o feed.
+ */
+async function anexarFotosExtras(items: FeedPost[]): Promise<void> {
+  if (items.length === 0) return;
+  try {
+    const sb = getSupabase();
+    const ids = items.map((p) => p.id);
+    // Cast manual: `media_urls` ainda não está no schema TS gerado (mesmo
+    // padrão de `artReferences.ts`). Rodar `supabase gen types` depois de
+    // aplicar a migration limpa isto.
+    const { data, error } = await (sb.from('posts') as unknown as {
+      select: (cols: string) => {
+        in: (col: string, vals: string[]) => {
+          not: (
+            col: string,
+            op: string,
+            val: null,
+          ) => Promise<{ data: unknown[] | null; error: unknown }>;
+        };
+      };
+    })
+      .select('id, media_urls')
+      .in('id', ids)
+      .not('media_urls', 'is', null);
+    if (error || !data) return;
+    const porId = new Map<string, string[]>();
+    for (const linha of data as Array<{ id: string; media_urls: string[] | null }>) {
+      if (Array.isArray(linha.media_urls) && linha.media_urls.length > 1) {
+        porId.set(linha.id, linha.media_urls);
+      }
+    }
+    if (porId.size === 0) return;
+    for (const p of items) {
+      const extras = porId.get(p.id);
+      if (extras) p.media_urls = extras;
+    }
+  } catch {
+    // Coluna ausente / rede ruim: o feed continua com a primeira foto.
+  }
 }
