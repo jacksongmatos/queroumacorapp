@@ -37,6 +37,7 @@
 import { getServiceKey, getSupabaseUrl } from '../security';
 import { recordInvoiceViaRest } from './_billing-helpers';
 import { logAuditEvent } from '../audit';
+import { getRuntimeEnv } from '../env';
 
 const MP_TIMEOUT_MS = 15000;
 const SUPA_TIMEOUT_MS = 10000;
@@ -53,7 +54,7 @@ const PRO_VALIDITY_DAYS = 33;
 let configValidated = false;
 function validateMpConfigOnce(): void {
   if (configValidated) return;
-  if (process.env.NODE_ENV === 'production' && !process.env.MP_WEBHOOK_SECRET) {
+  if (process.env.NODE_ENV === 'production' && !getRuntimeEnv('MP_WEBHOOK_SECRET')) {
     console.error(
       '[mp-webhook] CRITICAL: MP_WEBHOOK_SECRET ausente em produção. ' +
         'Webhooks serão rejeitados com 401 (fail-closed). Configure a env var.'
@@ -130,7 +131,7 @@ export async function processMpWebhook(args: {
 
   const serviceKey = getServiceKey();
   // Responde 200 mesmo em erro de config pra MP não ficar reenviando.
-  if (!process.env.MP_ACCESS_TOKEN || !serviceKey) {
+  if (!getRuntimeEnv('MP_ACCESS_TOKEN') || !serviceKey) {
     return ok('config ausente');
   }
 
@@ -209,7 +210,7 @@ async function processPaymentEvent(opts: {
     const r = await fetch(
       `https://api.mercadopago.com/v1/payments/${encodeURIComponent(eventId)}`,
       {
-        headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` },
+        headers: { Authorization: `Bearer ${getRuntimeEnv('MP_ACCESS_TOKEN')}` },
         signal: AbortSignal.timeout(MP_TIMEOUT_MS),
       }
     );
@@ -400,7 +401,7 @@ async function processPreapprovalEvent(opts: {
   let pre: MpPreapprovalResponse;
   try {
     const r = await fetch(`https://api.mercadopago.com/preapproval/${eventId}`, {
-      headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` },
+      headers: { Authorization: `Bearer ${getRuntimeEnv('MP_ACCESS_TOKEN')}` },
       signal: AbortSignal.timeout(MP_TIMEOUT_MS),
     });
     if (!r.ok) return ok(`mp ${r.status}`);
@@ -592,7 +593,7 @@ async function verifyMpSignature(args: {
   body: MpWebhookBody;
 }): Promise<boolean> {
   const { headers, body } = args;
-  if (!process.env.MP_WEBHOOK_SECRET) {
+  if (!getRuntimeEnv('MP_WEBHOOK_SECRET')) {
     if (process.env.NODE_ENV === 'production') {
       console.error(
         'mp-webhook: MP_WEBHOOK_SECRET ausente em produção — rejeitando webhook (fail-closed)'
@@ -623,7 +624,7 @@ async function verifyMpSignature(args: {
       }
       return false;
     }
-    if (process.env.MP_WEBHOOK_ENFORCE === 'true') {
+    if (getRuntimeEnv('MP_WEBHOOK_ENFORCE') === 'true') {
       console.warn(
         'mp-webhook: MP_WEBHOOK_ENFORCE=true mas MP_WEBHOOK_SECRET ausente — rejeitando'
       );
@@ -652,7 +653,7 @@ async function verifyMpSignature(args: {
   try {
     const key = await crypto.subtle.importKey(
       'raw',
-      new TextEncoder().encode(process.env.MP_WEBHOOK_SECRET),
+      new TextEncoder().encode(getRuntimeEnv('MP_WEBHOOK_SECRET')),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign']

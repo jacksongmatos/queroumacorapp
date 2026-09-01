@@ -40,6 +40,7 @@ import {
   enforceRateLimit,
 } from '@/lib/api/security';
 import { logAuditEvent } from '@/lib/api/audit';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
   // real ao Apple verifyReceipt. Sem isso, qualquer receipt aceito =
   // PRO grátis. Ver docs/BILLING_STRATEGY.md.
   const verificationEnabled =
-    process.env.IAP_PRODUCTION_VERIFICATION_ENABLED === 'true';
+    getRuntimeEnv('IAP_PRODUCTION_VERIFICATION_ENABLED') === 'true';
   if (!verificationEnabled) {
     console.warn(
       '[apple-iap-verify] Endpoint desabilitado: IAP_PRODUCTION_VERIFICATION_ENABLED != true. ' +

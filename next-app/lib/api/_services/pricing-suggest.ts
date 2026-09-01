@@ -3,6 +3,7 @@
 // determinística quando IA erra a aritmética.
 
 import { ServiceError } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const TIMEOUT_MS = 25000;
 
@@ -78,7 +79,7 @@ export async function suggestPricing(args: {
   const userMessage =
     'Sugira o preço total (R$) deste orçamento de pintura:\n\n' + parts.join('\n');
 
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
   try {
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

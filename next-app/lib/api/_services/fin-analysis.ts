@@ -2,6 +2,7 @@
 // `functions/api/_services/fin-analysis.js`. Análise financeira via OpenAI.
 
 import { ServiceError } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const TIMEOUT_MS = 25000;
 
@@ -61,7 +62,7 @@ export async function analyzeFinancials(args: {
     : [];
 
   const userPayload = JSON.stringify({ thisMonth: tm, lastMonth: lm, recentJobs: rj });
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
 
   try {
     const r = await fetch('https://api.openai.com/v1/chat/completions', {

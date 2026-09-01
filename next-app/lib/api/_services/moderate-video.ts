@@ -3,6 +3,7 @@
 // via Gemini (resumable file upload).
 
 import { ServiceError, getServiceKey, getSupabaseUrl } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -43,7 +44,7 @@ export async function verifyOwnerToken(args: {
   const supaUrl = getSupabaseUrl();
   const serviceKey = getServiceKey();
   // Em prod, anon key existe; service key também. Em testes, qualquer um cobre.
-  const anonKey = process.env.SUPABASE_ANON_KEY || serviceKey || '';
+  const anonKey = getRuntimeEnv('SUPABASE_ANON_KEY') || serviceKey || '';
   try {
     const u = await fetch(`${supaUrl}/auth/v1/user`, {
       headers: {
@@ -128,7 +129,7 @@ export async function moderateVideoPost(args: {
     return { status: 'pending', reason: 'falha ao baixar vídeo' };
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const geminiKey = getRuntimeEnv('GEMINI_API_KEY') || '';
   try {
     const fileUri = await uploadToGemini(geminiKey, videoBuf, videoMime);
     const verdict = await analyzeVideo(geminiKey, fileUri, videoMime, caption);

@@ -3,6 +3,7 @@
 
 import { ServiceError } from '../security';
 import { imageToDataUrl } from '../_ai';
+import { getRuntimeEnv } from '../env';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 25000;
@@ -41,7 +42,7 @@ export async function generateCaption(args: {
     );
   }
 
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
   let raw = '';
   try {
     const r = await fetch('https://api.openai.com/v1/chat/completions', {

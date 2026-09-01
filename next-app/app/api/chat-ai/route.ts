@@ -11,11 +11,12 @@ import {
 } from '@/lib/api/security';
 import { chatWithSeuZe } from '@/lib/api/_services/chat-ai';
 import { chatAiSchema, formatZodError } from '@/lib/api/schemas/chat-ai';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY') && !getRuntimeEnv('GEMINI_API_KEY')) {
     return NextResponse.json(
       { error: 'IA não configurada: defina OPENAI_API_KEY ou GEMINI_API_KEY' },
       { status: 503 }

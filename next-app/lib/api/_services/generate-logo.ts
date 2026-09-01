@@ -2,6 +2,7 @@
 // `functions/api/_services/generate-logo.js`. 3 variants via gpt-image-1.
 
 import { ServiceError } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const TIMEOUT_MS = 35000;
 
@@ -28,7 +29,7 @@ export async function generateLogo(args: {
     .slice(0, 80);
   const styleHint = cleanStyle || 'modern minimalist, premium branding';
 
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
   const prompts = buildPrompts(cleanName, styleHint);
   try {
     const urls = await Promise.all(
