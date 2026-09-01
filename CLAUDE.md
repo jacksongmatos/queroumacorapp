@@ -387,6 +387,31 @@
     registro/controle do SW antes de qualquer palpite sobre a causa do
     500.** Não escrever correção especulativa antes disso.
 
+- **CAUSA DO "500 | Server Error" FECHADA (2026-09-01) — era o payload
+  RSC, não a navegação.** O `/diag` do usuário no app instalado entregou o
+  dado que faltava: **"Service Worker controlando a página: sim"**. Com o SW
+  no comando, o `sw.js` v5 tornava impossível um 5xx cru chegar na tela em
+  navegação de DOCUMENTO — logo, não era navegação de documento.
+  - **O que era:** o 5xx vinha no fetch do **payload RSC**. O SW devolvia
+    esse 500 CRU pro router, apostando que "o router trata" fazendo
+    hard-nav. Não trata: o runtime do Next pinta a PRÓPRIA tela de erro (a
+    marcação `next-error-h1` está no bundle do cliente, `main-*.js`). Como
+    não houve navegação de documento, nenhuma defesa do SW rodou; e como não
+    é erro de render, `error.tsx`/`global-error.tsx` também não pegaram.
+    Uma lápide que só saía reiniciando o app.
+  - **Correção (sw.js v6):** 5xx de RSC recebe o MESMO tratamento da rede
+    morta — 503 sem corpo, que é o caminho comprovado: o router descarta,
+    faz hard-nav, a navegação volta como documento e ganha a página
+    "Reconectando…" com auto-retry. Incidente logado como `sw-nav-5xx` com
+    sufixo `(rsc)`.
+  - **O teste TROCOU DE LADO** — antes exigia o 5xx cru "porque o router
+    trata". Teste que codifica uma suposição errada protege o bug.
+  - **Lição de método:** `pages/500.tsx` e `pages/_error.tsx` foram DUAS
+    tentativas erradas seguidas, ambas escritas antes de eu ter evidência.
+    O que fechou o caso foi procurar a string no output publicado
+    (`.vercel/output/static`) e pedir UM dado do aparelho. As duas páginas
+    ficam — cobrem o erro de servidor de verdade —, mas não eram isto.
+
 - **O 500 do App Router NÃO passa por `pages/500` nem por `pages/_error`
   (2026-09-01, PROVADO).** Duas tentativas minhas falharam pela MESMA razão,
   e só a evidência fechou a questão. No output publicado
