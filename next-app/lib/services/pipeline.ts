@@ -22,6 +22,7 @@ import {
 } from '@/lib/errors';
 import type { Quote, QuoteSnapshot, Job } from '@/lib/types';
 import type { Json } from '@/lib/database.types';
+import { ymdBrt } from '@/lib/utils';
 
 // QUOTE_STATUS — const tipada que define vocabulário + label/cor por status.
 // Mesmas chaves que modules/pipeline.js (linha 19), mesma ordem (ciclo de
@@ -481,12 +482,10 @@ export async function syncToJobs(
     if (j.quote_id) byQuote.set(j.quote_id, j);
   }
 
-  // Data local YYYY-MM-DD pra default de scheduled_date (mesmo cálculo do
-  // vanilla — evita timezone shift gravando UTC quando o pintor está em BR).
-  const t = new Date();
-  const ymd = new Date(t.getTime() - t.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 10);
+  // Hoje em BRASÍLIA pro default de scheduled_date. Antes vinha do fuso do
+  // aparelho (`getTimezoneOffset`), o que agendava com um dia de diferença
+  // pra quem está em outro fuso — inclusive dentro do Brasil.
+  const ymd = ymdBrt();
 
   let created = 0;
   let updated = 0;

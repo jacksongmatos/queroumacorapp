@@ -548,7 +548,18 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
       ) : null}
 
       {post.caption ? (
-        <div style={{ fontSize: 13.5, padding: '0 14px 6px', lineHeight: 1.5 }}>
+        <div
+          style={{
+            fontSize: 13.5,
+            padding: '0 14px 6px',
+            lineHeight: 1.5,
+            // A3: sem isto uma palavra longa sem espaços (o link já é tratado
+            // com `break-all` no renderRichText) estoura a largura do card e
+            // some — o `<main>` do AppShell tem overflow-x hidden, então o
+            // efeito é texto CORTADO, não página rolando de lado.
+            overflowWrap: 'anywhere',
+          }}
+        >
           <b style={{ fontWeight: 600 }}>{captionByline}</b> {renderRichText(post.caption)}
         </div>
       ) : null}
@@ -584,7 +595,10 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
                   gap: 6,
                 }}
               >
-                <span style={{ flex: 1 }}>
+                {/* `minWidth: 0` junto do `overflowWrap`: num flex item o
+                    mínimo é o conteúdo, então sem ele a palavra longa empurra
+                    o container e a quebra nunca chega a valer. */}
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                   <b style={{ fontWeight: 600 }}>{authorLabel}</b> {renderRichText(c.text)}
                 </span>
                 {canDeleteComment ? (

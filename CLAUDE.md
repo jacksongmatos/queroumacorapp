@@ -387,6 +387,47 @@
     registro/controle do SW antes de qualquer palpite sobre a causa do
     500.** Não escrever correção especulativa antes disso.
 
+- **Auditoria 2 (2026-09-01) — A1..A4 corrigidos.**
+  - **A1: o selo PRO mentia pra quem venceu.** Havia DUAS fontes de verdade:
+    o `TopNav` dizia PRO com `is_pro=true` sozinho, enquanto
+    `canSeeProFeature` (o portão real, usado em Agenda/CRM/Anotações) exige
+    `is_pro=true` **E** data futura quando há data. E **nada limpa `is_pro`
+    no vencimento** — não há cron nem trigger, e o portal ativa PRO gravando
+    `is_pro=true` + expiração. Ou seja, "is_pro com data vencida" é estado
+    PERMANENTE: a pessoa via PRO na barra e levava "exclusivo do Plano PRO"
+    em toda ferramenta. O `TopNav` agora usa `usePolicyUser` +
+    `canSeeProFeature`/`isAdmin`. **REGRA: selo e portão perguntam à mesma
+    função.** (Há uma 3ª implementação no banco, `is_pro_active`.)
+  - **A2: "hoje" saía do fuso do APARELHO.** O patch de fuso do `layout.tsx`
+    cobre só `toLocale{Date,Time,}String` — **`getTimezoneOffset()` passa
+    direto**, e era ele que decidia o dia em 5 lugares. O Brasil tem mais de
+    um fuso (Manaus, UTC−4): entre meia-noite e 1h o aparelho diz um dia e
+    Brasília já está no seguinte. Deslocava o destaque de "hoje" na agenda,
+    o recorte do dia no Financeiro e a data de follow-up do pipeline.
+    Helpers novos em `utils.ts`: **`ymdBrt()`** (que dia é hoje em Brasília,
+    via `Intl` com `timeZone` — não depende do patch, que mexe só em
+    `Date.prototype`) e **`ymdDeCampos()`** (formata um Date montado a
+    partir de ano/mês/dia, como os limites de mês do grid — ali passar por
+    fuso é que introduziria deslocamento). `agYmd` virou apelido depreciado.
+    Suíte roda verde em `TZ=America/Manaus`, `UTC` e `Asia/Tokyo`.
+  - A3 (legenda/comentário sem `overflowWrap` — palavra longa era cortada
+    pelo `overflow-x: hidden` do AppShell; comentário precisou de
+    `minWidth: 0` por ser flex item) e A4 (`cartTotal` somava float e
+    gravava 269.70000000000005 no pedido; agora soma em centavos).
+  - **Descartado após verificar:** rotas "sem gate" (autenticam uma camada
+    abaixo, no service) e 97 "botões sem `aria-label`" (regex meu estava
+    errado; as amostras têm texto ou o atributo em linha seguinte).
+
+- **A página 500 do Next tem DOIS caminhos — cobrir só um não adianta
+  (2026-09-01).** Criei `pages/500.tsx`, confirmei no build que a tela nova
+  estava lá dentro (`grep Reconectando .next/server/pages/500.html`) e o
+  aparelho SEGUIU recebendo o "500 | Server Error" cru. Motivo: `500.tsx`
+  cobre a 500 **estática**; erro em **runtime** cai no **`pages/_error.tsx`**,
+  que continuava sendo o padrão do Next. Os dois agora renderizam
+  `components/TelaReconectando` (auto-retry inline). O `_error` trata 404 à
+  parte — recarregar sozinho uma página que não existe só repetiria o "não
+  existe". **Conferir `.next/server/pages/_error.js`, não só o `500.html`.**
+
 - **Auditoria 2026-09-01 — 9 achados corrigidos (P1..P9).** Os que valem
   virar regra:
   - **P1 (o mais grave): `parseBRL` multiplicava por 100.** Apagava TODO

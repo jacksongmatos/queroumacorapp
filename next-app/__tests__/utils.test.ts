@@ -6,6 +6,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   parseBRL,
+  ymdBrt,
+  ymdDeCampos,
   fmtBRL,
   escapeHtml,
   escapeJsArg,
@@ -21,6 +23,37 @@ import {
   agYmd,
   throttle,
 } from '../lib/utils';
+
+// A2 (01/09/2026): "hoje" era calculado com `getTimezoneOffset()`, ou seja,
+// pelo fuso do APARELHO — enquanto o app exibe tudo em Brasília (o patch do
+// layout cobre só `toLocale*String`). Fora do fuso de São Paulo isso
+// deslocava o destaque de "hoje" na agenda, o recorte do dia no Financeiro e
+// a data de follow-up do pipeline.
+describe('utils — datas em Brasília', () => {
+  it('ymdBrt devolve o dia em SÃO PAULO, não em UTC', () => {
+    // 2026-09-02T02:00Z já é dia 2 em UTC, mas ainda é dia 1 em Brasília
+    // (UTC−3): é a virada que produzia o dia errado.
+    expect(ymdBrt(new Date('2026-09-02T02:00:00Z'))).toBe('2026-09-01');
+  });
+
+  it('ymdBrt vira o dia às 03:00Z (meia-noite em Brasília)', () => {
+    expect(ymdBrt(new Date('2026-09-02T02:59:59Z'))).toBe('2026-09-01');
+    expect(ymdBrt(new Date('2026-09-02T03:00:00Z'))).toBe('2026-09-02');
+  });
+
+  it('ymdBrt não depende do fuso de quem roda o teste', () => {
+    // O instante é absoluto; o resultado é sempre o dia em São Paulo.
+    expect(ymdBrt(new Date(Date.UTC(2026, 0, 1, 12, 0, 0)))).toBe('2026-01-01');
+  });
+
+  it('ymdDeCampos formata o Date pelos CAMPOS, sem passar por fuso', () => {
+    // Limite de mês do grid da agenda: ano/mês já são números de calendário.
+    expect(ymdDeCampos(new Date(2026, 8, 1))).toBe('2026-09-01');
+    expect(ymdDeCampos(new Date(2026, 11, 31))).toBe('2026-12-31');
+    // Overflow de dezembro → janeiro, que a agenda usa pro fim do range.
+    expect(ymdDeCampos(new Date(2026, 12, 1))).toBe('2027-01-01');
+  });
+});
 
 describe('utils — parseBRL/fmtBRL', () => {
   it('parseBRL trata "1.500,50" como 1500.5', () => {

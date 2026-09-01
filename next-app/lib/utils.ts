@@ -210,10 +210,57 @@ export function starStr(r: number | string | null | undefined): string {
   return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
 }
 
-// Data em "YYYY-MM-DD" no fuso local. Usado em queries de agendamento e
-// agenda do pintor pra evitar shift de fuso (ISO toISOString puro vira UTC).
+/** Fuso oficial do app — ver a regra em CLAUDE.md. */
+export const TZ_APP = 'America/Sao_Paulo';
+
+/**
+ * "Que dia é hoje?" em BRASÍLIA, no formato "YYYY-MM-DD".
+ *
+ * A2 (01/09/2026) — antes isto usava `getTimezoneOffset()`, ou seja, o fuso
+ * do APARELHO. O patch de fuso do `app/layout.tsx` só cobre
+ * `toLocale{Date,Time,}String`; `getTimezoneOffset` passa direto. Resultado:
+ * o app exibia tudo em Brasília mas decidia QUAL É O DIA pelo relógio do
+ * celular. Não é caso de viajante: o Brasil tem mais de um fuso — em Manaus
+ * (UTC−4), entre meia-noite e 1h, o aparelho diz um dia e Brasília já está
+ * no seguinte. Isso deslocava o destaque de "hoje" na agenda, o recorte do
+ * dia no Financeiro e a data de follow-up do pipeline.
+ *
+ * Usa `Intl` com `timeZone` explícito — `formatToParts` em vez de confiar no
+ * formato de algum locale, e sem depender do patch global (que mexe só em
+ * `Date.prototype`, não em `Intl.DateTimeFormat`).
+ */
+export function ymdBrt(d: Date = new Date()): string {
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ_APP,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const pega = (t: string) => partes.find((p) => p.type === t)?.value ?? '';
+  return `${pega('year')}-${pega('month')}-${pega('day')}`;
+}
+
+/**
+ * "YYYY-MM-DD" a partir dos CAMPOS de calendário do próprio Date.
+ *
+ * Para um Date construído como `new Date(ano, mes-1, dia)` — limites de mês
+ * do grid da agenda, por exemplo — o ano/mês/dia já SÃO a resposta: passar
+ * por fuso nenhum é o certo, porque não há instante a converter. Usar
+ * `ymdBrt` aqui é que introduziria deslocamento.
+ */
+export function ymdDeCampos(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * @deprecated Use `ymdBrt()` (hoje em Brasília) ou `ymdDeCampos()` (formatar
+ * um Date montado a partir de ano/mês/dia). Mantido porque o nome aparece em
+ * código antigo; hoje é só um apelido de `ymdBrt`.
+ */
 export function agYmd(d: Date): string {
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  return ymdBrt(d);
 }
 
 // Detecta tipo de arquivo (image vs video). Útil pra preview/feedback
