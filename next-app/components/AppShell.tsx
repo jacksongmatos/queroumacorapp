@@ -20,6 +20,7 @@ import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
 import { AppTour } from './AppTour';
 import { PickerRecovery } from './PickerRecovery';
+import { BackGuard } from './BackGuard';
 import type { ReactNode } from 'react';
 
 interface AppShellProps {
@@ -171,6 +172,11 @@ export function AppShell({
           pessoa pra tela onde ela estava, em vez de largá-la no feed sem a
           foto e sem explicação. Ver components/PickerRecovery.tsx. */}
       <PickerRecovery />
+      {/* Botão VOLTAR do Android: sem isto ele fecha o app do meio de
+          qualquer tela quando o histórico está vazio (deep link, ou a
+          re-navegação depois que o Android mata o renderizador da WebView).
+          Ver components/BackGuard.tsx. */}
+      <BackGuard />
       {!hideTopNav && <TopNav proStatus={proStatus} />}
       <main
         ref={scrollRef}

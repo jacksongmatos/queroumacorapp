@@ -39,11 +39,21 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('StoryViewer — dá pra fechar', () => {
-  it('fica ACIMA das barras do app (era o que escondia o X)', () => {
-    const { container } = render(
+  it('é montado no <body>, fora da arvore do AppShell', () => {
+    render(
       <StoryViewer groups={grupoFoto as unknown as Grupos} initialGroupIndex={0} onClose={vi.fn()} />,
     );
-    const raiz = container.querySelector('[role="dialog"]');
+    const raiz = document.body.querySelector('[role="dialog"]');
+    expect(raiz?.parentElement).toBe(document.body);
+  });
+
+  it('fica ACIMA das barras do app (era o que escondia o X)', () => {
+    render(
+      <StoryViewer groups={grupoFoto as unknown as Grupos} initialGroupIndex={0} onClose={vi.fn()} />,
+    );
+    // Portal: o viewer é filho DIRETO do <body>, não do container do teste —
+    // é justamente o que o torna imune a stacking context de ancestral.
+    const raiz = document.body.querySelector('[role="dialog"]');
     // BottomNav é z-[300]; o viewer precisa vencer isso.
     expect(raiz?.className).toContain('z-[400]');
   });
@@ -73,10 +83,10 @@ describe('StoryViewer — dá pra fechar', () => {
 
 describe('StoryViewer — vídeo entra sem o PLAY gigante', () => {
   it('tem poster vazio e tenta tocar sozinho', () => {
-    const { container } = render(
+    render(
       <StoryViewer groups={grupoVideo as unknown as Grupos} initialGroupIndex={0} onClose={vi.fn()} />,
     );
-    const v = container.querySelector('video');
+    const v = document.body.querySelector('video');
     expect(v?.getAttribute('poster')).toContain('data:image/gif');
     expect(v?.hasAttribute('autoplay')).toBe(true);
     expect(v?.hasAttribute('playsinline')).toBe(true);
