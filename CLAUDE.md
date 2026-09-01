@@ -387,6 +387,26 @@
     registro/controle do SW antes de qualquer palpite sobre a causa do
     500.** Não escrever correção especulativa antes disso.
 
+- **O 500 do App Router NÃO passa por `pages/500` nem por `pages/_error`
+  (2026-09-01, PROVADO).** Duas tentativas minhas falharam pela MESMA razão,
+  e só a evidência fechou a questão. No output publicado
+  (`.vercel/output/static`): o `500.html` é a minha tela ("Reconectando…",
+  sem `next-error-h1`), mas a marcação da tela padrão do Next
+  (`next-error-h1`) vive dentro do **worker**
+  (`_worker.js/__next-on-pages-dist__/webpack/*.js`) — ou seja, quem
+  responde é o runtime do Next DENTRO do worker, em rota de App Router, e
+  ali os arquivos do Pages Router não são consultados. `error.tsx` e
+  `global-error.tsx` também não pegam, porque a falha não é de render.
+  - **Não escrever uma 3ª tentativa às cegas.** Restam dois caminhos, e a
+    escolha depende de UM dado: o service worker controla a página no app?
+    Se controla, o `sw.js` v5 já resolve (troca 5xx pela tela de reconexão)
+    e o bug é outro; se não controla, a única interceptação possível é
+    embrulhar o `_worker.js` gerado num passo pós-build — o que amarra o
+    deploy a um script nosso e precisa ser decidido com o usuário.
+  - O dado chega sozinho: `sw-status` no `/admin/errors` (1 linha por
+    aparelho por dia) ou o link "Diagnóstico do aparelho" no rodapé do
+    perfil.
+
 - **Story: o X existia, mas ficava POR BAIXO das barras do app
   (2026-09-01).** O relato foi "não tem um X pra fechar?". Tinha — só que o
   `StoryViewer` era `fixed inset-0 z-50` e a **BottomNav é `z-[300]`**, a
@@ -394,7 +414,10 @@
   (`top-6`) nasciam atrás delas. O `fixed inset-0` sempre cobriu a tela
   toda; o que faltava era z-index. Agora **`z-[400]`**, o story fica
   imersivo (as barras do app somem enquanto ele está aberto, como no
-  Instagram) e o X virou alvo de 40px com fundo próprio — antes era um `×`
+  Instagram), o viewer é montado em **portal no `<body>`** (o z-index
+  sozinho bastaria hoje, mas basta um ancestral ganhar `transform` pra o
+  `fixed` deixar de cobrir a tela) e o X virou alvo de 40px com fundo
+  próprio — antes era um `×`
   de texto solto, invisível sobre story claro. Progresso e header respeitam
   `env(safe-area-inset-top)`.
   - **Botão VOLTAR do Android fecha o story.** Ao abrir, o viewer empurra

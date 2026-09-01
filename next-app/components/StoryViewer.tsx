@@ -23,6 +23,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Config } from '@/lib/config';
 import { isVideoUrl } from '@/lib/utils';
 import { useStories } from '@/lib/hooks/useStories';
@@ -54,6 +55,15 @@ export function StoryViewer({
   const [paused, setPaused] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Portal no <body>. O z-[400] sozinho JÁ deveria bastar (a BottomNav é
+  // z-[300]), mas o viewer nasce dentro do <main> — basta um ancestral
+  // ganhar `transform`/`filter`/`will-change` um dia pra ele virar o
+  // containing block e o `fixed inset-0` parar de cobrir a tela. No body
+  // não há o que dar errado, e o story é justamente a tela que precisa ser
+  // imersiva.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
   // `onClose` costuma ser uma função nova a cada render do pai; guardar numa
   // ref evita que o efeito do botão VOLTAR (abaixo) rearme e empilhe uma
   // entrada de histórico por render.
@@ -95,7 +105,11 @@ export function StoryViewer({
     if (!v) return;
     const p = v.play();
     if (p && typeof p.catch === 'function') p.catch(() => {});
-  }, [storyIdx, groupIdx]);
+    // `montado` nas deps porque o portal faz o 1º render devolver null: sem
+    // ele o efeito rodava com `videoRef.current` ainda nulo e nunca mais —
+    // o vídeo voltava a depender do `autoPlay`, que é o que a WebView
+    // bloqueia. Foi o teste que pegou.
+  }, [storyIdx, groupIdx, montado]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTsRef = useRef<number>(Date.now());
 
@@ -233,7 +247,9 @@ export function StoryViewer({
     ? '@' + profile.tag
     : profile.name || 'Usuário';
 
-  return (
+  if (!montado) return null;
+
+  const conteudo = (
     <div
       // z-[400]: a BottomNav é z-[300] e a TopNav z-50 — com z-50 o viewer
       // ficava POR BAIXO das duas, escondendo justamente as barras de
@@ -378,4 +394,6 @@ export function StoryViewer({
       ) : null}
     </div>
   );
+
+  return createPortal(conteudo, document.body);
 }
