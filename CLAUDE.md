@@ -409,7 +409,15 @@
     `Date.prototype`) e **`ymdDeCampos()`** (formata um Date montado a
     partir de ano/mês/dia, como os limites de mês do grid — ali passar por
     fuso é que introduziria deslocamento). `agYmd` virou apelido depreciado.
-    Suíte roda verde em `TZ=America/Manaus`, `UTC` e `Asia/Tokyo`.
+    **Nada de acesso depende disso** — os 4 usos são de tela/data, nenhum em
+    auth, RLS ou rota de API. Pra quem está FORA do Brasil o efeito é o
+    pretendido pela regra do projeto: "hoje" passa a ser o mesmo dia que as
+    datas já exibidas na tela (antes o destaque vinha do celular e o resto de
+    Brasília — inconsistentes entre si). `ymdBrt` tem fallback: se o `Intl`
+    falhar (WebView sem ICU completo), cai no fuso do aparelho em vez de
+    devolver `"--"`, que a coluna `date` do Postgres recusaria — o Financeiro
+    grava a data direto dali. Suíte verde em São Paulo, Manaus, UTC, Tóquio,
+    Los Angeles e Lisboa.
   - A3 (legenda/comentário sem `overflowWrap` — palavra longa era cortada
     pelo `overflow-x: hidden` do AppShell; comentário precisou de
     `minWidth: 0` por ser flex item) e A4 (`cartTotal` somava float e

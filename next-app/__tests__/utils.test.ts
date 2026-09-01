@@ -46,6 +46,23 @@ describe('utils — datas em Brasília', () => {
     expect(ymdBrt(new Date(Date.UTC(2026, 0, 1, 12, 0, 0)))).toBe('2026-01-01');
   });
 
+  it('nunca devolve data malformada, mesmo se o Intl falhar', () => {
+    // A coluna `date` do Postgres recusa "--", e o Financeiro grava direto
+    // daqui: um Intl sem dados de fuso viraria erro na cara de quem só
+    // lançou uma despesa. O fallback erra o dia na virada, no pior caso —
+    // mas entrega data válida.
+    const real = Intl.DateTimeFormat;
+    try {
+      // @ts-expect-error — simula runtime sem ICU completo.
+      Intl.DateTimeFormat = function () {
+        throw new Error('sem ICU');
+      };
+      expect(ymdBrt(new Date(2026, 8, 1))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    } finally {
+      Intl.DateTimeFormat = real;
+    }
+  });
+
   it('ymdDeCampos formata o Date pelos CAMPOS, sem passar por fuso', () => {
     // Limite de mês do grid da agenda: ano/mês já são números de calendário.
     expect(ymdDeCampos(new Date(2026, 8, 1))).toBe('2026-09-01');
