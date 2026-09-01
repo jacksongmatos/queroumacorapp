@@ -12,7 +12,7 @@ com um app novo publicado** — deploy web não resolve nenhum destes.
 > duas, está escrito aqui o que fica de fora.
 
 Contexto técnico: `docs/ANDROID_BUILD.md`.
-Última revisão: 2026-08-30.
+Última revisão: 2026-09-01.
 
 ---
 
@@ -55,24 +55,77 @@ sistema.
 
 ## 1. Opções pra procurar no painel do WebIntoApp
 
-### 1.1 Upload de arquivo / câmera — `onShowFileChooser` 🔴 URGENTE
+### 1.1 Upload de arquivo — `onShowFileChooser` ✅ RESOLVIDO em 31/08
 
-Sem isso a WebView **não abre a galeria**: tocar em "Trocar foto" (perfil)
-ou "Selecionar foto" (publicar/portfólio) não faz absolutamente nada — sem
-erro, sem log.
+O AAB publicado em 31/08 (com as permissões marcadas no painel) **abre a
+galeria**. Confirmado em campo em 01/09 no aparelho do Bruno: o seletor
+aparece e dá pra escolher a foto. O paliativo
+(`lib/utils/filePickerWatch.ts` + `GaleriaBloqueadaSheet`) continua no
+código como rede de segurança pra quem ainda não atualizou o app.
 
-- Bloqueia hoje **dois** pintores reais (Bruno Valentim e Leo): sem foto de
-  perfil e sem portfólio desde o cadastro. Segue acontecendo em 30/08.
-- Confirmado em campo em 29/08 e de novo em 30/08: o aviso do paliativo
-  (`lib/utils/filePickerWatch.ts`) disparou na tela deles. Ele só aparece
-  quando a página **não perde o foco**, ou seja, quando o seletor de fato
-  não abriu.
-- Precisa também das **permissões de mídia**. Se o app mirar Android 13+
-  (API 33), a permissão é `READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO` — a
-  antiga `READ_EXTERNAL_STORAGE` não vale mais. É a explicação mais
-  provável pra um Android abrir a galeria e outro não com o mesmo APK.
-- Procurar no painel por: *File upload*, *Camera access*, *Gallery*,
-  *Permissions*.
+Fica registrado o que era, porque explica a forma do problema seguinte:
+sem `onShowFileChooser` o toque não fazia **absolutamente nada** — sem
+erro, sem log —, e isso travou dois pintores reais (Bruno Valentim e Leo)
+desde o cadastro até 30/08.
+
+### 1.1b O app MORRE com a galeria aberta 🔴 URGENTE (novo em 01/09)
+
+Sintoma relatado pelo Bruno: a galeria abre, ele toca na foto e **o app
+volta pra tela inicial** — sem a foto, sem a legenda e sem explicação.
+
+Não é permissão e não é o `onShowFileChooser`. É o ciclo de vida da
+activity:
+
+1. o seletor de fotos é **outra activity** (Google Fotos / DocumentsUI),
+   pesada de memória — carrega milhares de miniaturas;
+2. o QueroUmaCor fica em segundo plano e o Android **encerra o processo**
+   pra liberar RAM (comportamento normal e documentado do sistema);
+3. na volta o wrapper recria a activity, a WebView nasce vazia e carrega a
+   **URL inicial** — daí a "tela inicial";
+4. o `ValueCallback<Uri[]>` que receberia o arquivo morreu junto, então a
+   foto é descartada mesmo quando a tela sobrevive.
+
+**O que pedir ao WebIntoApp:** preservar o `ValueCallback` pendente e o
+estado da WebView na recriação da activity
+(`onSaveInstanceState` + `WebView.saveState()/restoreState()`), em vez de
+recarregar a URL inicial. É um chamado bem mais fácil de descrever que o
+anterior — e eles já mostraram que mexem nessa parte do wrapper.
+
+**Paliativo web no ar desde 01/09** (`lib/utils/pickerRecovery.ts`): antes
+de abrir o seletor o app grava uma marca em `localStorage` (que sobrevive
+à morte do processo) e a apaga em todos os finais normais — arquivo
+chegou, pessoa cancelou, seletor não abriu. Sobrou marca num documento
+recém-carregado = aquele documento morreu com a escolha pendente. Aí o
+app leva a pessoa de volta pra tela onde ela estava
+(`components/PickerRecovery.tsx`), diz o que aconteceu e oferece as duas
+saídas de sempre. A legenda do composer é gravada no disco **no gesto que
+abre o seletor** (o autosave normal é throttled em 5s).
+
+Isso **não recupera o arquivo** — ele morre com o processo, e nenhum
+código web muda isso. O que resolve de vez é o item acima, no wrapper. A
+saída que funciona hoje é a **câmera**, que roda dentro da própria página
+(`getUserMedia`) e por isso é imune: o app nunca sai pra outra activity.
+
+Telemetria: `/admin/errors` recebe `picker-restart` (app morreu com a
+galeria aberta) e `picker-fail` (seletor não abriu) — dá pra ver em quais
+aparelhos acontece, em vez de descobrir por WhatsApp.
+
+### 1.1c Permissões de mídia — conferir o que o painel gerou
+
+Na tela de permissões do Android (01/09, aparelho do usuário) aparecem
+**Câmera, Localização, Microfone e Notificações** — e *nenhuma* entrada de
+fotos/mídia. Como o app mira API 35, a leitura mais provável é que o
+toggle "Add Storage Permissions" gerou a antiga `READ_EXTERNAL_STORAGE`,
+que o Android 13+ **ignora por completo** (por isso nem é listada).
+
+Na prática isso não bloqueia o seletor — o seletor do sistema entrega o
+arquivo por Intent e não exige permissão de leitura. Só vale saber que, se
+algum dia o app precisar **varrer** a galeria, a permissão certa é
+`READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO`.
+
+A **câmera** está declarada e concedida, e o Android registrou uso real
+("Last accessed") — ou seja, o wrapper implementa `onPermissionRequest` e
+a saída de emergência funciona.
 
 **Alternativa web JÁ NO AR desde 30/08 — e ela depende da CÂMERA.** Se a
 galeria não abre, o app agora oferece **"📷 Tirar foto agora"**

@@ -287,6 +287,45 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **A galeria ABRE, mas o app MORRE no meio da escolha (2026-09-01).** O
+  AAB de 31/08 resolveu o `onShowFileChooser` — o seletor aparece
+  (confirmado no aparelho do Bruno). Só que apareceu o problema seguinte:
+  ele toca na foto e **o app volta pra tela inicial**, sem foto e sem
+  legenda. Não é permissão: o seletor de fotos é OUTRA activity, pesada de
+  memória; o Android encerra o processo do app que ficou atrás; na volta o
+  wrapper recria tudo e carrega a **URL inicial**, e o `ValueCallback` que
+  receberia o arquivo morreu junto.
+  - **Nenhum código web impede isso** — a correção de raiz é do WebIntoApp
+    (`ValueCallback` + `WebView.saveState()/restoreState()` na recriação da
+    activity; `docs/AAB_PROXIMA_VERSAO.md` §1.1b). O que o app faz é não
+    deixar a pessoa no escuro: `lib/utils/pickerRecovery.ts` grava uma marca
+    em **localStorage** (sobrevive à morte do processo; `sessionStorage`
+    NÃO — WebView nova nasce com ele vazio) antes de abrir o seletor e a
+    apaga em TODO final normal (arquivo chegou / cancelou / nem abriu).
+    Marca sobrevivendo num documento recém-carregado = aquele documento
+    morreu com a escolha pendente.
+  - `components/PickerRecovery.tsx` (montado no `AppShell`) leva de volta
+    pra rota da marca; quem **consome** a marca é a tela dona dela (filtro
+    por `ctx`), porque só ela sabe o que fazer com a foto. Se o boot
+    consumisse, o app navegaria em silêncio e ninguém entenderia nada.
+  - Janela de 5min: escolher foto leva segundos. Fora dela é sessão nova, e
+    avisar seria mentira. **Só arma no Android** (mesmo gate `ehAndroid` do
+    `filePickerWatch`, agora exportado — se os dois divergirem, uma tela
+    marca e a outra não limpa).
+  - A **câmera é imune** (`getUserMedia` roda na própria página, não sai pra
+    outra activity) — por isso o `GaleriaBloqueadaSheet` segue sendo a
+    saída, agora com título/texto por prop: dizer "a galeria não abriu"
+    aqui seria mentira, ela abriu.
+  - `Composer` grava o rascunho NO GESTO que abre o seletor
+    (`onAntesDeAbrir` → `writeDraft`): o autosave é throttled em 5s e quem
+    digita e toca em seguida perderia o texto junto com a foto.
+  - Telemetria nova: `picker-restart` no `/admin/errors`.
+  - **Permissões (conferido em 01/09):** Câmera concedida e com uso real
+    registrado → o wrapper implementa `onPermissionRequest`. Fotos/mídia
+    **não aparece** na lista → o toggle de storage provavelmente gerou a
+    antiga `READ_EXTERNAL_STORAGE`, ignorada no Android 13+. Não bloqueia o
+    seletor (ele entrega o arquivo por Intent).
+
 - **App instalado NÃO ABRE A GALERIA — a saída pela CÂMERA (2026-08-30).**
   Voltou em 30/08 com DOIS pintores (Bruno Valentim e Leo): não trocam a
   foto de perfil nem publicam portfólio. Causa é a mesma de 29/08 e não é

@@ -19,6 +19,7 @@ import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
 import { AppTour } from './AppTour';
+import { PickerRecovery } from './PickerRecovery';
 import type { ReactNode } from 'react';
 
 interface AppShellProps {
@@ -166,6 +167,10 @@ export function AppShell({
       style={{ height: '100dvh' }}
     >
       <RealtimeBindings />
+      {/* App morto pelo Android enquanto a galeria estava aberta: devolve a
+          pessoa pra tela onde ela estava, em vez de largá-la no feed sem a
+          foto e sem explicação. Ver components/PickerRecovery.tsx. */}
+      <PickerRecovery />
       {!hideTopNav && <TopNav proStatus={proStatus} />}
       <main
         ref={scrollRef}

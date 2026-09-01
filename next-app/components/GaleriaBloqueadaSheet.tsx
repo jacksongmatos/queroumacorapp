@@ -14,6 +14,12 @@
 // A correção de raiz continua sendo no painel do WebIntoApp
 // (`docs/ANDROID_BUILD.md`); isto é o que a pessoa tem HOJE, no aparelho
 // que já está instalado.
+//
+// 2026-09-01: o título e o texto viraram props porque surgiu um SEGUNDO
+// caso com as mesmas duas saídas — a galeria abre, mas o Android mata o
+// app enquanto ela está aberta (ver `lib/utils/pickerRecovery.ts`). Ali
+// dizer "a galeria não abriu" seria mentira, e mensagem errada custa a
+// confiança de quem já está no prejuízo.
 
 'use client';
 
@@ -31,6 +37,9 @@ export interface GaleriaBloqueadaSheetProps {
   facing?: 'user' | 'environment';
   /** Pra onde mandar quem escolher o navegador (URL completa). */
   urlNoNavegador: string;
+  /** Default: o caso do seletor que não abre. */
+  titulo?: string;
+  descricao?: string;
   ctx?: string;
   userId?: string | null;
 }
@@ -41,6 +50,9 @@ export function GaleriaBloqueadaSheet({
   onFoto,
   facing = 'environment',
   urlNoNavegador,
+  titulo = 'A galeria não abriu',
+  descricao =
+    'Este aparelho não deixou o app abrir as fotos salvas. Não é a sua conta — e tem duas saídas agora:',
   ctx,
   userId,
 }: GaleriaBloqueadaSheetProps) {
@@ -62,10 +74,10 @@ export function GaleriaBloqueadaSheet({
 
   return (
     <>
-      <BottomSheet open={open && !camAberta} onClose={onClose} ariaLabel="A galeria não abriu">
+      <BottomSheet open={open && !camAberta} onClose={onClose} ariaLabel={titulo}>
         <div style={{ padding: '4px 4px 12px' }}>
           <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>
-            A galeria não abriu
+            {titulo}
           </div>
           <p
             style={{
@@ -75,8 +87,7 @@ export function GaleriaBloqueadaSheet({
               marginBottom: 14,
             }}
           >
-            Este aparelho não deixou o app abrir as fotos salvas. Não é a sua conta —
-            e tem duas saídas agora:
+            {descricao}
           </p>
 
           <button
