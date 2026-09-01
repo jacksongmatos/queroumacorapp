@@ -22,6 +22,7 @@ export type FailureType =
   | 'avatar-fail'
   | 'picker-fail'
   | 'picker-restart'
+  | 'sw-status'
   | 'camera-fail'
   | 'pdf-link-fail';
 
