@@ -387,6 +387,56 @@
     registro/controle do SW antes de qualquer palpite sobre a causa do
     500.** Não escrever correção especulativa antes disso.
 
+- **Auditoria 2026-09-01 — 9 achados corrigidos (P1..P9).** Os que valem
+  virar regra:
+  - **P1 (o mais grave): `parseBRL` multiplicava por 100.** Apagava TODO
+    ponto como milhar antes de trocar a vírgula: `"1500.50"` → 150050,
+    `"0.99"` → 99, e até `parseBRL(1500.5)` → 15005 (número passava por
+    `String()`). O campo de preço usa `inputMode="decimal"` e o teclado do
+    Android oferece PONTO — era o caminho comum, não caso de canto.
+    Atingia preço de arte à venda, Financeiro, Agenda e o `brlSchema`. Pior:
+    os comentários em `utils.ts` e `schemas.ts` JÁ AFIRMAVAM aceitar
+    `"1500.50"`. **Regra nova: vírgula sempre é decimal; ponto é decimal com
+    1-2 casas (ou parte inteira zerada) e milhar com 3.** 7 testes novos —
+    o antigo só cobria `"1.500,50"`, vazio e o inteiro `42`.
+  - **P3: busca aproximada NUNCA decide destinatário de mensagem.**
+    `resolveCalicolorsUserId` caía em `.ilike('name','%cali%').limit(1)` sem
+    `order` — casava com Calixto/Micaeli/Carlos Calisto e escolhia de forma
+    não-determinística. Esse id abre a conversa "🎨 Loja": dava pra mandar
+    pra um estranho. Agora só igualdade exata (tags conhecidas → nome
+    exato), e **erro do Supabase não é mais lido como "não existe"**.
+  - **P2 foi FALSO ALARME e a lição é essa.** `linkUrl` faltava nas deps do
+    `useCallback` de submit, mas não causava bug: `autosave` também está nas
+    deps e o `useAutosave` devolve **objeto novo a cada render**, então o
+    callback era recriado sempre. A correção do link dependia de um acidente
+    em outra dependência — estabilizar o retorno do `useAutosave` (o certo
+    pra perf) reintroduziria o bug em silêncio. **Só confirmei porque o
+    teste de regressão passou SEM o fix.** Teste que não falha sem a
+    correção não é teste de regressão.
+  - **P4/P5: `catch {}` mudo esconde bug por meses.** O upload da foto no
+    CADASTRO falhava em silêncio (nem toast, nem `/admin/errors`) — foi o
+    que escondeu o bug de MIME em todo cadastro novo. O perfil público
+    engolia falha de quals/cursos/avaliações e renderizava **vazio**: pintor
+    com 20 avaliações aparecia sem nenhuma, na tela onde o cliente decide
+    contratar. Os `.catch` individuais dentro de `Promise.all` também
+    precisam marcar a falha.
+  - P6 (`linkUrl`/`artType` não limpos após publicar), P7 (regressão minha:
+    `armarSelecao` sem cancelar no unmount deixava ouvintes vivos e marca no
+    localStorage → aviso falso "o app reiniciou"), P8 (`??` não é fallback
+    pra efeito colateral: `handler?.(err) ?? console.warn(...)` logava
+    sempre) e P9 (pílulas `bg-gray-100` sem inversão no dark).
+  - **`eslint.ignoreDuringBuilds: true`** no `next.config.mjs`: os ~17
+    avisos do linter nunca aparecem no deploy. Rodar `next lint` na mão.
+
+- **Story virou só a mídia (2026-09-01, decisão da loja).** Sem legenda e
+  sem link "ver mais": é conteúdo que some em 24h, e pedir texto só atrasa
+  quem quer postar a foto da obra e seguir trabalhando. O payload vai com
+  `caption: ''` e `linkUrl: null` — sem isso um rascunho antigo restaurado
+  pelo autosave mandaria texto que a pessoa não tem mais como ver nem
+  editar. A coluna `posts.link_url` e o CTA do `StoryViewer` continuam
+  existindo pros stories antigos; só não há mais como criar novos. A aba
+  "Foto / Vídeo" passou a se chamar **"Post"**.
+
 - **A galeria ABRE, mas o app MORRE no meio da escolha (2026-09-01).** O
   AAB de 31/08 resolveu o `onShowFileChooser` — o seletor aparece
   (confirmado no aparelho do Bruno). Só que apareceu o problema seguinte:

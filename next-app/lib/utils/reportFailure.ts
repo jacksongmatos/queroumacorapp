@@ -23,6 +23,8 @@ export type FailureType =
   | 'picker-fail'
   | 'picker-restart'
   | 'sw-status'
+  | 'profile-load-fail'
+  | 'consent-fail'
   | 'camera-fail'
   | 'pdf-link-fail';
 

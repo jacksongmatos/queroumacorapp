@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { MediaUploader } from '../../app/publicar/MediaUploader';
-import { marcarEscolhaPendente } from '@/lib/utils/pickerRecovery';
+import { lerEscolhaPendente, marcarEscolhaPendente } from '@/lib/utils/pickerRecovery';
 
 const naoAbriu = { fn: null as null | (() => void) };
 const watchFilePicker = vi.fn((cb: () => void) => {
@@ -80,6 +80,28 @@ describe('MediaUploader — seletor de arquivos', () => {
     expect(screen.queryByText(/A galeria não abriu/)).toBeNull();
     expect(screen.getByText(/Tirar foto agora/)).toBeTruthy();
     expect(screen.getByText(/Abrir no navegador/)).toBeTruthy();
+  });
+
+  // P7 (01/09/2026): a tela saindo com uma escolha em aberto deixava a marca
+  // no localStorage E os ouvintes de visibilidade vivos. Na abertura
+  // seguinte, dentro de 5 min, o app levava a pessoa pro /publicar dizendo
+  // "o app reiniciou" sem que nada disso tivesse acontecido.
+  it('sair da tela com o seletor aberto NÃO deixa marca pra trás', () => {
+    const ua = navigator.userAgent;
+    // A marca só é armada no Android — sem isto o teste não exercita nada.
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 16; SM-S911B) AppleWebKit/537.36',
+      configurable: true,
+    });
+    try {
+      const { unmount } = render(<MediaUploader onFiles={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('media-uploader'));
+      expect(lerEscolhaPendente()).not.toBeNull(); // armou
+      unmount();
+      expect(lerEscolhaPendente()).toBeNull(); // e limpou ao sair
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true });
+    }
   });
 
   it('marca de OUTRA tela não vira aviso aqui', () => {

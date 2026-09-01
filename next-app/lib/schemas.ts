@@ -46,8 +46,10 @@ export function requiredField(label: string) {
   return z.string().trim().min(1, `Informe ${label}`);
 }
 
-// BRL: aceita "100", "1.500,50", "1500.50" → number. Reusa `parseBRL` de utils.ts
-// pra garantir mesmo parsing dos inputs vanilla.
+// BRL: aceita "100", "1.500,50", "1500.50" → number. Reusa `parseBRL` de
+// utils.ts pra garantir mesmo parsing dos inputs vanilla — e é lá que mora a
+// regra que decide se o ponto é decimal ou milhar (até 01/09/2026 "1500.50"
+// virava 150050 aqui dentro, apesar deste comentário afirmar o contrário).
 import { parseBRL } from './utils';
 
 export const brlSchema = z.preprocess(

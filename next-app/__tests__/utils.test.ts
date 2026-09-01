@@ -26,6 +26,41 @@ describe('utils — parseBRL/fmtBRL', () => {
   it('parseBRL trata "1.500,50" como 1500.5', () => {
     expect(parseBRL('1.500,50')).toBeCloseTo(1500.5);
   });
+  // Regressão do bug de 01/09/2026: o decimal com PONTO multiplicava por 100.
+  // O teclado do Android (inputMode="decimal") oferece ponto, então isto não
+  // era caso de canto — era o caminho comum de quem digita preço no celular.
+  it('parseBRL trata ponto como DECIMAL quando sobram 1-2 casas', () => {
+    expect(parseBRL('1500.50')).toBeCloseTo(1500.5);
+    expect(parseBRL('0.99')).toBeCloseTo(0.99);
+    expect(parseBRL('12.5')).toBeCloseTo(12.5);
+  });
+
+  it('parseBRL trata ponto como MILHAR quando sobram 3 casas (uso pt-BR)', () => {
+    expect(parseBRL('1.500')).toBe(1500);
+    expect(parseBRL('1.234.567')).toBe(1234567);
+  });
+
+  it('parseBRL: vírgula sempre manda, ponto vira milhar', () => {
+    expect(parseBRL('1500,50')).toBeCloseTo(1500.5);
+    expect(parseBRL('1.500,50')).toBeCloseTo(1500.5);
+    expect(parseBRL('1.234.567,89')).toBeCloseTo(1234567.89);
+  });
+
+  it('parseBRL: número entra direto (String() quebrava o decimal)', () => {
+    expect(parseBRL(1500.5)).toBeCloseTo(1500.5);
+    expect(parseBRL(0.99)).toBeCloseTo(0.99);
+    expect(parseBRL(Infinity)).toBe(0);
+  });
+
+  it('parseBRL ignora símbolo de moeda e espaços', () => {
+    expect(parseBRL('R$ 1.500,50')).toBeCloseTo(1500.5);
+    expect(parseBRL('R$ 89,90')).toBeCloseTo(89.9);
+  });
+
+  it('parseBRL: parte inteira zerada mantém o ponto como decimal', () => {
+    expect(parseBRL('0.999')).toBeCloseTo(0.999);
+  });
+
   it('parseBRL devolve 0 pra vazio/null', () => {
     expect(parseBRL('')).toBe(0);
     expect(parseBRL(null)).toBe(0);

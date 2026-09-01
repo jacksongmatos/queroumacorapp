@@ -27,6 +27,7 @@ import { buildDirectConvId } from '@/lib/services/chat-types';
 import { listQuals, listCourses, type Qualification, type Course } from '@/lib/services/formacao';
 import { listPainterReviews, type PainterReview } from '@/lib/services/reviews';
 import type { Profile } from '@/lib/types';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Roles considerados "profissionais" — habilitam CTA de orçamento, seção de
 // avaliações e o selo de raio de atendimento. Cliente comum não vê.
@@ -73,6 +74,11 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
   const [quals, setQuals] = useState<Qualification[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [reviews, setReviews] = useState<PainterReview[]>([]);
+  // P5 (01/09/2026): sem isto, falha de rede renderizava o perfil VAZIO — um
+  // pintor com 20 avaliações aparecia como se não tivesse nenhuma, sem
+  // nenhum indício de erro. Num marketplace isso é ativamente enganoso: é a
+  // tela em que o cliente decide se contrata.
+  const [erroDetalhes, setErroDetalhes] = useState(false);
   const [orcOpen, setOrcOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   // Denúncia (Apple Guideline 1.2): modal do perfil + qual review está sendo
@@ -154,6 +160,7 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
     // Stats já vêm das colunas do profile (efeito acima). Aqui: portfólio +
     // formação (qualificações/cursos) + avaliações (só pra profissional).
     void (async () => {
+      let falhou = false;
       try {
         const [portRes, qualsRes, coursesRes, reviewsRes] = await Promise.all([
           sb
@@ -164,10 +171,21 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
             .is('deleted_at', null)
             .order('created_at', { ascending: false })
             .limit(30),
-          listQuals(targetId).catch(() => [] as Qualification[]),
-          listCourses(targetId).catch(() => [] as Course[]),
+          // Cada `.catch` individual também precisa marcar: sem isso uma
+          // falha só nas avaliações passaria como "não tem avaliações".
+          listQuals(targetId).catch(() => {
+            falhou = true;
+            return [] as Qualification[];
+          }),
+          listCourses(targetId).catch(() => {
+            falhou = true;
+            return [] as Course[];
+          }),
           isProfessional
-            ? listPainterReviews(targetId, 20).catch(() => [] as PainterReview[])
+            ? listPainterReviews(targetId, 20).catch(() => {
+                falhou = true;
+                return [] as PainterReview[];
+              })
             : Promise.resolve([] as PainterReview[]),
         ]);
         if (cancel) return;
@@ -175,8 +193,12 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
         setQuals(qualsRes);
         setCourses(coursesRes);
         setReviews(reviewsRes);
-      } catch {
-        /* silent */
+        setErroDetalhes(falhou);
+      } catch (e) {
+        if (!cancel) {
+          setErroDetalhes(true);
+          reportFailure('profile-load-fail', e, { ctx: 'perfil-publico' });
+        }
       } finally {
         if (!cancel) setLoading(false);
       }
@@ -622,6 +644,21 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
 
       {/* Formação: qualificações + cursos (read-only). qualifications/courses
           são legíveis por qualquer logado (RLS Wave 3), então o visitante vê. */}
+      {!loading && erroDetalhes ? (
+        <div
+          className="mx-4 my-3 px-4 py-3 rounded-2xl text-sm"
+          style={{
+            background: 'rgba(230,57,70,.06)',
+            border: '1px solid rgba(230,57,70,.25)',
+            color: 'var(--color-danger)',
+          }}
+          role="status"
+        >
+          Não consegui carregar avaliações e formação deste perfil. O que
+          aparece abaixo pode estar incompleto — tente recarregar.
+        </div>
+      ) : null}
+
       {!loading && (quals.length > 0 || courses.length > 0) ? (
         <FormacaoSection quals={quals} courses={courses} />
       ) : null}

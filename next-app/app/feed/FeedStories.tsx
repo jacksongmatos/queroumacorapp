@@ -43,6 +43,10 @@ export function FeedStories() {
             fontSize: 22,
             color: 'var(--color-ink)',
             marginBottom: 14,
+            // O X de fechar é absoluto no canto: sem esta folga o título
+            // longo passa por baixo dele (visível em "Nova Publicação" num
+            // celular estreito).
+            padding: '0 44px',
           }}
         >
           Nova Publicação
