@@ -230,14 +230,27 @@ export const TZ_APP = 'America/Sao_Paulo';
  * `Date.prototype`, não em `Intl.DateTimeFormat`).
  */
 export function ymdBrt(d: Date = new Date()): string {
-  const partes = new Intl.DateTimeFormat('en-US', {
-    timeZone: TZ_APP,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(d);
-  const pega = (t: string) => partes.find((p) => p.type === t)?.value ?? '';
-  return `${pega('year')}-${pega('month')}-${pega('day')}`;
+  try {
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ_APP,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const pega = (t: string) => partes.find((p) => p.type === t)?.value ?? '';
+    const ymd = `${pega('year')}-${pega('month')}-${pega('day')}`;
+    // Sem esta conferência, um `Intl` sem dados de fuso devolveria partes
+    // vazias e a função entregaria "--" — string que a coluna `date` do
+    // Postgres recusa. O Financeiro grava a data DIRETO daqui, então uma
+    // data malformada viraria erro na cara de quem só lançou uma despesa.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  } catch {
+    // Runtime sem ICU completo (WebView muito antiga): cai no fallback.
+  }
+  // Último recurso: o fuso do próprio aparelho. Pode errar o dia na virada
+  // pra quem está fora de Brasília — mas é uma data VÁLIDA, e errar por
+  // algumas horas é infinitamente melhor que gravar lixo.
+  return ymdDeCampos(d);
 }
 
 /**
