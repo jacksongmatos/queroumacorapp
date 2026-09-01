@@ -90,3 +90,69 @@ describe('extensaoDe', () => {
     expect(extensaoDe(null)).toBe('');
   });
 });
+
+// ─── Último recurso: os bytes ──────────────────────────────────────────────
+//
+// O caso que a extensão não cobre: alguns content providers do Android
+// devolvem o arquivo SEM tipo E com nome sem extensão ("image", um id puro).
+// Aí o único informante que não mente é o começo do arquivo.
+
+import { mimeDefinitivo, mimePorConteudo, normalizarArquivo } from '@/lib/utils/mediaType';
+
+function comBytes(nome: string, tipo: string, bytes: number[]): File {
+  return new File([new Uint8Array(bytes)], nome, { type: tipo });
+}
+
+const JPEG = [0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0];
+// RIFF <4 bytes de tamanho> WEBP
+const WEBP = [0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50, 0, 0, 0, 0];
+// ....ftyp<marca>
+const isobmff = (marca: string) => [
+  0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70,
+  ...marca.split('').map((c) => c.charCodeAt(0)),
+  0, 0, 0, 0,
+];
+
+describe('mimePorConteudo', () => {
+  it('reconhece JPEG, PNG e WebP pelos bytes', async () => {
+    expect(await mimePorConteudo(comBytes('x', '', JPEG))).toBe('image/jpeg');
+    expect(await mimePorConteudo(comBytes('x', '', PNG))).toBe('image/png');
+    expect(await mimePorConteudo(comBytes('x', '', WEBP))).toBe('image/webp');
+  });
+
+  it('separa HEIC de MP4 pela MARCA — os dois começam com ftyp', async () => {
+    expect(await mimePorConteudo(comBytes('x', '', isobmff('heic')))).toBe('image/heic');
+    expect(await mimePorConteudo(comBytes('x', '', isobmff('mif1')))).toBe('image/heif');
+    expect(await mimePorConteudo(comBytes('x', '', isobmff('isom')))).toBe('video/mp4');
+  });
+
+  it('não chuta quando não reconhece', async () => {
+    expect(await mimePorConteudo(comBytes('x', '', [1, 2, 3, 4, 5, 6, 7, 8]))).toBe('');
+  });
+});
+
+describe('mimeDefinitivo / normalizarArquivo', () => {
+  it('o caso que a extensão NÃO cobre: sem tipo e sem extensão', async () => {
+    const f = comBytes('1000012345', '', PNG);
+    expect(mimeConfiavel(f)).toBe(''); // nem tipo nem nome ajudam
+    expect(await mimeDefinitivo(f)).toBe('image/png'); // os bytes ajudam
+    expect(ehImagem(await normalizarArquivo(f))).toBe(true);
+  });
+
+  it('a extensão vence os bytes só quando o tipo declarado falta', async () => {
+    // nome diz .png, conteúdo é jpeg: confiamos no nome (ordem documentada)
+    const f = comBytes('foto.png', '', JPEG);
+    expect(await mimeDefinitivo(f)).toBe('image/png');
+  });
+
+  it('tipo declarado continua no topo da ordem', async () => {
+    const f = comBytes('foto.png', 'image/webp', JPEG);
+    expect(await mimeDefinitivo(f)).toBe('image/webp');
+  });
+
+  it('não promove a imagem o arquivo que não é imagem', async () => {
+    const f = comBytes('coisa', '', [0x25, 0x50, 0x44, 0x46]); // %PDF
+    expect(ehImagem(await normalizarArquivo(f))).toBe(false);
+  });
+});

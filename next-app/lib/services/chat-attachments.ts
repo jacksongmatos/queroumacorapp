@@ -2,6 +2,7 @@
 
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
+import { normalizarArquivo } from '@/lib/utils/mediaType';
 import {
   ALLOWED_ATTACHMENT_MIMES,
   ALLOWED_IMAGE_MIMES,
@@ -32,6 +33,10 @@ export async function uploadAttachment(
       `Arquivo muito grande (máx ${Math.floor(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB)`,
     );
   }
+  // Sem isto, a foto vinda do seletor do app (type vazio) virava
+  // octet-stream e caía fora da allowlist: "Tipo de arquivo não permitido"
+  // ao mandar foto no chat.
+  file = await normalizarArquivo(file);
   const mime = file.type || 'application/octet-stream';
   if (!ALLOWED_ATTACHMENT_MIMES.includes(mime)) {
     throw new ValidationError('Tipo de arquivo não permitido');

@@ -46,7 +46,7 @@ import { CameraCapture } from '@/components/CameraCapture';
 import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
-import { comMimeCorrigido, ehImagem } from '@/lib/utils/mediaType';
+import { ehImagem, normalizarArquivo } from '@/lib/utils/mediaType';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
@@ -262,11 +262,11 @@ export function EditProfileForm() {
     if (!file || !user) return;
     // `file.type` VAZIO é rotina no seletor do wrapper (ver
     // lib/utils/mediaType.ts) — validar por ele recusava foto de verdade.
+    file = await normalizarArquivo(file);
     if (!ehImagem(file)) {
       showToast('Selecione uma imagem (PNG, JPG, WebP, SVG)', 'error');
       return;
     }
-    file = comMimeCorrigido(file);
     if (file.size > 5 * 1024 * 1024) {
       showToast('Imagem grande demais (máx 5MB)', 'error');
       return;
@@ -337,11 +337,11 @@ export function EditProfileForm() {
     // O seletor do app instalado devolve a foto SEM MIME type — era isto
     // que barrava a troca de foto com "Selecione um arquivo de imagem" na
     // cara de quem tinha selecionado exatamente isso.
+    f = await normalizarArquivo(f);
     if (!ehImagem(f)) {
       showToast('Selecione um arquivo de imagem', 'error');
       return;
     }
-    f = comMimeCorrigido(f);
     if (f.size > 5 * 1024 * 1024) {
       showToast('Imagem muito grande (máx 5MB)', 'error');
       return;

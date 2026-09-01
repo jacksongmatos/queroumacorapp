@@ -32,7 +32,7 @@ import {
   ConfigError,
 } from '@/lib/errors';
 import { getMediaType } from '@/lib/utils';
-import { ehImagem } from '@/lib/utils/mediaType';
+import { ehImagem, mimeConfiavel, normalizarArquivo } from '@/lib/utils/mediaType';
 
 // Limites alinhados com o bucket `posts` no Supabase (CLAUDE.md confirma:
 // allowed_mime_types image/jpeg|png|webp|gif|heic|heif + video/mp4|quicktime|webm,
@@ -104,8 +104,9 @@ async function sha256Hex(file: File): Promise<string> {
  */
 export async function uploadMedia(
   userId: string,
-  file: File
+  entrada: File
 ): Promise<UploadMediaResult> {
+  let file = entrada;
   if (!userId) throw new AuthenticationError('Faça login para publicar.');
   if (!file) throw new ValidationError('Arquivo ausente.');
   if (file.size > MAX_FILE_BYTES) {
@@ -114,10 +115,15 @@ export async function uploadMedia(
     );
   }
 
+  // Tipo declarado > extensão > bytes. Ver lib/utils/mediaType.
+  file = await normalizarArquivo(file);
   const mediaType = getMediaType(file);
-  // Mime explícito quando o browser preenche; fallback pelo getMediaType.
+  // Mime explícito quando o browser preenche; senão pela EXTENSÃO. O
+  // fallback antigo chutava 'image/jpeg' pra qualquer imagem sem tipo —
+  // acertava .jpg por sorte e etiquetava .png/.webp/.heic errado (o
+  // seletor do app instalado nunca manda o tipo). Ver utils/mediaType.
   const mime =
-    file.type ||
+    mimeConfiavel(file) ||
     (mediaType === 'video' ? 'video/mp4' : 'image/jpeg');
 
   // Defense in depth: o bucket também filtra, mas erro nosso é mais legível.

@@ -296,9 +296,23 @@
   Pelo Chrome o mesmo arquivo vem `image/jpeg` — daí o clássico "no
   navegador funciona".
   - **REGRA: nunca validar mídia por `file.type` sozinho.**
-    `lib/utils/mediaType.ts` (`ehImagem`/`ehVideo`/`comMimeCorrigido`) cai
-    na EXTENSÃO quando o tipo é vazio/genérico. Ponto de entrada de arquivo
-    novo = usar esse helper, não `startsWith('image/')`.
+    `lib/utils/mediaType.ts` decide em TRÊS degraus, nesta ordem: tipo
+    declarado → **extensão** do nome → **bytes** do arquivo (magic numbers).
+    O 3º degrau existe porque alguns content providers do Android devolvem
+    nome SEM extensão (um id puro) — aí só o conteúdo responde; `ftyp`
+    precisa da MARCA no offset 8 pra separar HEIC de MP4. Caminho novo que
+    aceita arquivo escolhido pela pessoa = `await normalizarArquivo(file)`
+    ANTES de `ehImagem`/`ehVideo`, nunca `startsWith('image/')`.
+  - **A varredura de 01/09 achou 6 caminhos além do avatar** — todos
+    derivavam `contentType` de `file.type` vazio, e dois RECUSAVAM o
+    arquivo: `chat-attachments` ("Tipo de arquivo não permitido" ao mandar
+    foto no chat) e `artReferences` ("Formato não suportado", + extensão
+    sempre .jpg). Também `stories`, `aiLogo`, `QualsSection` (PDF virava
+    image/jpeg) e `posts.uploadMedia`, que chutava `image/jpeg` pra toda
+    imagem sem tipo — acertava .jpg por sorte e etiquetava png/webp/heic
+    errado. **Em `uploadMedia` o fallback `image/jpeg` FICA de propósito**
+    pro caso sem nenhuma das três pistas: recusar quebraria justamente o
+    fluxo que isso conserta.
   - **Corrigir o `type` não é cosmético:** os buckets têm
     `allowed_mime_types`, então subir como octet-stream seria recusado pelo
     **Storage** mesmo depois de passar pela validação da tela. Por isso o
