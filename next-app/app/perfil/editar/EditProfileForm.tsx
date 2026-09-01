@@ -125,6 +125,11 @@ export function EditProfileForm() {
   const [camAberta, setCamAberta] = useState(false);
   const podeCamera = useOfereceCamera();
 
+  // P7: cancela o que o `armarSelecao` armou quando a tela sai — senão
+  // sobram ouvintes vivos e a marca de recuperação no localStorage vira
+  // aviso falso na próxima abertura.
+  useEffect(() => () => cancelarAvisoRef.current?.(), []);
+
   // Voltamos de um app que o Android matou com a galeria aberta? A foto se
   // perdeu no caminho e ninguém contou pra pessoa — ela só viu o app voltar
   // pro início. Conta aqui, com as saídas (ver lib/utils/pickerRecovery).

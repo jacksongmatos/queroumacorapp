@@ -53,6 +53,13 @@ export function MediaUploader({
   const [reiniciou, setReiniciou] = useState(false);
   const [camAberta, setCamAberta] = useState(false);
 
+  // P7 (01/09/2026): sem isto os ouvintes de visibilidade/foco armados pelo
+  // `armarSelecao` ficavam vivos após a tela sair, E a marca de recuperação
+  // continuava no localStorage — na abertura seguinte, dentro de 5 min, o
+  // app levava a pessoa pro /publicar dizendo "o app reiniciou" sem que
+  // nada disso tivesse acontecido.
+  useEffect(() => () => cancelarAviso.current?.(), []);
+
   // Voltamos de um app que morreu com a galeria aberta? Então a foto se
   // perdeu no caminho e ninguém contou pra pessoa. Conta aqui, com as
   // saídas — a câmera não passa pelo seletor, então não repete o problema.

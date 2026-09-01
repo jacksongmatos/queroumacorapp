@@ -18,6 +18,8 @@ import { ConflictError, ValidationError } from '@/lib/errors';
 import type { UserRole } from '@/lib/types';
 import { readPendingReferrer, clearPendingReferrer } from '@/components/ReferralCapture';
 import { SocialAuthButtons } from '@/components/SocialAuthButtons';
+import { reportFailure } from '@/lib/utils/reportFailure';
+import { showToast } from '@/lib/toast';
 import { SignupStep1, type Step1Data } from './SignupStep1';
 import { SignupStep2, type Step2Data } from './SignupStep2';
 import { SignupStep3, type Step3Data } from './SignupStep3';
@@ -178,8 +180,18 @@ export function SignupFlow() {
           // updateProfile separado pra setar avatar_url no row do user.
           const { updateProfile } = await import('@/lib/services/profile');
           await updateProfile(userId, { avatar_url: url });
-        } catch {
-          /* silent — user pode subir depois via /perfil/editar */
+        } catch (e) {
+          // P4 (01/09/2026): era `catch {}` mudo. A pessoa escolhia a foto no
+          // passo 2, o upload falhava e ninguém — nem ela, nem o
+          // /admin/errors — ficava sabendo. Enquanto o bug de MIME do
+          // seletor do Android esteve vivo, ISTO escondeu a falha em todo
+          // cadastro novo. Segue best-effort (não invalida a conta), mas
+          // agora deixa rastro e avisa.
+          reportFailure('avatar-fail', e, { userId, ctx: 'signup' });
+          // Toast e não state: o cadastro redireciona logo em seguida, e o
+          // `ToastViewport` vive no layout raiz — então a mensagem sobrevive
+          // à navegação e a pessoa sabe que precisa subir a foto depois.
+          showToast('Conta criada, mas a foto não subiu. Dá pra colocar em Perfil › Editar.', 'error');
         }
       }
       // M2 (LGPD): registra consentimento em consent_log. Best-effort —
@@ -194,8 +206,10 @@ export function SignupFlow() {
             recordConsent({ userId, consentType: 'terms', consentGiven: true }),
             recordConsent({ userId, consentType: 'privacy', consentGiven: true }),
           ]);
-        } catch {
-          /* silent */
+        } catch (e) {
+          // Trilha de consentimento é secundária ao cadastro, mas some sem
+          // deixar rastro — e é registro exigido pela LGPD.
+          reportFailure('consent-fail', e, { userId, ctx: 'signup/consent' });
         }
       }
       // Limpa o referrer salvo + o rascunho persistido (dados pessoais não

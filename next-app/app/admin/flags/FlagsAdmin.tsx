@@ -39,7 +39,7 @@ function FlagRow({
                 ON
               </span>
             ) : (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[color:var(--color-bg)] text-[color:var(--color-muted)]">
                 OFF
               </span>
             )}

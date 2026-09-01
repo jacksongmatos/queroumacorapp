@@ -27,12 +27,58 @@ export function errMsg(e: unknown): string {
 
 // Helpers de formatação de R$ (pt-BR): aceita "500", "500,00", "1.500,00",
 // "1500.50" no input e devolve Number normalizado.
+//
+// BUG CORRIGIDO (2026-09-01): a versão anterior apagava TODOS os pontos como
+// separador de milhar antes de trocar a vírgula. Quem digitava o decimal com
+// PONTO tinha o valor multiplicado por 100 — "1500.50" virava 150050 e
+// "0.99" virava 99. Não era caso de canto: o campo de preço usa
+// `inputMode="decimal"`, e o teclado do Android oferece justamente o ponto.
+// Atingia preço de arte à venda, Financeiro, Agenda e o `brlSchema`. E o
+// contrato documentado aqui e em `schemas.ts` já dizia aceitar "1500.50".
+//
+// A ambiguidade real é "1.500": em pt-BR é mil e quinhentos; em en-US é um e
+// meio. As regras abaixo resolvem isso assumindo pt-BR, que é o público:
+//
+//   1. Número entra direto — `parseBRL(1500.5)` também estava quebrado
+//      (virava 15005), porque tudo passava por String() antes.
+//   2. Tem vírgula? A vírgula é o decimal (convenção pt-BR) e todo ponto é
+//      milhar. Cobre "1.500,50" e "1500,50".
+//   3. Só pontos, mais de um? São milhar: "1.234.567".
+//   4. Só um ponto? Decimal quando sobram 1 ou 2 casas ("1500.50", "12.5")
+//      ou quando a parte inteira é zero ("0.999"); com 3 casas é milhar
+//      ("1.500" = 1500), que é o uso pt-BR.
 export function parseBRL(val: unknown): number {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
   const raw = String(val == null ? '' : val).trim();
   if (!raw) return 0;
-  // Normaliza: tira pontos de milhar e usa ponto como decimal.
-  const n = Number(raw.replace(/\./g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+
+  // Fora dígitos, separadores e sinal, nada importa ("R$ 1.500,50").
+  const limpo = raw.replace(/[^\d.,-]/g, '');
+  if (!limpo) return 0;
+  const negativo = limpo.startsWith('-');
+  const corpo = limpo.replace(/-/g, '');
+
+  const temVirgula = corpo.includes(',');
+  const pontos = (corpo.match(/\./g) || []).length;
+
+  let normalizado: string;
+  if (temVirgula) {
+    // Regra 2: vírgula manda, ponto é milhar.
+    normalizado = corpo.replace(/\./g, '').replace(/,/g, '.');
+  } else if (pontos > 1) {
+    // Regra 3.
+    normalizado = corpo.replace(/\./g, '');
+  } else if (pontos === 1) {
+    const [inteiro, decimais] = corpo.split('.');
+    const ehDecimal = decimais.length <= 2 || /^0*$/.test(inteiro);
+    normalizado = ehDecimal ? corpo : corpo.replace('.', '');
+  } else {
+    normalizado = corpo;
+  }
+
+  const n = Number(normalizado);
+  if (!Number.isFinite(n)) return 0;
+  return negativo ? -n : n;
 }
 
 // Refactor do vanilla: a versão antiga era `fmtBRL(el: HTMLInputElement)` que

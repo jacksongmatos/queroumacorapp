@@ -183,7 +183,7 @@ export function MediaReviewAdmin() {
 }
 
 const severityBadgeClass: Record<MediaReviewSeverity, string> = {
-  low: 'bg-gray-100 text-gray-700',
+  low: 'bg-[color:var(--color-bg)] text-[color:var(--color-muted)]',
   med: 'bg-yellow-100 text-yellow-800',
   high: 'bg-orange-100 text-orange-800',
   critical: 'bg-red-100 text-red-800',
@@ -192,7 +192,7 @@ const severityBadgeClass: Record<MediaReviewSeverity, string> = {
 const statusBadgeClass: Record<MediaReviewStatus, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
   reviewed: 'bg-green-100 text-green-800',
-  dismissed: 'bg-gray-100 text-gray-700',
+  dismissed: 'bg-[color:var(--color-bg)] text-[color:var(--color-muted)]',
   escalated_ncmec: 'bg-red-200 text-red-900',
 };
 
