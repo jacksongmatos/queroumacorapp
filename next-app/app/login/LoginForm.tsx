@@ -56,7 +56,10 @@ const SAVED_EMAIL_KEY = 'login_saved_email';
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeNext(searchParams.get('next'));
+  // `?.` porque `useSearchParams()` é tipado como anulável (o app passou a
+  // ter também um `pages/500.tsx` — ver o comentário lá). Os outros usos no
+  // app já tratavam o nulo; este era o único que não.
+  const next = safeNext(searchParams?.get('next') ?? null);
   const { signIn, user, loading: authLoading } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
 

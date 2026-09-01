@@ -24,7 +24,7 @@
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Profile, UserRole, UserType } from '@/lib/types';
-import { ehImagem, normalizarArquivo } from '@/lib/utils/mediaType';
+import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
 
 // (getProfile usa SELECT * defensivamente — não dependemos de uma lista
 // explícita de colunas, então uma migration pendente não quebra a UI.)
@@ -197,8 +197,10 @@ export async function uploadAvatar(
   // sem extensão — aí só o conteúdo responde. Isto também conserta o
   // `contentType` do upload: octet-stream seria recusado pelo bucket.
   file = await normalizarArquivo(file);
-  if (!ehImagem(file)) {
-    throw new ValidationError('Selecione um arquivo de imagem');
+  if (provadoNaoImagem(file)) {
+    throw new ValidationError(
+      `Esse arquivo não é imagem (${file.type}) — ${descreverArquivo(file)}`,
+    );
   }
   // 5MB cap igual ao vanilla previewEpLogo line 47.
   if (file.size > 5 * 1024 * 1024) {

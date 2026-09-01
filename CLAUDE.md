@@ -295,6 +295,15 @@
   `application/octet-stream` (o content:// provider não declarou o tipo).
   Pelo Chrome o mesmo arquivo vem `image/jpeg` — daí o clássico "no
   navegador funciona".
+  - **REGRA MAIS IMPORTANTE: recusar só com PROVA.** "Não provei que é
+    imagem" ≠ "provei que NÃO é". A 1ª regra punia a pessoa pela omissão do
+    Android e foi o que travou a troca de foto. Use `provadoNaoImagem`
+    (false quando ninguém identificou → passa; o Storage dá a palavra
+    final). Extensões de não-mídia (.pdf/.csv/…) estão no mapa DE PROPÓSITO:
+    servem pra recusar com prova e pro certificado em PDF subir certo.
+  - **Mensagem de erro tem que carregar a EVIDÊNCIA** (`descreverArquivo`).
+    Em 01/09 a mensagem antiga e a nova eram a mesma frase e não deu pra
+    saber qual código rodava no aparelho — um dia perdido em adivinhação.
   - **REGRA: nunca validar mídia por `file.type` sozinho.**
     `lib/utils/mediaType.ts` decide em TRÊS degraus, nesta ordem: tipo
     declarado → **extensão** do nome → **bytes** do arquivo (magic numbers).
@@ -326,6 +335,41 @@
     **8s** (`PADRAO_ESPERA_MS`) e, se o app sair DEPOIS do aviso, ele é
     **retirado da tela** (`onAbriuAtrasado`) e a marca de recuperação volta
     a valer. **Aviso errado ensina a ignorar o aviso certo.**
+
+- **"500 | Server Error" ao APAGAR E ACENDER a tela (2026-09-01).** Relato:
+  app aberto, apaga a tela do celular, acende — vem 500, e **fica assim até
+  reiniciar o app**. Mecanismo: com a tela apagada o Android mata o processo
+  do **RENDERIZADOR** da WebView (não o app); ao voltar, a WebView recria o
+  renderizador e **RE-NAVEGA** pra URL atual. Se essa navegação pega um
+  soluço do edge, vem 500 — e a página interna do Next não tem UMA LINHA de
+  JS nosso: nem SW, nem boundary, nem retry. Uma lápide. Por isso só saía
+  reiniciando: **nada mais navegava**.
+  - **`pages/500.tsx`** substitui aquela página e se recupera sozinha
+    (mesmo freio do `autoRetry`: 2,5s + n·1,5s, teto 6 em 2min, reload no
+    evento `online`). O retry é `<script>` INLINE, não `useEffect`: se a
+    pessoa vê essa tela, o servidor acabou de falhar — apostar que os
+    chunks vão baixar e hidratar é apostar no que está quebrado.
+  - **Por que em `pages/` num app App Router:** `error.tsx` e
+    `global-error.tsx` só pegam erro de RENDER do React. Falha ABAIXO disso
+    (carga de módulo, roteamento, soluço da function) nunca chega neles — e
+    é essa que produz a tela. `pages/500` é o único ponto de override.
+  - **PEGADINHA: criar `pages/` MUDA A TIPAGEM GLOBAL.** `useSearchParams()`
+    passa a ser anulável e o build quebra em quem não trata (era
+    `LoginForm.tsx`). **`npx tsc --noEmit` NÃO pega isso** — só o
+    `next build`, que usa os tipos gerados em `.next/types`. Rodar
+    `next build` de verdade antes de publicar mudança estrutural.
+  - **Causa raiz provável do 500, corrigida junto:** `lib/api/env-check.ts`
+    lia `process.env` DIRETO e era chamado no **MODULE-LOAD** de
+    `security.ts` — as duas coisas que este arquivo proíbe. No edge os
+    secrets não estão em `process.env`, e `process.env[k]` com `k` variável
+    nem é substituído no build (só a forma literal). Ou seja: a lista podia
+    sair TODA "ausente" e o throw derrubar a CARGA DO MÓDULO com as envs
+    perfeitamente configuradas — o que o Next devolve como 500 puro. Agora
+    lê por `getRuntimeEnv` e **não roda mais no boot**; o fail-closed que
+    importa (CRIT-5) já é por request em `requirePro`/`gateAiUsage`.
+  - **Continua sem prova de qual dos dois disparou** — falta saber se o SW
+    controla a página na WebView. **`/diag` já responde isso** (linha
+    "Service Worker controlando a página"): abrir no app instalado.
 
 - **"500 | Server Error" CRU no app instalado — o SW NÃO está no comando
   (2026-09-01, EM ABERTO).** O `sw.js` v5 prova por construção que 5xx

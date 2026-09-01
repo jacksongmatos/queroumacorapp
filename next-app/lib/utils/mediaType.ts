@@ -37,6 +37,23 @@ const MIME_POR_EXT: Record<string, string> = {
   webm: 'video/webm',
   m4v: 'video/mp4',
   '3gp': 'video/3gpp',
+  // Áudio: o chat aceita, e sem isto um .m4a sem MIME viraria "desconhecido".
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  ogg: 'audio/ogg',
+  wav: 'audio/wav',
+  // NÃO-mídia. Estão aqui de propósito: com o tipo conhecido dá pra recusar
+  // COM PROVA ("esse arquivo não é imagem") em vez de recusar por falta de
+  // informação — e o certificado em PDF da tela de Formação passa a subir
+  // com o content type certo em vez de ser etiquetado image/jpeg.
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  zip: 'application/zip',
 };
 
 /**
@@ -120,6 +137,10 @@ const ASSINATURAS: Array<{ mime: string; offset: number; bytes: number[] }> = [
   { mime: 'image/bmp', offset: 0, bytes: [0x42, 0x4d] },
   // RIFF....WEBP — o tamanho fica nos 4 bytes do meio, por isso só o 'WEBP'.
   { mime: 'image/webp', offset: 8, bytes: [0x57, 0x45, 0x42, 0x50] },
+  // Não-imagens que vale reconhecer: com elas dá pra RECUSAR com prova, em
+  // vez de recusar por falta de informação (ver `provadoNaoImagem`).
+  { mime: 'application/pdf', offset: 0, bytes: [0x25, 0x50, 0x44, 0x46] },
+  { mime: 'application/zip', offset: 0, bytes: [0x50, 0x4b, 0x03, 0x04] },
 ];
 
 /**
@@ -194,4 +215,33 @@ export async function normalizarArquivo(file: File): Promise<File> {
   } catch {
     return file;
   }
+}
+
+/**
+ * Depois de `normalizarArquivo`: temos PROVA de que isto não é imagem?
+ *
+ * A diferença entre "não provei que é imagem" e "provei que NÃO é" decide
+ * quem fica de fora. Até 2026-09-01 as telas usavam a primeira regra e
+ * recusavam a foto sempre que o Android não dizia o tipo — quer dizer,
+ * puniam a pessoa pela omissão do sistema operacional. A regra certa é a
+ * segunda: com `accept="image/*"` no input, o arquivo desconhecido segue e
+ * quem dá a palavra final é o Storage (que valida de verdade). Recusar
+ * aqui só quando o tipo é conhecido E não é imagem.
+ *
+ * Espelha a decisão já tomada em `posts.uploadMedia`, onde o fallback
+ * `image/jpeg` existe pelo mesmo motivo.
+ */
+export function provadoNaoImagem(file: File): boolean {
+  return !!file.type && !file.type.startsWith('image/');
+}
+
+/**
+ * Descrição curta do arquivo pra mensagem de erro e telemetria. Sem isto,
+ * "não é imagem" é indistinguível de "o app está desatualizado" — foi
+ * exatamente o que aconteceu em 01/09: a mensagem antiga e a nova eram a
+ * mesma frase, e não deu pra saber qual código estava rodando no aparelho.
+ */
+export function descreverArquivo(file: File | null | undefined): string {
+  if (!file) return 'arquivo ausente';
+  return `nome=${file.name || '(sem nome)'} tipo=${file.type || '(vazio)'} bytes=${file.size}`;
 }
