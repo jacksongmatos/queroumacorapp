@@ -287,6 +287,48 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
+- **Foto do seletor do wrapper vem SEM MIME TYPE (2026-09-01).** "Trocar
+  foto" morria com "Selecione um arquivo de imagem" — na cara de quem
+  tinha selecionado exatamente isso. O seletor do WebIntoApp **não é a
+  galeria do sistema**: é um diálogo próprio, **"Files Chooser"
+  (Camera × Files)**, e pelo ramo Files o `File` volta com `type` VAZIO ou
+  `application/octet-stream` (o content:// provider não declarou o tipo).
+  Pelo Chrome o mesmo arquivo vem `image/jpeg` — daí o clássico "no
+  navegador funciona".
+  - **REGRA: nunca validar mídia por `file.type` sozinho.**
+    `lib/utils/mediaType.ts` (`ehImagem`/`ehVideo`/`comMimeCorrigido`) cai
+    na EXTENSÃO quando o tipo é vazio/genérico. Ponto de entrada de arquivo
+    novo = usar esse helper, não `startsWith('image/')`.
+  - **Corrigir o `type` não é cosmético:** os buckets têm
+    `allowed_mime_types`, então subir como octet-stream seria recusado pelo
+    **Storage** mesmo depois de passar pela validação da tela. Por isso o
+    helper devolve o File com o tipo certo, e os 8 pontos de entrada
+    (avatar, logo, publicar, cadastro passo 2, arte-ig, aiLogo, aiArt,
+    dimensões) passam por ele.
+  - **O aviso "A galeria não abriu" era FALSO POSITIVO** nesse wrapper: o
+    "Files Chooser" é um DIÁLOGO do próprio app, e diálogo **não tira o
+    foco da página** — o relógio de 1,8s do `filePickerWatch` estourava
+    enquanto a pessoa ainda lia Camera × Files. Agora a espera padrão é
+    **8s** (`PADRAO_ESPERA_MS`) e, se o app sair DEPOIS do aviso, ele é
+    **retirado da tela** (`onAbriuAtrasado`) e a marca de recuperação volta
+    a valer. **Aviso errado ensina a ignorar o aviso certo.**
+
+- **"500 | Server Error" CRU no app instalado — o SW NÃO está no comando
+  (2026-09-01, EM ABERTO).** O `sw.js` v5 prova por construção que 5xx
+  nunca vai cru pra tela em navegação de documento (troca pela página
+  "Reconectando…" com auto-retry). A tela crua apareceu mesmo assim → **o
+  service worker não controlava aquela navegação** no app empacotado. Os
+  boundaries do React também não renderizaram (`error.tsx` e
+  `global-error.tsx` existem e têm auto-retry), logo a falha é da própria
+  function do edge, **abaixo do render do Next** — e o `middleware.ts` está
+  fora (só casa `/api/*`).
+  - **Estamos CEGOS nisso:** a telemetria `sw-nav-5xx` só dispara com o SW
+    no comando, que é justamente o que falta. O `ServiceWorkerRegister`
+    engole falha de registro num `.catch()` vazio, e o ping com o campo
+    `sw=` foi removido em 30/08. **Próximo passo: telemetria de
+    registro/controle do SW antes de qualquer palpite sobre a causa do
+    500.** Não escrever correção especulativa antes disso.
+
 - **A galeria ABRE, mas o app MORRE no meio da escolha (2026-09-01).** O
   AAB de 31/08 resolveu o `onShowFileChooser` — o seletor aparece
   (confirmado no aparelho do Bruno). Só que apareceu o problema seguinte:
