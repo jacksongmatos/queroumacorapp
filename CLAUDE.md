@@ -548,7 +548,8 @@
   - **`eslint.ignoreDuringBuilds: true`** no `next.config.mjs`: os ~17
     avisos do linter nunca aparecem no deploy. Rodar `next lint` na mão.
 
-- **Carrossel de fotos no post — Wave 57 (2026-09-01), SQL PENDENTE.** O
+- **Carrossel de fotos no post — Wave 57 (2026-09-01) — JÁ EXECUTADA no
+  Supabase (2026-09-01). Não pedir pra rodar de novo.** O
   composer sempre deixou escolher **até 5 fotos**, subia TODAS pro bucket
   `posts` e gravava **só a primeira** em `posts.media_url` — as outras
   quatro viravam arquivo órfão, pagas em banda e storage, invisíveis. O
@@ -556,6 +557,12 @@
   - `/migrations/2026-09-01-posts-media-urls.sql`: **uma linha**
     (`ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls text[]`) — curta
     de propósito, porque colar SQL grande pelo celular corta o bloco.
+  - **Post ANTIGO não ganha carrossel**: as fotos extras dele foram
+    descartadas no ato da publicação (nunca chegaram a `media_url` nem a
+    lugar nenhum consultável), então só post novo tem o conjunto. Os
+    arquivos órfãos velhos seguem no bucket — `cleanup_orphan_media()` os
+    lista como órfãos, e quem apaga é `execute_cleanup_orphan_media()` na
+    mão.
   - **`media_url` NÃO muda de papel**: segue sendo a primeira foto, e é o
     que o RPC `get_feed_v2`, o grid do perfil e todo post antigo leem. Foi o
     que permitiu **não recriar a `get_feed_v2`** (bloco grande, arriscado no
