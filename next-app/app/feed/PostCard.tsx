@@ -39,6 +39,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getSupabase } from '@/lib/supabase';
 import { getTimeAgo } from '@/lib/utils';
 import { PostMedia } from './PostMedia';
+import { PostCarousel } from './PostCarousel';
 import type { FeedPost } from '@/lib/services/feed';
 
 export interface PostCardProps {
@@ -454,14 +455,27 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
 
       {post.media_url ? (
         <div className="relative w-full">
-          <PostMedia
-            url={post.media_url}
-            mediaType={post.media_type}
-            mediaWidth={post.media_width}
-            mediaHeight={post.media_height}
-            muted={muted}
-            onToggleMute={onToggleMute}
-          />
+          {/* Mais de uma foto vira carrossel; post de foto única segue
+              exatamente como era (sem contador, sem bolinhas). */}
+          {post.media_urls && post.media_urls.length > 1 ? (
+            <PostCarousel
+              urls={post.media_urls}
+              mediaType={post.media_type}
+              mediaWidth={post.media_width}
+              mediaHeight={post.media_height}
+              muted={muted}
+              onToggleMute={onToggleMute}
+            />
+          ) : (
+            <PostMedia
+              url={post.media_url}
+              mediaType={post.media_type}
+              mediaWidth={post.media_width}
+              mediaHeight={post.media_height}
+              muted={muted}
+              onToggleMute={onToggleMute}
+            />
+          )}
           {post.for_sale ? (
             <div
               className="absolute top-3 right-3 text-white font-extrabold"

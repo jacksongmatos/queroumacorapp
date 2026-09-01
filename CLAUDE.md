@@ -548,6 +548,36 @@
   - **`eslint.ignoreDuringBuilds: true`** no `next.config.mjs`: os ~17
     avisos do linter nunca aparecem no deploy. Rodar `next lint` na mão.
 
+- **Carrossel de fotos no post — Wave 57 (2026-09-01), SQL PENDENTE.** O
+  composer sempre deixou escolher **até 5 fotos**, subia TODAS pro bucket
+  `posts` e gravava **só a primeira** em `posts.media_url` — as outras
+  quatro viravam arquivo órfão, pagas em banda e storage, invisíveis. O
+  próprio tipo já dizia: `mediaUrls: string[]; // resto ignorado`.
+  - `/migrations/2026-09-01-posts-media-urls.sql`: **uma linha**
+    (`ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls text[]`) — curta
+    de propósito, porque colar SQL grande pelo celular corta o bloco.
+  - **`media_url` NÃO muda de papel**: segue sendo a primeira foto, e é o
+    que o RPC `get_feed_v2`, o grid do perfil e todo post antigo leem. Foi o
+    que permitiu **não recriar a `get_feed_v2`** (bloco grande, arriscado no
+    aparelho): o feed busca as extras numa consulta leve à parte
+    (`anexarFotosExtras`), que só traz os posts com mais de uma foto.
+  - **`createPost` tolera 42703**: se a migration ainda não rodou, o insert
+    é refeito sem `media_urls` e o post sai com a primeira foto. Publicar
+    não pode quebrar por causa de SQL pendente — foi exatamente o que
+    aconteceu com `quotes.post_id` e `leads.city`.
+  - `PostCarousel` usa **scroll-snap**, não arrasto por JS: o gesto fica com
+    o navegador (inércia e encaixe nativos) e não briga com o scroll
+    vertical do feed — `overscrollBehaviorX: 'contain'` corta o
+    encadeamento. Contador `1/5` no canto e bolinhas clicáveis. Só a
+    PRIMEIRA foto usa `media_width/height` gravados; aplicar nas outras
+    reservaria o espaço errado e causaria salto.
+
+- **Story com SOM (2026-09-01).** O `<video muted>` era fixo — `muted` é o
+  que a WebView exige pra tocar SEM gesto, então todo story rodava mudo. Mas
+  ali existe gesto (um toque abriu o viewer): agora tenta com áudio e, se o
+  aparelho recusar o `play()`, cai pra mudo e acende o botão 🔊/🔇 no
+  cabeçalho, em vez de deixar o vídeo parado com o PLAY gigante.
+
 - **Story virou só a mídia (2026-09-01, decisão da loja).** Sem legenda e
   sem link "ver mais": é conteúdo que some em 24h, e pedir texto só atrasa
   quem quer postar a foto da obra e seguir trabalhando. O payload vai com

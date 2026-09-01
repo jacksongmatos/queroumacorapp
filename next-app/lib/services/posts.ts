@@ -429,7 +429,12 @@ export type CreatePostMediaType = 'image' | 'video' | 'story';
 export interface CreatePostInput {
   userId: string;
   caption: string | null;
-  mediaUrls: string[];       // primeira URL vai pra `media_url`; resto ignorado
+  // A primeira URL vai pra `media_url` (compatibilidade: é o que o feed,
+  // o RPC e todo post antigo leem). O CONJUNTO vai pra `media_urls`, que é
+  // o que o carrossel usa. Até 01/09/2026 as extras eram descartadas: o
+  // composer deixava escolher 5 fotos, subia as 5 pro Storage e gravava 1 —
+  // as outras 4 viravam arquivo órfão, sem ninguém ser avisado.
+  mediaUrls: string[];
                              // por ora (schema atual tem só 1 coluna). Quando
                              // posts virarem carrosel, virar tabela
                              // post_media (1-N) — interface já antecipa o N.
@@ -488,11 +493,11 @@ export async function createPost(
   }
 
   const sb = getSupabase();
-  const { data, error } = await sb
-    .from('posts')
-    .insert({
+  const base = {
       user_id: input.userId,
       caption: caption || null,
+      // Primeira foto: é o que o RPC do feed, o grid do perfil e todo post
+      // antigo leem. O conjunto vai em `media_urls` logo abaixo.
       media_url: input.mediaUrls[0] || null,
       media_type: input.mediaType,
       // Wave 17: grava W/H se o caller capturou no upload. Permite
@@ -510,9 +515,29 @@ export async function createPost(
       price: input.forSale && input.price ? input.price : null,
       art_type: input.forSale && input.artType ? input.artType : null,
       created_at: new Date().toISOString(),
-    } as never)
-    .select('id, media_url')
-    .single();
+  };
+
+  // `media_urls` só entra quando há mais de uma foto — post de 1 mídia
+  // continua gravando exatamente o que gravava antes.
+  const comExtras =
+    input.mediaUrls.length > 1
+      ? { ...base, media_urls: input.mediaUrls }
+      : base;
+
+  async function inserir(linha: Record<string, unknown>) {
+    return sb.from('posts').insert(linha as never).select('id, media_url').single();
+  }
+
+  let { data, error } = await inserir(comExtras);
+
+  // 42703 = coluna não existe. A migration `media_urls` pode não ter sido
+  // rodada ainda (o deploy do site é automático; o SQL é manual), e
+  // publicar NÃO PODE quebrar por causa disso — foi exatamente o que
+  // aconteceu com `quotes.post_id` e `leads.city`. Sem a coluna, o post vai
+  // com a primeira foto, como sempre foi.
+  if (error && (error as { code?: string }).code === '42703' && comExtras !== base) {
+    ({ data, error } = await inserir(base));
+  }
 
   if (error) {
     throw new NetworkError(error.message || 'Falha ao publicar.', error);

@@ -95,3 +95,46 @@ describe('StoryViewer — vídeo entra sem o PLAY gigante', () => {
     expect(window.HTMLMediaElement.prototype.play).toHaveBeenCalled();
   });
 });
+
+// "Story sai sem áudio?" — saía. O `<video muted>` era fixo, porque `muted`
+// é o que a WebView exige pra tocar SEM gesto. Só que aqui existe gesto (um
+// toque abriu o viewer), então dá pra tentar com som.
+describe('StoryViewer — som', () => {
+  it('vídeo começa COM áudio', () => {
+    render(
+      <StoryViewer groups={grupoVideo as unknown as Grupos} initialGroupIndex={0} onClose={vi.fn()} />,
+    );
+    const v = document.body.querySelector('video') as HTMLVideoElement;
+    expect(v.muted).toBe(false);
+    expect(v.hasAttribute('muted')).toBe(false);
+  });
+
+  it('tem botão pra silenciar, e ele alterna', () => {
+    render(
+      <StoryViewer groups={grupoVideo as unknown as Grupos} initialGroupIndex={0} onClose={vi.fn()} />,
+    );
+    const botao = screen.getByTestId('story-som');
+    expect(botao.getAttribute('aria-label')).toBe('Desligar o som');
+    fireEvent.click(botao);
+    expect(screen.getByTestId('story-som').getAttribute('aria-label')).toBe('Ligar o som');
+  });
+
+  it('se o aparelho recusar o som, cai pra mudo em vez de travar o vídeo', async () => {
+    // Política de autoplay rígida: play() com som rejeita.
+    let comSom = true;
+    window.HTMLMediaElement.prototype.play = vi.fn(function (this: HTMLVideoElement) {
+      if (comSom && !this.muted) return Promise.reject(new Error('NotAllowedError'));
+      return Promise.resolve();
+    }) as unknown as typeof window.HTMLMediaElement.prototype.play;
+
+    render(
+      <StoryViewer groups={grupoVideo as unknown as Grupos} initialGroupIndex={0} onClose={vi.fn()} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    comSom = false;
+    // O story TOCA (mudo) em vez de ficar parado com o PLAY gigante.
+    expect(screen.getByTestId('story-som').getAttribute('aria-label')).toBe('Ligar o som');
+  });
+});

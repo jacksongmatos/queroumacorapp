@@ -64,6 +64,13 @@ export function StoryViewer({
   // imersiva.
   const [montado, setMontado] = useState(false);
   useEffect(() => setMontado(true), []);
+
+  // Story COM SOM por padrão (01/09/2026). Antes o `<video muted>` era fixo:
+  // `muted` é o que a WebView exige pra tocar sem gesto, então o story
+  // rodava sempre mudo — vídeo de obra sem o áudio que a pessoa gravou.
+  // Aqui existe gesto (foi um toque que abriu o viewer), então dá pra
+  // tentar com som e só cair pra mudo se o navegador recusar.
+  const [mudo, setMudo] = useState(false);
   // `onClose` costuma ser uma função nova a cada render do pai; guardar numa
   // ref evita que o efeito do botão VOLTAR (abaixo) rearme e empilhe uma
   // entrada de histórico por render.
@@ -103,13 +110,28 @@ export function StoryViewer({
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    v.muted = mudo;
     const p = v.play();
-    if (p && typeof p.catch === 'function') p.catch(() => {});
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        // Recusou com som: a política de autoplay do aparelho é mais
+        // rígida. Em vez de deixar o story parado (com o PLAY gigante do
+        // player nativo), toca mudo e acende o botão pra pessoa ligar o som
+        // — um toque dela é gesto suficiente pro navegador liberar.
+        if (mudo) return;
+        setMudo(true);
+        const v2 = videoRef.current;
+        if (!v2) return;
+        v2.muted = true;
+        const p2 = v2.play();
+        if (p2 && typeof p2.catch === 'function') p2.catch(() => {});
+      });
+    }
     // `montado` nas deps porque o portal faz o 1º render devolver null: sem
     // ele o efeito rodava com `videoRef.current` ainda nulo e nunca mais —
     // o vídeo voltava a depender do `autoPlay`, que é o que a WebView
     // bloqueia. Foi o teste que pegou.
-  }, [storyIdx, groupIdx, montado]);
+  }, [storyIdx, groupIdx, montado, mudo]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTsRef = useRef<number>(Date.now());
 
@@ -299,13 +321,35 @@ export function StoryViewer({
           className="w-8 h-8 rounded-full object-cover"
         />
         <span className="text-sm font-semibold">{displayName}</span>
+        {/* Som: só aparece em vídeo. O story nasce COM áudio; este botão
+            existe pra silenciar (ou pra religar quando a política de
+            autoplay do aparelho obrigou o mudo). */}
+        {isVideo ? (
+          <button
+            type="button"
+            onClick={() => setMudo((m) => !m)}
+            className="ml-auto flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white"
+            style={{
+              width: 40,
+              height: 40,
+              fontSize: 18,
+              lineHeight: 1,
+              background: 'rgba(0,0,0,.45)',
+              flexShrink: 0,
+            }}
+            aria-label={mudo ? 'Ligar o som' : 'Desligar o som'}
+            data-testid="story-som"
+          >
+            {mudo ? '🔇' : '🔊'}
+          </button>
+        ) : null}
         {/* Alvo de 40px com fundo próprio: o × antes era texto solto sobre
             a foto — sumia em story claro e era difícil de acertar com o
             dedo. */}
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white"
+          className={`${isVideo ? 'ml-1' : 'ml-auto'} flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white`}
           style={{
             width: 40,
             height: 40,
@@ -329,7 +373,6 @@ export function StoryViewer({
             src={currentStory.media_url ?? undefined}
             className="max-w-full max-h-full"
             autoPlay
-            muted
             playsInline
             // 1×1 transparente: sem `poster`, o player nativo da WebView
             // desenha o PLAY gigante enquanto o primeiro quadro não chega.
