@@ -46,6 +46,7 @@ import { CameraCapture } from '@/components/CameraCapture';
 import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
+import { comMimeCorrigido, ehImagem } from '@/lib/utils/mediaType';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
@@ -256,13 +257,16 @@ export function EditProfileForm() {
   // Commit imediato (não espera submit) — comportamento idêntico ao
   // ShirtCustomizer pra manter sync entre as 2 telas.
   async function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !user) return;
-    if (!file.type.startsWith('image/')) {
+    // `file.type` VAZIO é rotina no seletor do wrapper (ver
+    // lib/utils/mediaType.ts) — validar por ele recusava foto de verdade.
+    if (!ehImagem(file)) {
       showToast('Selecione uma imagem (PNG, JPG, WebP, SVG)', 'error');
       return;
     }
+    file = comMimeCorrigido(file);
     if (file.size > 5 * 1024 * 1024) {
       showToast('Imagem grande demais (máx 5MB)', 'error');
       return;
@@ -327,12 +331,17 @@ export function EditProfileForm() {
    * da câmera (`CameraCapture`), que é o caminho de quem está no app
    * empacotado, onde a galeria não abre.
    */
-  async function processarAvatar(f: File | null) {
+  async function processarAvatar(entrada: File | null) {
+    let f = entrada;
     if (!f || !user || avatarBusy) return;
-    if (!f.type.startsWith('image/')) {
+    // O seletor do app instalado devolve a foto SEM MIME type — era isto
+    // que barrava a troca de foto com "Selecione um arquivo de imagem" na
+    // cara de quem tinha selecionado exatamente isso.
+    if (!ehImagem(f)) {
       showToast('Selecione um arquivo de imagem', 'error');
       return;
     }
+    f = comMimeCorrigido(f);
     if (f.size > 5 * 1024 * 1024) {
       showToast('Imagem muito grande (máx 5MB)', 'error');
       return;
@@ -492,6 +501,8 @@ export function EditProfileForm() {
                     ctx: 'perfil/editar',
                   });
                 },
+                // Abriu depois do relógio: retira o aviso falso.
+                onAbriuAtrasado: () => setGaleriaBloqueada(false),
               });
             }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"

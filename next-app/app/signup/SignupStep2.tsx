@@ -11,6 +11,7 @@ import { useTagAvailability } from '@/lib/hooks/useTagAvailability';
 import { CameraCapture } from '@/components/CameraCapture';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import type { UserRole } from '@/lib/types';
+import { ehImagem } from '@/lib/utils/mediaType';
 
 // 27 UFs brasileiras (vanilla index.html linha 430+).
 const UFS: ReadonlyArray<{ value: string; label: string }> = [
@@ -144,7 +145,8 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
   /** Vem da galeria ou da câmera — no app empacotado a galeria não abre. */
   function aceitarFoto(file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith('image/')) return;
+    // MIME vazio = seletor do wrapper, não arquivo inválido.
+    if (!ehImagem(file)) return;
     if (file.size > 5 * 1024 * 1024) return;
     setAvatarFile(file);
     const reader = new FileReader();

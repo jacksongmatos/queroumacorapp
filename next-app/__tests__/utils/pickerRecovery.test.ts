@@ -112,7 +112,7 @@ describe('armarSelecao', () => {
       userAgent: UA_ANDROID,
     });
     expect(lerEscolhaPendente()).not.toBeNull();
-    vi.advanceTimersByTime(2000); // estourou sem a página perder o foco
+    vi.advanceTimersByTime(9000); // estourou sem a página perder o foco
     expect(onNaoAbriu).toHaveBeenCalledTimes(1);
     expect(lerEscolhaPendente()).toBeNull();
   });
@@ -140,6 +140,42 @@ describe('armarSelecao', () => {
     esconder(true);
     vi.advanceTimersByTime(60_000); // app em segundo plano, sendo morto
     expect(lerEscolhaPendente()).not.toBeNull();
+  });
+
+  it('seletor que abre DEPOIS do relógio retira o aviso falso', () => {
+    const onNaoAbriu = vi.fn();
+    const onAbriuAtrasado = vi.fn();
+    armarSelecao({
+      rota: '/publicar',
+      ctx: 'publicar',
+      onNaoAbriu,
+      onAbriuAtrasado,
+      userAgent: UA_ANDROID,
+    });
+    // O "Files Chooser" do wrapper e um dialogo: nao tira o foco da pagina,
+    // entao o relogio estoura enquanto a pessoa ainda escolhe Camera x Files.
+    vi.advanceTimersByTime(9000);
+    expect(onNaoAbriu).toHaveBeenCalledTimes(1);
+    expect(lerEscolhaPendente()).toBeNull();
+
+    // Ela toca em "Files": AGORA outra activity sobe e o app sai.
+    esconder(true);
+    expect(onAbriuAtrasado).toHaveBeenCalledTimes(1);
+    // E a recuperacao volta a valer — daqui pra frente o app pode morrer.
+    expect(lerEscolhaPendente()).not.toBeNull();
+  });
+
+  it('sem aviso previo, sair do app nao dispara a retratacao', () => {
+    const onAbriuAtrasado = vi.fn();
+    armarSelecao({
+      rota: '/publicar',
+      ctx: 'publicar',
+      onNaoAbriu: () => {},
+      onAbriuAtrasado,
+      userAgent: UA_ANDROID,
+    });
+    esconder(true);
+    expect(onAbriuAtrasado).not.toHaveBeenCalled();
   });
 
   it('cancelar (arquivo chegou no change) limpa a marca', () => {

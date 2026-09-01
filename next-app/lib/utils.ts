@@ -177,7 +177,7 @@ export function getMediaType(file: File | null | undefined): 'video' | 'image' {
   if (!file) return 'image';
   if (file.type && file.type.startsWith('video/')) return 'video';
   const ext = file.name?.split('.').pop()?.toLowerCase() ?? '';
-  if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) return 'video';
+  if (['mp4', 'webm', 'mov', 'avi', 'm4v', '3gp'].includes(ext)) return 'video';
   return 'image';
 }
 
