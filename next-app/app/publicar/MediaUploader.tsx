@@ -89,6 +89,9 @@ export function MediaUploader({
         // palpite.
         reportFailure('picker-fail', new Error('galeria nao abriu'), { ctx: 'publicar' });
       },
+      // Abriu depois do relógio: tira o aviso da tela. Deixar "a galeria
+      // não abriu" por cima da galeria aberta ensina a ignorar o aviso.
+      onAbriuAtrasado: () => setBloqueada(false),
     });
     inputRef.current?.click();
   }

@@ -29,6 +29,18 @@ export function ehAndroid(ua: string): boolean {
 }
 
 /**
+ * Quanto esperar antes de concluir que o seletor não abriu.
+ *
+ * Era 1,8s até 2026-09-01, quando ficou provado que o seletor do wrapper é
+ * um DIÁLOGO do próprio app ("Files Chooser": Camera × Files) — e diálogo
+ * não tira o foco da página. O relógio estourava enquanto a pessoa ainda
+ * lia as duas opções, e ela via "A galeria não abriu" logo antes de a
+ * galeria abrir. Avisar cedo demais custa mais que avisar tarde: o aviso
+ * errado ensina a pessoa a ignorar o certo.
+ */
+export const PADRAO_ESPERA_MS = 8000;
+
+/**
  * "A página saiu do ar em até X ms?" — o tijolo por trás do
  * `watchFilePicker`, sem o filtro de Android.
  *
@@ -56,7 +68,7 @@ export function watchAppLeave(
     if (!vivo) return;
     cancelar();
     onNaoSaiu();
-  }, opts?.timeoutMs ?? 1800);
+  }, opts?.timeoutMs ?? PADRAO_ESPERA_MS);
   window.addEventListener('blur', cancelar, { once: true });
   document.addEventListener('visibilitychange', cancelar, { once: true });
   return cancelar;

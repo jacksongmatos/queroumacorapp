@@ -32,6 +32,7 @@ import {
   ConfigError,
 } from '@/lib/errors';
 import { getMediaType } from '@/lib/utils';
+import { ehImagem } from '@/lib/utils/mediaType';
 
 // Limites alinhados com o bucket `posts` no Supabase (CLAUDE.md confirma:
 // allowed_mime_types image/jpeg|png|webp|gif|heic|heif + video/mp4|quicktime|webm,
@@ -248,7 +249,7 @@ export function readImageDimensions(
   file: File,
 ): Promise<{ width: number; height: number } | null> {
   if (typeof document === 'undefined') return Promise.resolve(null);
-  if (!file.type.startsWith('image/')) return Promise.resolve(null);
+  if (!ehImagem(file)) return Promise.resolve(null);
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();

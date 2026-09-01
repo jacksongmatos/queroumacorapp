@@ -22,6 +22,7 @@
 
 import { NetworkError, ValidationError } from '@/lib/errors';
 import { getSupabase } from '@/lib/supabase';
+import { ehImagem } from '@/lib/utils/mediaType';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -322,7 +323,7 @@ export async function uploadTemplate(
 ): Promise<{ url: string }> {
   if (!adminUserId) throw new ValidationError('adminUserId obrigatório');
   if (!file) throw new ValidationError('Arquivo obrigatório');
-  if (!file.type || !file.type.startsWith('image/')) {
+  if (!ehImagem(file)) {
     throw new ValidationError('Selecione um arquivo de imagem');
   }
   // 4MB cap (vanilla _aiArtUploadTemplate linha 140).

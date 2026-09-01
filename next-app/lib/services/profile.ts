@@ -24,6 +24,7 @@
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Profile, UserRole, UserType } from '@/lib/types';
+import { comMimeCorrigido, ehImagem } from '@/lib/utils/mediaType';
 
 // (getProfile usa SELECT * defensivamente — não dependemos de uma lista
 // explícita de colunas, então uma migration pendente não quebra a UI.)
@@ -184,13 +185,19 @@ export async function updateProfile(
  */
 export async function uploadAvatar(
   userId: string,
-  file: File,
+  entrada: File,
 ): Promise<string> {
+  let file = entrada;
   if (!userId) throw new ValidationError('userId obrigatório');
   if (!file) throw new ValidationError('Arquivo obrigatório');
-  if (!file.type || !file.type.startsWith('image/')) {
+  // MIME vazio é normal no app instalado (o seletor do wrapper não declara
+  // o tipo) — quem decide então é a extensão. Ver lib/utils/mediaType.ts.
+  if (!ehImagem(file)) {
     throw new ValidationError('Selecione um arquivo de imagem');
   }
+  // Sem isto o upload sairia como octet-stream e o `allowed_mime_types` do
+  // bucket recusaria — a foto seria barrada no Storage, não aqui.
+  file = comMimeCorrigido(file);
   // 5MB cap igual ao vanilla previewEpLogo line 47.
   if (file.size > 5 * 1024 * 1024) {
     throw new ValidationError('Imagem muito grande (máx 5MB)');

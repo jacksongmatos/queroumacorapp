@@ -148,6 +148,17 @@ export interface ArmarSelecaoOpts {
   ctx: string;
   /** Chamado quando o seletor NÃO abriu (ver filePickerWatch). */
   onNaoAbriu: () => void;
+  /**
+   * Chamado quando o seletor abriu DEPOIS de já termos avisado que não
+   * abriu — ou seja, o aviso foi falso positivo e a tela deve retirá-lo.
+   *
+   * Isso acontece de verdade (2026-09-01): o seletor do WebIntoApp é um
+   * diálogo DO PRÓPRIO app ("Files Chooser": Camera × Files), e diálogo
+   * não tira o foco da página. O relógio estoura enquanto a pessoa ainda
+   * está escolhendo entre as duas opções, e só quando ela toca em "Files"
+   * é que outra activity sobe e o `blur` finalmente chega.
+   */
+  onAbriuAtrasado?: () => void;
   timeoutMs?: number;
   userAgent?: string;
 }
@@ -166,6 +177,7 @@ export function armarSelecao({
   rota,
   ctx,
   onNaoAbriu,
+  onAbriuAtrasado,
   timeoutMs,
   userAgent,
 }: ArmarSelecaoOpts): () => void {
@@ -176,6 +188,9 @@ export function armarSelecao({
 
   let vivo = true;
   let saiu = false;
+  // "Já dissemos pra pessoa que não abriu?" — se dissemos e o app sair
+  // depois, era mentira nossa e precisa ser desdita.
+  let avisouQueNaoAbriu = false;
 
   const desarmar = () => {
     if (!vivo) return;
@@ -192,8 +207,12 @@ export function armarSelecao({
 
   const cancelarWatch = watchFilePicker(
     () => {
-      // Nem abriu: não existe escolha pendente pra recuperar depois.
-      encerrar();
+      // Até onde dá pra saber, não abriu — então não há escolha pendente.
+      // Mas NÃO desarmamos os ouvintes: se o seletor aparecer depois,
+      // queremos poder voltar atrás em vez de deixar um aviso falso na
+      // tela (ver `onAbriuAtrasado`).
+      limparEscolhaPendente();
+      avisouQueNaoAbriu = true;
       onNaoAbriu();
     },
     { timeoutMs, userAgent: ua },
@@ -205,6 +224,12 @@ export function armarSelecao({
 
   function aoSair() {
     saiu = true;
+    if (!avisouQueNaoAbriu) return;
+    // O seletor abriu, só demorou mais que o relógio: desfaz o aviso e
+    // volta a valer a recuperação — daqui pra frente o app pode morrer.
+    avisouQueNaoAbriu = false;
+    marcarEscolhaPendente(rota, ctx);
+    onAbriuAtrasado?.();
   }
 
   function aoVoltar() {

@@ -32,6 +32,7 @@ import type { ArtAspect, ArtStyle } from '@/lib/services/aiArt';
 import { StyleSelector } from './StyleSelector';
 import { AspectSelector } from './AspectSelector';
 import { ResultActions } from './ResultActions';
+import { ehImagem } from '@/lib/utils/mediaType';
 
 // Tamanho máximo aceito pelo backend (matchea MAX_INPUT_BYTES em
 // functions/api/_services/ig-art.js). Validação client-side pra surfar erro
@@ -99,7 +100,7 @@ export function AiArtStudio() {
     async (file: File | null, slot: 1 | 2) => {
       setPhotoError(null);
       if (!file) return;
-      if (!file.type || !file.type.startsWith('image/')) {
+      if (!ehImagem(file)) {
         setPhotoError('Selecione uma imagem');
         return;
       }
