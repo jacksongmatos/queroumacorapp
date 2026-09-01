@@ -54,6 +54,48 @@ export function StoryViewer({
   const [paused, setPaused] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // `onClose` costuma ser uma função nova a cada render do pai; guardar numa
+  // ref evita que o efeito do botão VOLTAR (abaixo) rearme e empilhe uma
+  // entrada de histórico por render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // BOTÃO VOLTAR DO ANDROID fecha o story, como no Instagram (pedido do
+  // usuário, 01/09/2026). Sem isto o "voltar" saía da TELA inteira — a
+  // pessoa perdia o feed pra fechar um story.
+  //
+  // A mecânica: ao abrir, empurramos uma entrada no histórico; o "voltar"
+  // consome ESSA entrada e dispara `popstate`, que fecha o viewer sem
+  // navegar. Se o story for fechado pelo X ou pelo arrasto, a entrada
+  // fantasma é desfeita na limpeza — senão o próximo "voltar" não sairia da
+  // tela, só apagaria a entrada que sobrou.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    let fechouPeloVoltar = false;
+    window.history.pushState({ qucStory: true }, '');
+    const aoVoltar = () => {
+      fechouPeloVoltar = true;
+      onCloseRef.current();
+    };
+    window.addEventListener('popstate', aoVoltar);
+    return () => {
+      window.removeEventListener('popstate', aoVoltar);
+      if (!fechouPeloVoltar) window.history.back();
+    };
+  }, []);
+
+  // Autoplay no Android: a WebView bloqueia `autoPlay` até haver gesto
+  // (`setMediaPlaybackRequiresUserGesture` é true por padrão no wrapper) — e
+  // o vídeo bloqueado exibe o PLAY gigante do player nativo, que foi o que o
+  // usuário fotografou. Chamar `play()` na hora em que o story entra em cena
+  // aproveita o gesto que abriu o viewer; se ainda assim falhar, o `poster`
+  // transparente abaixo evita a arte feia.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const p = v.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  }, [storyIdx, groupIdx]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTsRef = useRef<number>(Date.now());
 
@@ -193,7 +235,11 @@ export function StoryViewer({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+      // z-[400]: a BottomNav é z-[300] e a TopNav z-50 — com z-50 o viewer
+      // ficava POR BAIXO das duas, escondendo justamente as barras de
+      // progresso (top-2) e o botão de fechar (top-6). Era por isso que o
+      // story parecia não ter como fechar.
+      className="fixed inset-0 z-[400] bg-black flex items-center justify-center"
       role="dialog"
       aria-modal="true"
       aria-label={`Stories de ${displayName}`}
@@ -201,7 +247,10 @@ export function StoryViewer({
       onTouchEnd={onTouchEnd}
     >
       {/* Progress bars: uma por story do grupo atual. */}
-      <div className="absolute top-2 left-2 right-2 flex gap-1 z-10">
+      <div
+        className="absolute left-2 right-2 flex gap-1 z-10"
+        style={{ top: 'calc(8px + env(safe-area-inset-top))' }}
+      >
         {currentGroup.stories.map((_, i) => {
           const fill =
             i < storyIdx ? 100 : i === storyIdx ? progressPct : 0;
@@ -220,7 +269,10 @@ export function StoryViewer({
       </div>
 
       {/* Header: avatar + nome + close. */}
-      <div className="absolute top-6 left-2 right-2 flex items-center gap-2 z-10 text-white">
+      <div
+        className="absolute left-2 right-2 flex items-center gap-2 z-10 text-white"
+        style={{ top: 'calc(18px + env(safe-area-inset-top))' }}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={
@@ -231,11 +283,22 @@ export function StoryViewer({
           className="w-8 h-8 rounded-full object-cover"
         />
         <span className="text-sm font-semibold">{displayName}</span>
+        {/* Alvo de 40px com fundo próprio: o × antes era texto solto sobre
+            a foto — sumia em story claro e era difícil de acertar com o
+            dedo. */}
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto text-2xl leading-none px-2 focus:outline-none focus:ring-2 focus:ring-white rounded"
-          aria-label="Fechar viewer"
+          className="ml-auto flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white"
+          style={{
+            width: 40,
+            height: 40,
+            fontSize: 26,
+            lineHeight: 1,
+            background: 'rgba(0,0,0,.45)',
+            flexShrink: 0,
+          }}
+          aria-label="Fechar stories"
         >
           ×
         </button>
@@ -252,6 +315,12 @@ export function StoryViewer({
             autoPlay
             muted
             playsInline
+            // 1×1 transparente: sem `poster`, o player nativo da WebView
+            // desenha o PLAY gigante enquanto o primeiro quadro não chega.
+            // Com um poster vazio, o intervalo fica preto e o vídeo entra
+            // sem aquele salto visual.
+            poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+            preload="auto"
             onTimeUpdate={onVideoTimeUpdate}
             onEnded={goNext}
           />
