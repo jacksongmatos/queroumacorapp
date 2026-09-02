@@ -17,10 +17,28 @@
 // diálogo nativo nem sempre tira o foco da página) e o problema não
 // existe lá.
 
-/** Só o Android tem o problema — e o wrapper pode mascarar o UA. */
-function ehAndroid(ua: string): boolean {
+/**
+ * Só o Android tem o problema — e o wrapper pode mascarar o UA, por isso o
+ * gate é largo (`/Android/i`) em vez de procurar o token `wv`.
+ *
+ * Exportado porque o `pickerRecovery` precisa do MESMO gate: se os dois
+ * divergirem, uma tela arma a marca de recuperação e a outra não a limpa.
+ */
+export function ehAndroid(ua: string): boolean {
   return /Android/i.test(ua || '');
 }
+
+/**
+ * Quanto esperar antes de concluir que o seletor não abriu.
+ *
+ * Era 1,8s até 2026-09-01, quando ficou provado que o seletor do wrapper é
+ * um DIÁLOGO do próprio app ("Files Chooser": Camera × Files) — e diálogo
+ * não tira o foco da página. O relógio estourava enquanto a pessoa ainda
+ * lia as duas opções, e ela via "A galeria não abriu" logo antes de a
+ * galeria abrir. Avisar cedo demais custa mais que avisar tarde: o aviso
+ * errado ensina a pessoa a ignorar o certo.
+ */
+export const PADRAO_ESPERA_MS = 8000;
 
 /**
  * "A página saiu do ar em até X ms?" — o tijolo por trás do
@@ -50,7 +68,7 @@ export function watchAppLeave(
     if (!vivo) return;
     cancelar();
     onNaoSaiu();
-  }, opts?.timeoutMs ?? 1800);
+  }, opts?.timeoutMs ?? PADRAO_ESPERA_MS);
   window.addEventListener('blur', cancelar, { once: true });
   document.addEventListener('visibilitychange', cancelar, { once: true });
   return cancelar;
@@ -73,6 +91,6 @@ export function watchFilePicker(
   return watchAppLeave(onNaoAbriu, { timeoutMs: opts?.timeoutMs });
 }
 
-/** Texto único pros dois lugares que sofrem com isso. */
-export const AVISO_SELETOR =
-  'O app não conseguiu abrir a galeria. Abra o QueroUmaCor pelo navegador do celular (queroumacor.com.br) e tente por lá — pelo navegador funciona.';
+// O texto do aviso saiu daqui em 2026-08-30: quando o seletor não abre, o
+// app não avisa mais por toast (some em 3s e não resolve nada) — abre o
+// `components/GaleriaBloqueadaSheet`, que oferece a câmera e o navegador.

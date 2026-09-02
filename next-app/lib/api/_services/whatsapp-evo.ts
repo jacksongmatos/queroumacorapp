@@ -15,18 +15,28 @@
 //     no `?token=` do webhook (a Evolution não assina eventos como a Meta,
 //     então o segredo vai na URL configurada no Manager).
 //
-// Render FREE dorme após ~15min: a 1ª request pós-sono pode levar ~50s.
-// Por isso o timeout de envio é LONGO (55s) — o edge do CF aguenta esperar.
+// Quem espera o cold start do Render é o NAVEGADOR (o portal pinga a URL
+// base direto antes de chamar a rota); o edge só faz o envio rápido.
 
 import { getRuntimeEnv } from '../env';
 import { ServiceError } from '../security';
 
-// 25s, NÃO 55s: o Cloudflare mata a function do edge antes disso quando o
+// 14s, NÃO 25s nem 55s: o Cloudflare mata a function do edge quando o
 // upstream fica pendurado (comprovado 2026-08-28 — o 502 cru do CF chegava
-// na tela ANTES do nosso timeout responder JSON). Quem espera o cold start
-// do Render agora é o NAVEGADOR: o portal pinga a URL base direto (browser
-// não tem esse teto) antes de chamar a rota, e o edge só faz o envio rápido.
-const SEND_TIMEOUT_MS = 25000;
+// na tela ANTES do nosso timeout responder JSON). 25s não bastou: somado ao
+// que a rota gasta antes (auth + rate limit) e depois (gravar a mensagem +
+// audit), o total passava da linha do CF e o operador via de novo a página
+// "502 Bad gateway" (2026-08-31, na abordagem de lead). O teto agora é
+// ORÇAMENTO, não chute: envio + sonda cabem na deadline da rota (ver
+// ROUTE_DEADLINE_MS em app/api/whatsapp/send/route.ts).
+const SEND_TIMEOUT_MS = 14000;
+
+// Sonda curta do estado da instância, usada SÓ quando o envio estoura o
+// tempo. É o que separa as duas causas com o mesmo sintoma: Render frio
+// (instância 'open', só lenta — tentar de novo resolve) × sessão do
+// WhatsApp caída ('close'/'connecting' — aí o Baileys pendura pra sempre,
+// timeout nenhum resolve e alguém precisa reconectar o QR no Manager).
+const STATE_PROBE_TIMEOUT_MS = 4000;
 
 export const DEFAULT_EVOLUTION_INSTANCE = 'meu-whatsapp';
 
@@ -108,6 +118,44 @@ export interface EvoSendResult {
 }
 
 /**
+ * Estado da instância no Evolution (`open` | `connecting` | `close`), ou
+ * null quando nem isso responde. Chamada SÓ no caminho de falha — sonda
+ * curta, pra não gastar orçamento do envio no caminho feliz.
+ */
+export async function probeInstanceState(): Promise<string | null> {
+  try {
+    const { baseUrl, apiKey, instance } = getEvolutionConfig();
+    const res = await fetch(
+      `${baseUrl}/instance/connectionState/${encodeURIComponent(instance)}`,
+      { headers: { apikey: apiKey }, signal: AbortSignal.timeout(STATE_PROBE_TIMEOUT_MS) }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { instance?: { state?: string }; state?: string };
+    return data?.instance?.state || data?.state || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Traduz o estouro de tempo do envio na causa REAL, perguntando à Evolution
+ * em que estado a instância está. Sem isso o operador recebia sempre o mesmo
+ * texto ("o Render dorme") — que desde 2026-08-29 é falso: o plano é pago e
+ * não dorme mais. Sessão caída e servidor lento pediam ações opostas e
+ * chegavam com a mesma cara.
+ */
+async function explainSendTimeout(instance: string): Promise<string> {
+  const state = await probeInstanceState();
+  if (state === 'close' || state === 'connecting') {
+    return `a instância "${instance}" está ${state === 'close' ? 'DESCONECTADA' : 'reconectando'} no Evolution — nenhuma mensagem sai enquanto isso. Abra o Manager e leia o QR de novo pra reconectar o número da loja.`;
+  }
+  if (state === 'open') {
+    return 'o WhatsApp está conectado, mas o servidor não respondeu a tempo (provável cold start do Render). Espere uns segundos e envie de novo — a mensagem NÃO saiu.';
+  }
+  return 'o servidor do WhatsApp (Evolution/Render) não respondeu a tempo e nem informou o estado da conexão. Confira o serviço no Render e a instância no Manager.';
+}
+
+/**
  * Envia texto livre pelo Evolution API. Sem janela de 24h (não é a Meta) —
  * texto sempre pode. Timeout longo por causa do cold start do Render.
  */
@@ -134,9 +182,7 @@ export async function sendEvolutionText(opts: {
   } catch (e) {
     const timeout = e instanceof Error && e.name === 'TimeoutError';
     throw new ServiceError(
-      timeout
-        ? 'o servidor do WhatsApp (Render) não respondeu em 55s — ele dorme após 15min parado; tente de novo em 1 minuto'
-        : 'falha de rede ao chamar o Evolution API',
+      timeout ? await explainSendTimeout(instance) : 'falha de rede ao chamar o Evolution API',
       502
     );
   }

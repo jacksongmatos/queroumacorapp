@@ -43,6 +43,7 @@ import {
   enforceRateLimit,
 } from '@/lib/api/security';
 import { logAuditEvent } from '@/lib/api/audit';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
   // (androidpublisher.purchases.subscriptionsv2.get). Sem isso, qualquer
   // purchaseToken aceito = PRO grátis. Ver docs/BILLING_STRATEGY.md.
   const verificationEnabled =
-    process.env.IAP_PRODUCTION_VERIFICATION_ENABLED === 'true';
+    getRuntimeEnv('IAP_PRODUCTION_VERIFICATION_ENABLED') === 'true';
   if (!verificationEnabled) {
     console.warn(
       '[play-billing-verify] Endpoint desabilitado: IAP_PRODUCTION_VERIFICATION_ENABLED != true. ' +

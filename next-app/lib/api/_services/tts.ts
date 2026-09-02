@@ -2,6 +2,7 @@
 // `functions/api/_services/tts.js`. OpenAI Text-to-Speech.
 
 import { ServiceError } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const TIMEOUT_MS = 30000;
 
@@ -28,7 +29,7 @@ export async function synthesizeSpeech(args: {
       ? (args.voice as TtsVoice)
       : 'onyx';
 
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
   try {
     const r = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',

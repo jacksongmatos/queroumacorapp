@@ -107,23 +107,61 @@ describe('Composer — "Marcar como venda"', () => {
   });
 });
 
+// Story ficou sem legenda e sem link "ver mais" (decisão da loja,
+// 01/09/2026): é conteúdo rápido que some em 24h, e pedir texto só atrasa
+// quem quer postar a foto da obra e seguir trabalhando.
+describe('Composer — Story é só a mídia', () => {
+  it('a aba Story não mostra legenda nem link', () => {
+    render(<Composer />);
+    switchToStory();
+    expect(screen.queryByPlaceholderText(/Conte um pouco/i)).toBeNull();
+    expect(screen.queryByText(/Link "ver mais"/i)).toBeNull();
+  });
+
+  it('a aba Post continua com a legenda', () => {
+    render(<Composer />);
+    expect(screen.queryByPlaceholderText(/Conte um pouco/i)).toBeTruthy();
+  });
+
+  it('story publica sem legenda mesmo com texto digitado antes na aba Post', async () => {
+    render(<Composer />);
+    // Escreve na aba Post…
+    fireEvent.change(screen.getByPlaceholderText(/Conte um pouco/i), {
+      target: { value: 'texto que ficou pra trás' },
+    });
+    // …e troca pra Story, onde o campo nem existe mais.
+    switchToStory();
+    attachPhoto();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Publicar'));
+    });
+    const payload = publishAsync.mock.calls[0][0];
+    expect(payload.mediaType).toBe('story');
+    expect(payload.caption).toBe('');
+    expect(payload.linkUrl).toBeNull();
+  });
+});
+
 describe('Composer — legenda por IA', () => {
   it('mostra o botão em post', () => {
     render(<Composer />);
     expect(screen.queryByLabelText('Gerar legenda com IA')).toBeTruthy();
   });
 
-  it('esconde o botão em story, mantendo o contador de caracteres', () => {
+  // Antes o story mostrava o campo de legenda com o botão de IA escondido.
+  // Desde 01/09/2026 o story não tem legenda nenhuma, então some tudo junto.
+  it('em story não há legenda — logo, nem botão de IA nem contador', () => {
     render(<Composer />);
     switchToStory();
     expect(screen.queryByLabelText('Gerar legenda com IA')).toBeNull();
-    expect(screen.getByText('0/2000')).toBeTruthy();
+    expect(screen.queryByText('0/2000')).toBeNull();
   });
 
-  it('volta a mostrar o botão ao sair do story', () => {
+  it('volta a mostrar legenda e botão ao sair do story', () => {
     render(<Composer />);
     switchToStory();
-    fireEvent.click(screen.getByText('Foto / Vídeo'));
+    fireEvent.click(screen.getByText('Post'));
     expect(screen.queryByLabelText('Gerar legenda com IA')).toBeTruthy();
+    expect(screen.queryByPlaceholderText(/Conte um pouco/i)).toBeTruthy();
   });
 });

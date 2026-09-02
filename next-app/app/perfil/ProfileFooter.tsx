@@ -79,6 +79,17 @@ export function ProfileFooter() {
         </span>
         <span className="text-[color:var(--color-muted)]">→</span>
       </Link>
+      {/* Diagnóstico. Ficava órfã: a tela /diag existia mas NENHUM link
+          levava até ela — e na WebView do app instalado não há barra de
+          endereço, então era literalmente inalcançável justamente por quem
+          mais precisa dela (quem está com o app dando erro). Discreta de
+          propósito: é ferramenta de suporte, não função do app. */}
+      <Link
+        href="/diag"
+        className="w-full block text-center py-2 text-xs text-[color:var(--color-muted)] underline"
+      >
+        Diagnóstico do aparelho
+      </Link>
       <button
         type="button"
         onClick={handleLogout}

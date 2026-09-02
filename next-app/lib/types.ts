@@ -99,6 +99,10 @@ export interface Post {
   user_id: string;
   caption?: string | null;
   media_url?: string | null;
+  // Carrossel (01/09/2026): TODAS as fotos do post, na ordem escolhida. Só
+  // vem preenchido em post com mais de uma; `media_url` segue sendo a
+  // primeira, e é o que todo post antigo (e o RPC do feed) tem.
+  media_urls?: string[] | null;
   media_type?: PostMediaType | null;
   // Wave 17: dimensões da mídia capturadas no upload (P4 / CLS).
   // Frontend usa pra setar <img width height>. Opcional pra compat com

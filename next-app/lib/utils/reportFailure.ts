@@ -21,6 +21,11 @@ export type FailureType =
   | 'publish-fail'
   | 'avatar-fail'
   | 'picker-fail'
+  | 'picker-restart'
+  | 'sw-status'
+  | 'profile-load-fail'
+  | 'consent-fail'
+  | 'camera-fail'
   | 'pdf-link-fail';
 
 export function reportFailure(

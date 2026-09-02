@@ -131,6 +131,19 @@ export function useAudioRecording(
     setRecording(false);
   }, []);
 
+  /**
+   * Entrega o erro a quem pediu — e só cai no console quando NÃO há quem
+   * receba. Antes as duas coisas aconteciam sempre (ver P8 acima).
+   */
+  const avisar = useCallback((err: Error, prefixo?: string) => {
+    const handler = onErrorRef.current;
+    if (handler) {
+      handler(err);
+      return;
+    }
+    console.warn(prefixo ? `${prefixo}: ${err.message}` : err.message);
+  }, []);
+
   const start = useCallback(async () => {
     // No-op se já gravando — evita race de double-click. Mesmo guard do
     // vanilla (não duplicado lá, mas implícito por o botão virar disabled).
@@ -141,12 +154,16 @@ export function useAudioRecording(
       !navigator.mediaDevices?.getUserMedia
     ) {
       const err = new Error('Browser sem suporte a getUserMedia');
-      onErrorRef.current?.(err) ?? console.warn(err.message);
+      // P8 (01/09/2026): era `onErrorRef.current?.(err) ?? console.warn(...)`.
+      // Callback `void` sempre devolve undefined, então o `??` NUNCA era
+      // curto-circuitado: o warn saía mesmo com o erro já tratado. `??` não
+      // serve de fallback pra efeito colateral — só pra valor.
+      avisar(err);
       return;
     }
     if (typeof MediaRecorder === 'undefined') {
       const err = new Error('Browser sem suporte a MediaRecorder');
-      onErrorRef.current?.(err) ?? console.warn(err.message);
+      avisar(err);
       return;
     }
 
@@ -155,7 +172,7 @@ export function useAudioRecording(
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
-      onErrorRef.current?.(err) ?? console.warn('mic denied:', err.message);
+      avisar(err, 'mic denied');
       return;
     }
     streamRef.current = stream;
@@ -170,8 +187,7 @@ export function useAudioRecording(
     } catch (e) {
       cleanup();
       const err = e instanceof Error ? e : new Error(String(e));
-      onErrorRef.current?.(err) ??
-        console.warn('MediaRecorder init failed:', err.message);
+      avisar(err, 'MediaRecorder init failed');
       return;
     }
     recorderRef.current = recorder;
@@ -207,7 +223,9 @@ export function useAudioRecording(
       // Auto-stop quando bate o teto. Stop dispara onStop → cleanup.
       if (elapsed >= maxMs) stop();
     }, 250);
-  }, [mimeType, maxMs, cleanup, stop]);
+    // `avisar` é estável (useCallback com deps vazias), mas fica declarado
+    // pra o hook não depender desse detalhe de implementação.
+  }, [mimeType, maxMs, cleanup, stop, avisar]);
 
   return { start, stop, recording, elapsedSec, unsupported };
 }

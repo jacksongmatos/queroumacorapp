@@ -57,6 +57,7 @@ import {
   is3WayConvId,
   strip3WayPrefix,
 } from '../../lib/services/chat';
+import { resolveCalicolorsUserId } from '../../lib/services/chat-conversations';
 import { NetworkError, ValidationError } from '../../lib/errors';
 
 // ─── Fake supabase chainable ───────────────────────────────────────────────
@@ -812,3 +813,36 @@ describe('undoDeleteMessage', () => {
 
 // silenciar warning sobre vi nÃo usado se for o caso (mas estamos usando).
 void vi;
+
+// P3 (01/09/2026): o fallback era `.ilike('name', '%cali%')` com `.limit(1)`
+// sem `order` — casava com Calixto, Micaeli, Carlos Calisto, e escolhia de
+// forma não-determinística. Como este id abre a conversa "🎨 Loja", dava pra
+// mandar pra um estranho o que a pessoa achava estar mandando pra loja.
+// Busca aproximada NUNCA pode decidir destinatário de mensagem.
+describe('resolveCalicolorsUserId — nunca por busca aproximada', () => {
+  it('não achando a loja, devolve null em vez de chutar um perfil parecido', async () => {
+    const ctl = makeFakeClient({ profiles_public: [{}, {}, {}, {}] });
+    __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(resolveCalicolorsUserId()).resolves.toBeNull();
+  });
+
+  it('toda busca da loja é por igualdade exata (tag ou nome)', async () => {
+    const ctl = makeFakeClient({ profiles_public: [{}, {}, {}, {}] });
+    __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
+    await resolveCalicolorsUserId();
+    const filtros = ctl.spies.eqsByTable['profiles_public'] ?? [];
+    expect(filtros.length).toBeGreaterThan(0);
+    for (const f of filtros) expect(['tag', 'name']).toContain(f.col);
+  });
+
+  it('erro do Supabase não é tratado como "loja não existe"', async () => {
+    const ctl = makeFakeClient({
+      profiles_public: [{ error: { message: 'rls bloqueou' } }],
+    });
+    __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(resolveCalicolorsUserId()).resolves.toBeNull();
+    // Uma consulta só: falhou, parou. Antes seguia pro fallback aproximado
+    // como se a loja simplesmente não tivesse conta.
+    expect((ctl.spies.eqsByTable['profiles_public'] ?? []).length).toBe(1);
+  });
+});

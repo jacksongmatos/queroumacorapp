@@ -1,5 +1,43 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **"502 Bad gateway" VOLTOU no envio de WhatsApp — agora na ABORDAGEM DE
+  LEAD (2026-08-31).** Não é a causa de 28/08 (número estrangeiro): o
+  telefone do caso (`11 96268-0094`) é celular BR e passa correto pelo
+  `normalizeWhatsAppTarget`. A página de 502 é do PRÓPRIO Cloudflare — ou
+  seja, a function do edge morreu antes de responder. Duas falhas de
+  estrutura, as duas corrigidas:
+  - **A rota não tinha ORÇAMENTO TOTAL.** Cada hop tinha o seu teto (auth
+    10s + rate limit 10s + envio 25s + gravar 8s + audit 5s = **até 58s**),
+    mas ninguém somava — e o CF mata a function bem antes disso. Agora:
+    `ROUTE_DEADLINE_MS` de 22s embrulha o handler inteiro (`Promise.race`,
+    responde 504 explicando em vez de deixar o CF responder HTML cru),
+    `SEND_TIMEOUT_MS` caiu 25s → **14s**, e gravar+audit passaram a rodar
+    **em paralelo** com teto próprio de 6s (`BOOKKEEPING_BUDGET_MS`).
+    Escrituração depois do envio era caminho real pro 502 **com a mensagem
+    já entregue** — o operador via "falhou" e mandava de novo.
+    **REGRA: rota de edge = orçamento total, não só timeout por hop.**
+  - **A abordagem nunca aquecia a Evolution.** `aquecerEvolution` /
+    `acordarEvolution` viviam DENTRO do componente da tela de WhatsApp;
+    a `AbordagemModal` (aba Leads) chamava `/api/whatsapp/send` direto, com
+    o servidor possivelmente frio, e pagava o cold start DENTRO do edge —
+    exatamente o que a arquitetura diz que só o navegador pode fazer. As
+    duas funções subiram pra escopo de MÓDULO (estado compartilhado: aquecer
+    numa tela vale na outra); o modal aquece ao abrir (enquanto o operador
+    lê o texto) e mostra "Acordando o servidor…" antes de enviar.
+    **REGRA: tela nova que chama `/api/whatsapp/send` chama
+    `acordarEvolution` antes.**
+  - **Bônus: o erro de timeout deixou de mentir.** Dizia sempre "o Render
+    dorme após 15min" — falso desde 29/08 (plano pago). Agora, ao estourar,
+    o service sonda `GET /instance/connectionState/<instância>` (4s) e diz a
+    causa: `close`/`connecting` → "reconecte o QR no Manager" (aí o Baileys
+    pendura pra sempre e timeout maior não resolve); `open` → "só lentidão,
+    a mensagem NÃO saiu, tente de novo". 4 testes novos.
+  - **Ainda não confirmado qual dos dois gatilhos disparou** (Render frio ×
+    sessão do WhatsApp caída) — sem acesso ao banco nem à rede daqui. O
+    próprio erro passa a dizer na próxima vez. Diagnóstico manual:
+    `GET /api/whatsapp-evo/ping` com token de admin (a rota continua no ar,
+    só o botão saiu da tela).
+
 - **REGRA FIXA (2026-08-29): NÃO EXISTE BUILD NATIVO. Não sugerir.** O
   projeto é código no GitHub → Cloudflare Pages → **WebIntoApp** empacota
   o site num AAB. Capacitor, Bubblewrap/TWA e plugins nativos estão FORA
@@ -249,19 +287,407 @@
     máquina foi construída pra ser reaproveitada trocando roteiro e
     público.
 
-- **App instalado NÃO ABRE A GALERIA (2026-08-29) — é o wrapper, não o
-  código.** Um pintor (Bruno) não conseguia trocar a foto de perfil NEM
-  publicar portfólio: as duas coisas dependem do mesmo
-  `<input type="file">`, e a WebView do WebIntoApp só abre a galeria se o
-  wrapper implementar `onShowFileChooser` + permissões. Sem isso o toque
-  **não faz nada** — sem erro, sem log (a tabela `errors` estava limpa; o
-  e-mail dele ESTAVA confirmado e o perfil completo, então não era gate
-  nosso). **Correção de raiz é no painel do WebIntoApp, no próximo AAB**
-  (junto com "Pull to Refresh" — ver `docs/ANDROID_BUILD.md`).
-  Paliativo no código: `lib/utils/filePickerWatch.ts` arma um relógio ao
-  tocar no seletor e, se em 1,8s a página não perdeu o foco (o que
-  acontece quando a galeria abre), mostra "abra pelo navegador". Só arma
-  no Android, pra não dar falso positivo. 6 testes.
+- **Foto do seletor do wrapper vem SEM MIME TYPE (2026-09-01).** "Trocar
+  foto" morria com "Selecione um arquivo de imagem" — na cara de quem
+  tinha selecionado exatamente isso. O seletor do WebIntoApp **não é a
+  galeria do sistema**: é um diálogo próprio, **"Files Chooser"
+  (Camera × Files)**, e pelo ramo Files o `File` volta com `type` VAZIO ou
+  `application/octet-stream` (o content:// provider não declarou o tipo).
+  Pelo Chrome o mesmo arquivo vem `image/jpeg` — daí o clássico "no
+  navegador funciona".
+  - **REGRA MAIS IMPORTANTE: recusar só com PROVA.** "Não provei que é
+    imagem" ≠ "provei que NÃO é". A 1ª regra punia a pessoa pela omissão do
+    Android e foi o que travou a troca de foto. Use `provadoNaoImagem`
+    (false quando ninguém identificou → passa; o Storage dá a palavra
+    final). Extensões de não-mídia (.pdf/.csv/…) estão no mapa DE PROPÓSITO:
+    servem pra recusar com prova e pro certificado em PDF subir certo.
+  - **Mensagem de erro tem que carregar a EVIDÊNCIA** (`descreverArquivo`).
+    Em 01/09 a mensagem antiga e a nova eram a mesma frase e não deu pra
+    saber qual código rodava no aparelho — um dia perdido em adivinhação.
+  - **REGRA: nunca validar mídia por `file.type` sozinho.**
+    `lib/utils/mediaType.ts` decide em TRÊS degraus, nesta ordem: tipo
+    declarado → **extensão** do nome → **bytes** do arquivo (magic numbers).
+    O 3º degrau existe porque alguns content providers do Android devolvem
+    nome SEM extensão (um id puro) — aí só o conteúdo responde; `ftyp`
+    precisa da MARCA no offset 8 pra separar HEIC de MP4. Caminho novo que
+    aceita arquivo escolhido pela pessoa = `await normalizarArquivo(file)`
+    ANTES de `ehImagem`/`ehVideo`, nunca `startsWith('image/')`.
+  - **A varredura de 01/09 achou 6 caminhos além do avatar** — todos
+    derivavam `contentType` de `file.type` vazio, e dois RECUSAVAM o
+    arquivo: `chat-attachments` ("Tipo de arquivo não permitido" ao mandar
+    foto no chat) e `artReferences` ("Formato não suportado", + extensão
+    sempre .jpg). Também `stories`, `aiLogo`, `QualsSection` (PDF virava
+    image/jpeg) e `posts.uploadMedia`, que chutava `image/jpeg` pra toda
+    imagem sem tipo — acertava .jpg por sorte e etiquetava png/webp/heic
+    errado. **Em `uploadMedia` o fallback `image/jpeg` FICA de propósito**
+    pro caso sem nenhuma das três pistas: recusar quebraria justamente o
+    fluxo que isso conserta.
+  - **Corrigir o `type` não é cosmético:** os buckets têm
+    `allowed_mime_types`, então subir como octet-stream seria recusado pelo
+    **Storage** mesmo depois de passar pela validação da tela. Por isso o
+    helper devolve o File com o tipo certo, e os 8 pontos de entrada
+    (avatar, logo, publicar, cadastro passo 2, arte-ig, aiLogo, aiArt,
+    dimensões) passam por ele.
+  - **O aviso "A galeria não abriu" era FALSO POSITIVO** nesse wrapper: o
+    "Files Chooser" é um DIÁLOGO do próprio app, e diálogo **não tira o
+    foco da página** — o relógio de 1,8s do `filePickerWatch` estourava
+    enquanto a pessoa ainda lia Camera × Files. Agora a espera padrão é
+    **8s** (`PADRAO_ESPERA_MS`) e, se o app sair DEPOIS do aviso, ele é
+    **retirado da tela** (`onAbriuAtrasado`) e a marca de recuperação volta
+    a valer. **Aviso errado ensina a ignorar o aviso certo.**
+
+- **"500 | Server Error" ao APAGAR E ACENDER a tela (2026-09-01).** Relato:
+  app aberto, apaga a tela do celular, acende — vem 500, e **fica assim até
+  reiniciar o app**. Mecanismo: com a tela apagada o Android mata o processo
+  do **RENDERIZADOR** da WebView (não o app); ao voltar, a WebView recria o
+  renderizador e **RE-NAVEGA** pra URL atual. Se essa navegação pega um
+  soluço do edge, vem 500 — e a página interna do Next não tem UMA LINHA de
+  JS nosso: nem SW, nem boundary, nem retry. Uma lápide. Por isso só saía
+  reiniciando: **nada mais navegava**.
+  - **`pages/500.tsx`** substitui aquela página e se recupera sozinha
+    (mesmo freio do `autoRetry`: 2,5s + n·1,5s, teto 6 em 2min, reload no
+    evento `online`). O retry é `<script>` INLINE, não `useEffect`: se a
+    pessoa vê essa tela, o servidor acabou de falhar — apostar que os
+    chunks vão baixar e hidratar é apostar no que está quebrado.
+  - **Por que em `pages/` num app App Router:** `error.tsx` e
+    `global-error.tsx` só pegam erro de RENDER do React. Falha ABAIXO disso
+    (carga de módulo, roteamento, soluço da function) nunca chega neles — e
+    é essa que produz a tela. `pages/500` é o único ponto de override.
+  - **PEGADINHA: criar `pages/` MUDA A TIPAGEM GLOBAL.** `useSearchParams()`
+    passa a ser anulável e o build quebra em quem não trata (era
+    `LoginForm.tsx`). **`npx tsc --noEmit` NÃO pega isso** — só o
+    `next build`, que usa os tipos gerados em `.next/types`. Rodar
+    `next build` de verdade antes de publicar mudança estrutural.
+  - **Causa raiz provável do 500, corrigida junto:** `lib/api/env-check.ts`
+    lia `process.env` DIRETO e era chamado no **MODULE-LOAD** de
+    `security.ts` — as duas coisas que este arquivo proíbe. No edge os
+    secrets não estão em `process.env`, e `process.env[k]` com `k` variável
+    nem é substituído no build (só a forma literal). Ou seja: a lista podia
+    sair TODA "ausente" e o throw derrubar a CARGA DO MÓDULO com as envs
+    perfeitamente configuradas — o que o Next devolve como 500 puro. Agora
+    lê por `getRuntimeEnv` e **não roda mais no boot**; o fail-closed que
+    importa (CRIT-5) já é por request em `requirePro`/`gateAiUsage`.
+  - **Continua sem prova de qual dos dois disparou** — falta saber se o SW
+    controla a página na WebView. **`/diag` já responde isso** (linha
+    "Service Worker controlando a página"): abrir no app instalado.
+
+- **"500 | Server Error" CRU no app instalado — o SW NÃO está no comando
+  (2026-09-01, EM ABERTO).** O `sw.js` v5 prova por construção que 5xx
+  nunca vai cru pra tela em navegação de documento (troca pela página
+  "Reconectando…" com auto-retry). A tela crua apareceu mesmo assim → **o
+  service worker não controlava aquela navegação** no app empacotado. Os
+  boundaries do React também não renderizaram (`error.tsx` e
+  `global-error.tsx` existem e têm auto-retry), logo a falha é da própria
+  function do edge, **abaixo do render do Next** — e o `middleware.ts` está
+  fora (só casa `/api/*`).
+  - **Estamos CEGOS nisso:** a telemetria `sw-nav-5xx` só dispara com o SW
+    no comando, que é justamente o que falta. O `ServiceWorkerRegister`
+    engole falha de registro num `.catch()` vazio, e o ping com o campo
+    `sw=` foi removido em 30/08. **Próximo passo: telemetria de
+    registro/controle do SW antes de qualquer palpite sobre a causa do
+    500.** Não escrever correção especulativa antes disso.
+
+- **CAUSA DO "500 | Server Error" FECHADA (2026-09-01) — era o payload
+  RSC, não a navegação.** O `/diag` do usuário no app instalado entregou o
+  dado que faltava: **"Service Worker controlando a página: sim"**. Com o SW
+  no comando, o `sw.js` v5 tornava impossível um 5xx cru chegar na tela em
+  navegação de DOCUMENTO — logo, não era navegação de documento.
+  - **O que era:** o 5xx vinha no fetch do **payload RSC**. O SW devolvia
+    esse 500 CRU pro router, apostando que "o router trata" fazendo
+    hard-nav. Não trata: o runtime do Next pinta a PRÓPRIA tela de erro (a
+    marcação `next-error-h1` está no bundle do cliente, `main-*.js`). Como
+    não houve navegação de documento, nenhuma defesa do SW rodou; e como não
+    é erro de render, `error.tsx`/`global-error.tsx` também não pegaram.
+    Uma lápide que só saía reiniciando o app.
+  - **Correção (sw.js v6):** 5xx de RSC recebe o MESMO tratamento da rede
+    morta — 503 sem corpo, que é o caminho comprovado: o router descarta,
+    faz hard-nav, a navegação volta como documento e ganha a página
+    "Reconectando…" com auto-retry. Incidente logado como `sw-nav-5xx` com
+    sufixo `(rsc)`.
+  - **O teste TROCOU DE LADO** — antes exigia o 5xx cru "porque o router
+    trata". Teste que codifica uma suposição errada protege o bug.
+  - **Lição de método:** `pages/500.tsx` e `pages/_error.tsx` foram DUAS
+    tentativas erradas seguidas, ambas escritas antes de eu ter evidência.
+    O que fechou o caso foi procurar a string no output publicado
+    (`.vercel/output/static`) e pedir UM dado do aparelho. As duas páginas
+    ficam — cobrem o erro de servidor de verdade —, mas não eram isto.
+
+- **O 500 do App Router NÃO passa por `pages/500` nem por `pages/_error`
+  (2026-09-01, PROVADO).** Duas tentativas minhas falharam pela MESMA razão,
+  e só a evidência fechou a questão. No output publicado
+  (`.vercel/output/static`): o `500.html` é a minha tela ("Reconectando…",
+  sem `next-error-h1`), mas a marcação da tela padrão do Next
+  (`next-error-h1`) vive dentro do **worker**
+  (`_worker.js/__next-on-pages-dist__/webpack/*.js`) — ou seja, quem
+  responde é o runtime do Next DENTRO do worker, em rota de App Router, e
+  ali os arquivos do Pages Router não são consultados. `error.tsx` e
+  `global-error.tsx` também não pegam, porque a falha não é de render.
+  - **Não escrever uma 3ª tentativa às cegas.** Restam dois caminhos, e a
+    escolha depende de UM dado: o service worker controla a página no app?
+    Se controla, o `sw.js` v5 já resolve (troca 5xx pela tela de reconexão)
+    e o bug é outro; se não controla, a única interceptação possível é
+    embrulhar o `_worker.js` gerado num passo pós-build — o que amarra o
+    deploy a um script nosso e precisa ser decidido com o usuário.
+  - O dado chega sozinho: `sw-status` no `/admin/errors` (1 linha por
+    aparelho por dia) ou o link "Diagnóstico do aparelho" no rodapé do
+    perfil.
+
+- **Story: o X existia, mas ficava POR BAIXO das barras do app
+  (2026-09-01).** O relato foi "não tem um X pra fechar?". Tinha — só que o
+  `StoryViewer` era `fixed inset-0 z-50` e a **BottomNav é `z-[300]`**, a
+  TopNav `z-50`. As barras de progresso (`top-2`) e o botão de fechar
+  (`top-6`) nasciam atrás delas. O `fixed inset-0` sempre cobriu a tela
+  toda; o que faltava era z-index. Agora **`z-[400]`**, o story fica
+  imersivo (as barras do app somem enquanto ele está aberto, como no
+  Instagram), o viewer é montado em **portal no `<body>`** (o z-index
+  sozinho bastaria hoje, mas basta um ancestral ganhar `transform` pra o
+  `fixed` deixar de cobrir a tela) e o X virou alvo de 40px com fundo
+  próprio — antes era um `×`
+  de texto solto, invisível sobre story claro. Progresso e header respeitam
+  `env(safe-area-inset-top)`.
+  - **Botão VOLTAR do Android fecha o story.** Ao abrir, o viewer empurra
+    uma entrada no histórico; o "voltar" consome ela e dispara `popstate`,
+    que fecha sem navegar. Fechando pelo X ou pelo arrasto, a entrada
+    fantasma é desfeita na limpeza — senão o próximo "voltar" não sairia da
+    tela, só apagaria a sobra. `onClose` fica numa ref pra o efeito não
+    rearmar e empilhar uma entrada por render.
+  - **PLAY gigante no vídeo:** a WebView bloqueia `autoPlay` até haver gesto
+    (`setMediaPlaybackRequiresUserGesture` é true por padrão no wrapper) e o
+    player nativo desenha o botão. Correção em dois tempos: `play()`
+    explícito quando o story entra em cena (aproveita o gesto que abriu o
+    viewer) + `poster` 1×1 transparente, pra que o intervalo até o primeiro
+    quadro fique preto em vez de exibir a arte do player.
+
+- **Auditoria 2 (2026-09-01) — A1..A4 corrigidos.**
+  - **A1: o selo PRO mentia pra quem venceu.** Havia DUAS fontes de verdade:
+    o `TopNav` dizia PRO com `is_pro=true` sozinho, enquanto
+    `canSeeProFeature` (o portão real, usado em Agenda/CRM/Anotações) exige
+    `is_pro=true` **E** data futura quando há data. E **nada limpa `is_pro`
+    no vencimento** — não há cron nem trigger, e o portal ativa PRO gravando
+    `is_pro=true` + expiração. Ou seja, "is_pro com data vencida" é estado
+    PERMANENTE: a pessoa via PRO na barra e levava "exclusivo do Plano PRO"
+    em toda ferramenta. O `TopNav` agora usa `usePolicyUser` +
+    `canSeeProFeature`/`isAdmin`. **REGRA: selo e portão perguntam à mesma
+    função.** (Há uma 3ª implementação no banco, `is_pro_active`.)
+  - **A2: "hoje" saía do fuso do APARELHO.** O patch de fuso do `layout.tsx`
+    cobre só `toLocale{Date,Time,}String` — **`getTimezoneOffset()` passa
+    direto**, e era ele que decidia o dia em 5 lugares. O Brasil tem mais de
+    um fuso (Manaus, UTC−4): entre meia-noite e 1h o aparelho diz um dia e
+    Brasília já está no seguinte. Deslocava o destaque de "hoje" na agenda,
+    o recorte do dia no Financeiro e a data de follow-up do pipeline.
+    Helpers novos em `utils.ts`: **`ymdBrt()`** (que dia é hoje em Brasília,
+    via `Intl` com `timeZone` — não depende do patch, que mexe só em
+    `Date.prototype`) e **`ymdDeCampos()`** (formata um Date montado a
+    partir de ano/mês/dia, como os limites de mês do grid — ali passar por
+    fuso é que introduziria deslocamento). `agYmd` virou apelido depreciado.
+    **Nada de acesso depende disso** — os 4 usos são de tela/data, nenhum em
+    auth, RLS ou rota de API. Pra quem está FORA do Brasil o efeito é o
+    pretendido pela regra do projeto: "hoje" passa a ser o mesmo dia que as
+    datas já exibidas na tela (antes o destaque vinha do celular e o resto de
+    Brasília — inconsistentes entre si). `ymdBrt` tem fallback: se o `Intl`
+    falhar (WebView sem ICU completo), cai no fuso do aparelho em vez de
+    devolver `"--"`, que a coluna `date` do Postgres recusaria — o Financeiro
+    grava a data direto dali. Suíte verde em São Paulo, Manaus, UTC, Tóquio,
+    Los Angeles e Lisboa.
+  - A3 (legenda/comentário sem `overflowWrap` — palavra longa era cortada
+    pelo `overflow-x: hidden` do AppShell; comentário precisou de
+    `minWidth: 0` por ser flex item) e A4 (`cartTotal` somava float e
+    gravava 269.70000000000005 no pedido; agora soma em centavos).
+  - **Descartado após verificar:** rotas "sem gate" (autenticam uma camada
+    abaixo, no service) e 97 "botões sem `aria-label`" (regex meu estava
+    errado; as amostras têm texto ou o atributo em linha seguinte).
+
+- **A página 500 do Next tem DOIS caminhos — cobrir só um não adianta
+  (2026-09-01).** Criei `pages/500.tsx`, confirmei no build que a tela nova
+  estava lá dentro (`grep Reconectando .next/server/pages/500.html`) e o
+  aparelho SEGUIU recebendo o "500 | Server Error" cru. Motivo: `500.tsx`
+  cobre a 500 **estática**; erro em **runtime** cai no **`pages/_error.tsx`**,
+  que continuava sendo o padrão do Next. Os dois agora renderizam
+  `components/TelaReconectando` (auto-retry inline). O `_error` trata 404 à
+  parte — recarregar sozinho uma página que não existe só repetiria o "não
+  existe". **Conferir `.next/server/pages/_error.js`, não só o `500.html`.**
+
+- **Auditoria 2026-09-01 — 9 achados corrigidos (P1..P9).** Os que valem
+  virar regra:
+  - **P1 (o mais grave): `parseBRL` multiplicava por 100.** Apagava TODO
+    ponto como milhar antes de trocar a vírgula: `"1500.50"` → 150050,
+    `"0.99"` → 99, e até `parseBRL(1500.5)` → 15005 (número passava por
+    `String()`). O campo de preço usa `inputMode="decimal"` e o teclado do
+    Android oferece PONTO — era o caminho comum, não caso de canto.
+    Atingia preço de arte à venda, Financeiro, Agenda e o `brlSchema`. Pior:
+    os comentários em `utils.ts` e `schemas.ts` JÁ AFIRMAVAM aceitar
+    `"1500.50"`. **Regra nova: vírgula sempre é decimal; ponto é decimal com
+    1-2 casas (ou parte inteira zerada) e milhar com 3.** 7 testes novos —
+    o antigo só cobria `"1.500,50"`, vazio e o inteiro `42`.
+  - **P3: busca aproximada NUNCA decide destinatário de mensagem.**
+    `resolveCalicolorsUserId` caía em `.ilike('name','%cali%').limit(1)` sem
+    `order` — casava com Calixto/Micaeli/Carlos Calisto e escolhia de forma
+    não-determinística. Esse id abre a conversa "🎨 Loja": dava pra mandar
+    pra um estranho. Agora só igualdade exata (tags conhecidas → nome
+    exato), e **erro do Supabase não é mais lido como "não existe"**.
+  - **P2 foi FALSO ALARME e a lição é essa.** `linkUrl` faltava nas deps do
+    `useCallback` de submit, mas não causava bug: `autosave` também está nas
+    deps e o `useAutosave` devolve **objeto novo a cada render**, então o
+    callback era recriado sempre. A correção do link dependia de um acidente
+    em outra dependência — estabilizar o retorno do `useAutosave` (o certo
+    pra perf) reintroduziria o bug em silêncio. **Só confirmei porque o
+    teste de regressão passou SEM o fix.** Teste que não falha sem a
+    correção não é teste de regressão.
+  - **P4/P5: `catch {}` mudo esconde bug por meses.** O upload da foto no
+    CADASTRO falhava em silêncio (nem toast, nem `/admin/errors`) — foi o
+    que escondeu o bug de MIME em todo cadastro novo. O perfil público
+    engolia falha de quals/cursos/avaliações e renderizava **vazio**: pintor
+    com 20 avaliações aparecia sem nenhuma, na tela onde o cliente decide
+    contratar. Os `.catch` individuais dentro de `Promise.all` também
+    precisam marcar a falha.
+  - P6 (`linkUrl`/`artType` não limpos após publicar), P7 (regressão minha:
+    `armarSelecao` sem cancelar no unmount deixava ouvintes vivos e marca no
+    localStorage → aviso falso "o app reiniciou"), P8 (`??` não é fallback
+    pra efeito colateral: `handler?.(err) ?? console.warn(...)` logava
+    sempre) e P9 (pílulas `bg-gray-100` sem inversão no dark).
+  - **`eslint.ignoreDuringBuilds: true`** no `next.config.mjs`: os ~17
+    avisos do linter nunca aparecem no deploy. Rodar `next lint` na mão.
+
+- **57 leituras de `process.env` cruas corrigidas (2026-09-01).** A regra de
+  22/08 ("ler sempre por `getRuntimeEnv()`, nunca `process.env` direto")
+  estava sendo violada em **38 arquivos**: toda a camada de IA (legenda,
+  transcrição, TTS, moderação, análise financeira, OCR, arte-IG, resolver
+  cor, as 4 personas) e os pagamentos (`checkout`, `mp-webhook`), além do
+  `/api/health` — que por isso podia reportar saúde errada. No edge do
+  Cloudflare esses secrets não estão em `process.env`, então ou essas
+  funções estavam quebradas em produção, ou a regra é mais forte do que
+  precisa ser — a conversão é segura nos dois casos, porque `getRuntimeEnv`
+  tenta o contexto da request e CAI PRO `process.env`.
+  - **Teste de arquitetura novo** (`__tests__/lib/env-runtime-rule.test.ts`)
+    varre `lib/api` e `app/api` e falha se a leitura crua voltar. Regra que
+    ninguém verifica é sugestão.
+  - Verificado no worker REAL (`wrangler pages dev .vercel/output/static`):
+    `/api/health` responde `supabase: true` e as rotas seguem de pé.
+
+- **Carrossel de fotos no post — Wave 57 (2026-09-01) — JÁ EXECUTADA no
+  Supabase (2026-09-01). Não pedir pra rodar de novo.** O
+  composer sempre deixou escolher **até 5 fotos**, subia TODAS pro bucket
+  `posts` e gravava **só a primeira** em `posts.media_url` — as outras
+  quatro viravam arquivo órfão, pagas em banda e storage, invisíveis. O
+  próprio tipo já dizia: `mediaUrls: string[]; // resto ignorado`.
+  - `/migrations/2026-09-01-posts-media-urls.sql`: **uma linha**
+    (`ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls text[]`) — curta
+    de propósito, porque colar SQL grande pelo celular corta o bloco.
+  - **Post ANTIGO não ganha carrossel**: as fotos extras dele foram
+    descartadas no ato da publicação (nunca chegaram a `media_url` nem a
+    lugar nenhum consultável), então só post novo tem o conjunto. Os
+    arquivos órfãos velhos seguem no bucket — `cleanup_orphan_media()` os
+    lista como órfãos, e quem apaga é `execute_cleanup_orphan_media()` na
+    mão.
+  - **`media_url` NÃO muda de papel**: segue sendo a primeira foto, e é o
+    que o RPC `get_feed_v2`, o grid do perfil e todo post antigo leem. Foi o
+    que permitiu **não recriar a `get_feed_v2`** (bloco grande, arriscado no
+    aparelho): o feed busca as extras numa consulta leve à parte
+    (`anexarFotosExtras`), que só traz os posts com mais de uma foto.
+  - **`createPost` tolera 42703**: se a migration ainda não rodou, o insert
+    é refeito sem `media_urls` e o post sai com a primeira foto. Publicar
+    não pode quebrar por causa de SQL pendente — foi exatamente o que
+    aconteceu com `quotes.post_id` e `leads.city`.
+  - `PostCarousel` usa **scroll-snap**, não arrasto por JS: o gesto fica com
+    o navegador (inércia e encaixe nativos) e não briga com o scroll
+    vertical do feed — `overscrollBehaviorX: 'contain'` corta o
+    encadeamento. Contador `1/5` no canto e bolinhas clicáveis. Só a
+    PRIMEIRA foto usa `media_width/height` gravados; aplicar nas outras
+    reservaria o espaço errado e causaria salto.
+
+- **Story com SOM (2026-09-01).** O `<video muted>` era fixo — `muted` é o
+  que a WebView exige pra tocar SEM gesto, então todo story rodava mudo. Mas
+  ali existe gesto (um toque abriu o viewer): agora tenta com áudio e, se o
+  aparelho recusar o `play()`, cai pra mudo e acende o botão 🔊/🔇 no
+  cabeçalho, em vez de deixar o vídeo parado com o PLAY gigante.
+
+- **Story virou só a mídia (2026-09-01, decisão da loja).** Sem legenda e
+  sem link "ver mais": é conteúdo que some em 24h, e pedir texto só atrasa
+  quem quer postar a foto da obra e seguir trabalhando. O payload vai com
+  `caption: ''` e `linkUrl: null` — sem isso um rascunho antigo restaurado
+  pelo autosave mandaria texto que a pessoa não tem mais como ver nem
+  editar. A coluna `posts.link_url` e o CTA do `StoryViewer` continuam
+  existindo pros stories antigos; só não há mais como criar novos. A aba
+  "Foto / Vídeo" passou a se chamar **"Post"**.
+
+- **A galeria ABRE, mas o app MORRE no meio da escolha (2026-09-01).** O
+  AAB de 31/08 resolveu o `onShowFileChooser` — o seletor aparece
+  (confirmado no aparelho do Bruno). Só que apareceu o problema seguinte:
+  ele toca na foto e **o app volta pra tela inicial**, sem foto e sem
+  legenda. Não é permissão: o seletor de fotos é OUTRA activity, pesada de
+  memória; o Android encerra o processo do app que ficou atrás; na volta o
+  wrapper recria tudo e carrega a **URL inicial**, e o `ValueCallback` que
+  receberia o arquivo morreu junto.
+  - **Nenhum código web impede isso** — a correção de raiz é do WebIntoApp
+    (`ValueCallback` + `WebView.saveState()/restoreState()` na recriação da
+    activity; `docs/AAB_PROXIMA_VERSAO.md` §1.1b). O que o app faz é não
+    deixar a pessoa no escuro: `lib/utils/pickerRecovery.ts` grava uma marca
+    em **localStorage** (sobrevive à morte do processo; `sessionStorage`
+    NÃO — WebView nova nasce com ele vazio) antes de abrir o seletor e a
+    apaga em TODO final normal (arquivo chegou / cancelou / nem abriu).
+    Marca sobrevivendo num documento recém-carregado = aquele documento
+    morreu com a escolha pendente.
+  - `components/PickerRecovery.tsx` (montado no `AppShell`) leva de volta
+    pra rota da marca; quem **consome** a marca é a tela dona dela (filtro
+    por `ctx`), porque só ela sabe o que fazer com a foto. Se o boot
+    consumisse, o app navegaria em silêncio e ninguém entenderia nada.
+  - Janela de 5min: escolher foto leva segundos. Fora dela é sessão nova, e
+    avisar seria mentira. **Só arma no Android** (mesmo gate `ehAndroid` do
+    `filePickerWatch`, agora exportado — se os dois divergirem, uma tela
+    marca e a outra não limpa).
+  - A **câmera é imune** (`getUserMedia` roda na própria página, não sai pra
+    outra activity) — por isso o `GaleriaBloqueadaSheet` segue sendo a
+    saída, agora com título/texto por prop: dizer "a galeria não abriu"
+    aqui seria mentira, ela abriu.
+  - `Composer` grava o rascunho NO GESTO que abre o seletor
+    (`onAntesDeAbrir` → `writeDraft`): o autosave é throttled em 5s e quem
+    digita e toca em seguida perderia o texto junto com a foto.
+  - Telemetria nova: `picker-restart` no `/admin/errors`.
+  - **Permissões (conferido em 01/09):** Câmera concedida e com uso real
+    registrado → o wrapper implementa `onPermissionRequest`. Fotos/mídia
+    **não aparece** na lista → o toggle de storage provavelmente gerou a
+    antiga `READ_EXTERNAL_STORAGE`, ignorada no Android 13+. Não bloqueia o
+    seletor (ele entrega o arquivo por Intent).
+
+- **App instalado NÃO ABRE A GALERIA — a saída pela CÂMERA (2026-08-30).**
+  Voltou em 30/08 com DOIS pintores (Bruno Valentim e Leo): não trocam a
+  foto de perfil nem publicam portfólio. Causa é a mesma de 29/08 e não é
+  código nosso: as duas telas usam o mesmo `<input type="file">` e a
+  WebView do WebIntoApp só abre a galeria se o wrapper implementar
+  `onShowFileChooser` + permissões de mídia. Sem isso o toque **não faz
+  nada** — sem erro, sem log. **Correção de raiz continua no painel do
+  WebIntoApp** (`docs/AAB_PROXIMA_VERSAO.md` §1.1).
+  - **O que mudou agora: o beco virou saída.** `filePickerWatch` (relógio
+    de 1,8s; se a página não perdeu o foco, o seletor não abriu) deixou de
+    mostrar um toast vermelho — o toast some em 3s, manda DIGITAR
+    "queroumacor.com.br" e não resolve nada. No lugar entra o
+    `components/GaleriaBloqueadaSheet` com duas saídas: **📷 tirar foto
+    agora** (`components/CameraCapture.tsx` — `getUserMedia` + canvas
+    geram o File na mão, sem passar pelo seletor) e **🌐 abrir no
+    navegador** (`lib/utils/openInBrowser.ts`: URL `intent:` com
+    `action=VIEW`, que é o que a WebView entende como "sair pro Chrome";
+    `window.open` dentro dela abre outra tela do próprio app). Se nem o
+    intent abrir, copia o link.
+  - O botão de câmera também aparece **sem precisar falhar antes**: ao
+    lado de "Trocar foto" (`/perfil/editar`), embaixo do dropzone de
+    `/publicar` e no passo 2 do cadastro. Só em tela de toque com câmera
+    (`ofereceCamera`) — no desktop o seletor funciona e o botão só poluiria.
+  - **A câmera na WebView é a MESMA classe de dependência** (o wrapper
+    precisa responder `onPermissionRequest` + `android.permission.CAMERA`):
+    pode falhar também. A diferença é que ela falha **visível** — a
+    promessa rejeita, a tela diz o que fazer e o `/admin/errors` recebe
+    `camera-fail`. Também tem TETO DE TEMPO de 12s no `getUserMedia`: em
+    WebView promessa pendurada não rejeita (mesma lição do `getSession`).
+  - **Bug real achado junto — o aviso DUPLICADO da foto do pintor.** O
+    `inputRef.click()` do `MediaUploader` sobe (bubbling) até a div do
+    dropzone, que tem `onClick={handleSelect}`: um toque armava DOIS
+    relógios e mostrava a mensagem duas vezes (a segunda chamada de
+    `click()` é barrada pelo próprio browser, então parava em 2). Corrigido
+    com `stopPropagation` no input + cancelar o relógio anterior antes de
+    armar outro. Teste de regressão em
+    `__tests__/components/MediaUploaderPicker.test.tsx` (falha sem o fix).
+  - Foto tirada aqui sai no máximo com 1600px no lado maior e JPEG 0.9 —
+    foto crua de celular passa dos 5MB do avatar.
 
 - **Conta NOVA barrada de publicar: sessão diz "e-mail não confirmado"
   (2026-08-29).** `getSession()` devolve o usuário GUARDADO no

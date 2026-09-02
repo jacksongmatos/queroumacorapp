@@ -2,6 +2,7 @@
 // `functions/api/_services/moderate.js`. Moderação de texto + imagem via Gemini.
 
 import { ServiceError } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const TIMEOUT_MS = 25000;
@@ -97,7 +98,7 @@ export async function moderateContent(args: {
     }
   }
 
-  const key = process.env.GEMINI_API_KEY;
+  const key = getRuntimeEnv('GEMINI_API_KEY');
   try {
     const r = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,

@@ -24,6 +24,7 @@
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Profile, UserRole, UserType } from '@/lib/types';
+import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
 
 // (getProfile usa SELECT * defensivamente — não dependemos de uma lista
 // explícita de colunas, então uma migration pendente não quebra a UI.)
@@ -184,12 +185,22 @@ export async function updateProfile(
  */
 export async function uploadAvatar(
   userId: string,
-  file: File,
+  entrada: File,
 ): Promise<string> {
+  let file = entrada;
   if (!userId) throw new ValidationError('userId obrigatório');
   if (!file) throw new ValidationError('Arquivo obrigatório');
-  if (!file.type || !file.type.startsWith('image/')) {
-    throw new ValidationError('Selecione um arquivo de imagem');
+  // MIME vazio é normal no app instalado (o seletor do wrapper não declara
+  // o tipo) — quem decide então é a extensão. Ver lib/utils/mediaType.ts.
+  // Ordem de confiança: tipo declarado > extensão > bytes do arquivo. O
+  // seletor do app não declara tipo, e alguns providers ainda devolvem nome
+  // sem extensão — aí só o conteúdo responde. Isto também conserta o
+  // `contentType` do upload: octet-stream seria recusado pelo bucket.
+  file = await normalizarArquivo(file);
+  if (provadoNaoImagem(file)) {
+    throw new ValidationError(
+      `Esse arquivo não é imagem (${file.type}) — ${descreverArquivo(file)}`,
+    );
   }
   // 5MB cap igual ao vanilla previewEpLogo line 47.
   if (file.size > 5 * 1024 * 1024) {

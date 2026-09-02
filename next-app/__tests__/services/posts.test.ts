@@ -164,6 +164,42 @@ function makeFile(
 // ─── uploadMedia ───────────────────────────────────────────────────────────
 
 describe('uploadMedia', () => {
+  // Regressão 2026-09-01: o seletor do app instalado (WebIntoApp) devolve o
+  // arquivo com `type` VAZIO. O fallback antigo etiquetava TODA imagem sem
+  // tipo como 'image/jpeg' — acertava .jpg por sorte e gravava .png/.webp/
+  // .heic com o content type errado no Storage.
+  it('foto SEM MIME sobe com o tipo da EXTENSÃO, não com o chute image/jpeg', async () => {
+    const { client, spies } = makeFakeClient([]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await uploadMedia('user-1', makeFile('parede.png', '', 1000));
+    expect(spies.upload.mock.calls[0][2].contentType).toBe('image/png');
+  });
+
+  it('vídeo SEM MIME também sai pela extensão', async () => {
+    const { client, spies } = makeFakeClient([]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await uploadMedia('user-1', makeFile('obra.mov', '', 1000));
+    expect(spies.upload.mock.calls[0][2].contentType).toBe('video/quicktime');
+  });
+
+  it('octet-stream é tratado como "não sei", não como tipo', async () => {
+    const { client, spies } = makeFakeClient([]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await uploadMedia('user-1', makeFile('foto.webp', 'application/octet-stream', 1000));
+    expect(spies.upload.mock.calls[0][2].contentType).toBe('image/webp');
+  });
+
+  // Sem tipo, sem extensão útil e sem assinatura reconhecível, o fallback
+  // 'image/jpeg' PERMANECE de propósito: alguns content providers do Android
+  // devolvem o arquivo sem nenhum dos três, e recusar quebraria justamente o
+  // fluxo que este pacote conserta. O `accept` do input já filtra antes.
+  it('sem nenhuma pista, cai no fallback em vez de recusar a foto', async () => {
+    const { client, spies } = makeFakeClient([]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await uploadMedia('user-1', makeFile('semextensao', '', 1000));
+    expect(spies.upload.mock.calls[0][2].contentType).toBe('image/jpeg');
+  });
+
   it('happy path: faz upload, retorna { url, mediaType, path }', async () => {
     const { client, spies } = makeFakeClient([]);
     __setSupabaseForTests(

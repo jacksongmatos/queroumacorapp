@@ -42,7 +42,11 @@ import {
 import { fetchLogo, uploadLogo, saveLogo } from '@/lib/services/aiLogo';
 import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
-import { AVISO_SELETOR, watchFilePicker } from '@/lib/utils/filePickerWatch';
+import { CameraCapture } from '@/components/CameraCapture';
+import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
+import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
+import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
+import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
@@ -115,6 +119,28 @@ export function EditProfileForm() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const cancelarAvisoRef = useRef<(() => void) | null>(null);
+  // Galeria não abriu (app empacotado) / câmera aberta na mão.
+  const [galeriaBloqueada, setGaleriaBloqueada] = useState(false);
+  const [reiniciouNaEscolha, setReiniciouNaEscolha] = useState(false);
+  const [camAberta, setCamAberta] = useState(false);
+  const podeCamera = useOfereceCamera();
+
+  // P7: cancela o que o `armarSelecao` armou quando a tela sai — senão
+  // sobram ouvintes vivos e a marca de recuperação no localStorage vira
+  // aviso falso na próxima abertura.
+  useEffect(() => () => cancelarAvisoRef.current?.(), []);
+
+  // Voltamos de um app que o Android matou com a galeria aberta? A foto se
+  // perdeu no caminho e ninguém contou pra pessoa — ela só viu o app voltar
+  // pro início. Conta aqui, com as saídas (ver lib/utils/pickerRecovery).
+  useEffect(() => {
+    if (!consumirEscolhaPendente('perfil/editar')) return;
+    setReiniciouNaEscolha(true);
+    setGaleriaBloqueada(true);
+    reportFailure('picker-restart', new Error('app reiniciou com a galeria aberta'), {
+      ctx: 'perfil/editar',
+    });
+  }, []);
   // Logo do negócio: lê do banco via fetchLogo (sincronizado com camisetas
   // — mesma URL `profiles.business_logo_url` que ShirtCustomizer/AiArt usam).
   // Upload faz commit imediato (não espera o submit do form principal) pra
@@ -236,11 +262,18 @@ export function EditProfileForm() {
   // Commit imediato (não espera submit) — comportamento idêntico ao
   // ShirtCustomizer pra manter sync entre as 2 telas.
   async function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !user) return;
-    if (!file.type.startsWith('image/')) {
-      showToast('Selecione uma imagem (PNG, JPG, WebP, SVG)', 'error');
+    // `file.type` VAZIO é rotina no seletor do wrapper (ver
+    // lib/utils/mediaType.ts) — validar por ele recusava foto de verdade.
+    file = await normalizarArquivo(file);
+    if (provadoNaoImagem(file)) {
+      showToast(`Esse arquivo não é imagem (${file.type})`, 'error');
+      reportFailure('avatar-fail', new Error(`logo nao-imagem: ${descreverArquivo(file)}`), {
+        userId: user?.id,
+        ctx: 'perfil/editar/logo',
+      });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -299,9 +332,29 @@ export function EditProfileForm() {
     cancelarAvisoRef.current?.();
     const f = e.target.files?.[0] ?? null;
     e.target.value = ''; // permite reescolher o MESMO arquivo depois
+    await processarAvatar(f);
+  }
+
+  /**
+   * Sobe a foto de perfil. Recebe o File pronto — venha ele da galeria ou
+   * da câmera (`CameraCapture`), que é o caminho de quem está no app
+   * empacotado, onde a galeria não abre.
+   */
+  async function processarAvatar(entrada: File | null) {
+    let f = entrada;
     if (!f || !user || avatarBusy) return;
-    if (!f.type.startsWith('image/')) {
-      showToast('Selecione um arquivo de imagem', 'error');
+    // O seletor do app instalado devolve a foto SEM MIME type — era isto
+    // que barrava a troca de foto com "Selecione um arquivo de imagem" na
+    // cara de quem tinha selecionado exatamente isso.
+    f = await normalizarArquivo(f);
+    // Recusa só com PROVA. Antes bastava o Android não declarar o tipo pra
+    // barrar a foto — era o bug que travou a troca de foto no app.
+    if (provadoNaoImagem(f)) {
+      showToast(`Esse arquivo não é imagem (${f.type})`, 'error');
+      reportFailure('avatar-fail', new Error(`avatar nao-imagem: ${descreverArquivo(f)}`), {
+        userId: user?.id,
+        ctx: 'perfil/editar',
+      });
       return;
     }
     if (f.size > 5 * 1024 * 1024) {
@@ -448,15 +501,24 @@ export function EditProfileForm() {
             htmlFor="avatar-input"
             onClick={() => {
               // WebView do wrapper pode nao abrir a galeria — sem erro
-              // nenhum. Ver lib/utils/filePickerWatch.
-              cancelarAvisoRef.current = watchFilePicker(() => {
-                showToast(AVISO_SELETOR, 'error');
-                reportFailure('picker-fail', new Error('galeria nao abriu'), {
-                  userId: user?.id,
-                  ctx: 'perfil/editar',
-                });
-              },
-              );
+              // nenhum. Ver lib/utils/filePickerWatch. Quando não abre, o
+              // app oferece a câmera (que não passa pelo seletor) em vez
+              // de um toast que some em 3s.
+              cancelarAvisoRef.current?.();
+              cancelarAvisoRef.current = armarSelecao({
+                rota: '/perfil/editar',
+                ctx: 'perfil/editar',
+                onNaoAbriu: () => {
+                  setReiniciouNaEscolha(false);
+                  setGaleriaBloqueada(true);
+                  reportFailure('picker-fail', new Error('galeria nao abriu'), {
+                    userId: user?.id,
+                    ctx: 'perfil/editar',
+                  });
+                },
+                // Abriu depois do relógio: retira o aviso falso.
+                onAbriuAtrasado: () => setGaleriaBloqueada(false),
+              });
             }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
             style={{ opacity: avatarBusy ? 0.6 : 1, pointerEvents: avatarBusy ? 'none' : 'auto' }}
@@ -470,11 +532,50 @@ export function EditProfileForm() {
             className="sr-only"
             onChange={handleAvatarChange}
           />
+          {podeCamera ? (
+            <button
+              type="button"
+              onClick={() => setCamAberta(true)}
+              disabled={avatarBusy}
+              className="inline-block ml-2 px-4 py-2 bg-white border border-[color:var(--color-border)] rounded-xl text-sm font-semibold"
+              style={{ opacity: avatarBusy ? 0.6 : 1 }}
+              data-testid="avatar-camera"
+            >
+              📷 Tirar foto
+            </button>
+          ) : null}
           <p className="text-xs text-[color:var(--color-muted)] mt-1">
             JPG/PNG/WebP — máx 5MB. Salva sozinha ao escolher.
           </p>
         </div>
       </div>
+
+      {/* Câmera: o caminho que NÃO depende do seletor de arquivos — no app
+          empacotado a galeria não abre (ver lib/utils/filePickerWatch). */}
+      <CameraCapture
+        open={camAberta}
+        facing="user"
+        title="Foto de perfil"
+        onClose={() => setCamAberta(false)}
+        onCapture={(f) => void processarAvatar(f)}
+        ctx="perfil/editar"
+        userId={user?.id}
+      />
+      <GaleriaBloqueadaSheet
+        open={galeriaBloqueada}
+        onClose={() => setGaleriaBloqueada(false)}
+        onFoto={(f) => void processarAvatar(f)}
+        facing="user"
+        urlNoNavegador="https://queroumacor.com.br/perfil/editar"
+        titulo={reiniciouNaEscolha ? 'O app reiniciou no meio da escolha' : undefined}
+        descricao={
+          reiniciouNaEscolha
+            ? 'O Android fechou o app pra liberar memória enquanto a galeria estava aberta, e a foto se perdeu no caminho. Duas saídas:'
+            : undefined
+        }
+        ctx="perfil/editar"
+        userId={user?.id}
+      />
 
       {/* Logo do negócio — espelha profiles.business_logo_url, mesma fonte
           que /camisetas e arte-ig leem. Upload imediato (não espera submit

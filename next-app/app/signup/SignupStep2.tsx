@@ -8,7 +8,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { emailSchema, tagSchema, phoneSchema, phoneOptionalSchema, requiredField, birthDateSchema, calculateAge, MIN_AGE } from '@/lib/schemas';
 import { useTagAvailability } from '@/lib/hooks/useTagAvailability';
+import { CameraCapture } from '@/components/CameraCapture';
+import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import type { UserRole } from '@/lib/types';
+import { ehImagem } from '@/lib/utils/mediaType';
 
 // 27 UFs brasileiras (vanilla index.html linha 430+).
 const UFS: ReadonlyArray<{ value: string; label: string }> = [
@@ -94,6 +97,8 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
 
   const [avatarFile, setAvatarFile] = useState<File | null>(initial?.avatarFile ?? null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [camAberta, setCamAberta] = useState(false);
+  const podeCamera = useOfereceCamera();
 
   const {
     register,
@@ -134,9 +139,14 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
   const birthTooYoung = birthAge >= 0 && birthAge < MIN_AGE;
 
   function handleAvatarPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
+    aceitarFoto(e.target.files?.[0] ?? null);
+  }
+
+  /** Vem da galeria ou da câmera — no app empacotado a galeria não abre. */
+  function aceitarFoto(file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith('image/')) return;
+    // MIME vazio = seletor do wrapper, não arquivo inválido.
+    if (!ehImagem(file)) return;
     if (file.size > 5 * 1024 * 1024) return;
     setAvatarFile(file);
     const reader = new FileReader();
@@ -220,7 +230,25 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
               onChange={handleAvatarPick}
             />
           </label>
+          {podeCamera ? (
+            <button
+              type="button"
+              onClick={() => setCamAberta(true)}
+              className="py-2.5 px-3 border-2 border-[color:var(--color-border)] rounded-xl font-bold text-sm"
+              data-testid="signup-avatar-camera"
+            >
+              📷
+            </button>
+          ) : null}
         </div>
+        <CameraCapture
+          open={camAberta}
+          facing="user"
+          title="Foto de perfil"
+          onClose={() => setCamAberta(false)}
+          onCapture={aceitarFoto}
+          ctx="signup"
+        />
         <p className="text-xs text-[color:var(--color-muted)] mt-1">
           Aparece no seu story e perfil. Dá pra adicionar depois em Perfil →
           Editar.

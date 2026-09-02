@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildEvoTextBody,
+  sendEvolutionText,
   getEvolutionConfig,
   isEvolutionConfigured,
   jidToPhone,
@@ -13,7 +14,15 @@ import {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
+
+/** Erro que o `AbortSignal.timeout` levanta — o discriminador é o `name`. */
+function timeoutError() {
+  const e = new Error('The operation was aborted due to timeout');
+  e.name = 'TimeoutError';
+  return e;
+}
 
 describe('getEvolutionConfig', () => {
   it('throw 503 sem envs', () => {
@@ -182,5 +191,62 @@ describe('parseEvolutionWebhook', () => {
       text: 'foto da parede',
     });
     expect(mk({ audioMessage: { seconds: 3 } })).toMatchObject({ type: 'audio', text: '[áudio]' });
+  });
+});
+
+// Envio que estoura o tempo: a mensagem de erro tem que dizer a CAUSA, não
+// repetir "o Render dorme" (falso desde 2026-08-29, o plano é pago). Sessão
+// caída e servidor lento davam o mesmo texto e pedem ações opostas.
+describe('sendEvolutionText — estouro de tempo explica a causa', () => {
+  function stubEnvs() {
+    vi.stubEnv('EVOLUTION_API_URL', 'https://x.onrender.com');
+    vi.stubEnv('EVOLUTION_API_KEY', 'k');
+  }
+
+  /** 1º fetch = envio (estoura); 2º = sonda de connectionState. */
+  function stubFetch(state: string | null) {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(timeoutError())
+      .mockResolvedValueOnce({
+        ok: state !== null,
+        json: async () => ({ instance: { state } }),
+      } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it("instância 'close' manda reconectar o QR, não esperar", async () => {
+    stubEnvs();
+    stubFetch('close');
+    await expect(sendEvolutionText({ to: '5511962680094', body: 'oi' })).rejects.toThrowError(
+      /DESCONECTADA[\s\S]*QR/
+    );
+  });
+
+  it("instância 'open' diz que é lentidão e que a mensagem NÃO saiu", async () => {
+    stubEnvs();
+    stubFetch('open');
+    await expect(sendEvolutionText({ to: '5511962680094', body: 'oi' })).rejects.toThrowError(
+      /NÃO saiu/
+    );
+  });
+
+  it('sonda sem resposta cai num texto genérico, mas ainda acionável', async () => {
+    stubEnvs();
+    stubFetch(null);
+    await expect(sendEvolutionText({ to: '5511962680094', body: 'oi' })).rejects.toThrowError(
+      /nem informou o estado/
+    );
+  });
+
+  it('falha que não é timeout não gasta a sonda', async () => {
+    stubEnvs();
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('network'));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(sendEvolutionText({ to: '5511962680094', body: 'oi' })).rejects.toThrowError(
+      /falha de rede/
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

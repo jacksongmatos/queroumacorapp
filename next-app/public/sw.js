@@ -32,6 +32,14 @@
 // cache-first de `/_next/static/`. O aparelho fica com um app inteiro de uma
 // versão passada e correção nova nenhuma chega. O bump zera essa combinação.
 //
+// v5 → v6 (2026-09-01): o 5xx de PAYLOAD RSC também deixa de voltar cru.
+// A v5 cobriu a navegação de documento, mas o caso real do aparelho era
+// outro: a falha vinha no fetch do RSC, o router do Next pintava a própria
+// tela de erro ("500 | Server Error") sem nunca fazer uma navegação de
+// documento, e por isso NADA daqui rodava. Agora o 5xx de RSC vira 503 sem
+// corpo — o mesmo tratamento da rede morta, que é o caminho comprovado de
+// forçar o hard-nav e cair nas defesas completas.
+//
 // v4 → v5 (2026-08-28): 5xx CRU NUNCA MAIS CHEGA NA TELA em navegação de
 // documento. O v4 já tentava de novo e já preferia o cache, mas quando não
 // havia cópia boa devolvia o 500 do servidor — e como o app navega por
@@ -43,7 +51,7 @@
 // status cru (o router do Next trata e faz hard-nav, que cai aqui de novo
 // como documento).
 
-const CACHE_VERSION = 'quc-v5';
+const CACHE_VERSION = 'quc-v6';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const IMG_CACHE = `${CACHE_VERSION}-img`;
@@ -289,15 +297,33 @@ self.addEventListener('fetch', (event) => {
     req.headers.get('RSC') === '1' ||
     req.headers.get('Next-Router-Prefetch') === '1';
 
-  // Payloads RSC: rede com retry e status CRU de volta — HTML de fallback
-  // aqui corromperia o router (ele espera flight data). Em falha de rede,
-  // 503 sem corpo: o router descarta e faz hard-nav, que volta pra cá como
-  // documento e aí sim ganha as defesas completas.
+  // Payloads RSC. HTML de fallback aqui corromperia o router (ele espera
+  // flight data), então a resposta é sempre "vazia" — o que muda é o STATUS.
+  //
+  // v6 (2026-09-01) — O 5xx DEIXOU DE VOLTAR CRU. A versão anterior devolvia
+  // o 500 do servidor apostando que "o router trata" fazendo hard-nav. O
+  // aparelho provou que não: o runtime do Next pinta a PRÓPRIA tela de erro
+  // ("500 | Server Error" — a marcação `next-error-h1` está no bundle do
+  // cliente, `main-*.js`), e como não houve navegação de documento, nenhuma
+  // das defesas daqui de baixo chega a rodar. Também não é erro de render,
+  // então `error.tsx`/`global-error.tsx` não pegam. Resultado: uma lápide
+  // que só saía reiniciando o app, com o service worker no comando o tempo
+  // todo — o /diag do usuário confirmou "Service Worker controlando: sim".
+  //
+  // Agora o 5xx recebe o MESMO tratamento da rede morta: 503 sem corpo, que
+  // é o caminho comprovado — o router descarta e faz hard-nav, a navegação
+  // volta pra cá como documento e aí sim ganha a página "Reconectando…" com
+  // auto-retry.
   if (isRsc) {
     event.respondWith(
       (async () => {
         try {
-          return await fetchNavigation(req);
+          const res = await fetchNavigation(req);
+          if (res.status >= 500) {
+            logNavIncident(res.status, url.pathname + ' (rsc)');
+            return new Response('', { status: 503 });
+          }
+          return res;
         } catch {
           return new Response('', { status: 503 });
         }

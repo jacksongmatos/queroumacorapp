@@ -203,11 +203,26 @@ describe('service worker — navegação', () => {
     expect(h.fetchCalls.some((u) => u.endsWith('/api/log-error'))).toBe(true);
   });
 
-  it('payload RSC recebe o 5xx CRU (o router trata), nunca HTML de fallback', async () => {
+  // Este teste TROCOU DE LADO em 01/09/2026, e a inversão é o registro do
+  // bug: antes ele exigia que o 5xx de RSC voltasse CRU, "porque o router
+  // trata". O aparelho provou que não trata — o runtime do Next pinta a
+  // própria tela "500 | Server Error", sem navegação de documento, então
+  // nenhuma defesa do SW rodava e a tela ficava morta até reiniciar o app.
+  it('payload RSC com 5xx vira 503 vazio — NUNCA volta cru pro router', async () => {
     const rscUrl = `${ORIGIN}/feed?_rsc=abc123`;
     h.queue.set(rscUrl, [new Response('flight', { status: 500 }), new Response('flight', { status: 500 })]);
     const res = await h.handleFetch(new Request(rscUrl));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
+    // Corpo vazio: HTML aqui corromperia o router, que espera flight data.
+    expect(await res.text()).toBe('');
+  });
+
+  it('payload RSC com 200 passa intacto (não estragar o caminho feliz)', async () => {
+    const rscUrl = `${ORIGIN}/feed?_rsc=ok`;
+    h.queue.set(rscUrl, [new Response('flight-data', { status: 200 })]);
+    const res = await h.handleFetch(new Request(rscUrl));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('flight-data');
   });
 
   it('payload RSC com rede morta vira 503 vazio (router faz hard-nav)', async () => {
@@ -255,8 +270,11 @@ describe('service worker — navegação', () => {
   it('activate apaga os caches de versões anteriores', async () => {
     await h.cacheStorage.open('quc-v4-static');
     await h.cacheStorage.open('quc-v5-static');
+    await h.cacheStorage.open('quc-v6-static');
     await h.runActivate();
-    expect(await h.cacheStorage.keys()).toEqual(['quc-v5-static']);
+    // Só a versão corrente sobrevive — é o bump de CACHE_VERSION que limpa
+    // cache envenenado de versões antigas.
+    expect(await h.cacheStorage.keys()).toEqual(['quc-v6-static']);
   });
 });
 

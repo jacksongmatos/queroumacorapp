@@ -18,6 +18,7 @@ import {
 } from '@/lib/api/security';
 import { chatWithPersona, ALICE_LAST_OF_DAY_HINT } from '@/lib/api/_services/chat-ai';
 import { getAiUsageTodayViaRest } from '@/lib/api/_services/_billing-helpers';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
@@ -29,7 +30,7 @@ const LIMIT_REACHED_MESSAGE =
   'Você já fez suas 3 perguntas de hoje à Alice. Ela volta amanhã com novas ideias! Enquanto isso, dá uma olhada nas cores na nossa Loja Cali Colors (/loja) ou fala com nossa equipe no WhatsApp: https://wa.me/5511959765031';
 
 export async function POST(request: NextRequest) {
-  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY') && !getRuntimeEnv('GEMINI_API_KEY')) {
     return NextResponse.json(
       { error: 'IA não configurada: defina OPENAI_API_KEY ou GEMINI_API_KEY' },
       { status: 503 }

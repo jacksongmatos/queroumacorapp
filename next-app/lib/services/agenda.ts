@@ -18,6 +18,7 @@
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Job, JobInput, JobStatus } from '@/lib/types';
+import { ymdDeCampos } from '@/lib/utils';
 
 // Colunas que a agenda renderiza. Mesmo subset do vanilla (modules/agenda.js
 // linha 27) — sem `notes`/`material_cost`/`revenue` aqui porque a lista do
@@ -30,16 +31,9 @@ const JOB_COLS =
 // do vanilla — em prática um mês raramente passa de 60 jobs.
 const MONTH_LIMIT = 500;
 
-/**
- * Formata Date → "YYYY-MM-DD" no fuso local (sem shift UTC). Usado pra
- * montar o range [primeiro dia, primeiro dia do próximo mês) que a query
- * `gte/lt` consome. Mesma lógica de agYmd em utils.ts.
- */
-function localYmd(d: Date): string {
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 10);
-}
+// O range do mês é montado com `new Date(year, month-1, 1)`: ano e mês já
+// SÃO números de calendário, então formatar pelos campos é exato. Antes isto
+// passava por `getTimezoneOffset()` (fuso do aparelho) — ver `ymdDeCampos`.
 
 /**
  * Busca os jobs do pintor em um mês específico (year/month, 1-12).
@@ -66,8 +60,8 @@ export async function fetchJobsByMonth(
   // mês (Date overflow handles dezembro → janeiro do ano seguinte).
   const start = new Date(year, month - 1, 1);
   const end = new Date(year, month, 1);
-  const startKey = localYmd(start);
-  const endKey = localYmd(end);
+  const startKey = ymdDeCampos(start);
+  const endKey = ymdDeCampos(end);
 
   const sb = getSupabase();
   const { data, error } = await sb

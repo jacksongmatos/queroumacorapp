@@ -295,6 +295,24 @@ describe('cart helpers (puros)', () => {
     expect(changeItemQty(items, 'a', 2)[0].qty).toBe(3);
   });
 
+  // A4 (01/09/2026): a soma acumulava float — 89,90 × 3 dava
+  // 269.70000000000005, e esse número ia PRO PEDIDO. A tela arredondava na
+  // exibição, então o resíduo só aparecia no banco.
+  it('cartTotal não deixa resíduo de ponto flutuante', () => {
+    const items = [
+      { id: 'a', name: 'Tinta', price: 89.9, qty: 3 },
+    ] as unknown as Parameters<typeof cartTotal>[0];
+    expect(cartTotal(items)).toBe(269.7);
+  });
+
+  it('cartTotal soma centavos exatos entre itens diferentes', () => {
+    const items = [
+      { id: 'a', name: 'A', price: 19.99, qty: 3 },
+      { id: 'b', name: 'B', price: 5.5, qty: 2 },
+    ] as unknown as Parameters<typeof cartTotal>[0];
+    expect(cartTotal(items)).toBe(70.97);
+  });
+
   it('cartTotal soma price*qty corretamente', () => {
     const items: CartItem[] = [
       { id: 'a', name: 'A', price: 10, qty: 2 },

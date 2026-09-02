@@ -27,12 +27,58 @@ export function errMsg(e: unknown): string {
 
 // Helpers de formatação de R$ (pt-BR): aceita "500", "500,00", "1.500,00",
 // "1500.50" no input e devolve Number normalizado.
+//
+// BUG CORRIGIDO (2026-09-01): a versão anterior apagava TODOS os pontos como
+// separador de milhar antes de trocar a vírgula. Quem digitava o decimal com
+// PONTO tinha o valor multiplicado por 100 — "1500.50" virava 150050 e
+// "0.99" virava 99. Não era caso de canto: o campo de preço usa
+// `inputMode="decimal"`, e o teclado do Android oferece justamente o ponto.
+// Atingia preço de arte à venda, Financeiro, Agenda e o `brlSchema`. E o
+// contrato documentado aqui e em `schemas.ts` já dizia aceitar "1500.50".
+//
+// A ambiguidade real é "1.500": em pt-BR é mil e quinhentos; em en-US é um e
+// meio. As regras abaixo resolvem isso assumindo pt-BR, que é o público:
+//
+//   1. Número entra direto — `parseBRL(1500.5)` também estava quebrado
+//      (virava 15005), porque tudo passava por String() antes.
+//   2. Tem vírgula? A vírgula é o decimal (convenção pt-BR) e todo ponto é
+//      milhar. Cobre "1.500,50" e "1500,50".
+//   3. Só pontos, mais de um? São milhar: "1.234.567".
+//   4. Só um ponto? Decimal quando sobram 1 ou 2 casas ("1500.50", "12.5")
+//      ou quando a parte inteira é zero ("0.999"); com 3 casas é milhar
+//      ("1.500" = 1500), que é o uso pt-BR.
 export function parseBRL(val: unknown): number {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
   const raw = String(val == null ? '' : val).trim();
   if (!raw) return 0;
-  // Normaliza: tira pontos de milhar e usa ponto como decimal.
-  const n = Number(raw.replace(/\./g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+
+  // Fora dígitos, separadores e sinal, nada importa ("R$ 1.500,50").
+  const limpo = raw.replace(/[^\d.,-]/g, '');
+  if (!limpo) return 0;
+  const negativo = limpo.startsWith('-');
+  const corpo = limpo.replace(/-/g, '');
+
+  const temVirgula = corpo.includes(',');
+  const pontos = (corpo.match(/\./g) || []).length;
+
+  let normalizado: string;
+  if (temVirgula) {
+    // Regra 2: vírgula manda, ponto é milhar.
+    normalizado = corpo.replace(/\./g, '').replace(/,/g, '.');
+  } else if (pontos > 1) {
+    // Regra 3.
+    normalizado = corpo.replace(/\./g, '');
+  } else if (pontos === 1) {
+    const [inteiro, decimais] = corpo.split('.');
+    const ehDecimal = decimais.length <= 2 || /^0*$/.test(inteiro);
+    normalizado = ehDecimal ? corpo : corpo.replace('.', '');
+  } else {
+    normalizado = corpo;
+  }
+
+  const n = Number(normalizado);
+  if (!Number.isFinite(n)) return 0;
+  return negativo ? -n : n;
 }
 
 // Refactor do vanilla: a versão antiga era `fmtBRL(el: HTMLInputElement)` que
@@ -164,10 +210,70 @@ export function starStr(r: number | string | null | undefined): string {
   return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
 }
 
-// Data em "YYYY-MM-DD" no fuso local. Usado em queries de agendamento e
-// agenda do pintor pra evitar shift de fuso (ISO toISOString puro vira UTC).
+/** Fuso oficial do app — ver a regra em CLAUDE.md. */
+export const TZ_APP = 'America/Sao_Paulo';
+
+/**
+ * "Que dia é hoje?" em BRASÍLIA, no formato "YYYY-MM-DD".
+ *
+ * A2 (01/09/2026) — antes isto usava `getTimezoneOffset()`, ou seja, o fuso
+ * do APARELHO. O patch de fuso do `app/layout.tsx` só cobre
+ * `toLocale{Date,Time,}String`; `getTimezoneOffset` passa direto. Resultado:
+ * o app exibia tudo em Brasília mas decidia QUAL É O DIA pelo relógio do
+ * celular. Não é caso de viajante: o Brasil tem mais de um fuso — em Manaus
+ * (UTC−4), entre meia-noite e 1h, o aparelho diz um dia e Brasília já está
+ * no seguinte. Isso deslocava o destaque de "hoje" na agenda, o recorte do
+ * dia no Financeiro e a data de follow-up do pipeline.
+ *
+ * Usa `Intl` com `timeZone` explícito — `formatToParts` em vez de confiar no
+ * formato de algum locale, e sem depender do patch global (que mexe só em
+ * `Date.prototype`, não em `Intl.DateTimeFormat`).
+ */
+export function ymdBrt(d: Date = new Date()): string {
+  try {
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ_APP,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const pega = (t: string) => partes.find((p) => p.type === t)?.value ?? '';
+    const ymd = `${pega('year')}-${pega('month')}-${pega('day')}`;
+    // Sem esta conferência, um `Intl` sem dados de fuso devolveria partes
+    // vazias e a função entregaria "--" — string que a coluna `date` do
+    // Postgres recusa. O Financeiro grava a data DIRETO daqui, então uma
+    // data malformada viraria erro na cara de quem só lançou uma despesa.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  } catch {
+    // Runtime sem ICU completo (WebView muito antiga): cai no fallback.
+  }
+  // Último recurso: o fuso do próprio aparelho. Pode errar o dia na virada
+  // pra quem está fora de Brasília — mas é uma data VÁLIDA, e errar por
+  // algumas horas é infinitamente melhor que gravar lixo.
+  return ymdDeCampos(d);
+}
+
+/**
+ * "YYYY-MM-DD" a partir dos CAMPOS de calendário do próprio Date.
+ *
+ * Para um Date construído como `new Date(ano, mes-1, dia)` — limites de mês
+ * do grid da agenda, por exemplo — o ano/mês/dia já SÃO a resposta: passar
+ * por fuso nenhum é o certo, porque não há instante a converter. Usar
+ * `ymdBrt` aqui é que introduziria deslocamento.
+ */
+export function ymdDeCampos(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * @deprecated Use `ymdBrt()` (hoje em Brasília) ou `ymdDeCampos()` (formatar
+ * um Date montado a partir de ano/mês/dia). Mantido porque o nome aparece em
+ * código antigo; hoje é só um apelido de `ymdBrt`.
+ */
 export function agYmd(d: Date): string {
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  return ymdBrt(d);
 }
 
 // Detecta tipo de arquivo (image vs video). Útil pra preview/feedback
@@ -177,7 +283,7 @@ export function getMediaType(file: File | null | undefined): 'video' | 'image' {
   if (!file) return 'image';
   if (file.type && file.type.startsWith('video/')) return 'video';
   const ext = file.name?.split('.').pop()?.toLowerCase() ?? '';
-  if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) return 'video';
+  if (['mp4', 'webm', 'mov', 'avi', 'm4v', '3gp'].includes(ext)) return 'video';
   return 'image';
 }
 

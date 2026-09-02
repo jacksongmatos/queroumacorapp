@@ -1,3 +1,4 @@
+import { getRuntimeEnv } from '../env';
 // lib/api/_services/ig-art-diag.ts — port de
 // `functions/api/_services/ig-art-diag.js`. Diagnóstico de modelos disponíveis.
 
@@ -22,8 +23,8 @@ export interface DiagResult {
 export async function diagnoseIgArt(args: {
   testOpenAI?: boolean;
 }): Promise<DiagResult> {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const geminiKey = getRuntimeEnv('GEMINI_API_KEY');
+  const openaiKey = getRuntimeEnv('OPENAI_API_KEY');
   const result: DiagResult = {
     gemini: { configured: !!geminiKey },
     openai: { configured: !!openaiKey },

@@ -23,6 +23,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Config } from '@/lib/config';
 import { isVideoUrl } from '@/lib/utils';
 import { useStories } from '@/lib/hooks/useStories';
@@ -54,6 +55,83 @@ export function StoryViewer({
   const [paused, setPaused] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Portal no <body>. O z-[400] sozinho JÁ deveria bastar (a BottomNav é
+  // z-[300]), mas o viewer nasce dentro do <main> — basta um ancestral
+  // ganhar `transform`/`filter`/`will-change` um dia pra ele virar o
+  // containing block e o `fixed inset-0` parar de cobrir a tela. No body
+  // não há o que dar errado, e o story é justamente a tela que precisa ser
+  // imersiva.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
+
+  // Story COM SOM por padrão (01/09/2026). Antes o `<video muted>` era fixo:
+  // `muted` é o que a WebView exige pra tocar sem gesto, então o story
+  // rodava sempre mudo — vídeo de obra sem o áudio que a pessoa gravou.
+  // Aqui existe gesto (foi um toque que abriu o viewer), então dá pra
+  // tentar com som e só cair pra mudo se o navegador recusar.
+  const [mudo, setMudo] = useState(false);
+  // `onClose` costuma ser uma função nova a cada render do pai; guardar numa
+  // ref evita que o efeito do botão VOLTAR (abaixo) rearme e empilhe uma
+  // entrada de histórico por render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // BOTÃO VOLTAR DO ANDROID fecha o story, como no Instagram (pedido do
+  // usuário, 01/09/2026). Sem isto o "voltar" saía da TELA inteira — a
+  // pessoa perdia o feed pra fechar um story.
+  //
+  // A mecânica: ao abrir, empurramos uma entrada no histórico; o "voltar"
+  // consome ESSA entrada e dispara `popstate`, que fecha o viewer sem
+  // navegar. Se o story for fechado pelo X ou pelo arrasto, a entrada
+  // fantasma é desfeita na limpeza — senão o próximo "voltar" não sairia da
+  // tela, só apagaria a entrada que sobrou.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    let fechouPeloVoltar = false;
+    window.history.pushState({ qucStory: true }, '');
+    const aoVoltar = () => {
+      fechouPeloVoltar = true;
+      onCloseRef.current();
+    };
+    window.addEventListener('popstate', aoVoltar);
+    return () => {
+      window.removeEventListener('popstate', aoVoltar);
+      if (!fechouPeloVoltar) window.history.back();
+    };
+  }, []);
+
+  // Autoplay no Android: a WebView bloqueia `autoPlay` até haver gesto
+  // (`setMediaPlaybackRequiresUserGesture` é true por padrão no wrapper) — e
+  // o vídeo bloqueado exibe o PLAY gigante do player nativo, que foi o que o
+  // usuário fotografou. Chamar `play()` na hora em que o story entra em cena
+  // aproveita o gesto que abriu o viewer; se ainda assim falhar, o `poster`
+  // transparente abaixo evita a arte feia.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = mudo;
+    const p = v.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        // Recusou com som: a política de autoplay do aparelho é mais
+        // rígida. Em vez de deixar o story parado (com o PLAY gigante do
+        // player nativo), toca mudo e acende o botão pra pessoa ligar o som
+        // — um toque dela é gesto suficiente pro navegador liberar.
+        if (mudo) return;
+        setMudo(true);
+        const v2 = videoRef.current;
+        if (!v2) return;
+        v2.muted = true;
+        const p2 = v2.play();
+        if (p2 && typeof p2.catch === 'function') p2.catch(() => {});
+      });
+    }
+    // `montado` nas deps porque o portal faz o 1º render devolver null: sem
+    // ele o efeito rodava com `videoRef.current` ainda nulo e nunca mais —
+    // o vídeo voltava a depender do `autoPlay`, que é o que a WebView
+    // bloqueia. Foi o teste que pegou.
+  }, [storyIdx, groupIdx, montado, mudo]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTsRef = useRef<number>(Date.now());
 
@@ -191,9 +269,15 @@ export function StoryViewer({
     ? '@' + profile.tag
     : profile.name || 'Usuário';
 
-  return (
+  if (!montado) return null;
+
+  const conteudo = (
     <div
-      className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+      // z-[400]: a BottomNav é z-[300] e a TopNav z-50 — com z-50 o viewer
+      // ficava POR BAIXO das duas, escondendo justamente as barras de
+      // progresso (top-2) e o botão de fechar (top-6). Era por isso que o
+      // story parecia não ter como fechar.
+      className="fixed inset-0 z-[400] bg-black flex items-center justify-center"
       role="dialog"
       aria-modal="true"
       aria-label={`Stories de ${displayName}`}
@@ -201,7 +285,10 @@ export function StoryViewer({
       onTouchEnd={onTouchEnd}
     >
       {/* Progress bars: uma por story do grupo atual. */}
-      <div className="absolute top-2 left-2 right-2 flex gap-1 z-10">
+      <div
+        className="absolute left-2 right-2 flex gap-1 z-10"
+        style={{ top: 'calc(8px + env(safe-area-inset-top))' }}
+      >
         {currentGroup.stories.map((_, i) => {
           const fill =
             i < storyIdx ? 100 : i === storyIdx ? progressPct : 0;
@@ -220,7 +307,10 @@ export function StoryViewer({
       </div>
 
       {/* Header: avatar + nome + close. */}
-      <div className="absolute top-6 left-2 right-2 flex items-center gap-2 z-10 text-white">
+      <div
+        className="absolute left-2 right-2 flex items-center gap-2 z-10 text-white"
+        style={{ top: 'calc(18px + env(safe-area-inset-top))' }}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={
@@ -231,11 +321,44 @@ export function StoryViewer({
           className="w-8 h-8 rounded-full object-cover"
         />
         <span className="text-sm font-semibold">{displayName}</span>
+        {/* Som: só aparece em vídeo. O story nasce COM áudio; este botão
+            existe pra silenciar (ou pra religar quando a política de
+            autoplay do aparelho obrigou o mudo). */}
+        {isVideo ? (
+          <button
+            type="button"
+            onClick={() => setMudo((m) => !m)}
+            className="ml-auto flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white"
+            style={{
+              width: 40,
+              height: 40,
+              fontSize: 18,
+              lineHeight: 1,
+              background: 'rgba(0,0,0,.45)',
+              flexShrink: 0,
+            }}
+            aria-label={mudo ? 'Ligar o som' : 'Desligar o som'}
+            data-testid="story-som"
+          >
+            {mudo ? '🔇' : '🔊'}
+          </button>
+        ) : null}
+        {/* Alvo de 40px com fundo próprio: o × antes era texto solto sobre
+            a foto — sumia em story claro e era difícil de acertar com o
+            dedo. */}
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto text-2xl leading-none px-2 focus:outline-none focus:ring-2 focus:ring-white rounded"
-          aria-label="Fechar viewer"
+          className={`${isVideo ? 'ml-1' : 'ml-auto'} flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white`}
+          style={{
+            width: 40,
+            height: 40,
+            fontSize: 26,
+            lineHeight: 1,
+            background: 'rgba(0,0,0,.45)',
+            flexShrink: 0,
+          }}
+          aria-label="Fechar stories"
         >
           ×
         </button>
@@ -250,8 +373,13 @@ export function StoryViewer({
             src={currentStory.media_url ?? undefined}
             className="max-w-full max-h-full"
             autoPlay
-            muted
             playsInline
+            // 1×1 transparente: sem `poster`, o player nativo da WebView
+            // desenha o PLAY gigante enquanto o primeiro quadro não chega.
+            // Com um poster vazio, o intervalo fica preto e o vídeo entra
+            // sem aquele salto visual.
+            poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+            preload="auto"
             onTimeUpdate={onVideoTimeUpdate}
             onEnded={goNext}
           />
@@ -309,4 +437,6 @@ export function StoryViewer({
       ) : null}
     </div>
   );
+
+  return createPortal(conteudo, document.body);
 }

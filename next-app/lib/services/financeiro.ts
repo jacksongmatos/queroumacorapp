@@ -20,6 +20,7 @@
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Job } from '@/lib/types';
+import { ymdBrt } from '@/lib/utils';
 
 // Colunas que o dashboard renderiza. Mesmo subset do vanilla
 // (modules/financeiro.js linha 24) — sem `notes`/`address` que o financeiro
@@ -157,13 +158,9 @@ export async function createEntry(
     });
   }
 
-  // YYYY-MM-DD no fuso local (mesma lógica do agYmd em utils.ts) — usar
-  // toISOString puro shifta pra UTC e pode gravar o dia errado pra usuários
-  // em fusos negativos no fim do dia.
-  const today = new Date();
-  const ymd = new Date(today.getTime() - today.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 10);
+  // Hoje em BRASÍLIA — o app exibe tudo nesse fuso, então o lançamento tem
+  // que cair no mesmo dia que a pessoa vê na tela.
+  const ymd = ymdBrt();
 
   const row = {
     painter_id: painterId,

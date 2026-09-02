@@ -16,6 +16,7 @@
 
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
+import { normalizarArquivo } from '@/lib/utils/mediaType';
 
 // ─── Tipos inline ──────────────────────────────────────────────────────────
 
@@ -260,6 +261,9 @@ export async function uploadStory(
 ): Promise<string> {
   if (!userId) throw new ValidationError('userId obrigatório');
   if (!file) throw new ValidationError('Arquivo obrigatório');
+  // type vazio (seletor do app) subiria como octet-stream e o
+  // allowed_mime_types do bucket recusaria o story.
+  file = await normalizarArquivo(file);
   if (mediaType !== 'image' && mediaType !== 'video') {
     throw new ValidationError("mediaType deve ser 'image' ou 'video'");
   }
