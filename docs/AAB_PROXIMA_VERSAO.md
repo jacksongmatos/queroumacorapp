@@ -110,6 +110,23 @@ Telemetria: `/admin/errors` recebe `picker-restart` (app morreu com a
 galeria aberta) e `picker-fail` (seletor não abriu) — dá pra ver em quais
 aparelhos acontece, em vez de descobrir por WhatsApp.
 
+### 1.1d Seleção MÚLTIPLA no seletor de arquivos (novo em 02/09)
+
+O composer pede seleção múltipla (`<input multiple>` — até 5 fotos) e no
+Chrome funciona (segurar o dedo numa foto liga o modo de marcação). No app
+o "Files Chooser" do wrapper só deixa escolher UMA por vez: o
+`onShowFileChooser` recebe `fileChooserParams.getMode() ==
+MODE_OPEN_MULTIPLE` e precisa repassar `EXTRA_ALLOW_MULTIPLE` no Intent do
+seletor — hoje ele ignora e abre em modo simples.
+
+**O que pedir ao WebIntoApp:** honrar o modo múltiplo do
+`onShowFileChooser` (mesma família do chamado 1.1/1.1b — eles já mexeram
+nessa parte do wrapper).
+
+**Enquanto isso, funciona por acumulação:** cada volta na galeria SOMA
+com as fotos já escolhidas (até 5) — o `validateFiles` do Composer faz
+merge, não substituição. Uma por vez, mas chega lá.
+
 ### 1.1c Permissões de mídia — conferir o que o painel gerou
 
 Na tela de permissões do Android (01/09, aparelho do usuário) aparecem
