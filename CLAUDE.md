@@ -47,6 +47,14 @@
   (2) se o painel não oferecer, uma alternativa pelo lado web — e, quando
   não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
   build nativo" como se fosse um plano.**
+  - **Corolário (2026-09-02, pedido do usuário): mudança do lado do
+    WRAPPER só chega no aparelho com um AAB NOVO gerado no WebIntoApp e
+    publicado na loja.** Deploy web (merge no `main`) atualiza na hora o
+    que é site — mas splash do wrapper, opções do painel (file chooser,
+    seleção múltipla, pull-to-refresh, user agent, share nativo),
+    permissões e targetSdk NÃO mudam sem regerar o AAB. Ao entregar
+    correção dessa família, dizer explicitamente: "só vale depois do
+    próximo AAB" (a lista viva do que entra é `docs/AAB_PROXIMA_VERSAO.md`).
 
 - **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
   no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
