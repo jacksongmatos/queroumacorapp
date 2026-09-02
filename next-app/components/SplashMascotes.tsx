@@ -5,7 +5,7 @@
 // as duas telas que o app instalado mostra logo depois do splash do wrapper.
 //
 // Decisões:
-//   - A arte é UMA imagem (/mascotes-calicolors.webp, 640w ≈ 40KB) — os 4
+//   - A arte é UMA imagem (/mascotes-calicolors.webp, 968w ≈ 68KB) — os 4
 //     mascotes (Alice, Seu Zé, Senna, Fê) com o logo. Animar a imagem
 //     inteira (flutuação suave) custa só CSS; nada de rede além do arquivo,
 //     que o browser cacheia depois do primeiro boot.
@@ -21,18 +21,26 @@ const CORES_TINTA = ['#2f6fd8', '#3fae4e', '#f07c22'];
 
 export function SplashMascotes({ texto = 'Carregando…' }: { texto?: string }) {
   return (
-    <div className="splash-mascotes min-h-screen flex flex-col items-center justify-center gap-5 p-8 text-center">
+    // Full-bleed: a arte ocupa a largura inteira e o fundo da tela é um
+    // gradiente na MESMA cor do fundo da arte (amostrado dos cantos:
+    // #bbb09e em cima → #cbc2b1 embaixo) — a tela inteira vira o splash,
+    // sem "foto pequena flutuando num fundo de outra cor". `dvh` porque é
+    // altura de tela cheia (regra do projeto).
+    <div
+      className="splash-mascotes min-h-screen flex flex-col items-center justify-center gap-5 text-center"
+      style={{
+        minHeight: '100dvh',
+        background: 'linear-gradient(180deg, #bbb09e 0%, #c3b9a8 55%, #cbc2b1 100%)',
+      }}
+    >
       <img
         src="/mascotes-calicolors.webp"
         alt=""
-        width={640}
-        height={762}
+        width={968}
+        height={1153}
         decoding="async"
-        className="w-[62vw] max-w-[250px] h-auto rounded-2xl"
-        style={{
-          animation: 'splashFloat 3.2s ease-in-out infinite',
-          boxShadow: '0 10px 30px rgba(26,26,46,.10)',
-        }}
+        className="w-full max-w-[560px] h-auto"
+        style={{ animation: 'splashFloat 3.2s ease-in-out infinite' }}
       />
       <div className="flex items-center gap-2" aria-hidden="true">
         {CORES_TINTA.map((cor, i) => (
@@ -46,7 +54,7 @@ export function SplashMascotes({ texto = 'Carregando…' }: { texto?: string }) 
           />
         ))}
       </div>
-      <div className="text-[color:var(--color-muted)] text-sm">{texto}</div>
+      <div className="text-sm font-medium" style={{ color: '#57503f' }}>{texto}</div>
       <style>{`
         @keyframes splashFloat {
           0%, 100% { transform: translateY(0); }
