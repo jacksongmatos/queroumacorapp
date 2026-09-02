@@ -699,7 +699,16 @@ async function anexarFotosExtras(items: FeedPost[]): Promise<void> {
       .select('id, media_urls')
       .in('id', ids)
       .not('media_urls', 'is', null);
-    if (error || !data) return;
+    if (error || !data) {
+      // Silêncio aqui já escondeu bug (post de 2 fotos rendia sem carrossel
+      // e ninguém sabia por quê — 2026-09-02). O feed segue de pé, mas a
+      // causa fica nomeada no /admin/errors.
+      if (error) {
+        const { reportFailure } = await import('@/lib/utils/reportFailure');
+        reportFailure('feed-extras-fail', error, { ctx: 'anexarFotosExtras' });
+      }
+      return;
+    }
     const porId = new Map<string, string[]>();
     for (const linha of data as Array<{ id: string; media_urls: string[] | null }>) {
       if (Array.isArray(linha.media_urls) && linha.media_urls.length > 1) {

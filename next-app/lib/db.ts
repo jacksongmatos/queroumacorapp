@@ -17,8 +17,13 @@ const PUBLIC_COLS = 'id, name, tag, avatar_url, role, user_type';
 
 // Espelha POST_COLS de app.js e Config.feed.POST_COLS. Idem: alterar aqui
 // implica alterar lá pra evitar drift.
+// `media_urls` (Wave 57, carrossel) entrou em 2026-09-02: o caminho legacy
+// do feed montava o post SEM as fotos extras e o carrossel sumia sempre que
+// o fetch caía no fallback — a coluna JÁ EXISTE em produção (confirmado por
+// consulta), então selecionar direto é seguro e cobre feed legacy + grids
+// de perfil de uma vez. (Só o vanilla deprecado segue com a lista antiga.)
 const POST_COLS =
-  'id, user_id, caption, media_url, media_type, status, for_sale, price, art_type, created_at';
+  'id, user_id, caption, media_url, media_urls, media_type, status, for_sale, price, art_type, created_at';
 
 // _sb() devolve null quando a init estoura (env vars faltando, runtime sem
 // fetch, etc.). Cada caller cai no caminho degradado correspondente.

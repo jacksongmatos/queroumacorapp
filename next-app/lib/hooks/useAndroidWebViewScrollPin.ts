@@ -108,15 +108,27 @@ export function useAndroidWebViewScrollPin(): void {
     };
 
     // ── camada 3: guarda de dreno ────────────────────────────────────────
+    let startX = 0;
     let startY = 0;
     let tracking = false;
     const onTouchStart = (e: TouchEvent) => {
       tracking = e.touches.length === 1; // pinch não é rolagem
-      if (tracking) startY = e.touches[0].clientY;
+      if (tracking) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+      }
     };
     const onTouchMove = (e: TouchEvent) => {
       if (!tracking || e.touches.length !== 1) return;
-      if (e.touches[0].clientY - startY <= 0) return; // só o gesto descendente
+      const dy = e.touches[0].clientY - startY;
+      if (dy <= 0) return; // só o gesto descendente
+      // Gesto predominantemente HORIZONTAL não é pull-to-refresh — é o
+      // carrossel de fotos (scroll-snap) ou qualquer scroller lateral.
+      // Todo swipe de dedão deriva alguns px pra baixo; cancelar aqui
+      // matava o arrasto do carrossel no app instalado (2026-09-02). O
+      // próprio SwipeRefreshLayout também ignora gesto horizontal, então
+      // deixar passar não re-arma o reload.
+      if (Math.abs(e.touches[0].clientX - startX) > dy) return;
       // Documento REALMENTE rolado (páginas fora do shell, ex.: /admin):
       // arrastar pra voltar ao topo é legítimo — o pin re-prende no fim.
       if (window.scrollY > PIN_PX) return;

@@ -74,10 +74,10 @@ function setScrollY(y: number) {
   Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
 }
 
-function touch(type: string, clientY: number, target?: Element): Event {
+function touch(type: string, clientY: number, target?: Element, clientX = 0): Event {
   const e = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(e, 'touches', {
-    value: type === 'touchend' ? [] : [{ clientY }],
+    value: type === 'touchend' ? [] : [{ clientX, clientY }],
   });
   if (target) Object.defineProperty(e, 'target', { value: target });
   return e;
@@ -210,6 +210,19 @@ describe('useAndroidWebViewScrollPin', () => {
       setScrollY(2);
       expect(swipeDoc(100, 180, inner)).toBe(false);
       inner.remove();
+    });
+
+    it('deixa passar o gesto HORIZONTAL (carrossel de fotos), mesmo com deriva pra baixo', () => {
+      // Todo swipe de dedão desce alguns px enquanto anda pro lado. A
+      // guarda cancelava esse gesto e o carrossel (scroll-snap) não saía
+      // do lugar no app instalado (2026-09-02). |dx| > dy = gesto lateral.
+      setUserAgent(UA_WEBVIEW);
+      renderHook(() => useAndroidWebViewScrollPin());
+      setScrollY(2);
+      document.body.dispatchEvent(touch('touchstart', 100, document.body, 200));
+      const move = touch('touchmove', 130, document.body, 80); // dx=120 > dy=30
+      document.body.dispatchEvent(move);
+      expect(move.defaultPrevented).toBe(false);
     });
 
     it('deixa passar o arrasto pra cima (rolar conteúdo pra baixo)', () => {
