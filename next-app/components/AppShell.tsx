@@ -21,6 +21,7 @@ import { RealtimeBindings } from './RealtimeBindings';
 import { AppTour } from './AppTour';
 import { PickerRecovery } from './PickerRecovery';
 import { BackGuard } from './BackGuard';
+import { SplashMascotes } from './SplashMascotes';
 import type { ReactNode } from 'react';
 
 interface AppShellProps {
@@ -119,7 +120,13 @@ export function AppShell({
     if (!loading && !user && storedSession) {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center gap-4">
-          <div className="text-4xl" aria-hidden="true">📶</div>
+          <img
+            src="/mascotes-calicolors.webp"
+            alt=""
+            width={640}
+            height={762}
+            className="w-[44vw] max-w-[170px] h-auto rounded-2xl"
+          />
           <div>
             <div className="font-bold text-[color:var(--color-ink)]">Reconectando…</div>
             <p className="text-sm text-[color:var(--color-muted)] mt-1 max-w-[260px]">
@@ -151,11 +158,10 @@ export function AppShell({
         </div>
       );
     }
-    return (
-      <div className="min-h-screen flex items-center justify-center p-8">
-        <div className="text-[color:var(--color-muted)] text-sm">Carregando…</div>
-      </div>
-    );
+    // Splash com os mascotes — mascara a espera do boot com a marca em vez
+    // do "Carregando…" seco (a outra tela de loading, "Made By QueroUmaCor",
+    // é do wrapper e se troca no painel do WebIntoApp).
+    return <SplashMascotes />;
   }
 
   return (
