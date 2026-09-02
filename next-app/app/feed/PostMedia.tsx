@@ -37,6 +37,14 @@ export interface PostMediaProps {
 export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onToggleMute }: PostMediaProps) {
   const isVideo = !!url && (isVideoUrl(url) || mediaType === 'video');
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // tocando: dirige o overlay de play. No WebView do wrapper (WebIntoApp) o
+  // play() disparado pelo IntersectionObserver NÃO é gesto do usuário e é
+  // bloqueado — o vídeo ficava parado mostrando o play cinza gigante do
+  // sistema (visto em produção, 2026-09-02). O story nunca sofreu disso
+  // porque abre com um toque. Aqui: um seek mínimo pinta o primeiro quadro
+  // (mata o placeholder do sistema) e o botão ▶ nosso dá o gesto que
+  // destrava o play.
+  const [tocando, setTocando] = useState(false);
   // imgError: idem Avatar — fallback gracioso se a img der erro 403/404 em
   // vez de mostrar o ícone de imagem quebrada do browser.
   const [imgError, setImgError] = useState(false);
@@ -106,6 +114,18 @@ export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onTo
           loop
           playsInline
           preload="metadata"
+          onLoadedMetadata={(e) => {
+            // WebView Android não pinta o primeiro quadro de um vídeo parado
+            // — fica o play cinza do sistema. Um seek mínimo força a pintura
+            // (mesmo truque do extractVideoThumbnail). Se o autoplay rodar,
+            // é invisível; se for bloqueado, o post mostra o quadro real.
+            const v = e.currentTarget;
+            try {
+              if (v.currentTime === 0) v.currentTime = 0.001;
+            } catch { /* seek indisponível — segue sem poster */ }
+          }}
+          onPlay={() => setTocando(true)}
+          onPause={() => setTocando(false)}
           onClick={(e) => {
             const v = e.currentTarget;
             if (v.paused) {
@@ -117,6 +137,27 @@ export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onTo
           }}
           className="w-full h-full object-cover block cursor-pointer"
         />
+        {!tocando && (
+          // Overlay ▶ enquanto o vídeo está parado: no wrapper o autoplay é
+          // bloqueado, e este toque É um gesto — o play sai na hora. Nos
+          // browsers em que o autoplay funciona, o onPlay esconde o botão.
+          <button
+            type="button"
+            aria-label="Tocar vídeo"
+            onClick={(e) => {
+              e.stopPropagation();
+              const v = videoRef.current;
+              if (!v) return;
+              const p = v.play();
+              if (p) p.catch(() => { /* sem permissão nem com gesto — raro */ });
+            }}
+            className="absolute inset-0 m-auto w-16 h-16 rounded-full border-0 bg-black/45 text-white flex items-center justify-center cursor-pointer"
+          >
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="#fff" aria-hidden="true">
+              <polygon points="8 5 19 12 8 19 8 5" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           aria-label={muted ? 'Ativar som' : 'Desativar som'}
