@@ -11,11 +11,14 @@
     que mudar juntos. `app/robots.ts` criado (o robots.txt da raiz nunca
     deployava). `assetlinks.json` copiado pra `next-app/public/.well-known/`
     (também não deployava). **Validar com `curl -I` em produção pós-deploy.**
-  - **C3/A-D1 — SQL PENDENTE de rodar**:
+  - **C3/A-D1 ✓ — SQL JÁ EXECUTADO no Supabase (2026-09-03)**:
     `/migrations/2026-09-03-fix-quotes-policy-and-is-portal-admin.sql`
-    (DROP da policy furada "View quotes active" + recria `is_portal_admin()`
-    com padrão to_jsonb). Lado código do A-D1 feito: `auth-server.ts` não
-    seleciona mais `is_admin` (coluna inexistente → 400 → admin sempre 404).
+    (DROP da policy furada "View quotes active" + `is_portal_admin()`
+    recriada com padrão to_jsonb). Lado código do A-D1 feito:
+    `auth-server.ts` não seleciona mais `is_admin`. Não pedir pra rodar de
+    novo. (Sanidade rápida se admin sumir do /admin/*:
+    `SELECT prosrc FROM pg_proc WHERE proname='is_portal_admin';` — o corpo
+    deve conter `to_jsonb`.)
   - **C4 ✓ (parcial)** applicationId Android UNIFICADO em
     `br.com.queroumacor.app` (twa-manifest, assetlinks, docs, product ID
     virou `br.com.queroumacor.app.pro.monthly`). Falta só o SHA-256 real do
@@ -28,12 +31,16 @@
     next sem subir next-on-pages junto; caret ali quebra o npm ci). As ~26
     vulns restantes do audit são upstream (advisory do next cobre todas as
     versões; postcss/sharp vendored dele; resto só fecha com Sentry 10 major).
-  - **SQL Wave 39 — PENDENTE**: `/migrations/2026-09-03-push-device-tokens.sql`
-    (tabela `push_device_tokens`, RLS user-owned, canal FCM/APNs separado do
-    web push). Client já grava via `lib/services/pushTokens.ts` +
-    `<NativePushOptIn>` no ProfileFooter (só aparece na casca com plugin);
-    o ENVIO server-side via FCM ainda não existe (precisa de projeto
-    Firebase + service account — etapa futura).
+  - **SQL Wave 39 — JÁ EXECUTADO no Supabase (2026-09-03)**:
+    `/migrations/2026-09-03-push-device-tokens.sql` (tabela
+    `push_device_tokens`, RLS user-owned, canal FCM/APNs separado do web
+    push). Rodado em 3 blocos de linha única — o editor do Supabase mutila
+    quebras de linha em paste grande (mesma pegadinha 42601 da Wave 26);
+    pra SQLs futuros, preferir statements em linha única no chat. Client
+    grava via `lib/services/pushTokens.ts` + `<NativePushOptIn>` no
+    ProfileFooter (só aparece na casca com plugin); o ENVIO server-side via
+    FCM ainda não existe (precisa de projeto Firebase + service account —
+    etapa futura). Não pedir pra rodar de novo.
   - Câmera nativa ligada no fluxo de publicar: botão "📸 Tirar foto" no
     `MediaUploader` quando `native.camera.isAvailable()`.
 
