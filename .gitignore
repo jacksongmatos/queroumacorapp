@@ -20,10 +20,18 @@ ios/App/Podfile.lock
 ios/capacitor-cordova-ios-plugins/
 ios/App/public/
 
-# Android / Bubblewrap (TWA) — keystore NUNCA entra no repo
+# Android — keystore e segredos NUNCA entram no repo
 android.keystore
 android.keystore.passwords
 keystore.properties
 app/build/
 .gradle/
 local.properties
+# Capacitor Android: keystore de assinatura e senhas — NUNCA commitar (usar
+# secure file / secret no CI: Codemagic ou GitHub Actions)
+*.jks
+*.keystore
+key.properties
+android/key.properties
+# iOS: chave de assinatura APNs
+*.p8

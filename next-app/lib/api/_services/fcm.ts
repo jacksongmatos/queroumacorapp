@@ -210,6 +210,21 @@ export interface FcmSendResult {
 }
 
 /**
+ * Diagnóstico: valida que a service account consegue obter um access token do
+ * FCM (assina o JWT RS256 + troca no OAuth do Google), SEM enviar push nenhum.
+ * Serve pra testar a config (envs FCM corretas, private key válida, API
+ * habilitada) ANTES de ter qualquer device token registrado — que é quando o
+ * caminho de envio nem chega a autenticar. Não expõe o token; só ok/erro.
+ */
+export async function verifyFcmCredentials(
+  sa: FcmServiceAccount,
+): Promise<{ ok: boolean; reason?: string }> {
+  __resetFcmTokenCacheForTests(); // força uma troca real, não o cache quente
+  const token = await getAccessToken(sa);
+  return token ? { ok: true } : { ok: false, reason: 'token_exchange_failed' };
+}
+
+/**
  * Envia `payload` pra uma lista de tokens de device. Best-effort: token morto
  * entra em `expiredIds` pro caller limpar; erro de rede não derruba os outros.
  * Retorna contadores. Se o access token não sair, devolve tudo zerado.

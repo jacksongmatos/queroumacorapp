@@ -118,8 +118,49 @@ funcionam, escolha um.)
       OAuth por plataforma (iOS client ID; Android com SHA-256 do keystore) —
       fazer junto da unificação de applicationId (achado C4 da auditoria).
 
+## Build Android (Capacitor) — valores exatos
+
+Após `npx cap add android`, ajustar no `android/app/build.gradle`
+(o `cap add` deriva do `appId` do capacitor.config, que é o BUNDLE do iOS):
+- `applicationId "br.com.queroumacor"` ← trocar (o config tem `.app`, que é iOS)
+- `versionCode 10200` (o build atual do Play é 10100; subir)
+- `minSdk 24`, `compileSdk 36`
+
+Firebase no Gradle:
+- root `build.gradle`: `classpath 'com.google.gms:google-services:4.5.0'`
+- `app/build.gradle`: `apply plugin: 'com.google.gms.google-services'`
+- `google-services.json` em `android/app/` (não é segredo; vai no APK)
+- `POST_NOTIFICATIONS` no Manifest (Android 13+); a permissão em runtime já
+  é pedida pelo plugin (`registerNativePush` → `requestPermissions`)
+
+Assinatura: `my-release-key.jks` (confere com a upload key do Play). O `.jks`,
+`key.properties` e senhas ficam FORA do repo (`.gitignore`) — no CI entram
+como secure file / secret. Validar App Links só a partir de um build da
+Internal Testing (o cert local pode não bater com o `assetlinks.json`).
+
+O `server.url` da casca é `https://www.queroumacor.com.br` (www — canônico e
+host do deep link).
+
+## Testar a config FCM ANTES do AAB (sem device token)
+
+O caminho de envio real só autentica no FCM quando há device token — então,
+sem app instalado, não dá pra saber se as 3 envs FCM estão certas. Pra isso
+existe o diagnóstico (mesmo gate `x-internal-secret`, não envia nada):
+
+```
+curl -X POST https://www.queroumacor.com.br/api/push-notify \
+  -H "x-internal-secret: <PUSH_INTERNAL_SECRET do painel CF>" \
+  -H "content-type: application/json" \
+  -d '{"diagnose":"fcm"}'
+```
+
+Respostas: `{"ok":true,"diagnose":"fcm","configured":true}` = service account
+válida e FCM aceitou a troca de token (pode gerar AAB). `configured:false` =
+alguma das 3 envs falta. `ok:false` = envs presentes mas a private key não
+assina / API não habilitada.
+
 ## Testes
 
-`__tests__/native.test.ts` trava: fallback total fora da casca (nunca throw),
-detecção por plataforma, cancelamento de câmera, e o parser do deep link de
-OAuth (`parseAuthCallbackUrl`).
+`__tests__/native.test.ts` trava o contrato do bridge (fallback fora da casca,
+detecção, câmera, parser do deep link, rota do toque). `__tests__/api/fcm.test.ts`
+cobre as partes puras do sender + `verifyFcmCredentials`.
