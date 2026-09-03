@@ -24,6 +24,11 @@ import { pushNotifySchema } from '@/lib/api/schemas/push-notify';
 // só no request context. Ver lib/api/env.ts.
 import { getRuntimeEnv, getSupabaseUrl } from '@/lib/api/env';
 import { getServiceKey } from '@/lib/api/security';
+import {
+  sendFcmToDeviceTokens,
+  type DeviceTokenRow,
+  type FcmServiceAccount,
+} from '@/lib/api/_services/fcm';
 
 export const runtime = 'edge';
 
@@ -108,52 +113,86 @@ export async function POST(request: NextRequest): Promise<Response> {
     getRuntimeEnv('NEXT_PUBLIC_VAPID_PUBLIC_KEY') || getRuntimeEnv('VAPID_PUBLIC_KEY');
   const vapidPrivate = getRuntimeEnv('VAPID_PRIVATE_KEY');
   const vapidSubject = getRuntimeEnv('VAPID_SUBJECT') || 'mailto:loja@calicolors.com.br';
-  if (!vapidPublic || !vapidPrivate) {
-    return jsonResponse({ ok: false, error: 'vapid_not_configured' }, 503);
+  const webPushOn = !!vapidPublic && !!vapidPrivate;
+
+  // ─── 4b) FCM config (canal NATIVO, independente do VAPID) ────────────────
+  const fcmProjectId = getRuntimeEnv('FCM_PROJECT_ID');
+  const fcmClientEmail = getRuntimeEnv('FCM_CLIENT_EMAIL');
+  const fcmPrivateKey = getRuntimeEnv('FCM_PRIVATE_KEY');
+  const fcmSa: FcmServiceAccount | null =
+    fcmProjectId && fcmClientEmail && fcmPrivateKey
+      ? { projectId: fcmProjectId, clientEmail: fcmClientEmail, privateKeyPem: fcmPrivateKey }
+      : null;
+
+  // Nenhum dos dois canais configurado → nada a fazer. Antes, VAPID ausente
+  // dava 503 e bloqueava também o nativo; agora cada canal é independente.
+  if (!webPushOn && !fcmSa) {
+    return jsonResponse({ ok: false, error: 'push_not_configured' }, 503);
   }
 
-  // ─── 5) Lê subscriptions via service_role ────────────────────────────────
-  // `getSupabaseUrl()` lê `NEXT_PUBLIC_SUPABASE_URL`, que é o nome que o
-  // projeto realmente usa — a versão anterior procurava `SUPABASE_URL`, que
-  // nunca existiu, então esta rota respondia 503 mesmo com tudo configurado.
-  // `getServiceKey()` cobre os três nomes possíveis da service role.
+  // ─── 5) Supabase config (necessário pros dois canais) ────────────────────
   const supabaseUrl = getSupabaseUrl() || getRuntimeEnv('SUPABASE_URL');
   const serviceKey = getServiceKey();
   if (!supabaseUrl || !serviceKey) {
     return jsonResponse({ ok: false, error: 'supabase_not_configured' }, 503);
   }
 
-  const subs = await fetchSubscriptions(supabaseUrl, serviceKey, userIds);
+  // `payload` já foi montado acima (após o parse do Zod).
 
-  // ─── 6) Envia em paralelo (com limite simples de concorrência) ───────────
-  const payloadJson = JSON.stringify(payload);
-  const payloadBytes = new TextEncoder().encode(payloadJson);
-
-  const results = await Promise.all(
-    subs.map((sub) =>
-      sendWebPush({
-        sub,
-        payloadBytes,
-        vapidPublic,
-        vapidPrivate,
-        vapidSubject,
-      }).catch((err) => ({ status: 'error' as const, statusCode: 0, sub, error: err })),
-    ),
-  );
-
-  // ─── 7) Cleanup de endpoints expirados (404/410) ─────────────────────────
-  const expiredIds = results
-    .filter((r) => r.status === 'expired')
-    .map((r) => r.sub.id);
-
-  if (expiredIds.length > 0) {
-    await deleteSubscriptionsByIds(supabaseUrl, serviceKey, expiredIds).catch(() => {
-      // best-effort
-    });
+  // ─── 6a) Web Push (VAPID) ────────────────────────────────────────────────
+  let webSent = 0;
+  let webRemoved = 0;
+  let webTotal = 0;
+  if (webPushOn) {
+    const subs = await fetchSubscriptions(supabaseUrl, serviceKey, userIds);
+    webTotal = subs.length;
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
+    const results = await Promise.all(
+      subs.map((sub) =>
+        sendWebPush({
+          sub,
+          payloadBytes,
+          vapidPublic: vapidPublic as string,
+          vapidPrivate: vapidPrivate as string,
+          vapidSubject,
+        }).catch((err) => ({ status: 'error' as const, statusCode: 0, sub, error: err })),
+      ),
+    );
+    const expiredIds = results.filter((r) => r.status === 'expired').map((r) => r.sub.id);
+    if (expiredIds.length > 0) {
+      await deleteSubscriptionsByIds(supabaseUrl, serviceKey, expiredIds).catch(() => {});
+    }
+    webSent = results.filter((r) => r.status === 'sent').length;
+    webRemoved = expiredIds.length;
   }
 
-  const sent = results.filter((r) => r.status === 'sent').length;
-  return jsonResponse({ ok: true, sent, removed: expiredIds.length, total: subs.length });
+  // ─── 6b) Push nativo (FCM/APNs) ──────────────────────────────────────────
+  let nativeSent = 0;
+  let nativeRemoved = 0;
+  let nativeTotal = 0;
+  if (fcmSa) {
+    const rows = await fetchDeviceTokens(supabaseUrl, serviceKey, userIds).catch(
+      () => [] as DeviceTokenRow[],
+    );
+    nativeTotal = rows.length;
+    const r = await sendFcmToDeviceTokens(fcmSa, rows, payload).catch(() => null);
+    if (r) {
+      nativeSent = r.sent;
+      if (r.expiredIds.length > 0) {
+        await deleteDeviceTokensByIds(supabaseUrl, serviceKey, r.expiredIds).catch(() => {});
+      }
+      nativeRemoved = r.expiredIds.length;
+    }
+  }
+
+  return jsonResponse({
+    ok: true,
+    sent: webSent + nativeSent,
+    removed: webRemoved + nativeRemoved,
+    total: webTotal + nativeTotal,
+    web: { sent: webSent, removed: webRemoved, total: webTotal },
+    native: { sent: nativeSent, removed: nativeRemoved, total: nativeTotal },
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -199,6 +238,37 @@ async function deleteSubscriptionsByIds(
       apikey: serviceKey,
       Authorization: `Bearer ${serviceKey}`,
     },
+    signal: AbortSignal.timeout(ENDPOINT_TIMEOUT_MS),
+  });
+}
+
+// ─── push_device_tokens (canal nativo FCM/APNs, Wave 39) ────────────────────
+
+async function fetchDeviceTokens(
+  url: string,
+  serviceKey: string,
+  userIds: string[],
+): Promise<DeviceTokenRow[]> {
+  const inList = userIds.map((u) => `"${u}"`).join(',');
+  const u = `${url.replace(/\/$/, '')}/rest/v1/push_device_tokens?select=id,token&user_id=in.(${inList})`;
+  const res = await fetch(u, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    signal: AbortSignal.timeout(ENDPOINT_TIMEOUT_MS),
+  });
+  if (!res.ok) return [];
+  return (await res.json()) as DeviceTokenRow[];
+}
+
+async function deleteDeviceTokensByIds(
+  url: string,
+  serviceKey: string,
+  ids: string[],
+): Promise<void> {
+  const inList = ids.map((u) => `"${u}"`).join(',');
+  const u = `${url.replace(/\/$/, '')}/rest/v1/push_device_tokens?id=in.(${inList})`;
+  await fetch(u, {
+    method: 'DELETE',
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
     signal: AbortSignal.timeout(ENDPOINT_TIMEOUT_MS),
   });
 }

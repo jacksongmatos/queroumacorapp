@@ -45,9 +45,17 @@
     quebras de linha em paste grande (mesma pegadinha 42601 da Wave 26);
     pra SQLs futuros, preferir statements em linha única no chat. Client
     grava via `lib/services/pushTokens.ts` + `<NativePushOptIn>` no
-    ProfileFooter (só aparece na casca com plugin); o ENVIO server-side via
-    FCM ainda não existe (precisa de projeto Firebase + service account —
-    etapa futura). Não pedir pra rodar de novo.
+    ProfileFooter (só aparece na casca com plugin). O ENVIO server-side via
+    FCM AGORA EXISTE em código: `lib/api/_services/fcm.ts` (FCM HTTP v1,
+    RS256 JWT no edge, zero deps) plugado no `/api/push-notify` como canal
+    NATIVO independente do web push (VAPID) — cada canal envia sozinho, sem
+    503 se um faltar. Falta só CONFIG (não código): projeto Firebase +
+    `google-services.json`/`GoogleService-Info.plist` no nativo + 3 envs
+    Secret no CF Pages (`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`,
+    `FCM_PRIVATE_KEY`) + APNs Auth Key no Firebase pra iOS. Ver
+    `docs/NATIVE_BRIDGE.md`. Deps dos plugins Capacitor já no package.json da
+    raiz; `npx cap add android`/`cap sync` é na máquina de build (SDK nativo,
+    não roda no remoto). Não pedir pra rodar de novo.
   - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
     existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
     galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto
