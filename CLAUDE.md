@@ -126,23 +126,40 @@
     `GET /api/whatsapp-evo/ping` com token de admin (a rota continua no ar,
     só o botão saiu da tela).
 
-- **REGRA FIXA (2026-08-29): NÃO EXISTE BUILD NATIVO. Não sugerir.** O
-  projeto é código no GitHub → Cloudflare Pages → **WebIntoApp** empacota
-  o site num AAB. Capacitor, Bubblewrap/TWA e plugins nativos estão FORA
-  de escopo — o `capacitor.config.ts` e o `docs/IOS_BUILD.md` no repo são
-  restos de uma direção abandonada. Toda limitação de WebView se resolve
-  de duas formas, nesta ordem: (1) uma opção no painel do WebIntoApp, ou
-  (2) se o painel não oferecer, uma alternativa pelo lado web — e, quando
-  não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
-  build nativo" como se fosse um plano.**
-  - **Corolário (2026-09-02, pedido do usuário): mudança do lado do
-    WRAPPER só chega no aparelho com um AAB NOVO gerado no WebIntoApp e
-    publicado na loja.** Deploy web (merge no `main`) atualiza na hora o
-    que é site — mas splash do wrapper, opções do painel (file chooser,
-    seleção múltipla, pull-to-refresh, user agent, share nativo),
-    permissões e targetSdk NÃO mudam sem regerar o AAB. Ao entregar
-    correção dessa família, dizer explicitamente: "só vale depois do
-    próximo AAB" (a lista viva do que entra é `docs/AAB_PROXIMA_VERSAO.md`).
+- **DIREÇÃO MOBILE MUDOU (2026-09-03): AGORA É CAPACITOR, não WebIntoApp.**
+  A regra antiga "NÃO EXISTE BUILD NATIVO / WebIntoApp empacota / Capacitor
+  fora de escopo" está **SUPERADA** por decisão do usuário nesta sessão. Foi
+  VERIFICADO (não presumido) que a casca WebIntoApp é **WebView pura, sem
+  Capacitor** — então `lib/native/` (câmera, push, OAuth pelo browser do
+  sistema) NÃO funciona nela, e push nativo é impossível ali. O AAB
+  DEFINITIVO passa a sair do **Capacitor**. O `capacitor.config.ts` (raiz)
+  deixou de ser "resto abandonado" e é o config vigente da casca.
+  - **Firebase (feito 2026-09-03):** projeto `queroumacor-245ef`; app Android
+    `br.com.queroumacor` + Apple `br.com.queroumacor.app` registrados;
+    `google-services.json`/`GoogleService-Info.plist` baixados; FCM API V1
+    Enabled. 3 secrets FCM setados no CF Pages + redeploy.
+  - **Fatos do build real (verificados):** `applicationId br.com.queroumacor`,
+    `versionCode 10100`, `minSdk 24`; app em produção (release 1.1, ~19
+    instalados) sob a conta **`queroumacor@gmail.com`** (NÃO `jackson.guerra@`);
+    Play App Signing ativo; upload key (`my-release-key.jks`) confere com o
+    Play (NÃO precisa resetar). O host do deep link (App Links) é
+    **`www.queroumacor.com.br` COM www**.
+  - **PEGADINHA:** a pasta `deeplinks/` que o WebIntoApp deixou tem
+    `assetlinks.json` com o fingerprint ERRADO — ignorar. O válido é o de
+    `next-app/public/.well-known/assetlinks.json` (package `br.com.queroumacor`,
+    SHA-256 do App Signing Key), que é o servido em produção.
+  - **`capacitor.config.ts` carrega o APEX `https://queroumacor.com.br`** (sem
+    www), mas o deep link é `www.*`. `allowNavigation` cobre `*.queroumacor
+    .com.br`, então navegar não quebra; se a casca DEVE carregar o www,
+    trocar `server.url`. Confirmar antes do build.
+  - **Plano nativo pendente na casca (build machine):** capability de Push +
+    `AppDelegate.swift` (iOS), plugin `google-services` no Gradle (Android),
+    permissão `POST_NOTIFICATIONS` (Android 13+, o plugin pede via
+    `requestPermissions`), intent-filter do scheme `br.com.queroumacor.app`
+    pro OAuth. Doc: `docs/NATIVE_BRIDGE.md`.
+  - **Nota histórica:** o corolário de 2026-09-02 ("mudança de wrapper só
+    chega com AAB novo") continua VERDADEIRO pra qualquer casca — o que
+    muda é que o AAB agora nasce do Capacitor, não do WebIntoApp.
 
 - **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
   no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
