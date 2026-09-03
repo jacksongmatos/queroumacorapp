@@ -1,0 +1,72 @@
+# Codemagic CI/CD — gera e ASSINA o AAB do Capacitor (o app DEFINITIVO, não o
+# WebIntoApp, que é WebView pura sem push/câmera/OAuth nativo).
+#
+# Setup no painel do Codemagic (não em secret do GitHub):
+#   1. Conectar este repositório; o Codemagic detecta este arquivo.
+#   2. Code signing identities → Android keystores → subir `my-release-key.jks`
+#      (o MESMO que assina o app no Play) com reference name `queroumacor_keystore`,
+#      alias e senhas. Isso injeta CM_KEYSTORE_PATH/PASSWORD/KEY_ALIAS/KEY_PASSWORD.
+#   3. (Opcional, pro push) Environment variables → grupo `firebase` →
+#      GOOGLE_SERVICES_JSON = `base64 -w0 google-services.json` (marcar Secure).
+#
+# Disparo: manual pelo painel (sem bloco `triggering`, não roda a cada push).
+# Ver docs/ANDROID_AAB_CODEMAGIC.md.
+
+workflows:
+  android-aab:
+    name: Android AAB (Capacitor)
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      android_signing:
+        - queroumacor_keystore
+      groups:
+        - firebase        # fornece GOOGLE_SERVICES_JSON (opcional)
+      node: 20
+      java: 17
+    cache:
+      cache_paths:
+        - ~/.npm
+        - ~/.gradle/caches
+    scripts:
+      - name: Install deps (Capacitor CLI + plugins)
+        script: npm ci
+      # webDir (next-app/.next/static) não existe em checkout limpo, e o app
+      # carrega tudo de server.url — um placeholder basta pro `cap sync` gerar o
+      # capacitor.config.json (que aponta pro https://www.queroumacor.com.br).
+      - name: Placeholder webDir + Capacitor sync
+        script: |
+          mkdir -p next-app/.next/static
+          echo '<!doctype html><title>QueroUmaCor</title>' > next-app/.next/static/index.html
+          npx cap sync android
+      - name: google-services.json (se houver)
+        script: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+            echo "google-services.json escrito (FCM habilitado)."
+          else
+            echo "SEM GOOGLE_SERVICES_JSON — AAB compila, mas push FCM não registra token."
+          fi
+      # O build.gradle lê android/key.properties (signingConfig condicional). O
+      # Codemagic expõe o keystore em CM_KEYSTORE_PATH + senhas via android_signing.
+      - name: key.properties a partir do keystore do Codemagic
+        script: |
+          cat > android/key.properties <<EOF
+          storeFile=$CM_KEYSTORE_PATH
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+      - name: Build AAB assinado
+        script: |
+          cd android
+          ./gradlew bundleRelease --no-daemon --stacktrace
+    artifacts:
+      - android/app/build/outputs/bundle/**/*.aab
+    publishing:
+      email:
+        recipients:
+          - jackson.guerra@gmail.com
+        notify:
+          success: true
+          failure: true

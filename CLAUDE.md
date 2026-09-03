@@ -160,6 +160,22 @@
   - **Nota histórica:** o corolário de 2026-09-02 ("mudança de wrapper só
     chega com AAB novo") continua VERDADEIRO pra qualquer casca — o que
     muda é que o AAB agora nasce do Capacitor, não do WebIntoApp.
+  - **Casca Android JÁ NO REPO (2026-09-03, PR #171):** `android/` scaffoldado
+    (`npx cap add android`), `applicationId br.com.queroumacor`, versionCode
+    10200, minSdk 24, compileSdk/targetSdk 36, deep link OAuth + `POST_NOTIFICATIONS`
+    no Manifest, 5 plugins (incl. `@capacitor-firebase/messaging`). `assets/public`
+    e config JSONs gerados ficam GITIGNORED (o app carrega de `server.url`).
+  - **AAB gerado pelo CODEMAGIC, não GitHub Actions (2026-09-03).** `codemagic.yaml`
+    na raiz (workflow `android-aab`, disparo manual). Assinatura via
+    `signingConfig` CONDICIONAL no `android/app/build.gradle` que lê
+    `android/key.properties` (gitignored) — o Codemagic monta esse arquivo do
+    keystore do painel (`CM_KEYSTORE_*`, reference `queroumacor_keystore`);
+    build local sem o arquivo sai não-assinado, sem quebrar. `google-services.json`
+    entra por env `GOOGLE_SERVICES_JSON` (base64) do grupo `firebase`. O AAB sai
+    por e-mail + artifact. **GitHub Actions foi DESCARTADO pra build de AAB**
+    (PR #172 fechado sem merge) — Codemagic é melhor pra mobile (iOS/macOS +
+    assinatura Apple no mesmo lugar). Doc: `docs/ANDROID_AAB_CODEMAGIC.md`.
+    **`versionCode` tem que crescer a cada upload** (Play atual 10100, repo 10200).
 
 - **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
   no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
