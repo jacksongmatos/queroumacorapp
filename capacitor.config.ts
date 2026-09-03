@@ -15,6 +15,12 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * See docs/IOS_BUILD.md for the full step-by-step build flow.
  */
 const config: CapacitorConfig = {
+  // appId = bundle ID do iOS. NO ANDROID o `applicationId` do Play é
+  // `br.com.queroumacor` (SEM `.app`) — o `cap add android` scaffolda o
+  // build.gradle a partir deste appId, então DEPOIS de `cap add android` é
+  // preciso trocar `applicationId` pra `br.com.queroumacor` no
+  // `android/app/build.gradle` (além de versionCode 10200, minSdk 24,
+  // compileSdk 36). iOS mantém `br.com.queroumacor.app`.
   appId: 'br.com.queroumacor.app',
   appName: 'QueroUmaCor',
   // ATENÇÃO: `.next/static` NÃO é um web build — não tem `index.html`. Como o
@@ -25,7 +31,8 @@ const config: CapacitorConfig = {
   // depende 100% da rede pra abrir.
   webDir: 'next-app/.next/static',
   server: {
-    url: 'https://queroumacor.com.br',
+    // Canônico é o www (host do deep link / App Links, confirmado 2026-09-03).
+    url: 'https://www.queroumacor.com.br',
     cleartext: false,
     androidScheme: 'https',
     iosScheme: 'https',

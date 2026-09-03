@@ -26,6 +26,7 @@ import { getRuntimeEnv, getSupabaseUrl } from '@/lib/api/env';
 import { getServiceKey } from '@/lib/api/security';
 import {
   sendFcmToDeviceTokens,
+  verifyFcmCredentials,
   type DeviceTokenRow,
   type FcmServiceAccount,
 } from '@/lib/api/_services/fcm';
@@ -82,6 +83,30 @@ export async function POST(request: NextRequest): Promise<Response> {
   } catch {
     return jsonResponse({ ok: false, error: 'invalid_body' }, 400);
   }
+
+  // ─── 3b) Diagnóstico de config FCM (antes do AAB, sem device token) ──────
+  // `{"diagnose":"fcm"}` só valida se a service account obtém access token do
+  // FCM — não envia nada, não precisa de userIds. Mesmo gate (x-internal-
+  // secret). Serve pra confirmar as 3 envs FCM em produção antes de existir
+  // qualquer token registrado (quando o envio real nem chega a autenticar).
+  if (raw && typeof raw === 'object' && (raw as { diagnose?: unknown }).diagnose === 'fcm') {
+    const projectId = getRuntimeEnv('FCM_PROJECT_ID');
+    const clientEmail = getRuntimeEnv('FCM_CLIENT_EMAIL');
+    const privateKey = getRuntimeEnv('FCM_PRIVATE_KEY');
+    if (!projectId || !clientEmail || !privateKey) {
+      return jsonResponse(
+        { ok: false, diagnose: 'fcm', configured: false, reason: 'missing_env' },
+        200,
+      );
+    }
+    const r = await verifyFcmCredentials({
+      projectId,
+      clientEmail,
+      privateKeyPem: privateKey,
+    });
+    return jsonResponse({ diagnose: 'fcm', configured: true, ...r }, 200);
+  }
+
   const parsed = pushNotifySchema.safeParse(raw);
   if (!parsed.success) {
     return jsonResponse(

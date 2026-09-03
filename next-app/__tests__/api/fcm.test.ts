@@ -70,3 +70,16 @@ describe('sendFcmToDeviceTokens', () => {
     expect(out).toEqual({ sent: 0, expiredIds: [], total: 0 });
   });
 });
+
+describe('verifyFcmCredentials', () => {
+  it('service account com chave inválida → ok:false (não lança)', async () => {
+    const { verifyFcmCredentials } = await import('../../lib/api/_services/fcm');
+    const out = await verifyFcmCredentials({
+      projectId: 'p',
+      clientEmail: 'x@y.iam',
+      privateKeyPem: 'nao-e-uma-chave',
+    });
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe('token_exchange_failed');
+  });
+});
