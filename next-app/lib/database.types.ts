@@ -756,6 +756,34 @@ export type Database = {
         };
         Relationships: [];
       };
+      // ─── push_device_tokens (Wave 39) — tokens FCM/APNs do app nativo ────
+      push_device_tokens: {
+        Row: {
+          id: string;
+          user_id: string;
+          token: string;
+          platform: string;
+          created_at: string;
+          last_seen_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          token: string;
+          platform: string;
+          created_at?: string;
+          last_seen_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          token?: string;
+          platform?: string;
+          created_at?: string;
+          last_seen_at?: string;
+        };
+        Relationships: [];
+      };
       // ─── reports ─────────────────────────────────────────────────────────
       reports: {
         Row: {

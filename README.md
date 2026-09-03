@@ -1,97 +1,85 @@
 # QueroUmaCor
 
-PWA brasileira que conecta clientes a pintores, grafiteiros e profissionais automotivos. Cadastro gratuito e aberto, orçamentos por foto, chat em tempo real, loja de tintas Cali Colors e gateway de assinatura PRO.
+PWA brasileira que conecta clientes a pintores, grafiteiros e profissionais
+automotivos. Cadastro gratuito, orçamentos por foto, chat em tempo real,
+loja de tintas Cali Colors e assinatura PRO. Empacotada também como app
+mobile (casca Capacitor iOS + TWA Android).
 
 ## Stack
 
-- **Frontend**: Vanilla JS + HTML + CSS (SPA mobile-first). React + Babel só no portal admin.
-- **Backend**: Cloudflare Pages Functions (`/functions/api/*.js`, V8 isolates).
+- **App**: Next.js 15 (App Router) + React 19 + TypeScript, em `next-app/`.
+  Padrão RSC-shell + client component por rota; estado de servidor via
+  TanStack Query.
+- **API**: rotas edge em `next-app/app/api/*` (runtime Cloudflare). Usadas só
+  pra IA, admin e webhooks — o cliente fala direto com o Supabase (RLS).
 - **Banco**: Supabase (Postgres + Auth + Storage + RLS + Realtime).
-- **PWA**: Service Worker (`sw.js`), manifest, offline fallback.
-- **IA**: OpenAI + Gemini (fallback automático) para chat, sugestão de cor, art generation, moderação.
+- **Deploy**: Cloudflare Pages via `@cloudflare/next-on-pages`
+  (output `next-app/.vercel/output/static`), automático a partir de `main`.
+- **Mobile**: casca Capacitor (`capacitor.config.ts`, `ios/`), TWA Android
+  (`twa-manifest.json`). Capacidades nativas ficam atrás de `next-app/lib/native`.
+- **Portal da loja**: app React estático em `next-app/public/portal/`.
+- **IA**: OpenAI + Gemini (fallback) pra chat, sugestão de cor, arte,
+  moderação, legenda, transcrição.
 
-## Arquitetura
+> O SPA vanilla original (index.html + app.js + `functions/api/`) foi
+> **removido** — o produto é o `next-app/`. Docs que descreviam aquela
+> arquitetura estão em `docs/history/` como histórico.
+
+## Estrutura
 
 ```
 queroumacorapp/
-├── index.html              # SPA principal (~2300 linhas)
-├── app.js                  # Lógica da SPA (~8000 linhas, vanilla)
-├── head.js                 # Auth/Supabase/helpers globais
-├── styles.css              # Tudo de estilo
-├── supabase.js             # Supabase JS UMD self-hosted (SRI)
-├── jspdf.umd.min.js        # jsPDF self-hosted
-├── leaflet.js/css          # Mapa self-hosted
-├── manifest.json           # PWA manifest
-├── sw.js                   # Service Worker
-├── _headers                # Headers Cloudflare Pages (CSP, HSTS, cache)
-├── robots.txt + sitemap.xml
-├── offline.html            # Fallback PWA offline
-├── icon-{192,512}.png      # Ícones PWA
-├── img/                    # WebP estáticos
-├── products/               # Catálogo loja
-├── functions/api/          # Cloudflare Pages Functions
-│   ├── _security.js        # auth + rate limit + helpers
-│   ├── _ai.js              # OpenAI ↔ Gemini fallback
-│   └── (~20 endpoints)
-├── portal/                 # Admin React (acesso restrito)
-│   ├── index.html          # JSX inline + Babel standalone
-│   ├── react.production.min.js + react-dom.production.min.js
-│   └── babel.min.js
-├── supabase_init.sql       # Source-of-truth do schema (~2000 linhas)
-└── tests/                  # Vitest
+├── next-app/               # O app (Next.js) — é o que roda em produção
+│   ├── app/                # rotas (páginas RSC + app/api/* edge)
+│   ├── components/ lib/     # UI, hooks, services, lib/native (ponte nativa)
+│   ├── public/portal/       # admin React estático da loja
+│   └── __tests__/           # Vitest
+├── migrations/             # SQLs incrementais (rodados no Supabase SQL Editor)
+├── ios/  capacitor.config.ts  twa-manifest.json   # cascas mobile
+├── docs/                   # docs vivos (+ docs/history/ = arquivo)
+└── ARCHITECTURE.md  DATABASE.md  DEPLOYMENT.md  CONTRIBUTING.md  BACKLOG.md
 ```
 
-## Desenvolvimento local
-
-Requisitos: Node 18+ pra rodar testes (deploy não precisa de build).
+## Desenvolvimento
 
 ```bash
-# Testes
+cd next-app
 npm install
-npm test
-```
-
-Para preview do app, sirva o root estático:
-```bash
-npx serve .
-# ou
-python3 -m http.server 8000
+npm run dev        # servidor de dev
+npm test           # Vitest
+npm run lint       # ESLint
+npx tsc --noEmit   # typecheck
 ```
 
 ## Deploy
 
-Cloudflare Pages, automático a partir do branch `main`. Não há build step.
-
-Branch de trabalho: `claude/new-session-V0v78`. Após cada mudança, merge para `main` dispara deploy.
-
-## Cache-busting
-
-`index.html` carrega `head.js` e `app.js` com `?v=AAAAMMDD<letra>` (ex.: `?v=20260526h`). SEMPRE que mudar `app.js` ou `head.js`, bump esse `?v=` nas duas tags `<script>`.
-
-## Variáveis de ambiente (Cloudflare Pages)
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE` (NUNCA exponha no client)
-- `OPENAI_API_KEY`
-- `GEMINI_API_KEY`
-- `ADMIN_EMAILS` (lista separada por vírgula)
+Cloudflare Pages, automático a partir de `main` (~90s). PRs ganham preview em
+`<branch-slug>.queroumacor-next.pages.dev`. A CI (`.github/workflows/ci.yml`)
+roda lint + typecheck + testes; o job `validate` é required na branch
+protection de `main`.
 
 ## Banco de dados
 
-`supabase_init.sql` é o source-of-truth. Para rodar do zero em um Supabase novo:
-1. Crie o projeto
-2. Copie e rode o SQL no SQL Editor
+Mudanças de schema são SQLs idempotentes em `migrations/`, rodados
+manualmente no Supabase SQL Editor (não há ferramenta de migration ativa —
+ver `migrations/MIGRATIONS.md` pra ordem e cuidados). `supabase_init.sql` é
+um snapshot histórico anterior ao hardening — **não rodar** num banco vivo.
 
-Mudanças incrementais: cole o SQL no chat e rode manualmente (não há ferramenta de migration ativa).
+## Variáveis de ambiente (Cloudflare Pages)
+
+Segredos vivem no painel do Pages e são lidos por `getRuntimeEnv()` (no edge
+do Cloudflare eles NÃO chegam em `process.env`). Principais: `SUPABASE_URL`,
+`SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE`, `OPENAI_API_KEY`,
+`GEMINI_API_KEY`, `ADMIN_EMAILS`. Ver `next-app/.env.example`.
 
 ## Segurança
 
-- CSP rigorosa (nenhuma CDN terceira além de Google Fonts e Turnstile)
-- SRI em todos os scripts externos self-hosted
-- RLS em todas as tabelas mutáveis pelo client
-- Service-role key isolada no backend (`functions/api/_security.js`)
-- LGPD: política, contato DPO `loja@calicolors.com.br`, RPC `request_account_deletion`, exportação `/api/me-export`
+- CSP + Permissions-Policy + COOP/CORP no `headers()` do `next.config.mjs`
+  (fonte única — o `_headers` da raiz não entra no output do build).
+- RLS em todas as tabelas mutáveis pelo cliente; service-role isolada no edge.
+- Rotas de IA/admin gated por `lib/api/security.ts`.
+- LGPD: política, DPO `loja@calicolors.com.br`, exportação `/api/me-export`,
+  exclusão de conta.
 
 ## Contato
 
