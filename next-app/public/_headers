@@ -1,0 +1,40 @@
+# _headers — Cloudflare Pages (FIX C2 da auditoria 2026-08-26).
+#
+# ATENÇÃO: o CF Pages só lê o _headers que está DENTRO do output do build
+# (`.vercel/output/static`) — e `next-app/public/` entra no output. O
+# `_headers` da raiz do repo NUNCA foi deployado com o app Next (a CSP
+# documentada em DEPLOYMENT.md não estava no ar). Este arquivo é o portado.
+#
+# Limitação do Pages: estas regras valem pra ASSETS ESTÁTICOS (HTML
+# prerenderizado incluso), não pra respostas de Functions — por isso a CSP e
+# os headers de segurança TAMBÉM estão no headers() do next.config.mjs, que
+# cobre as rotas servidas pelo worker (/api/* etc.). Mudou aqui? Mude lá.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://*.sentry-cdn.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://sentry.io https://*.sentry.io https://cdn.jsdelivr.net https://storage.googleapis.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: microphone=(self), camera=(self), geolocation=(self), payment=(self), accelerometer=(), gyroscope=(), magnetometer=(), usb=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Frame-Options: DENY
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+
+# Service worker — precisa controlar o escopo raiz e nunca ficar preso em cache
+/sw.js
+  Service-Worker-Allowed: /
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Digital Asset Links — verificação de domínio pra TWA Android (Play Store)
+/.well-known/assetlinks.json
+  Content-Type: application/json
+  Cache-Control: public, max-age=86400
+
+# Manifest do PWA — TWA precisa pra reconhecer o app
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: public, max-age=300
+
+# Portal (admin da loja) — fora de indexação e sempre fresco
+/portal/*
+  X-Robots-Tag: noindex, nofollow

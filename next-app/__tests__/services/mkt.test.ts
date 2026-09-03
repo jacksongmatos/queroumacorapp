@@ -44,6 +44,8 @@ interface ChainSpies {
   insert: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   eq: ReturnType<typeof vi.fn>;
+  or: ReturnType<typeof vi.fn>;
+  gte: ReturnType<typeof vi.fn>;
   order: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
   range: ReturnType<typeof vi.fn>;
@@ -67,6 +69,8 @@ function makeFakeClient(queue: QueueItem[] = []): {
     insert: vi.fn(),
     update: vi.fn(),
     eq: vi.fn(),
+    or: vi.fn(),
+    gte: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
     range: vi.fn(),
@@ -103,6 +107,17 @@ function makeFakeClient(queue: QueueItem[] = []): {
     },
     eq: (col: string, val: unknown) => {
       spies.eq(col, val);
+      return chain;
+    },
+    // .or() e .gte() entraram no fetchProducts/submitOrder reais — sem eles
+    // aqui, o fake quebrava com "sb.from(...).select(...).or is not a
+    // function" (6 das 11 falhas crônicas da baseline pré-2026-09-03).
+    or: (expr: string) => {
+      spies.or(expr);
+      return chain;
+    },
+    gte: (col: string, val: unknown) => {
+      spies.gte(col, val);
       return chain;
     },
     order: (col: string, opts?: { ascending: boolean }) => {
@@ -194,13 +209,20 @@ describe('productBg', () => {
 // ─── funções puras: classify ──────────────────────────────────────────────
 
 describe('mktClassify', () => {
-  it('categoriza tintas por keyword (acrilica, esmalte, etc.)', () => {
+  it('categoriza tintas por keyword; esmalte sintético é madeiras & metais', () => {
     expect(mktClassify({ name: 'Tinta Acrílica Premium' })).toBe('tintas');
-    expect(mktClassify({ name: 'Esmalte sintético tradicional' })).toBe('tintas');
+    // Regra deliberada do classificador (mkt.ts): esmalte sintético
+    // não-automotivo é tinta PARA MADEIRA/METAL → categoria madeiras_metais.
+    // O teste antigo esperava 'tintas' e ficou vermelho por meses (drift
+    // detectado na auditoria 2026-08-26).
+    expect(mktClassify({ name: 'Esmalte sintético tradicional' })).toBe('madeiras_metais');
   });
 
-  it('exceções vanilla: vonixx → outros, metalatex/novacor → tintas', () => {
-    expect(mktClassify({ name: 'Vonixx Cera de Carnaúba' })).toBe('outros');
+  it('exceções: vonixx → estética automotiva, metalatex/novacor → tintas', () => {
+    // A categoria 'estetica_automotiva' foi criada DEPOIS do teste original
+    // (que esperava 'outros'); o override vonixx → estetica_automotiva é
+    // explícito no classificador.
+    expect(mktClassify({ name: 'Vonixx Cera de Carnaúba' })).toBe('estetica_automotiva');
     expect(mktClassify({ name: 'Metalatex Litoral' })).toBe('tintas');
     expect(mktClassify({ name: 'Novacor Esmalte' })).toBe('tintas');
   });
@@ -478,7 +500,12 @@ describe('submitOrder', () => {
       { id: 'a', name: 'A', price: 10, qty: 2 },
       { id: 'b', name: 'B', price: 5, qty: 4 },
     ];
-    const { client, spies } = makeFakeClient([{ data: { id: 'order-uuid' } }]);
+    // 1ª resposta = leitura de dedupe (pedidos pending da última hora, vem
+    // vazia = sem duplicata); 2ª = o insert.select('id').single().
+    const { client, spies } = makeFakeClient([
+      { data: [] },
+      { data: { id: 'order-uuid' } },
+    ]);
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     const out = await submitOrder('u1', items);
     expect(out).toEqual({ orderId: 'order-uuid', total: 40 });
@@ -497,7 +524,7 @@ describe('submitOrder', () => {
   });
 
   it('insert sem id retornado → NetworkError (não retorna orderId vazio)', async () => {
-    const { client } = makeFakeClient([{ data: {} }]);
+    const { client } = makeFakeClient([{ data: [] }, { data: {} }]);
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     await expect(
       submitOrder('u1', [{ id: 'a', name: 'A', price: 10, qty: 1 }])
@@ -506,6 +533,7 @@ describe('submitOrder', () => {
 
   it('error supabase → NetworkError', async () => {
     const { client } = makeFakeClient([
+      { data: [] },
       { data: null, error: { message: 'fk violation' } },
     ]);
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);

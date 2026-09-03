@@ -131,8 +131,14 @@ function isAdminEmail(email: string): boolean {
 
 /**
  * Checa profile flags via service_role. Cobre admins via
- * portal_access/is_admin/role='admin' que NÃO estão em ADMIN_EMAILS.
+ * portal_access/role='admin' que NÃO estão em ADMIN_EMAILS.
  * Fail-CLOSED: se REST falhar ou service key ausente, retorna false.
+ *
+ * FIX A-D1 (auditoria 2026-08-26): o select incluía `is_admin`, coluna que
+ * NÃO existe em `profiles` (pegadinha documentada na Wave 34) — o PostgREST
+ * respondia 400, `res.ok` era false e a função retornava SEMPRE false:
+ * admins por portal_access/role fora de ADMIN_EMAILS caíam em 404 no
+ * /admin/*. Nunca reintroduzir `is_admin` em select de profiles.
  */
 async function isPortalAdmin(userId: string): Promise<boolean> {
   const url = getSupabaseUrl();
@@ -140,7 +146,7 @@ async function isPortalAdmin(userId: string): Promise<boolean> {
   if (!url || !svc) return false;
   try {
     const res = await fetch(
-      `${url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=portal_access,is_admin,role`,
+      `${url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=portal_access,role`,
       {
         headers: {
           Authorization: `Bearer ${svc}`,
@@ -153,16 +159,11 @@ async function isPortalAdmin(userId: string): Promise<boolean> {
     if (!res.ok) return false;
     const rows = (await res.json()) as Array<{
       portal_access?: boolean | null;
-      is_admin?: boolean | null;
       role?: string | null;
     }>;
     const row = rows?.[0];
     if (!row) return false;
-    return (
-      row.portal_access === true ||
-      row.is_admin === true ||
-      row.role === 'admin'
-    );
+    return row.portal_access === true || row.role === 'admin';
   } catch {
     return false;
   }

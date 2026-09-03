@@ -114,7 +114,7 @@ de evasão. Manter telas separadas (`/pro` ≠ `/loja`).
 ### 3.1 Apple App Store Connect
 
 1. **Criar Product ID**
-   - ID: `com.calicolors.queroumacor.pro.monthly`
+   - ID: `br.com.queroumacor.app.pro.monthly`
    - Tipo: Auto-Renewable Subscription
    - Subscription Group: `PRO` (criar grupo único)
 2. **Preço**: BRL 39 (Tier mapeado pela Apple — ajustar pra Tier mais
@@ -132,7 +132,7 @@ de evasão. Manter telas separadas (`/pro` ≠ `/loja`).
 ### 3.2 Google Play Console
 
 1. **Apps > Monetize > Subscriptions > Add subscription**
-   - Product ID: `com.calicolors.queroumacor.pro.monthly`
+   - Product ID: `br.com.queroumacor.app.pro.monthly`
    - Base plan: Monthly, BRL 39
 2. **Free trial** (opcional): 7 dias
 3. **Grace period**: 7 dias (alinhar com `profiles.pro_grace_until` Wave 7
@@ -193,7 +193,7 @@ Content-Type: application/json
   "status": 0,
   "latest_receipt_info": [
     {
-      "product_id": "com.calicolors.queroumacor.pro.monthly",
+      "product_id": "br.com.queroumacor.app.pro.monthly",
       "transaction_id": "...",
       "expires_date_ms": "1764550000000",
       ...
@@ -240,7 +240,7 @@ if (data.subscriptionState !== 'SUBSCRIPTION_STATE_ACTIVE') {
   throw new Error('Subscription not active');
 }
 const lineItem = data.lineItems?.[0];
-if (lineItem?.productId !== 'com.calicolors.queroumacor.pro.monthly') {
+if (lineItem?.productId !== 'br.com.queroumacor.app.pro.monthly') {
   throw new Error('Wrong product');
 }
 ```

@@ -31,6 +31,7 @@ assertProductionEnvs();
 
 export const ERR_PRO_ONLY = 'Esta função é exclusiva do Plano PRO ⚡';
 export const ERR_UNAVAILABLE = 'serviço temporariamente indisponível';
+export const ERR_LOGIN_REQUIRED = 'Faça login';
 
 const AUTH_TIMEOUT_MS = 10000;
 const RATE_LIMIT_TIMEOUT_MS = 10000;
@@ -411,7 +412,14 @@ export async function gateProAI(
   }
   const auth = await requireAuth(request, body);
   if (auth.error) return jsonResponse({ error: auth.error }, auth.status || 401);
-  const userId = auth.user?.id;
+  // FIX C1 (auditoria 2026-08-26): `requireAuth` é fail-open e NUNCA popula
+  // `auth.error` — sem este check, requisição SEM token pulava PRO, rate
+  // limit e cota (requirePro(undefined) → {pro:true}; checkRateLimit sem
+  // userId → skipped) e chegava na IA de graça. Anônimo agora é 401 aqui,
+  // antes de qualquer custo. Vale também pro token inválido/expirado e pra
+  // falha de rede no verify (fail-closed: auth não confirmada = negada).
+  if (!auth.user?.id) return jsonResponse({ error: ERR_LOGIN_REQUIRED }, 401);
+  const userId = auth.user.id;
   if (needPro) {
     const proCheck = await requirePro(userId);
     if (!proCheck.pro) return jsonResponse({ error: ERR_PRO_ONLY }, 403);
@@ -627,7 +635,9 @@ export async function gateProAIForm(
   const accessToken = getTokenFromForm(request, formData);
   const auth = await requireAuth(request, { accessToken });
   if (auth.error) return jsonResponse({ error: auth.error }, auth.status || 401);
-  const userId = auth.user?.id;
+  // FIX C1 — mesmo racional do gateProAI acima: anônimo nunca passa do gate.
+  if (!auth.user?.id) return jsonResponse({ error: ERR_LOGIN_REQUIRED }, 401);
+  const userId = auth.user.id;
   if (needPro) {
     const proCheck = await requirePro(userId);
     if (!proCheck.pro) return jsonResponse({ error: ERR_PRO_ONLY }, 403);

@@ -32,7 +32,7 @@ manter atualizado.
 bubblewrap init --manifest=https://queroumacor.com.br/manifest.webmanifest
 ```
 
-- Quando perguntar `Application ID`, confirme `com.calicolors.queroumacor`.
+- Quando perguntar `Application ID`, confirme `br.com.queroumacor.app`.
 - Aceite os defaults exceto onde diverge de `twa-manifest.json` deste repo
   (cores, ícones, shortcuts — copiar manualmente dos valores do JSON).
 
@@ -94,7 +94,7 @@ bubblewrap build
 
 3. **Os 2 primeiros assetlinks também precisam ter o `package_name`
    trocado** de `br.com.queroumacor` (placeholder atual, NÃO é o bundle
-   ID oficial) pra `com.calicolors.queroumacor`. Se ainda não foi feito,
+   ID oficial) pra `br.com.queroumacor.app`. Se ainda não foi feito,
    esse PR é a hora.
 
 4. Deploy `main` → Cloudflare Pages publica → aguarde ~90s.
@@ -113,7 +113,7 @@ bubblewrap build
 > **2 valores placeholder que vão bloquear o app de abrir como TWA**:
 >
 > 1. `package_name: br.com.queroumacor` (errado — o bundle ID oficial é
->    `com.calicolors.queroumacor`)
+>    `br.com.queroumacor.app`)
 > 2. `sha256_cert_fingerprints[0]` está com um hash placeholder
 >    (`D5:0E:E0:09:...:39`) que não corresponde a nenhuma keystore real
 >
@@ -142,7 +142,7 @@ Resposta esperada:
       "relation": "delegate_permission/common.handle_all_urls",
       "target": {
         "androidApp": {
-          "packageName": "com.calicolors.queroumacor",
+          "packageName": "br.com.queroumacor.app",
           "certificate": {
             "sha256Fingerprint": "XX:XX:..."
           }
@@ -274,7 +274,7 @@ repo (PWA Next.js) não roda Bubblewrap.
 - Digital Asset Links não validou. Re-verifique:
   - `assetlinks.json` retorna 200 + JSON válido em
     `https://queroumacor.com.br/.well-known/assetlinks.json`
-  - `package_name` no JSON = `com.calicolors.queroumacor`
+  - `package_name` no JSON = `br.com.queroumacor.app`
   - Fingerprint no JSON = `keytool -list` output (case insensitive,
     com `:` separadores)
 - Aguarde 24h pra Chrome cachear de novo.
@@ -371,7 +371,7 @@ interno), não vale só por isso.
 - [ ] SHA-256 real em `assetlinks.json` (raiz + `next-app/public/`) +
       `twa-manifest.json`
 - [ ] `package_name` em ambos `assetlinks.json` está
-      `com.calicolors.queroumacor` (não o placeholder
+      `br.com.queroumacor.app` (não o placeholder
       `br.com.queroumacor`)
 - [ ] Digital Asset Links validador retorna statement válido
 - [ ] Privacy policy + delete account URL respondem 200

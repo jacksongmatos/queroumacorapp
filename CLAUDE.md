@@ -1,5 +1,42 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **P0 da auditoria de arquitetura FECHADOS no código (2026-09-03).** Ver
+  `ARCHITECTURE_AUDIT_2026-08-26.md`. Status:
+  - **C1 ✓** `gateProAI`/`gateProAIForm` agora retornam 401 pra anônimo/token
+    inválido (antes: requisição SEM token chegava na IA sem PRO, rate limit
+    nem cota). 6 testes de regressão em `__tests__/api/gate-anon.test.ts`.
+  - **C2 ✓** Headers de segurança (CSP completa, Permissions-Policy,
+    COOP/CORP) agora em `next-app/public/_headers` (entra no output do
+    build) E no `headers()` do next.config (rotas do worker) — os DOIS têm
+    que mudar juntos. `app/robots.ts` criado (o robots.txt da raiz nunca
+    deployava). `assetlinks.json` copiado pra `next-app/public/.well-known/`
+    (também não deployava). **Validar com `curl -I` em produção pós-deploy.**
+  - **C3/A-D1 — SQL PENDENTE de rodar**:
+    `/migrations/2026-09-03-fix-quotes-policy-and-is-portal-admin.sql`
+    (DROP da policy furada "View quotes active" + recria `is_portal_admin()`
+    com padrão to_jsonb). Lado código do A-D1 feito: `auth-server.ts` não
+    seleciona mais `is_admin` (coluna inexistente → 400 → admin sempre 404).
+  - **C4 ✓ (parcial)** applicationId Android UNIFICADO em
+    `br.com.queroumacor.app` (twa-manifest, assetlinks, docs, product ID
+    virou `br.com.queroumacor.app.pro.monthly`). Falta só o SHA-256 real do
+    keystore no twa-manifest/assetlinks quando gerar o keystore definitivo.
+  - **C5 ✓ (código)** Suíte 100% verde, 0 erros de lint, ci.yml roda também
+    em push pra main, typecheck.yml duplicado deletado. Falta (painel
+    GitHub): branch protection exigindo o job `validate`.
+  - **C6 ✓** jspdf 2→4.2.1 (CRITICAL eliminada); next pinado EXATO em
+    `15.5.2` (teto do peer range do @cloudflare/next-on-pages — NÃO subir
+    next sem subir next-on-pages junto; caret ali quebra o npm ci). As ~26
+    vulns restantes do audit são upstream (advisory do next cobre todas as
+    versões; postcss/sharp vendored dele; resto só fecha com Sentry 10 major).
+  - **SQL Wave 39 — PENDENTE**: `/migrations/2026-09-03-push-device-tokens.sql`
+    (tabela `push_device_tokens`, RLS user-owned, canal FCM/APNs separado do
+    web push). Client já grava via `lib/services/pushTokens.ts` +
+    `<NativePushOptIn>` no ProfileFooter (só aparece na casca com plugin);
+    o ENVIO server-side via FCM ainda não existe (precisa de projeto
+    Firebase + service account — etapa futura).
+  - Câmera nativa ligada no fluxo de publicar: botão "📸 Tirar foto" no
+    `MediaUploader` quando `native.camera.isAvailable()`.
+
 - **Fronteira nativa `lib/native/` + OAuth pelo browser do sistema
   (2026-09-03).** Decisão de arquitetura: casca mobile continua CAPACITOR
   (não React Native) — nativo entra como capacidade, não como segunda UI;
@@ -176,9 +213,10 @@
     `admin-config.ts` parseava `ADMIN_EMAILS` no boot e o cache nascia
     sempre vazio → `isAdminEmail()` sempre false → "não autorizado (email
     não admin)". Virou preguiçoso (parse na 1ª chamada).
-  - Baseline da suíte: **11 falhas / 1079 testes** (mocks de supabase +
-    matchers de categoria, pré-existentes). Se passar disso, algo do edge
-    voltou a quebrar a carga dos testes.
+  - Baseline da suíte: **0 falhas / 1181+ testes** desde 2026-09-03 (as 11
+    falhas crônicas — mocks de supabase sem .or/.gte + drifts de mktClassify/
+    searchUsers/signup — foram zeradas). QUALQUER falha agora é regressão
+    real: nunca mais normalizar teste vermelho.
 - **Chat 3-way (cliente + pintor + loja) — 2026-08-22.** Não existe tabela de
   conversas: tudo é `messages` com `conversation_id` texto (`uuidA_uuidB`
   ordenado no 1:1, prefixo `3way:` quando criado por essa via,

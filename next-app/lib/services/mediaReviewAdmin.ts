@@ -84,9 +84,10 @@ interface AnyRow {
 interface UpdateChain {
   eq: (col: string, val: string) => PromiseLike<{ error: AnyError | null }>;
 }
-interface InsertChain {
-  // Insert simples (sem .select()) basta — só queremos saber se houve erro.
-}
+// Insert simples (sem .select()) basta — só queremos saber se houve erro.
+// `object` em vez de interface vazia (lint no-empty-object-type): o chain do
+// insert não é consultado além do await do PromiseLike.
+type InsertChain = object;
 interface SelectChain {
   order: (col: string, opts: { ascending: boolean }) => SelectChain;
   limit: (n: number) => SelectChain;

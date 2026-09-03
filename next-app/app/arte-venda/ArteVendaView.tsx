@@ -104,7 +104,7 @@ export function ArteVendaView() {
           marginBottom: 14,
         }}
       >
-        Suas artes publicadas como "à venda". Aparecem no feed com badge de preço.
+        Suas artes publicadas como &quot;à venda&quot;. Aparecem no feed com badge de preço.
       </p>
 
       {/* Resumo */}

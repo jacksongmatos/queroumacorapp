@@ -295,8 +295,9 @@ export const MKT_MENU_LABEL: Record<string, string> = {
 };
 
 /**
- * Classifica um produto numa categoria do menu pelo nome. Espelha o vanilla
- * incluindo as exceções (vonixx → outros, metalatex/novacor → tintas).
+ * Classifica um produto numa categoria do menu pelo nome. Evoluiu do vanilla:
+ * exceções atuais — vonixx → estetica_automotiva, metalatex/novacor → tintas,
+ * esmalte sintético não-automotivo → madeiras_metais.
  */
 export function mktClassify(p: Pick<Product, 'name' | 'code'> | null | undefined): MktCategory {
   const n = ' ' + String((p && p.name) || '').toLowerCase() + ' ';

@@ -8,7 +8,8 @@
 
 'use client';
 
-import { useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { native } from '@/lib/native';
 
 export interface MediaUploaderProps {
   onFiles: (files: File[]) => void;
@@ -25,10 +26,29 @@ export function MediaUploader({
 }: MediaUploaderProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Câmera NATIVA (casca Capacitor com plugin Camera): botão extra, aditivo.
+  // Detecção no effect (não no render) — `window.Capacitor` só existe no
+  // client e o plugin pode registrar depois do 1º paint.
+  const [hasNativeCamera, setHasNativeCamera] = useState(false);
+  useEffect(() => {
+    setHasNativeCamera(native.camera.isAvailable());
+  }, []);
 
   function handleSelect() {
     if (disabled) return;
     inputRef.current?.click();
+  }
+
+  async function handleNativeCamera() {
+    if (disabled) return;
+    const result = await native.camera.takePhoto('CAMERA');
+    if (result.status === 'ok') {
+      onFiles([result.file]);
+      return;
+    }
+    // 'cancelled' = usuário desistiu no prompt nativo — não abrir outro
+    // seletor em cima. 'unavailable'/'error' = cai pro input file de sempre.
+    if (result.status !== 'cancelled') handleSelect();
   }
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
@@ -91,6 +111,21 @@ export function MediaUploader({
       <div className="text-xs text-[color:var(--color-muted)]">
         Até 5 fotos ou 1 vídeo · máx 50 MB
       </div>
+      {hasNativeCamera && accept.includes('image') && (
+        <button
+          type="button"
+          onClick={(e) => {
+            // Não deixar o clique borbulhar pro tile (que abriria o input).
+            e.stopPropagation();
+            void handleNativeCamera();
+          }}
+          disabled={disabled}
+          className="mt-1 px-4 py-2 rounded-full text-sm font-semibold text-white bg-[color:var(--color-p1)] disabled:opacity-50"
+          aria-label="Tirar foto com a câmera"
+        >
+          📸 Tirar foto
+        </button>
+      )}
       <input
         ref={inputRef}
         type="file"

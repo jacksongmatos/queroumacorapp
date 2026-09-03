@@ -415,7 +415,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
       {isStory ? (
         <div className="rounded-2xl border border-[color:var(--color-border)] bg-white p-4">
           <label htmlFor="story-link" className="block text-sm font-semibold mb-2">
-            Link "ver mais" (opcional)
+            Link &quot;ver mais&quot; (opcional)
           </label>
           <input
             id="story-link"

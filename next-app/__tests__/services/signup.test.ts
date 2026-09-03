@@ -361,11 +361,16 @@ describe('signUp', () => {
     }).signUp;
     expect(authMock.mock.calls.length).toBe(1);
     const arg = authMock.mock.calls[0][0];
+    // O metadata ganhou city/state/birth_date (a trigger handle_new_user lê
+    // dali) — sem os campos no input, vão como string vazia.
     expect(arg.options.data).toEqual({
       name: 'João Silva',
       tag: 'joaosilva',
       phone: '5511959765031',
       user_type: 'grafiteiro',
+      city: '',
+      state: '',
+      birth_date: '',
     });
   });
 });

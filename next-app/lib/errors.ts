@@ -31,9 +31,10 @@ export class AppError extends Error {
     this.cause = opts.cause ?? null;
     // Stack limpa no V8 (Node 18+). Em outros engines é no-op.
     if (typeof (Error as unknown as { captureStackTrace?: unknown }).captureStackTrace === 'function') {
-      (Error as unknown as { captureStackTrace: (t: object, c: Function) => void }).captureStackTrace(
+      type AnyFn = (...args: never[]) => unknown;
+      (Error as unknown as { captureStackTrace: (t: object, c: AnyFn) => void }).captureStackTrace(
         this,
-        this.constructor as unknown as Function
+        this.constructor as unknown as AnyFn
       );
     }
   }

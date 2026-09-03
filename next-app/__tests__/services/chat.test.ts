@@ -674,13 +674,17 @@ describe('searchUsers', () => {
     expect(ctl.spies.fromCalls).toHaveLength(0);
   });
 
-  it('filtra por nome (case-insensitive) e por tag', async () => {
+  it('filtra por nome e tag NO SERVIDOR (or/ilike) e mapeia o resultado', async () => {
+    // O filtro saiu do client: searchUsers monta `.or(name.ilike.%q%,
+    // tag.ilike.%q%)` e confia no PostgREST. O teste antigo devolvia 3 rows
+    // (com um Bob que não casa) e esperava filtragem client-side — ficou
+    // vermelho na baseline até a auditoria 2026-08-26 detectar o drift.
+    // Aqui o mock devolve o que o PostgREST devolveria pro filtro.
     const ctl = makeFakeClient({
       profiles_public: [
         {
           data: [
             { id: '1', name: 'Alice Painter', tag: 'alicep', avatar_url: null, role: 'pintor' },
-            { id: '2', name: 'Bob', tag: 'bob123', avatar_url: null, role: null },
             { id: '3', name: 'Carol', tag: 'aliceFan', avatar_url: null, role: null },
           ],
         },
@@ -688,7 +692,6 @@ describe('searchUsers', () => {
     });
     __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
     const out = await searchUsers('alice');
-    // Match por nome (Alice Painter) E por tag (aliceFan).
     expect(out.map((u) => u.id).sort()).toEqual(['1', '3']);
   });
 

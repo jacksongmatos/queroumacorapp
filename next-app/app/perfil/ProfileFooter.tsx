@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { useDialog } from '@/components/Dialog';
 import { PushOptIn } from '@/components/PushOptIn';
+import { NativePushOptIn } from '@/components/NativePushOptIn';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { startTour } from '@/lib/tour/storage';
 
@@ -28,6 +29,9 @@ export function ProfileFooter() {
   return (
     <div className="px-3.5 pt-5 pb-8 space-y-3">
       <PushOptIn />
+      {/* Push do app empacotado (FCM/APNs) — só renderiza na casca nativa,
+          exatamente onde o PushOptIn web se esconde. */}
+      <NativePushOptIn />
       <ThemeToggle />
       {/* Reabre o tour guiado dos botões do app (o mesmo que roda sozinho na
           primeira abertura). Como TopNav/BottomNav também estão montados
