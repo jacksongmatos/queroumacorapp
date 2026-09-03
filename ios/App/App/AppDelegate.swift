@@ -2,7 +2,7 @@
 //  AppDelegate.swift
 //  App
 //
-//  Capacitor 6 boilerplate for com.calicolors.queroumacor with
+//  Capacitor 6 boilerplate for br.com.queroumacor.app with
 //  Apple Push Notification service (APNs) registration wired in.
 //
 //  The Capacitor `@capacitor/push-notifications` plugin bridges the

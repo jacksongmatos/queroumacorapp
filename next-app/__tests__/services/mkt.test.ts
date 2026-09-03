@@ -213,7 +213,7 @@ describe('productBg', () => {
 // ─── funções puras: classify ──────────────────────────────────────────────
 
 describe('mktClassify', () => {
-  it('categoriza tintas por keyword (acrilica, esmalte, etc.)', () => {
+  it('categoriza tintas por keyword; esmalte sintético é madeiras & metais', () => {
     expect(mktClassify({ name: 'Tinta Acrílica Premium' })).toBe('tintas');
     // Esmalte sintético não-automotivo tem regra própria (é tinta de madeira
     // e metal) e cai em madeiras_metais, não no balaio de tintas imobiliárias.

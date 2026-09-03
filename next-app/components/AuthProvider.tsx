@@ -219,6 +219,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (provider: 'google' | 'apple'): Promise<{ error?: string }> => {
       const nome = provider === 'apple' ? 'Apple' : 'Google';
       try {
+        // Dentro da casca nativa (Capacitor), OAuth NÃO pode navegar a
+        // WebView — Google recusa (`disallowed_useragent`) e o App-Bound
+        // Domains do iOS bloqueia. O fluxo nativo abre o browser do sistema
+        // e volta por deep link (lib/native/auth.ts). Feature-detected: casca
+        // velha sem os plugins Browser/App cai no fluxo web de sempre.
+        const { native } = await import('@/lib/native');
+        if (native.oauth.isAvailable()) {
+          const res = await native.oauth.signIn(provider);
+          if (res.error === 'unavailable') {
+            // corrida rara (plugin sumiu entre o check e a chamada) — segue web
+          } else {
+            if (!res.error) {
+              // Sessão já gravada no client; mesmo landing do fluxo web, que
+              // decide entre /feed e onboarding.
+              window.location.assign('/completar-perfil');
+            }
+            return res;
+          }
+        }
         const sb = getSupabase();
         // redirectTo baseado no origin atual → funciona em produção e nos
         // previews (*.pages.dev). Precisa estar na allowlist de Redirect URLs

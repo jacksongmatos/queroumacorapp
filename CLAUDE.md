@@ -1,5 +1,82 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **P0 da auditoria de arquitetura FECHADOS no código (2026-09-03).** Ver
+  `ARCHITECTURE_AUDIT_2026-08-26.md`. Status:
+  - **C1 ✓** `gateProAI`/`gateProAIForm` agora retornam 401 pra anônimo/token
+    inválido (antes: requisição SEM token chegava na IA sem PRO, rate limit
+    nem cota). 6 testes de regressão em `__tests__/api/gate-anon.test.ts`.
+  - **C2 ✓ — CSP validada em produção (PR #163).** A fonte ÚNICA dos headers
+    de segurança é o `headers()` do `next.config.mjs` (CSP + Permissions-
+    Policy + COOP/CORP + CORS restrito em `/api/*`). O `_headers` da raiz NÃO
+    entra no output do Next-on-Pages (`.vercel/output/static`) — por isso a
+    política vive no next.config. NÃO recriar `next-app/public/_headers` com
+    CSP: seria uma segunda CSP divergente. `app/robots.ts` criado.
+    `assetlinks.json` servido de `next-app/public/.well-known/`. A CSP tem
+    `*.onrender.com` (Evolution API do WhatsApp) — revalidar com `curl -I` a
+    cada mudança.
+  - **C3/A-D1 ✓ — SQL JÁ EXECUTADO no Supabase (2026-09-03)**:
+    `/migrations/2026-09-03-fix-quotes-policy-and-is-portal-admin.sql`
+    (DROP da policy furada "View quotes active" + `is_portal_admin()`
+    recriada com padrão to_jsonb). Lado código do A-D1 feito:
+    `auth-server.ts` não seleciona mais `is_admin`. Não pedir pra rodar de
+    novo. (Sanidade rápida se admin sumir do /admin/*:
+    `SELECT prosrc FROM pg_proc WHERE proname='is_portal_admin';` — o corpo
+    deve conter `to_jsonb`.)
+  - **C4 ✓ — resolvido por PR #163 (2026-09-03).** Identidades são DISTINTAS
+    e corretas assim: **Android package = `br.com.queroumacor`** (Play
+    Console, `twa-manifest.json`, `.well-known/assetlinks.json` — SHA-256
+    real do App Signing Key já bate); **iOS bundle + scheme de deep link =
+    `br.com.queroumacor.app`** (Info.plist, `br.com.queroumacor.app://auth/
+    callback`). NÃO tentar "unificar" os dois — são de stores diferentes. O
+    product ID de billing segue `com.calicolors.queroumacor.pro.monthly`
+    (configurado nas stores; não renomear sem mexer lá).
+  - **C5 ✓ (código)** Suíte 100% verde, 0 erros de lint, ci.yml roda também
+    em push pra main, typecheck.yml duplicado deletado. Falta (painel
+    GitHub): branch protection exigindo o job `validate`.
+  - **C6 ✓** jspdf 2→4.2.1 (CRITICAL eliminada); next pinado EXATO em
+    `15.5.2` (teto do peer range do @cloudflare/next-on-pages — NÃO subir
+    next sem subir next-on-pages junto; caret ali quebra o npm ci). As ~26
+    vulns restantes do audit são upstream (advisory do next cobre todas as
+    versões; postcss/sharp vendored dele; resto só fecha com Sentry 10 major).
+  - **SQL Wave 39 — JÁ EXECUTADO no Supabase (2026-09-03)**:
+    `/migrations/2026-09-03-push-device-tokens.sql` (tabela
+    `push_device_tokens`, RLS user-owned, canal FCM/APNs separado do web
+    push). Rodado em 3 blocos de linha única — o editor do Supabase mutila
+    quebras de linha em paste grande (mesma pegadinha 42601 da Wave 26);
+    pra SQLs futuros, preferir statements em linha única no chat. Client
+    grava via `lib/services/pushTokens.ts` + `<NativePushOptIn>` no
+    ProfileFooter (só aparece na casca com plugin); o ENVIO server-side via
+    FCM ainda não existe (precisa de projeto Firebase + service account —
+    etapa futura). Não pedir pra rodar de novo.
+  - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
+    existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
+    galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto
+    (superado). `lib/native/camera` fica como primitivo do bridge (testado),
+    disponível pra outros usos.
+
+- **Fronteira nativa `lib/native/` + OAuth pelo browser do sistema
+  (2026-09-03).** Decisão de arquitetura: casca mobile continua CAPACITOR
+  (não React Native) — nativo entra como capacidade, não como segunda UI;
+  RN+Expo arquivado até o dia em que o roadmap pedir telas nativas.
+  `next-app/lib/native/` é a ÚNICA fronteira do web com a casca (acessa
+  `window.Capacitor` injetado, NUNCA importa `@capacitor/*` no bundle):
+  `platform` (detecção), `auth` (fluxo A de OAuth: `skipBrowserRedirect` →
+  `Browser.open` no navegador do sistema → deep link
+  `br.com.queroumacor.app://auth/callback` → `appUrlOpen` → parse do
+  fragment → `setSession` — resolve o `disallowed_useragent` do Google e o
+  App-Bound Domains do iOS), `camera` (base64→File; `cancelled` ≠
+  `unavailable`), `share`, `push` (só registro/token; persistência+FCM é o
+  próximo passo). Integrado no `AuthProvider.signInWithOAuth` com
+  feature-detection — browser/PWA/casca velha seguem no fluxo web intocado.
+  Tudo com timeout (promessa pendurada em WebView não rejeita). 12 testes
+  em `__tests__/native.test.ts`. Doc: `docs/NATIVE_BRIDGE.md`.
+  - **Componente novo NUNCA importa plugin/`window.Capacitor` direto — só
+    `@/lib/native`.**
+  - **PENDENTE (painel/casca, não código):** (1) adicionar
+    `br.com.queroumacor.app://auth/callback` nas Redirect URLs do Supabase
+    (sem isso o callback cai no Site URL e o login nativo não completa);
+    (2) na casca, instalar `@capacitor/{browser,app,camera,share,push-notifications}`
+    + `npx cap sync`; (3) tabela de device tokens + envio FCM pro push.
 - **"502 Bad gateway" VOLTOU no envio de WhatsApp — agora na ABORDAGEM DE
   LEAD (2026-08-31).** Não é a causa de 28/08 (número estrangeiro): o
   telefone do caso (`11 96268-0094`) é celular BR e passa correto pelo
@@ -1231,9 +1308,10 @@
     `admin-config.ts` parseava `ADMIN_EMAILS` no boot e o cache nascia
     sempre vazio → `isAdminEmail()` sempre false → "não autorizado (email
     não admin)". Virou preguiçoso (parse na 1ª chamada).
-  - Baseline da suíte: **11 falhas / 1079 testes** (mocks de supabase +
-    matchers de categoria, pré-existentes). Se passar disso, algo do edge
-    voltou a quebrar a carga dos testes.
+  - Baseline da suíte: **0 falhas / 1181+ testes** desde 2026-09-03 (as 11
+    falhas crônicas — mocks de supabase sem .or/.gte + drifts de mktClassify/
+    searchUsers/signup — foram zeradas). QUALQUER falha agora é regressão
+    real: nunca mais normalizar teste vermelho.
 - **Chat 3-way (cliente + pintor + loja) — 2026-08-22.** Não existe tabela de
   conversas: tudo é `messages` com `conversation_id` texto (`uuidA_uuidB`
   ordenado no 1:1, prefixo `3way:` quando criado por essa via,

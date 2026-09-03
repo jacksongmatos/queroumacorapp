@@ -43,16 +43,43 @@ const nextConfig = {
     const noCache = [
       { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
     ];
+    // FIX C2 (auditoria 2026-08-26): a CSP vivia só no `_headers` da RAIZ do
+    // repo, que fica fora do output do build — produção rodava sem CSP,
+    // Permissions-Policy e COOP/CORP. Agora o conjunto completo vive em DOIS
+    // lugares que se complementam no CF Pages: `public/_headers` (assets
+    // estáticos, HTML prerenderizado incluso) e aqui (rotas servidas pelo
+    // worker, /api/* incluso). Mudou um? Mude o outro — os valores são
+    // idênticos de propósito.
+    // CSP validada em produção/preview (PR #163). NÃO alterar sem revalidar
+    // com curl -I: `*.onrender.com` cobre a Evolution API do WhatsApp.
+    const csp =
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://*.sentry-cdn.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.onrender.com https://challenges.cloudflare.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://sentry.io https://*.sentry.io https://cdn.jsdelivr.net https://storage.googleapis.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests";
     return [
       {
         source: '/(.*)',
         headers: [
+          { key: 'Content-Security-Policy', value: csp },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
           { key: 'X-Frame-Options', value: 'DENY' },
-        { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://*.sentry-cdn.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.onrender.com https://challenges.cloudflare.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://sentry.io https://*.sentry.io https://cdn.jsdelivr.net https://storage.googleapis.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests" },
-          { key: 'Permissions-Policy', value: "microphone=(self), camera=(self), geolocation=(self), payment=(self), accelerometer=(), gyroscope=(), magnetometer=(), usb=()" },
+          { key: 'Permissions-Policy', value: 'microphone=(self), camera=(self), geolocation=(self), payment=(self), accelerometer=(), gyroscope=(), magnetometer=(), usb=()' },
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+        ],
+      },
+      {
+        // CORS restrito ao próprio domínio pras rotas de API (as respostas
+        // OPTIONS 204 das rotas não mandavam header CORS nenhum). Sem
+        // Cache-Control aqui de propósito: cada rota gerencia o seu
+        // (/api/cidades cacheia no CDN intencionalmente).
+        source: '/api/(.*)',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: 'https://queroumacor.com.br' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, DELETE, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization, X-Hub-Signature-256, X-Internal-Secret' },
+          { key: 'Access-Control-Max-Age', value: '600' },
+          { key: 'Vary', value: 'Origin' },
         ],
       },
       { source: '/portal', headers: noCache },

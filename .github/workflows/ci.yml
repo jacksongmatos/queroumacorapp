@@ -1,10 +1,11 @@
 name: CI
 
-# Roda em toda branch que NÃO é main (main já tem o deploy.yml) e em PRs
-# direcionados pra main. Falha bloqueia o merge (se branch protection ligar).
+# Roda em TODA branch (main inclusa — fix C5 da auditoria 2026-08-26: com
+# branches-ignore:[main], merge em main não rodava lint/typecheck/teste
+# nenhum, e o deploy automático do CF Pages não espera CI) e em PRs pra main.
+# Falha bloqueia o merge quando a branch protection exigir o job `validate`.
 on:
   push:
-    branches-ignore: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
