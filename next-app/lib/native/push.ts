@@ -1,32 +1,36 @@
-// push.ts — registro de push NATIVO (FCM/APNs) via plugin da casca.
+// push.ts — push NATIVO via @capacitor-firebase/messaging (plugin global
+// `FirebaseMessaging`). ESCOLHA DELIBERADA em vez de @capacitor/push-
+// notifications: aquele, no iOS, devolve o token do APNs — mas nosso
+// servidor (lib/api/_services/fcm.ts) envia por FCM HTTP v1, que espera um
+// token FCM. O FirebaseMessaging devolve token FCM nos DOIS sistemas (no
+// iOS o Firebase faz a ponte FCM→APNs, usando a APNs Auth Key configurada
+// no console), então um sender só cobre Android e iPhone.
 //
-// ESCOPO ATUAL: só o lado do device — pedir permissão, registrar e devolver
-// o token. A PERSISTÊNCIA (tabela de device tokens) e o ENVIO (FCM no
-// servidor, estendendo /api/push-notify) são o próximo passo do plano e NÃO
-// existem ainda: quem chamar isto hoje recebe o token e decide o que fazer.
-// O web push (VAPID/PushOptIn) é outro canal e continua intocado.
+// ESCOPO: só o lado do device — permissão, token e o toque na notificação.
+// A persistência (push_device_tokens) é pushTokens.ts; o envio é
+// /api/push-notify. O web push (VAPID/PushOptIn) é outro canal, intocado.
 
 import { getPlugin, isNativePlatform } from './platform';
 
-interface TokenEvent {
-  value: string;
-}
 interface ListenerHandle {
   remove: () => Promise<void> | void;
 }
 interface ActionEvent {
-  // Estrutura do @capacitor/push-notifications: o `data` da notificação
-  // (que o fcm.ts manda com `url`) vem em `notification.data`.
+  // FirebaseMessaging.notificationActionPerformed: o `data` (que o fcm.ts
+  // manda com `url`) vem em `notification.data`.
   notification?: { data?: Record<string, unknown> };
 }
-interface PushPlugin {
+interface FirebaseMessagingPlugin {
   requestPermissions: () => Promise<{ receive: 'granted' | 'denied' | 'prompt' }>;
-  register: () => Promise<void>;
+  getToken: () => Promise<{ token: string }>;
   addListener: (
-    event: 'registration' | 'registrationError' | 'pushNotificationActionPerformed',
-    cb: (ev: TokenEvent | { error?: unknown } | ActionEvent) => void,
+    event: 'notificationActionPerformed' | 'tokenReceived' | 'notificationReceived',
+    cb: (ev: ActionEvent | { token?: string }) => void,
   ) => Promise<ListenerHandle> | ListenerHandle;
 }
+
+const PLUGIN = 'FirebaseMessaging';
+const TOKEN_TIMEOUT_MS = 15_000; // lição do WebView: nada pendura sem teto
 
 /**
  * Extrai a rota interna de destino do `data` da notificação. Pura e
@@ -41,76 +45,46 @@ export function routeFromNotificationData(
   return url.startsWith('/') && !url.startsWith('//') ? url : null;
 }
 
-const REGISTRATION_TIMEOUT_MS = 15_000; // lição do WebView: nada pendura sem teto
-
+/** true quando o push nativo pode ser oferecido (casca + plugin presente). */
 export function isNativePushAvailable(): boolean {
-  return isNativePlatform() && !!getPlugin<PushPlugin>('PushNotifications');
+  return isNativePlatform() && !!getPlugin<FirebaseMessagingPlugin>(PLUGIN);
 }
 
 /**
- * Pede permissão e registra o device. Resolve com o token FCM/APNs, ou null
- * quando: fora da casca, plugin ausente, permissão negada, erro ou timeout.
+ * Pede permissão e devolve o token FCM (Android e iOS). Null quando: fora da
+ * casca, plugin ausente, permissão negada, erro ou timeout. `getToken()`
+ * resolve direto — não precisa do register + evento do plugin antigo.
  */
 export async function registerNativePush(): Promise<string | null> {
-  const push = getPlugin<PushPlugin>('PushNotifications');
-  if (!isNativePlatform() || !push) return null;
+  const fm = getPlugin<FirebaseMessagingPlugin>(PLUGIN);
+  if (!isNativePlatform() || !fm) return null;
   try {
-    const perm = await push.requestPermissions();
+    const perm = await fm.requestPermissions();
     if (perm.receive !== 'granted') return null;
-    return await new Promise<string | null>((resolve) => {
-      let settled = false;
-      const handles: ListenerHandle[] = [];
-      const finish = (token: string | null) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        for (const h of handles) {
-          try {
-            void h.remove();
-          } catch {
-            /* já removido */
-          }
-        }
-        resolve(token);
-      };
-      const timer = setTimeout(() => finish(null), REGISTRATION_TIMEOUT_MS);
-      Promise.all([
-        Promise.resolve(
-          push.addListener('registration', (ev) =>
-            finish((ev as TokenEvent).value ?? null),
-          ),
-        ),
-        Promise.resolve(
-          push.addListener('registrationError', () => finish(null)),
-        ),
-      ])
-        .then((hs) => {
-          handles.push(...hs);
-          return push.register();
-        })
-        .catch(() => finish(null));
-    });
+    const result = await Promise.race([
+      fm.getToken(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), TOKEN_TIMEOUT_MS)),
+    ]);
+    return result?.token ?? null;
   } catch {
     return null;
   }
 }
 
 /**
- * Registra o handler de TOQUE na notificação: quando o usuário toca numa
- * push (com o app aberto ou fechado), o SO entrega o evento e navegamos pra
- * rota do `data.url`. Sem isto, o toque abre o app SEMPRE na tela inicial —
- * a notificação perde o destino. `onNavigate` é injetado por um componente
- * client (tem o router do Next). Retorna uma função de cleanup.
- * No-op fora da casca / sem plugin.
+ * Registra o handler de TOQUE na notificação: ao tocar numa push (app aberto
+ * ou fechado), navega pro `data.url` que o servidor mandou. Sem isto, o toque
+ * abre o app SEMPRE na tela inicial. `onNavigate` é injetado por um componente
+ * client (tem o router do Next). Retorna cleanup. No-op fora da casca.
  */
 export function initNativePushTapRouting(
   onNavigate: (path: string) => void,
 ): () => void {
-  const push = getPlugin<PushPlugin>('PushNotifications');
-  if (!isNativePlatform() || !push) return () => {};
+  const fm = getPlugin<FirebaseMessagingPlugin>(PLUGIN);
+  if (!isNativePlatform() || !fm) return () => {};
   let handle: ListenerHandle | undefined;
   Promise.resolve(
-    push.addListener('pushNotificationActionPerformed', (ev) => {
+    fm.addListener('notificationActionPerformed', (ev) => {
       const path = routeFromNotificationData((ev as ActionEvent).notification?.data);
       if (path) onNavigate(path);
     }),

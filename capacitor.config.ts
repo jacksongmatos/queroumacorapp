@@ -55,12 +55,12 @@ const config: CapacitorConfig = {
     webContentsDebuggingEnabled: false,
   },
   plugins: {
-    // Push nativo (FCM no Android, APNs no iOS). O device token registrado
-    // é persistido em `push_device_tokens` por lib/services/pushTokens.ts;
-    // o envio server-side é /api/push-notify (canal FCM em lib/api/_services/
-    // fcm.ts). `presentationOptions` controla como a notificação aparece com
-    // o app em foreground no iOS.
-    PushNotifications: {
+    // Push nativo via @capacitor-firebase/messaging — devolve token FCM no
+    // Android E no iOS (o Firebase faz a ponte FCM→APNs). O token é
+    // persistido em `push_device_tokens` (lib/services/pushTokens.ts) e o
+    // envio server-side é FCM HTTP v1 (lib/api/_services/fcm.ts).
+    // `presentationOptions` controla a notificação em foreground no iOS.
+    FirebaseMessaging: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
   },

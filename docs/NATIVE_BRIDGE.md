@@ -44,34 +44,55 @@ feature-detection; browser/PWA seguem no fluxo web intocado.
       derivar, adicionar `br.com.queroumacor://auth/callback` como 2ª
       Redirect URL e ajustar `NATIVE_OAUTH_REDIRECT`. iOS já está certo
       (scheme = bundle `br.com.queroumacor.app`).
-- [x] Deps dos plugins já no `package.json` da raiz (`@capacitor/browser`,
-      `app`, `camera`, `share`, `push-notifications`, `@capacitor/android`).
-      Falta rodar na MÁQUINA DE BUILD (precisa de Android SDK/Xcode, não roda
-      no CI/remoto): `npm install` → `npx cap add android` → `npx cap sync`.
-- [x] Envio FCM server-side FEITO em código (`lib/api/_services/fcm.ts`,
-      canal nativo do `/api/push-notify`). Falta a config (abaixo).
+- [x] Deps dos plugins no `package.json` da raiz: `@capacitor/browser`,
+      `app`, `camera`, `share`, `@capacitor/android`, e — pro push —
+      **`@capacitor-firebase/messaging`** (NÃO `@capacitor/push-notifications`,
+      ver nota abaixo). Falta rodar na MÁQUINA DE BUILD (Android SDK/Xcode):
+      `npm install` → `npx cap add android` → `npx cap sync`.
+- [x] Envio FCM server-side FEITO (`lib/api/_services/fcm.ts`, canal nativo
+      do `/api/push-notify`). Cliente: `lib/native/push.ts`. Falta a config.
+
+> **Por que `@capacitor-firebase/messaging` e não `@capacitor/push-notifications`:**
+> no iOS o `@capacitor/push-notifications` devolve o token do **APNs**, mas o
+> `fcm.ts` envia por **FCM HTTP v1**, que espera um token **FCM**. O
+> `@capacitor-firebase/messaging` devolve token FCM nos DOIS sistemas (no iOS
+> o Firebase faz a ponte FCM→APNs via a APNs Auth Key), então um sender só
+> cobre Android e iPhone. `push.ts` usa o global `FirebaseMessaging`.
 
 ## Push nativo — o que falta ligar (config, não código)
 
-O código do envio está pronto: `/api/push-notify` manda pros DOIS canais —
-Web Push (VAPID, quem já existia) e FCM/APNs (novo, `fcm.ts`), cada um
-independente do outro. Pra o canal nativo sair do papel:
+O envio já manda pros DOIS canais — Web Push (VAPID) e FCM (novo), cada um
+independente. Passo-a-passo do Firebase:
 
-1. **Firebase**: criar/usar um projeto Firebase, adicionar o app Android
-   (package `br.com.queroumacor`) e iOS (bundle `br.com.queroumacor.app`),
-   baixar `google-services.json` (Android) / `GoogleService-Info.plist`
-   (iOS) e colocá-los no projeto nativo após `cap add`. Gerar uma **service
-   account** (Configurações → Contas de serviço → Gerar nova chave privada).
-2. **3 envs no CF Pages (Secret)**, do JSON da service account:
-   `FCM_PROJECT_ID` (`project_id`), `FCM_CLIENT_EMAIL` (`client_email`),
-   `FCM_PRIVATE_KEY` (`private_key` — cola com os `\n` literais; o `fcm.ts`
-   normaliza). Sem elas, o canal nativo fica inerte e o web push segue
-   funcionando (nenhum 503 novo).
-3. **iOS**: subir a APNs Auth Key (.p8) no Firebase (Cloud Messaging), pra
-   ele falar com a Apple.
+### 1. Projeto + apps
+- console.firebase.google.com → **Adicionar projeto** (ou usar um existente).
+- **App Android**: pacote `br.com.queroumacor` (o do Play, SEM `.app`) →
+  baixar `google-services.json` → vai em `android/app/` após `cap add android`.
+- **App iOS**: bundle `br.com.queroumacor.app` (o do Info.plist, COM `.app`) →
+  baixar `GoogleService-Info.plist` → vai em `ios/App/App/` (adicionar ao
+  target no Xcode).
 
-Teste ponta a ponta: com as envs setadas, um POST em `/api/push-notify`
-(header `x-internal-secret`) responde `{"native":{"sent":N,...}}`.
+### 2. APNs (obrigatório pro push chegar no iPhone)
+- Apple Developer → Keys → criar Key com **APNs** habilitado → baixar `.p8`
+  (só baixa uma vez); anotar **Key ID** e **Team ID**.
+- Firebase → ⚙️ Configurações → **Cloud Messaging** → app iOS → **APNs
+  Authentication Key** → upload do `.p8` + Key ID + Team ID.
+
+### 3. Service account → 3 envs no CF Pages (Secret)
+- Firebase → ⚙️ Configurações → **Contas de serviço** → **Gerar nova chave
+  privada** → baixa um JSON. Mapeia:
+  - `project_id`  → `FCM_PROJECT_ID`
+  - `client_email` → `FCM_CLIENT_EMAIL`
+  - `private_key`  → `FCM_PRIVATE_KEY` (cola com os `\n` literais; `fcm.ts`
+    normaliza)
+- Marcar as 3 como **Secret** (Production) e **redeploy** (envs só entram no
+  build/runtime novo). Sem elas o canal nativo fica inerte e o web push segue
+  igual (nenhum 503 novo).
+- O **FCM API V1** já vem habilitado; NÃO precisa da "Server Key"/API Legacy.
+
+### 4. Teste ponta a ponta
+Com as envs + um device registrado: `POST /api/push-notify` (header
+`x-internal-secret`) → resposta `{"native":{"sent":N,...}}`.
 
 ## Android — intent-filter do deep link do OAuth (após `cap add android`)
 

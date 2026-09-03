@@ -83,8 +83,11 @@
   - **PENDENTE (painel/casca, não código):** (1) adicionar
     `br.com.queroumacor.app://auth/callback` nas Redirect URLs do Supabase
     (sem isso o callback cai no Site URL e o login nativo não completa);
-    (2) na casca, instalar `@capacitor/{browser,app,camera,share,push-notifications}`
-    + `npx cap sync`; (3) tabela de device tokens + envio FCM pro push.
+    (2) na casca, instalar `@capacitor/{browser,app,camera,share}` +
+    **`@capacitor-firebase/messaging`** (NÃO `@capacitor/push-notifications`:
+    no iOS aquele devolve token APNs, e o `fcm.ts` envia por FCM v1 que quer
+    token FCM; o firebase/messaging devolve FCM nos dois SOs) + `npx cap
+    sync`; (3) config do Firebase + 3 envs FCM (ver `docs/NATIVE_BRIDGE.md`).
 - **"502 Bad gateway" VOLTOU no envio de WhatsApp — agora na ABORDAGEM DE
   LEAD (2026-08-31).** Não é a causa de 28/08 (número estrangeiro): o
   telefone do caso (`11 96268-0094`) é celular BR e passa correto pelo
