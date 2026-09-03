@@ -243,22 +243,25 @@ export function AiArtStudio() {
           🚫
         </div>
         <h2 className="font-semibold mb-2">Limite diário atingido</h2>
+        {/* Sem copy de compra/preço aqui de propósito: o PRO é ativado SÓ por
+            pontos (não há pagamento no app), então "assine"/"compre pacote"
+            além de errado quebrava a compliance de loja (Apple 3.1.1 / Play).
+            Free vira PRO trocando pontos; quem já é PRO só espera o dia virar. */}
         <p className="text-sm text-[color:var(--color-muted)] mb-4">
           {isPro
-            ? 'Você usou as 2 artes incluídas de hoje. Volta amanhã ou compre um pacote pra continuar.'
-            : 'Você usou seus 5 créditos grátis de hoje. Volta amanhã, assine PRO ou compre um pacote.'}
+            ? 'Você usou as 2 artes incluídas de hoje. Volta amanhã pra continuar.'
+            : 'Você usou seus 5 créditos grátis de hoje. Volta amanhã ou ative o PRO pra ter mais.'}
         </p>
-        <div className="flex flex-col gap-2 items-center">
-          <Link
-            href="/pro"
-            className="inline-block px-5 py-2 bg-gradient-to-br from-[#8338ec] to-[color:var(--color-p1)] text-white rounded-xl font-semibold"
-          >
-            {isPro ? '🎁 Comprar pacote (R$1/imagem)' : 'Conhecer PRO'}
-          </Link>
-          <span className="text-xs text-[color:var(--color-muted)]">
-            Pacote mínimo R$ 10 (10 imagens)
-          </span>
-        </div>
+        {!isPro ? (
+          <div className="flex flex-col gap-2 items-center">
+            <Link
+              href="/pro"
+              className="inline-block px-5 py-2 bg-gradient-to-br from-[#8338ec] to-[color:var(--color-p1)] text-white rounded-xl font-semibold"
+            >
+              Conhecer o PRO
+            </Link>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -274,12 +277,14 @@ export function AiArtStudio() {
           </span>
           {creditsBadge}
         </div>
-        {!isAdminUser && ai.creditsLeft <= 1 ? (
+        {/* Só oferece o PRO pra quem NÃO é PRO — e sem "pacote"/preço (o PRO
+            é por pontos). Pra quem já é PRO, nada a comprar. */}
+        {!isAdminUser && !isPro && ai.creditsLeft <= 1 ? (
           <Link
             href="/pro"
             className="text-xs font-bold text-[color:var(--color-p1)]"
           >
-            +Pacote
+            PRO
           </Link>
         ) : null}
       </div>

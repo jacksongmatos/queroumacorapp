@@ -14,13 +14,31 @@ interface TokenEvent {
 interface ListenerHandle {
   remove: () => Promise<void> | void;
 }
+interface ActionEvent {
+  // Estrutura do @capacitor/push-notifications: o `data` da notificação
+  // (que o fcm.ts manda com `url`) vem em `notification.data`.
+  notification?: { data?: Record<string, unknown> };
+}
 interface PushPlugin {
   requestPermissions: () => Promise<{ receive: 'granted' | 'denied' | 'prompt' }>;
   register: () => Promise<void>;
   addListener: (
-    event: 'registration' | 'registrationError',
-    cb: (ev: TokenEvent | { error?: unknown }) => void,
+    event: 'registration' | 'registrationError' | 'pushNotificationActionPerformed',
+    cb: (ev: TokenEvent | { error?: unknown } | ActionEvent) => void,
   ) => Promise<ListenerHandle> | ListenerHandle;
+}
+
+/**
+ * Extrai a rota interna de destino do `data` da notificação. Pura e
+ * exportada pra teste. Só aceita path relativo que começa com "/" (anti
+ * open-redirect: uma notificação forjada não deve navegar pra fora).
+ */
+export function routeFromNotificationData(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const url = data?.url;
+  if (typeof url !== 'string') return null;
+  return url.startsWith('/') && !url.startsWith('//') ? url : null;
 }
 
 const REGISTRATION_TIMEOUT_MS = 15_000; // lição do WebView: nada pendura sem teto
@@ -75,4 +93,39 @@ export async function registerNativePush(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Registra o handler de TOQUE na notificação: quando o usuário toca numa
+ * push (com o app aberto ou fechado), o SO entrega o evento e navegamos pra
+ * rota do `data.url`. Sem isto, o toque abre o app SEMPRE na tela inicial —
+ * a notificação perde o destino. `onNavigate` é injetado por um componente
+ * client (tem o router do Next). Retorna uma função de cleanup.
+ * No-op fora da casca / sem plugin.
+ */
+export function initNativePushTapRouting(
+  onNavigate: (path: string) => void,
+): () => void {
+  const push = getPlugin<PushPlugin>('PushNotifications');
+  if (!isNativePlatform() || !push) return () => {};
+  let handle: ListenerHandle | undefined;
+  Promise.resolve(
+    push.addListener('pushNotificationActionPerformed', (ev) => {
+      const path = routeFromNotificationData((ev as ActionEvent).notification?.data);
+      if (path) onNavigate(path);
+    }),
+  )
+    .then((h) => {
+      handle = h;
+    })
+    .catch(() => {
+      /* plugin recusou o listener — toque cai na tela inicial (degradação ok) */
+    });
+  return () => {
+    try {
+      void handle?.remove();
+    } catch {
+      /* já removido */
+    }
+  };
 }
