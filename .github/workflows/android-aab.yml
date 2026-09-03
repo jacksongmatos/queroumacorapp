@@ -1,0 +1,134 @@
+name: Android AAB (Capacitor)
+
+# Gera e ASSINA o AAB do Capacitor (o app definitivo — NÃO o WebIntoApp, que é
+# WebView pura sem push/câmera/OAuth nativo). Dispara só na mão (Run workflow);
+# o .aab sai como artifact da run, pra subir na Play Console (Internal Testing).
+#
+# Secrets necessários (Settings > Secrets and variables > Actions):
+#   ANDROID_KEYSTORE_BASE64     -> `base64 -w0 my-release-key.jks`
+#   ANDROID_KEYSTORE_PASSWORD   -> senha do keystore (store)
+#   ANDROID_KEY_ALIAS           -> alias da key
+#   ANDROID_KEY_PASSWORD        -> senha da key
+#   GOOGLE_SERVICES_JSON_BASE64 -> (opcional) `base64 -w0 google-services.json`;
+#                                  sem ele o AAB compila, mas o push FCM não
+#                                  registra token no aparelho.
+#
+# O keystore e as senhas NUNCA entram no repo — só existem como secret e são
+# materializados dentro da run (que é efêmera).
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: 'versionName (ex.: 1.2). Vazio = usa o do build.gradle.'
+        required: false
+        default: ''
+      versionCode:
+        description: 'versionCode (ex.: 10200). Vazio = usa o do build.gradle.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Java (JDK 17 — exigido pelo AGP 8.2)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install deps (Capacitor CLI + plugins)
+        run: npm ci
+
+      # webDir (next-app/.next/static) não existe em checkout limpo, e o app
+      # carrega tudo de server.url — então um placeholder basta pro `cap sync`
+      # gerar o capacitor.config.json (que carrega server.url) nos assets.
+      - name: Placeholder webDir
+        run: mkdir -p next-app/.next/static && echo '<!doctype html><title>QueroUmaCor</title>' > next-app/.next/static/index.html
+
+      - name: Capacitor sync (android)
+        run: npx cap sync android
+
+      # google-services.json — só se o secret existir. Mapeado pra env porque
+      # secret não pode ir direto num `if:`.
+      - name: Decode google-services.json (se houver)
+        env:
+          GS_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GS_B64" ]; then
+            echo "$GS_B64" | base64 -d > android/app/google-services.json
+            echo "google-services.json escrito (FCM habilitado no build)."
+          else
+            echo "SEM GOOGLE_SERVICES_JSON_BASE64 — AAB compila, mas push FCM não registra token."
+          fi
+
+      - name: Aplicar versionName/versionCode (se informados)
+        env:
+          VN: ${{ github.event.inputs.versionName }}
+          VC: ${{ github.event.inputs.versionCode }}
+        run: |
+          GRADLE=android/app/build.gradle
+          if [ -n "$VN" ]; then
+            sed -i "s/versionName \"[^\"]*\"/versionName \"$VN\"/" "$GRADLE"
+            echo "versionName -> $VN"
+          fi
+          if [ -n "$VC" ]; then
+            sed -i "s/versionCode [0-9]\+/versionCode $VC/" "$GRADLE"
+            echo "versionCode -> $VC"
+          fi
+          grep -E "versionName|versionCode" "$GRADLE"
+
+      - name: Decode keystore + key.properties
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_BASE64 ausente — não dá pra assinar o AAB."
+            exit 1
+          fi
+          echo "$KS_B64" | base64 -d > android/app/release.keystore
+          cat > android/key.properties <<EOF
+          storeFile=release.keystore
+          storePassword=$KS_PASS
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASS
+          EOF
+          echo "keystore + key.properties prontos."
+
+      - name: Build AAB assinado
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew bundleRelease --no-daemon --stacktrace
+
+      - name: Limpar segredos materializados
+        if: always()
+        run: rm -f android/key.properties android/app/release.keystore android/app/google-services.json
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: queroumacor-release-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 14

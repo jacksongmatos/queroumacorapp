@@ -35,3 +35,9 @@ key.properties
 android/key.properties
 # iOS: chave de assinatura APNs
 *.p8
+# Firebase: config do app. NÃO é segredo forte (vai no APK), mas não deve ser
+# commitada — o CI a materializa de um secret e apaga na hora (android-aab.yml).
+google-services.json
+GoogleService-Info.plist
+# Keystore materializado pelo CI dentro da run
+android/app/release.keystore
