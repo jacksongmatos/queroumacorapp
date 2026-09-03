@@ -1,5 +1,5 @@
 {
-  "packageId": "com.calicolors.queroumacor",
+  "packageId": "br.com.queroumacor",
   "host": "queroumacor.com.br",
   "name": "QueroUmaCor",
   "launcherName": "QueroUmaCor",
@@ -49,7 +49,7 @@
   "fingerprints": [
     {
       "name": "release",
-      "value": "REPLACE_WITH_REAL_SHA256_FROM_KEYSTORE"
+      "value": "D5:0E:E0:09:24:6B:21:18:9A:A3:98:EB:45:96:6D:45:B5:65:85:66:39:9C:B5:C8:88:B6:84:DF:C5:F8:75:39"
     }
   ],
   "minSdkVersion": 23,
