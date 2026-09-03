@@ -1,5 +1,29 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **Fronteira nativa `lib/native/` + OAuth pelo browser do sistema
+  (2026-09-03).** Decisão de arquitetura: casca mobile continua CAPACITOR
+  (não React Native) — nativo entra como capacidade, não como segunda UI;
+  RN+Expo arquivado até o dia em que o roadmap pedir telas nativas.
+  `next-app/lib/native/` é a ÚNICA fronteira do web com a casca (acessa
+  `window.Capacitor` injetado, NUNCA importa `@capacitor/*` no bundle):
+  `platform` (detecção), `auth` (fluxo A de OAuth: `skipBrowserRedirect` →
+  `Browser.open` no navegador do sistema → deep link
+  `br.com.queroumacor.app://auth/callback` → `appUrlOpen` → parse do
+  fragment → `setSession` — resolve o `disallowed_useragent` do Google e o
+  App-Bound Domains do iOS), `camera` (base64→File; `cancelled` ≠
+  `unavailable`), `share`, `push` (só registro/token; persistência+FCM é o
+  próximo passo). Integrado no `AuthProvider.signInWithOAuth` com
+  feature-detection — browser/PWA/casca velha seguem no fluxo web intocado.
+  Tudo com timeout (promessa pendurada em WebView não rejeita). 12 testes
+  em `__tests__/native.test.ts`. Doc: `docs/NATIVE_BRIDGE.md`.
+  - **Componente novo NUNCA importa plugin/`window.Capacitor` direto — só
+    `@/lib/native`.**
+  - **PENDENTE (painel/casca, não código):** (1) adicionar
+    `br.com.queroumacor.app://auth/callback` nas Redirect URLs do Supabase
+    (sem isso o callback cai no Site URL e o login nativo não completa);
+    (2) na casca, instalar `@capacitor/{browser,app,camera,share,push-notifications}`
+    + `npx cap sync`; (3) tabela de device tokens + envio FCM pro push.
+
 - **WhatsApp Cloud API — LIVE ponta a ponta (2026-08-25).** O número
   oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA
   `102067872689175`, Phone Number ID `109293361953640`, app "CaliColors
