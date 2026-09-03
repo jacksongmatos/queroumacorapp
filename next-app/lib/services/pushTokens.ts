@@ -6,9 +6,6 @@
 // RLS user-owned do web push: o client grava a própria linha; o ENVIO
 // (server → FCM) lê via service_role e é a etapa seguinte do plano.
 //
-// Cast manual no `from`: tabela ainda fora do database.types.ts gerado —
-// mesma pendência documentada das Waves 25/26 (rodar `supabase gen types`).
-
 import { getSupabase } from '../supabase';
 import { native } from '../native';
 
@@ -34,14 +31,7 @@ export async function registerDeviceToken(
   if (!token) return { ok: false, reason: 'denied' };
   try {
     const sb = getSupabase();
-    const { error } = await (
-      sb.from as unknown as (t: string) => {
-        upsert: (
-          row: Record<string, unknown>,
-          opts: { onConflict: string },
-        ) => PromiseLike<{ error: { message: string } | null }>;
-      }
-    )('push_device_tokens').upsert(
+    const { error } = await sb.from('push_device_tokens').upsert(
       {
         user_id: userId,
         token,
