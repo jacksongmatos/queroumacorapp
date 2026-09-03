@@ -90,7 +90,9 @@ export function CalcView() {
   // justification. Popula o input automaticamente.
   async function handleEstimar() {
     if (!isPro) {
-      showToast('Recurso PRO — assine para liberar', 'info');
+      // "assine" implicava assinatura paga — mas PRO é só por pontos (sem
+      // pagamento no app). Copy alinhada ao modelo real + compliance de loja.
+      showToast('Recurso PRO — ative trocando seus pontos', 'info');
       return;
     }
     fileRef.current?.click();

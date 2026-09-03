@@ -16,6 +16,7 @@ import {
   parseAuthCallbackUrl,
   takePhotoNative,
   registerNativePush,
+  routeFromNotificationData,
   shareNative,
   NATIVE_OAUTH_REDIRECT,
 } from '../lib/native';
@@ -133,5 +134,22 @@ describe('parseAuthCallbackUrl', () => {
     expect(parseAuthCallbackUrl('br.com.queroumacor.app://outro/caminho#x=1')).toEqual({});
     expect(parseAuthCallbackUrl('https://queroumacor.com.br/#access_token=A')).toEqual({});
     expect(parseAuthCallbackUrl('')).toEqual({});
+  });
+});
+
+describe('routeFromNotificationData (toque na push → rota)', () => {
+  it('aceita path relativo do data.url', () => {
+    expect(routeFromNotificationData({ url: '/chat' })).toBe('/chat');
+    expect(routeFromNotificationData({ url: '/perfil/abc' })).toBe('/perfil/abc');
+  });
+  it('recusa URL externa / protocol-relative (anti open-redirect)', () => {
+    expect(routeFromNotificationData({ url: 'https://evil.com' })).toBeNull();
+    expect(routeFromNotificationData({ url: '//evil.com' })).toBeNull();
+    expect(routeFromNotificationData({ url: 'javascript:alert(1)' })).toBeNull();
+  });
+  it('sem url / tipo errado → null', () => {
+    expect(routeFromNotificationData(undefined)).toBeNull();
+    expect(routeFromNotificationData({})).toBeNull();
+    expect(routeFromNotificationData({ url: 42 as unknown as string })).toBeNull();
   });
 });

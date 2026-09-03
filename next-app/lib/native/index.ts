@@ -23,13 +23,22 @@ export { isNativeCameraAvailable, takePhotoNative } from './camera';
 export type { NativePhotoResult } from './camera';
 export { shareNative } from './share';
 export type { SharePayload } from './share';
-export { isNativePushAvailable, registerNativePush } from './push';
+export {
+  isNativePushAvailable,
+  registerNativePush,
+  initNativePushTapRouting,
+  routeFromNotificationData,
+} from './push';
 
 import { getNativePlatform, isNativePlatform } from './platform';
 import { isNativeOAuthAvailable, nativeSignInWithOAuth } from './auth';
 import { isNativeCameraAvailable, takePhotoNative } from './camera';
 import { shareNative } from './share';
-import { isNativePushAvailable, registerNativePush } from './push';
+import {
+  isNativePushAvailable,
+  registerNativePush,
+  initNativePushTapRouting,
+} from './push';
 
 /** Fachada única — preferir `native.x()` nos call sites. */
 export const native = {
@@ -38,5 +47,9 @@ export const native = {
   oauth: { isAvailable: isNativeOAuthAvailable, signIn: nativeSignInWithOAuth },
   camera: { isAvailable: isNativeCameraAvailable, takePhoto: takePhotoNative },
   share: shareNative,
-  push: { isAvailable: isNativePushAvailable, register: registerNativePush },
+  push: {
+    isAvailable: isNativePushAvailable,
+    register: registerNativePush,
+    initTapRouting: initNativePushTapRouting,
+  },
 };

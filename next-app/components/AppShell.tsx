@@ -18,6 +18,7 @@ import { hasStoredSession } from '@/lib/sessionStorageHybrid';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
+import { NativePushRouter } from './NativePushRouter';
 import { AppTour } from './AppTour';
 import { PickerRecovery } from './PickerRecovery';
 import { BackGuard } from './BackGuard';
@@ -174,6 +175,8 @@ export function AppShell({
       style={{ height: '100dvh' }}
     >
       <RealtimeBindings />
+      {/* Toque em push nativa → navega pro data.url (no-op fora da casca). */}
+      <NativePushRouter />
       {/* App morto pelo Android enquanto a galeria estava aberta: devolve a
           pessoa pra tela onde ela estava, em vez de largá-la no feed sem a
           foto e sem explicação. Ver components/PickerRecovery.tsx. */}
