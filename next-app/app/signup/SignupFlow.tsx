@@ -10,7 +10,7 @@
 //  Step 1 → role selector
 //  Step 2 → name/tag/email/phone
 //  Step 3 → senha + termos (sem invite code)
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { signUp } from '@/lib/services/signup';
@@ -18,6 +18,8 @@ import { ConflictError, ValidationError } from '@/lib/errors';
 import type { UserRole } from '@/lib/types';
 import { readPendingReferrer, clearPendingReferrer } from '@/components/ReferralCapture';
 import { SocialAuthButtons } from '@/components/SocialAuthButtons';
+import { reportFailure } from '@/lib/utils/reportFailure';
+import { showToast } from '@/lib/toast';
 import { SignupStep1, type Step1Data } from './SignupStep1';
 import { SignupStep2, type Step2Data } from './SignupStep2';
 import { SignupStep3, type Step3Data } from './SignupStep3';
@@ -36,12 +38,78 @@ interface DraftSignup {
   avatarFile?: File | null;
 }
 
+// Rascunho persistido (2026-08-28): no wrapper Android, abrir a galeria pra
+// escolher a foto manda o app pro fundo e o sistema pode MATAR o processo —
+// ao voltar, a página recarrega e o cadastro inteiro se perdia (o state era
+// só memória). O rascunho agora vai pro localStorage (sessionStorage NÃO
+// sobrevive à morte do processo na WebView) com validade curta, e é limpo no
+// sucesso. A senha NUNCA entra aqui (vive só no form do passo 3); o arquivo
+// da foto também não (File não serializa) — só os campos digitados.
+const DRAFT_KEY = 'signup_draft_v1';
+const DRAFT_TTL_MS = 30 * 60 * 1000; // 30 min
+
+function saveDraft(step: Step, draft: DraftSignup): void {
+  try {
+    const { avatarFile: _omit, ...rest } = draft;
+    window.localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({ step, draft: rest, savedAt: Date.now() }),
+    );
+  } catch {
+    // storage indisponível — segue só em memória, como antes.
+  }
+}
+
+function readDraft(): { step: Step; draft: DraftSignup } | null {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      step?: number;
+      draft?: DraftSignup;
+      savedAt?: number;
+    };
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > DRAFT_TTL_MS) {
+      window.localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+    const step: Step = parsed.step === 2 || parsed.step === 3 ? parsed.step : 1;
+    return { step, draft: parsed.draft ?? {} };
+  } catch {
+    return null;
+  }
+}
+
+export function clearSignupDraft(): void {
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignora
+  }
+}
+
 export function SignupFlow() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [draft, setDraft] = useState<DraftSignup>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Restaura o rascunho salvo (recarga no meio do cadastro — ver comentário
+  // do DRAFT_KEY). Em useEffect, não no initializer: o initializer rodaria
+  // diferente no server (sem localStorage) e quebraria a hidratação.
+  useEffect(() => {
+    const saved = readDraft();
+    if (saved && (saved.step > 1 || Object.keys(saved.draft).length > 0)) {
+      setDraft((d) => ({ ...saved.draft, ...d }));
+      setStep(saved.step);
+    }
+  }, []);
+
+  // Persiste a cada avanço/edição de passo.
+  useEffect(() => {
+    if (step > 1 || draft.userType) saveDraft(step, draft);
+  }, [step, draft]);
   // Referral (opcional): lido sob demanda via readPendingReferrer() no
   // submit (gravado pelo ReferralCapture quando o link com ?ref=<userId>
   // pousa em qualquer rota). Se vazio, o cadastro segue normalmente — só
@@ -112,8 +180,18 @@ export function SignupFlow() {
           // updateProfile separado pra setar avatar_url no row do user.
           const { updateProfile } = await import('@/lib/services/profile');
           await updateProfile(userId, { avatar_url: url });
-        } catch {
-          /* silent — user pode subir depois via /perfil/editar */
+        } catch (e) {
+          // P4 (01/09/2026): era `catch {}` mudo. A pessoa escolhia a foto no
+          // passo 2, o upload falhava e ninguém — nem ela, nem o
+          // /admin/errors — ficava sabendo. Enquanto o bug de MIME do
+          // seletor do Android esteve vivo, ISTO escondeu a falha em todo
+          // cadastro novo. Segue best-effort (não invalida a conta), mas
+          // agora deixa rastro e avisa.
+          reportFailure('avatar-fail', e, { userId, ctx: 'signup' });
+          // Toast e não state: o cadastro redireciona logo em seguida, e o
+          // `ToastViewport` vive no layout raiz — então a mensagem sobrevive
+          // à navegação e a pessoa sabe que precisa subir a foto depois.
+          showToast('Conta criada, mas a foto não subiu. Dá pra colocar em Perfil › Editar.', 'error');
         }
       }
       // M2 (LGPD): registra consentimento em consent_log. Best-effort —
@@ -128,13 +206,17 @@ export function SignupFlow() {
             recordConsent({ userId, consentType: 'terms', consentGiven: true }),
             recordConsent({ userId, consentType: 'privacy', consentGiven: true }),
           ]);
-        } catch {
-          /* silent */
+        } catch (e) {
+          // Trilha de consentimento é secundária ao cadastro, mas some sem
+          // deixar rastro — e é registro exigido pela LGPD.
+          reportFailure('consent-fail', e, { userId, ctx: 'signup/consent' });
         }
       }
-      // Limpa o referrer salvo + redireciona: pro perfil de quem indicou
-      // (se houve convite) ou pro feed (cadastro aberto, sem referral).
+      // Limpa o referrer salvo + o rascunho persistido (dados pessoais não
+      // ficam no aparelho depois do sucesso) + redireciona: pro perfil de
+      // quem indicou (se houve convite) ou pro feed.
       clearPendingReferrer();
+      clearSignupDraft();
       router.push(ref ? `/perfil/${ref}` : '/feed');
       router.refresh();
     } catch (e) {

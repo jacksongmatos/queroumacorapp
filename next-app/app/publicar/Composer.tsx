@@ -5,7 +5,7 @@
 // Estado local:
 //   - files: File[]            mídias selecionadas (pré-upload)
 //   - caption: string          texto do post
-//   - postType: 'post'|'story' aba "Foto/Vídeo" vs "Story"
+//   - postType: 'post'|'story' aba "Post" vs "Story"
 //   - forSale, price, artType  campos de venda (só grafiteiro)
 //   - publishError local: pra erros de validação client-side (count > 5 etc.)
 //   - genCaption status: useState próprio (separado do mutation pra UX
@@ -24,7 +24,7 @@ import { MediaUploader } from './MediaUploader';
 import { MediaPreview } from './MediaPreview';
 import { CaptionInput } from './CaptionInput';
 import { usePublishPost } from '@/lib/hooks/usePublishPost';
-import { useAutosave } from '@/lib/hooks/useAutosave';
+import { useAutosave, writeDraft } from '@/lib/hooks/useAutosave';
 import {
   uploadMedia,
   compressImage,
@@ -115,7 +115,6 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
   const [priceText, setPriceText] = useState('');
   const [artType, setArtType] = useState<string>(ART_TYPES[0].value);
   // S5: link externo opcional pra story (CTA "ver mais" no viewer).
-  const [linkUrl, setLinkUrl] = useState('');
 
   const isStory = postType === 'story';
   // "Marcar como venda": só profissional (cliente não anuncia serviço) e
@@ -245,15 +244,20 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
     const forSaleFinal = forSale && canSell;
     const price = forSaleFinal ? parseBRL(priceText) : 0;
 
-    const linkUrlTrim = linkUrl.trim();
     publish.publishAsync({
       files,
-      caption: caption.trim(),
+      // Story vai sem legenda: o campo não existe mais nessa aba, e sem
+      // isto um rascunho antigo restaurado pelo autosave mandaria texto que
+      // a pessoa não tem mais como ver nem editar.
+      caption: postType === 'story' ? '' : caption.trim(),
       mediaType,
       forSale: forSaleFinal,
       price: forSaleFinal ? price : null,
       artType: forSaleFinal ? artType : null,
-      linkUrl: mediaType === 'story' && linkUrlTrim ? linkUrlTrim : null,
+      // Story deixou de ter link "ver mais" (01/09/2026). A coluna
+      // `posts.link_url` e o CTA do StoryViewer continuam existindo pros
+      // stories antigos — só não há mais como criar novos.
+      linkUrl: null,
     })
       .then(() => {
         // Limpa estado. Em embedded (modal), só chama onPublishSuccess pra
@@ -262,6 +266,9 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         setCaption('');
         setForSale(false);
         setPriceText('');
+        // P6: faltavam os dois. No modo `embedded` (modal, sem navegação) o
+        // story seguinte reaproveitava o link do anterior.
+        setArtType(ART_TYPES[0].value);
         autosave.clear();
         setDraftSavedAt(0);
         if (embedded) {
@@ -344,7 +351,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
               : 'bg-white border-[color:var(--color-border)]')
           }
         >
-          Foto / Vídeo
+          Post
         </button>
         <button
           type="button"
@@ -368,6 +375,14 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         <MediaUploader
           onFiles={handleFiles}
           disabled={submitting}
+          // Abrir a galeria no Android pode ser a última coisa que este
+          // processo faz (o sistema mata o app pra liberar RAM enquanto o
+          // seletor está na frente). O autosave normal é throttled em 5s —
+          // quem digita a legenda e toca em seguida perderia o texto junto
+          // com a foto. Aqui a gravação é imediata.
+          onAntesDeAbrir={() => {
+            writeDraft('post_composer', autosaveValues);
+          }}
           accept={
             isVideoMode
               ? 'video/*'
@@ -389,18 +404,21 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         </div>
       ) : null}
 
-      <CaptionInput
-        value={caption}
-        onChange={setCaption}
-        onGenerate={handleGenerateCaption}
-        isGenerating={genLoading}
-        canGenerate={files.length > 0}
-        // Legenda por IA é coisa de post: o story é conteúdo rápido, some em
-        // 24h e a legenda ali é enfeite — não vale gastar chamada de IA (que
-        // ainda por cima conta na cota mensal do usuário).
-        showGenerate={!isStory}
-        disabled={submitting}
-      />
+      {/* Story não tem legenda (decisão da loja, 01/09/2026): é conteúdo
+          rápido que some em 24h — pedir texto só atrasa quem quer postar a
+          foto da obra e seguir trabalhando. Antes o campo aparecia, com o
+          botão de IA escondido; agora a seção inteira sai da tela e o
+          payload vai com legenda vazia. */}
+      {!isStory ? (
+        <CaptionInput
+          value={caption}
+          onChange={setCaption}
+          onGenerate={handleGenerateCaption}
+          isGenerating={genLoading}
+          canGenerate={files.length > 0}
+          disabled={submitting}
+        />
+      ) : null}
 
       {genError ? (
         <div
@@ -408,27 +426,6 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
           className="p-3 rounded-xl bg-yellow-50 border border-yellow-200 text-sm text-yellow-900"
         >
           {genError}
-        </div>
-      ) : null}
-
-      {/* S5: link externo só faz sentido em story (CTA "ver mais"). */}
-      {isStory ? (
-        <div className="rounded-2xl border border-[color:var(--color-border)] bg-white p-4">
-          <label htmlFor="story-link" className="block text-sm font-semibold mb-2">
-            Link &quot;ver mais&quot; (opcional)
-          </label>
-          <input
-            id="story-link"
-            type="url"
-            placeholder="https://seusite.com/promo"
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value.slice(0, 500))}
-            disabled={submitting}
-            className="w-full px-3 py-2 rounded-lg border border-[color:var(--color-border)] text-sm"
-          />
-          <p className="text-[11px] text-[color:var(--color-muted)] mt-1">
-            Aparece como botão no story. Deixe vazio se não quiser link.
-          </p>
         </div>
       ) : null}
 

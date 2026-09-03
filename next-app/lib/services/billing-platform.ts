@@ -4,7 +4,7 @@
 // correto:
 //
 //   - Web (browser direto em queroumacor.com.br) → Mercado Pago (atual).
-//   - iOS wrapper (Capacitor) → Apple StoreKit IAP (`br.com.queroumacor.app.pro.monthly`).
+//   - iOS wrapper (Capacitor) → Apple StoreKit IAP (`com.calicolors.queroumacor.pro.monthly`).
 //   - Android TWA → Google Play Billing via Digital Goods API.
 //
 // Por que essa separação? Apple Guideline 3.1.1 PROÍBE payment processor
@@ -29,7 +29,7 @@ export type BillingProvider = 'mercado-pago' | 'apple-iap' | 'google-play-billin
 
 // Product IDs configurados nas lojas (App Store Connect / Play Console).
 // MANTENHA SINCRONIZADO com docs/BILLING_STRATEGY.md.
-export const PRO_PRODUCT_ID = 'br.com.queroumacor.app.pro.monthly';
+export const PRO_PRODUCT_ID = 'com.calicolors.queroumacor.pro.monthly';
 export const PRO_AMOUNT_BRL = 39;
 
 // ─── Detecção de plataforma ────────────────────────────────────────────────
@@ -200,7 +200,7 @@ async function startAppleIapCheckout(userId: string): Promise<void> {
     // Em dev sem plugin: ajuda o developer entender o que falta.
     throw new Error(
       'InAppPurchase plugin não instalado. Instale capacitor-plugin-purchase ' +
-        'e configure `br.com.queroumacor.app.pro.monthly` em App Store Connect. ' +
+        'e configure `com.calicolors.queroumacor.pro.monthly` em App Store Connect. ' +
         'Veja docs/BILLING_STRATEGY.md.'
     );
   }

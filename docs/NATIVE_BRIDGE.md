@@ -34,9 +34,16 @@ feature-detection; browser/PWA seguem no fluxo web intocado.
 
 ## Pendências pra ativar de verdade (lado da casca / painel)
 
-- [ ] **Supabase → Auth → URL Configuration**: adicionar
-      `br.com.queroumacor.app://auth/callback` às Redirect URLs. Sem isso o
-      callback cai no Site URL e o app nunca recebe os tokens.
+- [ ] **Supabase → Auth → URL Configuration**: `br.com.queroumacor.app://auth/callback`
+      já está nas Redirect URLs (2026-09-03). ATENÇÃO ao esquema no Android:
+      o applicationId do Play é `br.com.queroumacor` (SEM `.app`), então o
+      intent-filter do deep link na casca Android tem que registrar
+      explicitamente o esquema `br.com.queroumacor.app` (o que `auth.ts`
+      usa) — NÃO deixar o Capacitor derivar do package, senão o callback
+      vira `br.com.queroumacor://auth/callback` e não bate. Se optar por
+      derivar, adicionar `br.com.queroumacor://auth/callback` como 2ª
+      Redirect URL e ajustar `NATIVE_OAUTH_REDIRECT`. iOS já está certo
+      (scheme = bundle `br.com.queroumacor.app`).
 - [ ] Casca: instalar `@capacitor/browser`, `@capacitor/app`,
       `@capacitor/camera`, `@capacitor/share`, `@capacitor/push-notifications`
       e rodar `npx cap sync`. (Scheme iOS já registrado no

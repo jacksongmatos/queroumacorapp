@@ -184,12 +184,52 @@ describe('service worker — navegação', () => {
     expect(cached).toBeDefined();
   });
 
-  it('NUNCA guarda no cache uma resposta 500', async () => {
-    // Duas entradas na fila: o SW repete a navegação uma vez em 5xx.
+  it('NUNCA guarda no cache uma resposta 500 — e nunca a entrega crua', async () => {
+    // Duas entradas na fila: o SW repete a navegação uma vez em 5xx. Sem
+    // cópia boa no cache, o que chega na tela é a página amigável de
+    // auto-retry (v5) — nunca mais a tela "500 | Server Error" morta.
     h.queue.set(`${ORIGIN}/feed`, [html('erro', 500), html('erro', 500)]);
     const res = await h.handleFetch(asNavigation(navRequest('/feed')));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toContain('erro 500');
     expect(await h.cacheStorage.match(`${ORIGIN}/feed`)).toBeUndefined();
+  });
+
+  it('5xx persistente registra o incidente no /api/log-error', async () => {
+    h.queue.set(`${ORIGIN}/feed`, [html('erro', 502), html('erro', 502)]);
+    await h.handleFetch(asNavigation(navRequest('/feed')));
+    // Fire-and-forget: a chamada acontece mesmo sem resposta na fila (o
+    // harness responde network-error e o SW engole).
+    expect(h.fetchCalls.some((u) => u.endsWith('/api/log-error'))).toBe(true);
+  });
+
+  // Este teste TROCOU DE LADO em 01/09/2026, e a inversão é o registro do
+  // bug: antes ele exigia que o 5xx de RSC voltasse CRU, "porque o router
+  // trata". O aparelho provou que não trata — o runtime do Next pinta a
+  // própria tela "500 | Server Error", sem navegação de documento, então
+  // nenhuma defesa do SW rodava e a tela ficava morta até reiniciar o app.
+  it('payload RSC com 5xx vira 503 vazio — NUNCA volta cru pro router', async () => {
+    const rscUrl = `${ORIGIN}/feed?_rsc=abc123`;
+    h.queue.set(rscUrl, [new Response('flight', { status: 500 }), new Response('flight', { status: 500 })]);
+    const res = await h.handleFetch(new Request(rscUrl));
+    expect(res.status).toBe(503);
+    // Corpo vazio: HTML aqui corromperia o router, que espera flight data.
+    expect(await res.text()).toBe('');
+  });
+
+  it('payload RSC com 200 passa intacto (não estragar o caminho feliz)', async () => {
+    const rscUrl = `${ORIGIN}/feed?_rsc=ok`;
+    h.queue.set(rscUrl, [new Response('flight-data', { status: 200 })]);
+    const res = await h.handleFetch(new Request(rscUrl));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('flight-data');
+  });
+
+  it('payload RSC com rede morta vira 503 vazio (router faz hard-nav)', async () => {
+    const rscUrl = `${ORIGIN}/feed?_rsc=abc123`;
+    h.queue.set(rscUrl, ['network-error', 'network-error']);
+    const res = await h.handleFetch(new Request(rscUrl));
+    expect(res.status).toBe(503);
   });
 
   it('repete a navegação uma vez quando o servidor devolve 500', async () => {
@@ -214,11 +254,11 @@ describe('service worker — navegação', () => {
     const res = await h.handleFetch(asNavigation(navRequest('/feed')));
 
     expect(res.status).toBe(200);
-    await expect(res.text()).resolves.toContain('Sem conexão');
+    await expect(res.text()).resolves.toContain('Reconectando');
   });
 
   it('serve a cópia boa do cache quando a rede cai', async () => {
-    const cache = await h.cacheStorage.open('quc-v4-static');
+    const cache = await h.cacheStorage.open('quc-v5-static');
     await cache.put(`${ORIGIN}/feed`, html('<p>feed offline</p>'));
 
     h.queue.set(`${ORIGIN}/feed`, ['network-error', 'network-error']);
@@ -228,10 +268,13 @@ describe('service worker — navegação', () => {
   });
 
   it('activate apaga os caches de versões anteriores', async () => {
-    await h.cacheStorage.open('quc-v3-static');
     await h.cacheStorage.open('quc-v4-static');
+    await h.cacheStorage.open('quc-v5-static');
+    await h.cacheStorage.open('quc-v6-static');
     await h.runActivate();
-    expect(await h.cacheStorage.keys()).toEqual(['quc-v4-static']);
+    // Só a versão corrente sobrevive — é o bump de CACHE_VERSION que limpa
+    // cache envenenado de versões antigas.
+    expect(await h.cacheStorage.keys()).toEqual(['quc-v6-static']);
   });
 });
 

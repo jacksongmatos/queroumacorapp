@@ -109,17 +109,21 @@ function makeFakeClient(queue: QueueItem[] = []): {
       spies.eq(col, val);
       return chain;
     },
-    // .or() e .gte() entraram no fetchProducts/submitOrder reais — sem eles
-    // aqui, o fake quebrava com "sb.from(...).select(...).or is not a
-    // function" (6 das 11 falhas crônicas da baseline pré-2026-09-03).
-    or: (expr: string) => {
-      spies.or(expr);
+    // Filtros que o service encadeia mas o fake não precisa interpretar: o
+    // recorte real é do PostgREST. Faltando aqui, viravam "x is not a
+    // function" e derrubavam 7 testes de fetchProducts/submitOrder.
+    or: (filter: string) => {
+      spies.or(filter);
       return chain;
     },
     gte: (col: string, val: unknown) => {
       spies.gte(col, val);
       return chain;
     },
+    neq: () => chain,
+    ilike: () => chain,
+    in: () => chain,
+    is: () => chain,
     order: (col: string, opts?: { ascending: boolean }) => {
       spies.order(col, opts);
       return chain;
@@ -211,17 +215,15 @@ describe('productBg', () => {
 describe('mktClassify', () => {
   it('categoriza tintas por keyword; esmalte sintético é madeiras & metais', () => {
     expect(mktClassify({ name: 'Tinta Acrílica Premium' })).toBe('tintas');
-    // Regra deliberada do classificador (mkt.ts): esmalte sintético
-    // não-automotivo é tinta PARA MADEIRA/METAL → categoria madeiras_metais.
-    // O teste antigo esperava 'tintas' e ficou vermelho por meses (drift
-    // detectado na auditoria 2026-08-26).
+    // Esmalte sintético não-automotivo tem regra própria (é tinta de madeira
+    // e metal) e cai em madeiras_metais, não no balaio de tintas imobiliárias.
     expect(mktClassify({ name: 'Esmalte sintético tradicional' })).toBe('madeiras_metais');
+    expect(mktClassify({ name: 'Esmalte sintético automotivo' })).not.toBe('madeiras_metais');
   });
 
-  it('exceções: vonixx → estética automotiva, metalatex/novacor → tintas', () => {
-    // A categoria 'estetica_automotiva' foi criada DEPOIS do teste original
-    // (que esperava 'outros'); o override vonixx → estetica_automotiva é
-    // explícito no classificador.
+  it('overrides por marca: vonixx → estética automotiva, metalatex/novacor → tintas', () => {
+    // O vanilla jogava Vonixx em "outros" porque não existia menu de estética
+    // automotiva; existe desde então, e a marca é inteira dessa categoria.
     expect(mktClassify({ name: 'Vonixx Cera de Carnaúba' })).toBe('estetica_automotiva');
     expect(mktClassify({ name: 'Metalatex Litoral' })).toBe('tintas');
     expect(mktClassify({ name: 'Novacor Esmalte' })).toBe('tintas');
@@ -291,6 +293,24 @@ describe('cart helpers (puros)', () => {
     const items: CartItem[] = [{ id: 'a', name: 'A', price: 10, qty: 1 }];
     expect(changeItemQty(items, 'a', -1)).toEqual([]);
     expect(changeItemQty(items, 'a', 2)[0].qty).toBe(3);
+  });
+
+  // A4 (01/09/2026): a soma acumulava float — 89,90 × 3 dava
+  // 269.70000000000005, e esse número ia PRO PEDIDO. A tela arredondava na
+  // exibição, então o resíduo só aparecia no banco.
+  it('cartTotal não deixa resíduo de ponto flutuante', () => {
+    const items = [
+      { id: 'a', name: 'Tinta', price: 89.9, qty: 3 },
+    ] as unknown as Parameters<typeof cartTotal>[0];
+    expect(cartTotal(items)).toBe(269.7);
+  });
+
+  it('cartTotal soma centavos exatos entre itens diferentes', () => {
+    const items = [
+      { id: 'a', name: 'A', price: 19.99, qty: 3 },
+      { id: 'b', name: 'B', price: 5.5, qty: 2 },
+    ] as unknown as Parameters<typeof cartTotal>[0];
+    expect(cartTotal(items)).toBe(70.97);
   });
 
   it('cartTotal soma price*qty corretamente', () => {
@@ -500,8 +520,7 @@ describe('submitOrder', () => {
       { id: 'a', name: 'A', price: 10, qty: 2 },
       { id: 'b', name: 'B', price: 5, qty: 4 },
     ];
-    // 1ª resposta = leitura de dedupe (pedidos pending da última hora, vem
-    // vazia = sem duplicata); 2ª = o insert.select('id').single().
+    // 1a resposta: a busca por pedido pendente recente (dedupe); 2a: o insert.
     const { client, spies } = makeFakeClient([
       { data: [] },
       { data: { id: 'order-uuid' } },
@@ -529,6 +548,27 @@ describe('submitOrder', () => {
     await expect(
       submitOrder('u1', [{ id: 'a', name: 'A', price: 10, qty: 1 }])
     ).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it('pedido pendente recente com os mesmos itens → reusa o id, sem inserir', async () => {
+    // Clicar "Enviar Lista" duas vezes nao pode virar dois pedidos orfaos.
+    const items: CartItem[] = [{ id: 'a', name: 'A', price: 10, qty: 2 }];
+    const { client, spies } = makeFakeClient([
+      {
+        data: [
+          {
+            id: 'order-ja-existente',
+            items,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+          },
+        ],
+      },
+    ]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    const out = await submitOrder('u1', items);
+    expect(out).toEqual({ orderId: 'order-ja-existente', total: 20 });
+    expect(spies.insert).not.toHaveBeenCalled();
   });
 
   it('error supabase → NetworkError', async () => {

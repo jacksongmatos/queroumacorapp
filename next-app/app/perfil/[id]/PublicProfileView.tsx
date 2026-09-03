@@ -27,6 +27,7 @@ import { buildDirectConvId } from '@/lib/services/chat-types';
 import { listQuals, listCourses, type Qualification, type Course } from '@/lib/services/formacao';
 import { listPainterReviews, type PainterReview } from '@/lib/services/reviews';
 import type { Profile } from '@/lib/types';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Roles considerados "profissionais" — habilitam CTA de orçamento, seção de
 // avaliações e o selo de raio de atendimento. Cliente comum não vê.
@@ -73,6 +74,11 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
   const [quals, setQuals] = useState<Qualification[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [reviews, setReviews] = useState<PainterReview[]>([]);
+  // P5 (01/09/2026): sem isto, falha de rede renderizava o perfil VAZIO — um
+  // pintor com 20 avaliações aparecia como se não tivesse nenhuma, sem
+  // nenhum indício de erro. Num marketplace isso é ativamente enganoso: é a
+  // tela em que o cliente decide se contrata.
+  const [erroDetalhes, setErroDetalhes] = useState(false);
   const [orcOpen, setOrcOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   // Denúncia (Apple Guideline 1.2): modal do perfil + qual review está sendo
@@ -154,6 +160,7 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
     // Stats já vêm das colunas do profile (efeito acima). Aqui: portfólio +
     // formação (qualificações/cursos) + avaliações (só pra profissional).
     void (async () => {
+      let falhou = false;
       try {
         const [portRes, qualsRes, coursesRes, reviewsRes] = await Promise.all([
           sb
@@ -164,10 +171,21 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
             .is('deleted_at', null)
             .order('created_at', { ascending: false })
             .limit(30),
-          listQuals(targetId).catch(() => [] as Qualification[]),
-          listCourses(targetId).catch(() => [] as Course[]),
+          // Cada `.catch` individual também precisa marcar: sem isso uma
+          // falha só nas avaliações passaria como "não tem avaliações".
+          listQuals(targetId).catch(() => {
+            falhou = true;
+            return [] as Qualification[];
+          }),
+          listCourses(targetId).catch(() => {
+            falhou = true;
+            return [] as Course[];
+          }),
           isProfessional
-            ? listPainterReviews(targetId, 20).catch(() => [] as PainterReview[])
+            ? listPainterReviews(targetId, 20).catch(() => {
+                falhou = true;
+                return [] as PainterReview[];
+              })
             : Promise.resolve([] as PainterReview[]),
         ]);
         if (cancel) return;
@@ -175,8 +193,12 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
         setQuals(qualsRes);
         setCourses(coursesRes);
         setReviews(reviewsRes);
-      } catch {
-        /* silent */
+        setErroDetalhes(falhou);
+      } catch (e) {
+        if (!cancel) {
+          setErroDetalhes(true);
+          reportFailure('profile-load-fail', e, { ctx: 'perfil-publico' });
+        }
       } finally {
         if (!cancel) setLoading(false);
       }
@@ -316,8 +338,18 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
 
           <div className="flex-1 flex items-center justify-around">
             <Stat value={stats.posts} label="posts" />
-            <Stat value={stats.followers} label="seguidores" />
-            <Stat value={stats.following} label="seguindo" />
+            {/* Mesma lista do perfil próprio (estilo IG), agora no perfil
+                público — dá pra ver quem segue quem e descobrir gente. */}
+            <Stat
+              value={stats.followers}
+              label="seguidores"
+              href={profile?.id ? `/perfil/${profile.id}/conexoes?tab=seguidores` : undefined}
+            />
+            <Stat
+              value={stats.following}
+              label="seguindo"
+              href={profile?.id ? `/perfil/${profile.id}/conexoes?tab=seguindo` : undefined}
+            />
           </div>
         </div>
 
@@ -378,16 +410,27 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
           {profile?.tag ? (
             <div className="text-sm text-white/70">@{profile.tag}</div>
           ) : null}
-          {(profession || role) || city || state ? (
-            <div className="text-xs text-white/60 mt-1">
-              {(() => {
-                const prof = profession || (role ? role.charAt(0).toUpperCase() + role.slice(1) : '');
-                return prof;
-              })()}
-              {(profession || role) && (city || state) ? ' · ' : ''}
-              {[city, state].filter(Boolean).join(', ')}
-            </div>
-          ) : null}
+          {(() => {
+            // `profession` tem DEFAULT 'pintor' no banco pra TODO cadastro —
+            // usar ela como rótulo fazia cadastro incompleto/cliente aparecer
+            // como "pintor" no app enquanto o portal (que ignora profession de
+            // propósito) o classifica como Cliente. Só rotula por profession
+            // quem tem role profissional de verdade; senão usa a role; sem
+            // role, sem rótulo.
+            const roleBadge = isProfessional
+              ? profession || (role ? role.charAt(0).toUpperCase() + role.slice(1) : '')
+              : role
+                ? role.charAt(0).toUpperCase() + role.slice(1)
+                : '';
+            if (!roleBadge && !city && !state) return null;
+            return (
+              <div className="text-xs text-white/60 mt-1">
+                {roleBadge}
+                {roleBadge && (city || state) ? ' · ' : ''}
+                {[city, state].filter(Boolean).join(', ')}
+              </div>
+            );
+          })()}
           {/* ⭐ nota + nº de avaliações (rating_avg/review_count mantidos por trigger) */}
           {reviewCount > 0 ? (
             <div className="text-xs mt-1 flex items-center gap-1" style={{ color: '#ffd166' }}>
@@ -601,6 +644,21 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
 
       {/* Formação: qualificações + cursos (read-only). qualifications/courses
           são legíveis por qualquer logado (RLS Wave 3), então o visitante vê. */}
+      {!loading && erroDetalhes ? (
+        <div
+          className="mx-4 my-3 px-4 py-3 rounded-2xl text-sm"
+          style={{
+            background: 'rgba(230,57,70,.06)',
+            border: '1px solid rgba(230,57,70,.25)',
+            color: 'var(--color-danger)',
+          }}
+          role="status"
+        >
+          Não consegui carregar avaliações e formação deste perfil. O que
+          aparece abaixo pode estar incompleto — tente recarregar.
+        </div>
+      ) : null}
+
       {!loading && (quals.length > 0 || courses.length > 0) ? (
         <FormacaoSection quals={quals} courses={courses} />
       ) : null}
@@ -776,9 +834,18 @@ function ReviewsSection({
   );
 }
 
-function Stat({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="text-center">
+function Stat({
+  value,
+  label,
+  href,
+}: {
+  value: number;
+  label: string;
+  /** Quando presente, o bloco vira link pra lista correspondente. */
+  href?: string;
+}) {
+  const content = (
+    <>
       <div
         className="text-2xl font-extrabold leading-none"
         style={{ fontFamily: 'var(--font-display)' }}
@@ -786,6 +853,12 @@ function Stat({ value, label }: { value: number; label: string }) {
         {value}
       </div>
       <div className="text-xs text-white/65 mt-1">{label}</div>
-    </div>
+    </>
+  );
+  if (!href) return <div className="text-center">{content}</div>;
+  return (
+    <Link href={href} className="text-center" aria-label={`Ver ${label}`}>
+      {content}
+    </Link>
   );
 }

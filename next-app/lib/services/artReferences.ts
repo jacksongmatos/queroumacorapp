@@ -7,6 +7,7 @@
 
 import { getSupabase } from '@/lib/supabase';
 import { NetworkError, ValidationError } from '@/lib/errors';
+import { normalizarArquivo } from '@/lib/utils/mediaType';
 
 export interface ArtReference {
   id: string;
@@ -100,9 +101,15 @@ export async function uploadArtReference(params: {
   tags?: string[];
   dimensions?: { width: number; height: number } | null;
 }): Promise<ArtReference> {
-  const { userId, file, title, tags = [], dimensions } = params;
+  const { userId, title, tags = [], dimensions } = params;
+  let { file } = params;
   if (!userId) throw new ValidationError('userId obrigatório');
   if (!file) throw new ValidationError('file obrigatório');
+  // O seletor do app instalado entrega a foto SEM MIME type. Sem esta
+  // normalização, três coisas quebravam de uma vez: a checagem abaixo
+  // recusava ("Formato não suportado"), a extensão saía sempre .jpg e o
+  // upload subia com content type vazio (que o bucket recusa).
+  file = await normalizarArquivo(file);
   if (!ACCEPTED_TYPES.has(file.type)) {
     throw new ValidationError('Formato não suportado. Use JPG, PNG ou WebP.');
   }

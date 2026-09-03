@@ -30,12 +30,13 @@ export class AppError extends Error {
     this.details = opts.details === undefined ? null : opts.details;
     this.cause = opts.cause ?? null;
     // Stack limpa no V8 (Node 18+). Em outros engines é no-op.
+    // O 2o argumento de captureStackTrace é o construtor a partir do qual a
+    // stack é cortada — tipado explicitamente porque o lint recusa `Function`.
+    type StackFrameCtor = new (...args: never[]) => unknown;
     if (typeof (Error as unknown as { captureStackTrace?: unknown }).captureStackTrace === 'function') {
-      type AnyFn = (...args: never[]) => unknown;
-      (Error as unknown as { captureStackTrace: (t: object, c: AnyFn) => void }).captureStackTrace(
-        this,
-        this.constructor as unknown as AnyFn
-      );
+      (
+        Error as unknown as { captureStackTrace: (t: object, c: StackFrameCtor) => void }
+      ).captureStackTrace(this, this.constructor as unknown as StackFrameCtor);
     }
   }
 }

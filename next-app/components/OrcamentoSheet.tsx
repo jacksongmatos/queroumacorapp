@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { BottomSheet } from '@/components/BottomSheet';
 import { getSupabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
+import { useProfile } from '@/lib/hooks/useProfile';
 import { buildDirectConvId } from '@/lib/services/chat-types';
 
 export interface OrcamentoSheetProps {
@@ -48,6 +49,10 @@ const PRAZOS = [
 
 export function OrcamentoSheet({ open, onClose, painterId, painterName, postId }: OrcamentoSheetProps) {
   const { user } = useAuth();
+  // Nome de quem pede, visível ANTES de enviar: o pedido vai identificado
+  // (a RPC congela nome + telefone do perfil no orçamento — Wave 56), e a
+  // pessoa merece ver em nome de quem está assinando.
+  const { profile } = useProfile();
   const router = useRouter();
   const [tipo, setTipo] = useState(TIPOS[0]);
   const [sup, setSup] = useState(SUPERFICIES[0]);
@@ -164,9 +169,18 @@ export function OrcamentoSheet({ open, onClose, painterId, painterName, postId }
       {painterName ? (
         <p
           className="text-center"
-          style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 12 }}
+          style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 4 }}
         >
           Para <b style={{ color: 'var(--color-ink)' }}>{painterName}</b>
+        </p>
+      ) : null}
+      {profile?.name ? (
+        <p
+          className="text-center"
+          style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12 }}
+        >
+          Em nome de <b style={{ color: 'var(--color-ink)' }}>{profile.name}</b>
+          {profile.phone ? ` · ${profile.phone}` : ''}
         </p>
       ) : null}
 

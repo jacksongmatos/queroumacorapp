@@ -17,9 +17,15 @@ import {
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import {
   buildPatch,
+  deleteUserPermanently,
   ensureCallerHasPortalAccess,
   listUsers,
   patchProfile,
+  setEmail,
+  setInfo,
+  setName,
+  setTag,
+  syncEmailFromAuth,
 } from '@/lib/api/_services/admin-users';
 import { logAuditEvent } from '@/lib/api/audit';
 
@@ -44,6 +50,12 @@ export async function POST(request: NextRequest) {
     value?: unknown;
     expiresAt?: unknown;
     roleKey?: unknown;
+    tag?: unknown;
+    name?: unknown;
+    city?: unknown;
+    state?: unknown;
+    specialties?: unknown;
+    phone?: unknown;
   };
   try {
     body = (await readBody(request, { maxBytes: 1024 * 1024 })) as typeof body;
@@ -57,11 +69,24 @@ export async function POST(request: NextRequest) {
     const token = getToken(request, body);
     const { callerId, email } = await verifyAdminToken(token);
     if (!callerId) throw new ServiceError('token inválido', 401);
-    if (!isAdminEmail(email)) throw new ServiceError('não autorizado (email não admin)', 403);
+    // Diagnóstico no texto: sem saber QUAL email o servidor viu, o
+    // operador não tem como consertar a allowlist — a mensagem antiga
+    // ("email não admin") mandava adivinhar. O email é o do próprio
+    // caller autenticado, então dizer não vaza nada que ele já não saiba.
+    if (!isAdminEmail(email)) {
+      throw new ServiceError(
+        `não autorizado: o email "${email || '(sem email no login)'}" não está na lista ADMIN_EMAILS do servidor. ` +
+          'Adicione esse email na env ADMIN_EMAILS (Cloudflare Pages → Settings → Environment variables → Production) e refaça o deploy.',
+        403,
+      );
+    }
+    // 120/min (era 30): exclusão em massa do portal manda 1 request por
+    // conta — um lote de 23 + as ações do mesmo minuto estourava o teto no
+    // meio. Endpoint segue duplamente gateado (ADMIN_EMAILS + portal_access).
     const rl = await checkRateLimit({
       userId: callerId || email,
       endpoint: 'admin-users',
-      limit: 30,
+      limit: 120,
     });
     if (!rl.allowed) return rateLimitResponse(rl);
 
@@ -77,29 +102,71 @@ export async function POST(request: NextRequest) {
     }
 
     if (!userId) return jsonResponse({ error: 'userId obrigatório' }, 400);
-    const patch = buildPatch({
-      action,
-      value: body?.value,
-      expiresAt: body?.expiresAt,
-      roleKey: body?.roleKey,
-    });
     await ensureCallerHasPortalAccess({ callerId });
-    const result = await patchProfile({ userId, patch });
+
+    let result: Record<string, unknown>;
+    let auditChanges: Record<string, unknown>;
+    if (action === 'delete_user') {
+      // Exclusão PERMANENTE (Auth + profiles). Guardas no service: nunca a
+      // própria conta, nunca admin/portal sem revogar antes.
+      result = await deleteUserPermanently({ userId, callerId });
+      auditChanges = { deleted: true, admin_email: email };
+    } else if (action === 'set_tag') {
+      // Regra do app: @tag nunca vazia (busca/link dependem dela).
+      result = await setTag({ userId, tag: body?.tag });
+      auditChanges = { tag: result.tag, admin_email: email };
+    } else if (action === 'set_name') {
+      result = await setName({ userId, name: body?.name });
+      auditChanges = { name: result.name, admin_email: email };
+    } else if (action === 'set_info') {
+      // Cidade/estado/especialidades/telefone — campos livres do perfil.
+      result = await setInfo({
+        userId,
+        city: body?.city,
+        state: body?.state,
+        specialties: body?.specialties,
+        phone: body?.phone,
+      });
+      auditChanges = { patch: result.patch, admin_email: email };
+    } else if (action === 'sync_email') {
+      // Revela o e-mail de LOGIN (auth.users) e espelha em profiles.email.
+      // Não altera identidade nenhuma — só sincroniza o espelho vazio.
+      result = await syncEmailFromAuth({ userId });
+      auditChanges = { email: result.email, source: result.source, admin_email: email };
+    } else if (action === 'set_email') {
+      // Troca o LOGIN no Auth + espelho em profiles.email.
+      result = await setEmail({ userId, email: body?.email });
+      auditChanges = { email: result.email, auth_updated: result.authUpdated, admin_email: email };
+    } else {
+      const patch = buildPatch({
+        action,
+        value: body?.value,
+        expiresAt: body?.expiresAt,
+        roleKey: body?.roleKey,
+      });
+      result = await patchProfile({ userId, patch });
+      auditChanges = { patch, admin_email: email };
+    }
     // Audit-log: ação admin em profile alvo. `changes` carrega o patch
     // (sem segredos — buildPatch só constrói campos de RBAC/PRO/role).
-    // R-H5: critical=true pra mudanças sensíveis (set_pro / set_portal_access)
-    // — sem trilha, sumimos com prova de quem promoveu/demovou quem (input
-    // de auditoria interna + DPO). Outras actions (set_verified, role)
-    // mantêm fail-open.
+    // R-H5: critical=true pra mudanças sensíveis (set_pro / promote/revoke /
+    // delete_user) — sem trilha, sumimos com prova de quem promoveu/apagou
+    // quem (input de auditoria interna + DPO). Outras actions mantêm
+    // fail-open.
     const isCriticalAction =
-      action === 'set_pro' || action === 'set_portal_access';
+      action === 'set_pro' ||
+      action === 'promote' ||
+      action === 'revoke' ||
+      action === 'delete_user' ||
+      // Troca de e-mail muda a IDENTIDADE do login — trilha obrigatória.
+      action === 'set_email';
     try {
       await logAuditEvent({
         actorId: callerId || null,
         action: `admin.user.${action}`,
         targetTable: 'profiles',
         targetId: userId,
-        changes: { patch, admin_email: email },
+        changes: auditChanges,
         request,
         critical: isCriticalAction,
       });

@@ -233,27 +233,53 @@ export async function findOrCreate3WayWithStore(
  *
  * Retorna null se não achou — caller decide fallback.
  */
+/**
+ * Tags possíveis da conta da loja, em ordem de preferência. Exatas de
+ * propósito — ver o comentário sobre o fallback removido abaixo.
+ */
+const TAGS_DA_LOJA = ['calicolorstintas', 'calicolors', 'calicolorstinta'] as const;
+
+/** Nome exato do perfil da loja, último recurso antes de desistir. */
+const NOME_DA_LOJA = 'Cali Colors';
+
 export async function resolveCalicolorsUserId(): Promise<string | null> {
   const sb = getSupabase();
-  try {
-    const { data } = await sb
+
+  // P3 (01/09/2026) — o fallback antigo era `.ilike('name', '%cali%')`, que
+  // casa com QUALQUER perfil cujo nome contenha "cali": Calixto, Micaeli,
+  // Cálida, Carlos Calisto. Com `.limit(1)` sem `order`, a escolha ainda era
+  // não-determinística. Como este id abre a conversa "🎨 Loja" do ChatList,
+  // a pessoa podia mandar pra um estranho o que achava estar mandando pra
+  // loja. Busca aproximada NUNCA pode decidir destinatário de mensagem.
+  //
+  // Agora só correspondência EXATA. Não achou = null, e o caller decide —
+  // uma conversa que não abre é muito melhor que uma conversa com a pessoa
+  // errada.
+  for (const tag of TAGS_DA_LOJA) {
+    const { data, error } = await sb
       .from('profiles_public')
       .select('id')
-      .eq('tag', 'calicolorstintas')
+      .eq('tag', tag)
       .limit(1);
+    // Erro de rede/RLS não é "não existe": sem isto o código seguia pro
+    // fallback como se a loja não tivesse conta.
+    if (error) {
+      console.warn('[resolveCalicolorsUserId] falha ao buscar por tag:', error.message);
+      return null;
+    }
     if (data && data.length > 0 && data[0]) return String(data[0].id);
-  } catch {
-    // ignore, tenta fallback
   }
-  try {
-    const { data } = await sb
-      .from('profiles_public')
-      .select('id')
-      .ilike('name', '%cali%')
-      .limit(1);
-    if (data && data.length > 0 && data[0]) return String(data[0].id);
-  } catch {
-    // ignore
+
+  const { data, error } = await sb
+    .from('profiles_public')
+    .select('id')
+    .eq('name', NOME_DA_LOJA)
+    .limit(1);
+  if (error) {
+    console.warn('[resolveCalicolorsUserId] falha ao buscar por nome:', error.message);
+    return null;
   }
+  if (data && data.length > 0 && data[0]) return String(data[0].id);
+
   return null;
 }

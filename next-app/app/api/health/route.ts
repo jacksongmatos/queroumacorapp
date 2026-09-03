@@ -5,7 +5,7 @@
 //
 // Diferenças do vanilla:
 //   - `cf.colo` não está disponível direto no Next edge runtime — usamos
-//     `process.env.VERCEL_REGION` / `CF_REGION` quando deployed em Vercel /
+//     `getRuntimeEnv('VERCEL_REGION')` / `CF_REGION` quando deployed em Vercel /
 //     CF Pages via `@cloudflare/next-on-pages`. Fica `unknown` em dev local.
 //   - `env.CF_PAGES_COMMIT_SHA` substituído por `NEXT_PUBLIC_APP_VERSION`
 //     (setar via Cloudflare Pages build env quando portarmos o deploy).
@@ -25,7 +25,7 @@ const SUPABASE_TIMEOUT_MS = 2000;
 const BUILD_MARKER = 'brand-logos-2026-08-22';
 
 export async function GET(request: NextRequest) {
-  // Lia `process.env.SUPABASE_URL` direto e por isso reportava
+  // Lia `getRuntimeEnv('SUPABASE_URL')` direto e por isso reportava
   // `supabase:false` mesmo com o banco de pé: no edge a var não está em
   // process.env, e o projeto define `NEXT_PUBLIC_SUPABASE_URL`, não
   // `SUPABASE_URL`. Mesma resolução que o resto da API usa.

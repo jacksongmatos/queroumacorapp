@@ -51,13 +51,32 @@ const LEADS_STATUS_LABELS = { novo: 'Novo', contactado: 'Contactado', qualificad
 // Quem chama DEVE try/catch.
 // ============================================================
 const productsService = {
-  list: async () => { const r = await supa.from('products').select('*').order('name'); if (r.error) throw r.error; return r.data || []; },
-  upsert: async (p) => { const r = await supa.from('products').upsert(p); if (r.error) throw r.error; return r.data; },
+  list: () => buscarTudo(() => supa.from('products').select('*').order('name')),
+  // `.select()` no fim devolve a linha gravada — a tela emenda so ela na
+  // lista em vez de recarregar o catalogo inteiro depois de cada salvamento.
+  upsert: async (p) => { const r = await supa.from('products').upsert(p).select(); if (r.error) throw r.error; return r.data; },
   remove: async (id) => { const r = await supa.from('products').delete().eq('id', id); if (r.error) throw r.error; }
 };
 
+// PostgREST corta a resposta em 1000 linhas (max-rows do Supabase) e NAO
+// avisa: a lista so vem curta. Foi o que aconteceu com os leads — o banco
+// tinha 1072 e a tela mostrava 1000, com 72 invisiveis. Toda listagem que
+// pode passar de mil linhas precisa passar por aqui.
+const PAGINA_SUPA = 1000;
+async function buscarTudo(montarQuery) {
+  const tudo = [];
+  for (let de = 0; de < 50000; de += PAGINA_SUPA) {
+    const r = await montarQuery().range(de, de + PAGINA_SUPA - 1);
+    if (r.error) throw r.error;
+    const lote = r.data || [];
+    tudo.push(...lote);
+    if (lote.length < PAGINA_SUPA) break;
+  }
+  return tudo;
+}
+
 const leadsService = {
-  list: async () => { const r = await supa.from('leads').select('*').order('created_at', {ascending:false}); if (r.error) throw r.error; return r.data || []; },
+  list: () => buscarTudo(() => supa.from('leads').select('*').order('created_at', { ascending:false })),
   updateStatus: async (id, status) => { const r = await supa.from('leads').update({status}).eq('id', id); if (r.error) throw r.error; },
   remove: async (id) => { const r = await supa.from('leads').delete().eq('id', id); if (r.error) throw r.error; },
   insertBatch: async (rows) => { const r = await supa.from('leads').insert(rows); if (r.error) throw r.error; return r.data; }
@@ -253,9 +272,37 @@ const CreateAppUserForm = ({ onCreated, defaultRole }) => {
 // por RLS (unica policy de UPDATE e auth.uid() = id). Por isso tudo
 // vai pelo endpoint /api/admin/users com service role.
 // (era /api/admin-users no Cloudflare Function; virou rota Next em app/api/admin/users)
-const adminUsers = async (payload) => {
+// Versao "crua": devolve { ok, error } SEM alert — a exclusao em massa usa
+// isso pra agregar as falhas num relatorio unico em vez de 1 alerta por conta.
+const adminUsersRaw = async (payload) => {
   const { data: { session } } = await supa.auth.getSession();
-  if (!session) { alert('Sessao expirada. Entre novamente.'); return false; }
+  if (!session) return { ok: false, error: 'Sessao expirada. Entre novamente.' };
+  const r = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken: session.access_token, ...payload })
+  });
+  // Le como TEXTO primeiro: quando o 5xx vem do PROPRIO Cloudflare (a
+  // function morreu), o corpo e uma pagina HTML — o res.json() falhava
+  // mudo e o relatorio mostrava so "HTTP 502", impossivel saber a origem.
+  // Agora o trecho cru do corpo entra no relatorio.
+  let raw = '';
+  try { raw = await r.text(); } catch (_) {}
+  let res = {};
+  try { res = JSON.parse(raw); } catch (_) {}
+  if (!r.ok || !res.ok) {
+    const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+    return { ok: false, status: r.status, error: res.error || ('HTTP ' + r.status + (snippet ? ' — corpo: "' + snippet + '"' : ' (sem corpo)')) };
+  }
+  return { ok: true };
+};
+
+// Igual ao adminUsers, mas DEVOLVE o corpo da resposta — algumas actions
+// respondem com DADO (sync_email traz o e-mail de login), nao so ok/erro.
+// Em falha: alerta (mesma mensagem) e devolve null.
+const adminUsersData = async (payload) => {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) { alert('Sessao expirada. Entre novamente.'); return null; }
   const r = await fetch('/api/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -272,10 +319,13 @@ const adminUsers = async (payload) => {
     } else {
       alert('A acao falhou: ' + (res.error || ('HTTP ' + r.status)));
     }
-    return false;
+    return null;
   }
-  return true;
+  return res;
 };
+
+// Boolean pra maioria das actions (o resto do portal ja usa assim).
+const adminUsers = async (payload) => !!(await adminUsersData(payload));
 
 const promoteToPortal = async (id, after) => {
   if (!confirm('Promover este perfil a usuario do portal? Ele passara a ter acesso ao portal administrativo.')) return;
@@ -291,39 +341,337 @@ const setProfileVerified = async (id, value, after) => {
   if (await adminUsers({ action:'verify', userId:id, value }) && after) after();
 };
 
-function askProDate() {
+// Edita a @tag pelo portal. REGRA DO APP: tag nunca fica vazia (busca e
+// link de perfil dependem dela) — o backend recusa vazio/duplicada.
+const editUserTag = async (profile, after) => {
+  let v = prompt(
+    'Nova @tag para ' + (profile.name || 'este perfil') +
+    '\n(3 a 24 caracteres: a-z, 0-9, _ — NAO pode ficar vazia)',
+    profile.tag || ''
+  );
+  if (v === null) return;
+  v = v.trim().replace(/^@+/, '').toLowerCase();
+  if (!v) { alert('A @tag nao pode ficar vazia — regra do app (busca e link do perfil dependem dela).'); return; }
+  if (!/^[a-z0-9_]{3,24}$/.test(v)) { alert('@tag invalida: use 3 a 24 caracteres (a-z, 0-9, _).'); return; }
+  if (v === profile.tag) return;
+  if (await adminUsers({ action:'set_tag', userId: profile.id, tag: v }) && after) after();
+};
+
+// Edita o nome de exibicao (2 a 60 caracteres).
+const editUserName = async (profile, after) => {
+  let v = prompt('Novo nome para ' + (profile.name || 'este perfil') + ':', profile.name || '');
+  if (v === null) return;
+  v = v.trim().replace(/\s+/g, ' ');
+  if (v.length < 2 || v.length > 60) { alert('Nome invalido: use de 2 a 60 caracteres.'); return; }
+  if (v === profile.name) return;
+  if (await adminUsers({ action:'set_name', userId: profile.id, name: v }) && after) after();
+};
+
+// Edita cidade (vazio limpa).
+const editUserCity = async (profile, after) => {
+  let v = prompt('Cidade de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.city || '');
+  if (v === null) return;
+  v = v.trim();
+  if (v.length > 60) { alert('Cidade muito longa (max 60 caracteres).'); return; }
+  if (v === (profile.city || '')) return;
+  if (await adminUsers({ action:'set_info', userId: profile.id, city: v }) && after) after();
+};
+
+// Edita a UF (2 letras; vazio limpa).
+const editUserState = async (profile, after) => {
+  let v = prompt('Estado (UF, 2 letras — ex.: SP) de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.state || '');
+  if (v === null) return;
+  v = v.trim().toUpperCase();
+  if (v && !/^[A-Z]{2}$/.test(v)) { alert('UF invalida: use 2 letras (ex.: SP, RJ) ou vazio pra limpar.'); return; }
+  if (v === (profile.state || '')) return;
+  if (await adminUsers({ action:'set_info', userId: profile.id, state: v }) && after) after();
+};
+
+// Edita especialidades (texto livre, separadas por virgula; vazio limpa).
+const editUserSpecialties = async (profile, after) => {
+  let v = prompt(
+    'Especialidades de ' + (profile.name || 'este perfil') +
+    '\n(separadas por virgula — ex.: Residencial, Textura, Grafiato; vazio pra limpar)',
+    profile.specialties || ''
+  );
+  if (v === null) return;
+  v = v.trim();
+  if (v.length > 200) { alert('Especialidades muito longas (max 200 caracteres).'); return; }
+  if (v === (profile.specialties || '')) return;
+  if (await adminUsers({ action:'set_info', userId: profile.id, specialties: v }) && after) after();
+};
+
+// Edita o telefone (vazio limpa). O backend normaliza pro mesmo formato
+// que o app grava (digitos com o 55 na frente) — telefone com mascara nao
+// casaria com as conversas do WhatsApp nem com os leads, que comparam
+// digitos.
+const editUserPhone = async (profile, after) => {
+  let v = prompt(
+    'Telefone / WhatsApp de ' + (profile.name || 'este perfil') +
+    '\n(com DDD — ex.: 11 95976-5031; vazio pra limpar)',
+    fmtTelefonePerfil(profile.phone) || ''
+  );
+  if (v === null) return;
+  v = v.trim();
+  // 10 a 15 digitos: cobre fixo e celular BR e tambem numero estrangeiro
+  // (que o servidor guarda verbatim, sem colar o 55).
+  const so = v.replace(/\D/g, '');
+  if (v && !(so.length >= 10 && so.length <= 15)) {
+    alert('Telefone invalido: use DDD + numero (ex.: 11 95976-5031).');
+    return;
+  }
+  if (await adminUsers({ action:'set_info', userId: profile.id, phone: v }) && after) after();
+};
+
+// Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
+// pede confirmacao. O backend recusa formato invalido e e-mail em uso.
+const editUserEmail = async (profile, after) => {
+  let v = prompt(
+    'Novo e-mail para ' + (profile.name || 'este perfil') +
+    '\n\nATENCAO: troca tambem o E-MAIL DE LOGIN da conta.',
+    profile.email || ''
+  );
+  if (v === null) return;
+  v = v.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) { alert('E-mail invalido (esperado: nome@dominio.com).'); return; }
+  if (v === (profile.email || '').toLowerCase()) return;
+  if (!confirm('Confirmar a troca do e-mail de login para:\n\n' + v + '\n\nA pessoa passara a entrar com esse e-mail.')) return;
+  if (await adminUsers({ action:'set_email', userId: profile.id, email: v }) && after) after();
+};
+
+// Busca o e-mail de LOGIN no Auth e espelha em profiles.email. O portal
+// lista `profiles.email`, que e so um ESPELHO: perfil antigo (ou criado
+// por fluxo que nao preenchia a coluna) aparece com "—" mesmo tendo login.
+// A chave anon nao ve `auth.users`, entao quem busca e o servidor.
+const pullUserEmail = async (profile, after) => {
+  const res = await adminUsersData({ action:'sync_email', userId: profile.id });
+  if (!res) return null;
+  alert(
+    'E-mail de login de ' + (profile.name || 'este perfil') + ':\n\n' + res.email +
+    (res.source === 'profile' ? '\n\n(veio do perfil — sem login no Auth)' : '')
+  );
+  if (after) after();
+  return res.email;
+};
+
+// Exclusao PERMANENTE (Auth + profiles). Confirmacao digitada porque nao
+// tem volta. O backend bloqueia excluir a si mesmo e perfis admin/portal.
+const deleteUsersPermanently = async (profiles, after) => {
+  if (!profiles.length) return;
+  const names = profiles.map(p => '• ' + (p.name || 'Sem nome') + (p.tag ? ' (@' + p.tag + ')' : '')).join('\n');
+  // Dupla confirmacao com BOTOES (nao digitacao): no celular, digitar
+  // "EXCLUIR" num prompt era erro garantido e travava o uso legitimo.
+  // Dois passos ja evitam o clique acidental, que e o risco real aqui.
+  if (!confirm(
+    'EXCLUIR PERMANENTEMENTE ' + profiles.length + ' conta(s)?\n\n' + names +
+    '\n\nApaga o LOGIN e o PERFIL do Supabase. SEM VOLTA.'
+  )) return;
+  if (!confirm(
+    'Ultima confirmacao: ' + profiles.length + ' conta(s) serao apagadas para sempre.\n\n' +
+    'Nao existe desfazer. Confirmar a exclusao?'
+  )) return;
+  // Conta com acesso ADMIN/PORTAL exige um TERCEIRO aceite (a pedido:
+  // "habilitar para excluir aqui tbm") — a RPC so as apaga com
+  // p_force_admin=true. A PROPRIA conta segue impossivel de excluir.
+  const adminTargets = profiles.filter(p => p.portal_access || p.role === 'admin');
+  if (adminTargets.length && !confirm(
+    'ATENCAO: ' + adminTargets.length + ' conta(s) com acesso ADMIN/PORTAL:\n\n' +
+    adminTargets.map(p => '• ' + (p.name || (p.tag ? '@'+p.tag : p.id.slice(0,8)))).join('\n') +
+    '\n\nExcluir contas de administrador tambem?'
+  )) return;
+  // Exclusao via RPC admin_delete_user DIRETO no banco (Wave 43): a rota
+  // do edge morria com 502 do proprio Cloudflare no meio da cascata do
+  // Auth. A RPC roda a cascata inteira DENTRO do Postgres (sem HTTP pro
+  // GoTrue, sem edge no caminho) e valida portal admin + guardas la.
+  // Sequencial com pausa curta; falhas AGREGADAS num relatorio unico.
+  let ok = 0; const failed = [];
+  for (const p of profiles) {
+    let msg = '';
+    try {
+      const { error } = await supa.rpc('admin_delete_user', {
+        p_user_id: p.id,
+        p_force_admin: !!(p.portal_access || p.role === 'admin')
+      });
+      if (error) msg = error.message || 'erro desconhecido';
+    } catch (e) { msg = (e && e.message) || 'falha de rede'; }
+    if (!msg) ok++;
+    else failed.push('• ' + (p.name || (p.tag ? '@'+p.tag : p.id.slice(0,8))) + ' — ' + msg);
+    await new Promise(res => setTimeout(res, 250));
+  }
+  alert(
+    'Excluidas: ' + ok + ' de ' + profiles.length + ' conta(s)' +
+    (failed.length
+      ? '\n\nFALHARAM ' + failed.length + ':\n' + failed.slice(0, 8).join('\n') +
+        (failed.length > 8 ? '\n…e mais ' + (failed.length - 8) : '')
+      : '')
+  );
+  if (after) after();
+};
+
+// Celula de @tag com lapis de edicao — compartilhada pelas tabelas.
+const TagCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ color:C.p3, fontWeight:600 }}>{profile.tag ? '@'+profile.tag : '—'}</span>
+    <button onClick={() => editUserTag(profile, after)} title="Editar @tag"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// Nome com lapis (mesmo padrao da TagCell).
+const NameCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ fontWeight:600 }}>{profile.name || 'Sem nome'}</span>
+    <button onClick={() => editUserName(profile, after)} title="Editar nome"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// E-mail com lapis — troca tambem o LOGIN (aviso no prompt). Quando o
+// espelho `profiles.email` esta vazio, o 🔄 busca o e-mail de login no
+// Auth (o portal sozinho nao enxerga `auth.users`) e preenche o espelho.
+const EmailCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ color:C.muted }}>{profile.email || '—'}</span>
+    {!profile.email && (
+      <button onClick={() => pullUserEmail(profile, after)} title="Buscar o e-mail de login no Auth"
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>🔄</button>
+    )}
+    <button onClick={() => editUserEmail(profile, after)} title="Editar e-mail (troca o login)"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// Cidade / UF / Especialidades com lapis (mesmo padrao).
+const CityCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span>{profile.city || '—'}</span>
+    <button onClick={() => editUserCity(profile, after)} title="Editar cidade"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+const StateCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span>{profile.state || '—'}</span>
+    <button onClick={() => editUserState(profile, after)} title="Editar UF"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+const SpecialtiesCell = ({ profile, after }) => (
+  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+    <span style={{ color:C.muted, fontSize:12 }}>{profile.specialties || '—'}</span>
+    <button onClick={() => editUserSpecialties(profile, after)} title="Editar especialidades"
+      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+  </span>
+);
+
+// Telefone com lapis + atalho de WhatsApp. `profiles.phone` guarda digitos
+// ("5511959765031"), entao a exibicao passa pelo mesmo formatador das
+// conversas — sem ele a tabela mostrava a string crua.
+const fmtTelefonePerfil = (raw) => {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  return fmtWaPhone(normalizeLeadPhone(d) || d);
+};
+
+const PhoneCell = ({ profile, after }) => {
+  const alvo = normalizeLeadPhone(profile.phone);
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+      <span>{fmtTelefonePerfil(profile.phone) || '—'}</span>
+      {alvo && (
+        <a href={'https://wa.me/' + alvo} target="_blank" rel="noopener noreferrer" title="Abrir no WhatsApp"
+          style={{ textDecoration:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', fontSize:11 }}>📱</a>
+      )}
+      <button onClick={() => editUserPhone(profile, after)} title="Editar telefone"
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+    </span>
+  );
+};
+
+// Barra de selecao em massa (checkbox master + excluir selecionados).
+const BulkDeleteBar = ({ list, selIds, setSelIds, after }) => {
+  if (!selIds.length) return null;
+  const chosen = list.filter(p => selIds.includes(p.id));
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10, margin:'0 0 12px' }}>
+      <span style={{ fontSize:13, color:C.muted }}>{selIds.length} selecionado(s)</span>
+      <button onClick={() => deleteUsersPermanently(chosen, () => { setSelIds([]); if (after) after(); })}
+        style={{ background:C.p4, color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', cursor:'pointer', fontSize:12, fontWeight:700 }}>
+        🗑 Excluir selecionados permanentemente
+      </button>
+      <button onClick={() => setSelIds([])}
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'6px 10px', cursor:'pointer', fontSize:12, color:C.muted }}>
+        Limpar
+      </button>
+    </div>
+  );
+};
+
+// Modal de data do PRO. Serve pra HABILITAR e tambem pra ALTERAR o periodo
+// de quem ja e PRO — por isso recebe `current` (a expiracao que vale hoje) e
+// os atalhos "+1 mes / +3 / +6 / +1 ano", que somam A PARTIR do que o cliente
+// ainda tem (ou de hoje, se ja venceu). Resolve com Date ou null (cancelou).
+function askProDate(opts) {
+  opts = opts || {};
   return new Promise(resolve => {
     const pad = n => String(n).padStart(2, '0');
     const toISO = dt => dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
-    const d = new Date(); d.setFullYear(d.getFullYear() + 1);
+    const now = new Date();
+    const cur = opts.current ? new Date(opts.current) : null;
+    const curOk = !!(cur && !isNaN(cur.getTime()));
+    const vigente = curOk && cur > now;
+    // Base dos atalhos: a data futura que ja existe (renovacao soma em cima
+    // do que sobrou) ou hoje, se venceu / nunca teve.
+    const base = vigente ? new Date(cur) : new Date(now);
+    const addMonths = m => { const d = new Date(base); d.setMonth(d.getMonth() + m); return d; };
+    const initial = vigente ? new Date(cur) : addMonths(12);
     const tomorrow = new Date(Date.now() + 86400000);
+    const ATALHOS = [['+1 mes', 1], ['+3 meses', 3], ['+6 meses', 6], ['+1 ano', 12]];
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99999;font-family:inherit;';
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
     ov.setAttribute('aria-labelledby', '_proDateTitle');
     ov.innerHTML =
-      '<div style="background:#fff;border-radius:14px;padding:22px;width:340px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
-      + '<div id="_proDateTitle" style="font-size:16px;font-weight:800;color:' + C.ink + ';margin-bottom:4px;">Habilitar PRO</div>'
-      + '<div style="font-size:13px;color:' + C.muted + ';margin-bottom:14px;">Escolha a data de expiração do plano PRO.</div>'
-      + '<input id="_proDateInput" type="date" value="' + toISO(d) + '" min="' + toISO(tomorrow) + '" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid ' + C.border + ';font-size:14px;outline:none;box-sizing:border-box;">'
+      '<div style="background:#fff;border-radius:14px;padding:22px;width:360px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+      + '<div id="_proDateTitle" style="font-size:16px;font-weight:800;color:' + C.ink + ';margin-bottom:4px;">' + (opts.title || 'Habilitar PRO') + '</div>'
+      + '<div style="font-size:13px;color:' + C.muted + ';margin-bottom:' + (curOk ? '6' : '14') + 'px;">' + (opts.desc || 'Escolha a data de expiracao do plano PRO.') + '</div>'
+      + (curOk
+          ? '<div style="font-size:12px;color:' + C.muted + ';margin-bottom:14px;">Hoje ' + (vigente ? 'expira em' : 'expirou em') + ' <b style="color:' + C.ink + ';">' + cur.toLocaleDateString('pt-BR') + '</b></div>'
+          : '')
+      + (opts.paid
+          ? '<div style="font-size:12px;color:' + C.p4 + ';margin-bottom:12px;">Atencao: assinatura paga no Mercado Pago. A proxima renovacao automatica pode sobrescrever esta data.</div>'
+          : '')
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">'
+      + ATALHOS.map(a => '<button type="button" class="_proQuick" data-m="' + a[1] + '" style="background:#f4f1ec;border:1px solid ' + C.border + ';color:' + C.ink + ';border-radius:999px;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600;">' + a[0] + '</button>').join('')
+      + '</div>'
+      + '<input id="_proDateInput" type="date" value="' + toISO(initial) + '" min="' + toISO(tomorrow) + '" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid ' + C.border + ';font-size:14px;outline:none;box-sizing:border-box;">'
       + '<div id="_proDateErr" style="color:' + C.p4 + ';font-size:12px;margin-top:8px;display:none;"></div>'
       + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
       + '<button id="_proDateCancel" style="background:none;border:1px solid ' + C.border + ';color:' + C.ink + ';border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;">Cancelar</button>'
-      + '<button id="_proDateOk" style="background:#16a34a;border:none;color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:700;">Confirmar</button>'
+      + '<button id="_proDateOk" style="background:#16a34a;border:none;color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:700;">' + (opts.confirmLabel || 'Confirmar') + '</button>'
       + '</div></div>';
     document.body.appendChild(ov);
     const inp = ov.querySelector('#_proDateInput');
     const errEl = ov.querySelector('#_proDateErr');
     const close = val => { document.body.removeChild(ov); resolve(val); };
     setTimeout(() => inp.focus(), 30);
+    // Atalhos somam sobre a base (expiracao vigente ou hoje) e so preenchem
+    // o campo — quem confirma continua sendo o botao, entao da pra ajustar
+    // no dedo depois de clicar em "+3 meses".
+    Array.prototype.forEach.call(ov.querySelectorAll('._proQuick'), b => {
+      b.onclick = () => {
+        inp.value = toISO(addMonths(Number(b.getAttribute('data-m'))));
+        errEl.style.display = 'none';
+      };
+    });
     ov.querySelector('#_proDateCancel').onclick = () => close(null);
     ov.addEventListener('click', e => { if (e.target === ov) close(null); });
     const submit = () => {
       if (!inp.value) { errEl.textContent = 'Selecione uma data.'; errEl.style.display = 'block'; return; }
       const p = inp.value.split('-');
       const exp = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 23, 59, 59);
-      if (isNaN(exp.getTime()) || exp <= new Date()) { errEl.textContent = 'Informe uma data futura válida.'; errEl.style.display = 'block'; return; }
+      if (isNaN(exp.getTime()) || exp <= new Date()) { errEl.textContent = 'Informe uma data futura valida.'; errEl.style.display = 'block'; return; }
       close(exp);
     };
     ov.querySelector('#_proDateOk').onclick = submit;
@@ -331,13 +679,16 @@ function askProDate() {
   });
 }
 
-const setProfilePro = async (id, value, after) => {
+// `opts` chega inteiro no modal (title/desc/current/paid/confirmLabel) — e
+// como alterar periodo tambem e um set_pro com value=true, o mesmo caminho
+// serve pra habilitar e pra editar.
+const setProfilePro = async (id, value, after, opts) => {
   if (!value) {
     if (!confirm('Remover o acesso PRO deste cliente?')) return;
     if (await adminUsers({ action:'set_pro', userId:id, value:false }) && after) after();
     return;
   }
-  const exp = await askProDate();
+  const exp = await askProDate(opts);
   if (!exp) return;
   if (await adminUsers({ action:'set_pro', userId:id, value:true, expiresAt: exp.toISOString() }) && after) after();
 };
@@ -371,13 +722,22 @@ function useSupabaseQuery(queryFn, deps) {
 const profilesService = {
   async list(opts) {
     opts = opts || {};
-    let q = supa.from('profiles').select(opts.fields || '*');
-    if (opts.portalOnly) q = q.eq('portal_access', true);
-    if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false });
-    if (opts.limit) q = q.limit(opts.limit);
-    const { data, error } = await q;
-    if (error) throw error;
-    let rows = data || [];
+    const montar = () => {
+      let q = supa.from('profiles').select(opts.fields || '*');
+      if (opts.portalOnly) q = q.eq('portal_access', true);
+      if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false });
+      return q;
+    };
+    // Com limite explicito, respeita o limite. Sem ele, PAGINA — senao a
+    // lista para em 1000 linhas sem avisar ninguem.
+    let rows;
+    if (opts.limit) {
+      const { data, error } = await montar().limit(opts.limit);
+      if (error) throw error;
+      rows = data || [];
+    } else {
+      rows = await buscarTudo(montar);
+    }
     if (opts.painterOnly) rows = rows.filter(isProProfile);
     if (opts.clienteOnly) rows = rows.filter(isClienteProfile);
     if (opts.proOnly) rows = rows.filter(isProActive);
@@ -464,6 +824,18 @@ const ProBadgeCell = React.memo(function ProBadgeCell({ profile, onChange }) {
         {paid ? '💳 PRO' : '✋ PRO'}
       </span>
       <span style={{ fontSize:11, color:'#666' }}>até {exp}</span>
+      <button
+        onClick={() => setProfilePro(profile.id, true, onChange, {
+          title: 'Alterar periodo PRO',
+          desc: 'Escolha a nova data de expiracao do plano PRO.',
+          confirmLabel: 'Salvar',
+          current: profile.pro_expires_at,
+          paid,
+        })}
+        title="Alterar período PRO"
+        style={{ padding:'2px 6px', background:'transparent', border:'1px solid #ddd', borderRadius:4, cursor:'pointer', fontSize:10 }}>
+        ✏️
+      </button>
       {!paid && (
         <button onClick={() => setProfilePro(profile.id, false, onChange)} style={{ padding:'2px 6px', background:'transparent', border:'1px solid #ddd', borderRadius:4, cursor:'pointer', fontSize:10 }}>
           Remover
@@ -646,6 +1018,9 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
   const { data, loading, refetch: fetchPintores } = useSupabaseQuery(() => profilesService
     .list({ painterOnly: true, order: 'created_at', ascending: false }), []);
   const pintores = roleFilter ? (data || []).filter(roleFilter) : (data || []);
+  const [selIds, setSelIds] = useState([]);
+  const toggleSel = (id) => setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : s.concat(id));
+  const allSel = pintores.length > 0 && selIds.length === pintores.length;
 
   const updateVerified = (id, verified) => setProfileVerified(id, verified, fetchPintores);
 
@@ -655,13 +1030,17 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
     <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
       <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>{title || 'Pintores Cadastrados'} ({pintores.length})</div>
       <CreateAppUserForm onCreated={fetchPintores} defaultRole={defaultRole || 'pintor'} />
+      <BulkDeleteBar list={pintores} selIds={selIds} setSelIds={setSelIds} after={fetchPintores} />
       {pintores.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>{emptyMsg || 'Nenhum pintor cadastrado.'}</div>}
       <div style={{ overflowX:'auto' }}>
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:700 }}>
         {pintores.length > 0 && (
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['Nome','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
+              <th style={{ padding:'8px 12px', width:34 }}>
+                <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? pintores.map(x => x.id) : [])} title="Selecionar todos" />
+              </th>
+              {['Nome','Email','Telefone','Tipo','Tag','Cidade','Estado','Especialidades','Avaliacao','Status','PRO','Portal','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -669,18 +1048,23 @@ const PintoresList = ({ roleFilter, title, defaultRole, emptyMsg }) => {
         )}
         <tbody>
           {pintores.map((p, i) => (
-            <tr key={p.id} style={{ borderBottom:'1px solid '+C.border }}>
+            <tr key={p.id} style={{ borderBottom:'1px solid '+C.border, background: selIds.includes(p.id) ? C.cream : 'transparent' }}>
+              <td style={{ padding:'10px 12px' }}>
+                <input type="checkbox" checked={selIds.includes(p.id)} onChange={() => toggleSel(p.id)} />
+              </td>
               <td style={{ padding:'10px 12px' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   <AvatarCell name={p.name} avatarUrl={p.avatar_url} size={32} />
-                  <span style={{ fontWeight:600 }}>{p.name || 'Sem nome'}</span>
+                  <NameCell profile={p} after={fetchPintores} />
                 </div>
               </td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><PhoneCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}><RoleSelect profile={p} after={fetchPintores} /></td>
-              <td style={{ padding:'10px 12px', color:C.muted, fontSize:12 }}>{p.tag ? '@'+p.tag : '—'}</td>
-              <td style={{ padding:'10px 12px' }}>{p.city || '—'}</td>
-              <td style={{ padding:'10px 12px' }}>{p.state || '—'}</td>
-              <td style={{ padding:'10px 12px', fontSize:12, color:C.muted }}>{p.specialties || '—'}</td>
+              <td style={{ padding:'10px 12px', fontSize:12 }}><TagCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px' }}><CityCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px' }}><StateCell profile={p} after={fetchPintores} /></td>
+              <td style={{ padding:'10px 12px' }}><SpecialtiesCell profile={p} after={fetchPintores} /></td>
               <td style={{ padding:'10px 12px' }}>{p.rating_avg != null ? Number(p.rating_avg).toFixed(1) : '—'}</td>
               <td style={{ padding:'10px 12px' }}>
                 {p.verified ? <span style={{ background:C.p6+'22', color:C.p6, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>Aprovado</span> : <span style={{ background:C.p7+'22', color:'#b8860b', borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>Pendente</span>}
@@ -760,39 +1144,154 @@ const classify = (p) => {
 };
 const MENU_LABEL = Object.fromEntries(MENUS.map(m => [m.key, m.label]).concat([['outros','📦 Outros']]));
 
+// ============================================================
+// Produtos — o catalogo da loja passa de 21 mil linhas. Tudo o que vem
+// abaixo existe por causa desse numero.
+// ============================================================
+
+// So as colunas que o CARD usa. `description` e a ficha tecnica (linha,
+// rendimento, demaos, secagem) ficam de fora: em 21 mil linhas elas sao a
+// maior parte do payload e so interessam ao formulario — que agora busca a
+// linha inteira na hora de editar.
+const PRODUTO_COLS = 'id,name,code,category,volume,price,stock,badge,active,image_url,color_hex,color_gradient';
+const PRODUTOS_PAGE = 1000;    // teto do PostgREST (max-rows do Supabase)
+const PRODUTOS_PARALELO = 4;   // paginas buscadas ao mesmo tempo
+const PRODUTOS_JANELA = 60;    // cards montados por vez na tela
+
+// Categoria e chave de busca calculadas UMA vez, quando a linha chega.
+// Antes `classify` rodava sobre a lista inteira a cada reagrupamento e o
+// `toLowerCase` do filtro rodava 21 mil vezes a cada tecla digitada.
+const prepararProduto = (p) => Object.assign({}, p, {
+  _cat: classify(p),
+  _q: ((p.name || '') + ' ' + (p.code || '')).toLowerCase()
+});
+const ordenarProdutos = (lista) => lista.slice().sort(
+  (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR')
+);
+
+// Cache em memoria (vive enquanto a aba estiver aberta): sair da tela e
+// voltar deixou de refazer as 22 requisicoes. O botao "Atualizar" forca.
+let _produtosCache = null;
+
+// Card isolado e memoizado: com a janela crescendo de 60 em 60, sem isso
+// todo card ja montado re-renderizava a cada passo do scroll.
+// Altura da area da foto/cor. Foto entra INTEIRA (`contain`): a caixa era
+// de 60px com `cover` e cortava o produto pelo meio — quem cadastra precisa
+// reconhecer a peca no card. Sem foto, a mesma caixa vira o bloco de cor.
+const PRODUTO_MIDIA_H = 96;
+
+const ProdutoCard = React.memo(function ProdutoCard({ p, onEdit, onDelete }) {
+  return (
+    <div style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)', opacity:p.active===false?0.5:1, position:'relative' }}>
+      {p.badge && <div style={{ position:'absolute', top:8, left:8, background:p.badge==='NOVO'?C.p1:'#e63946', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, zIndex:1 }}>{p.badge}</div>}
+      {p.image_url ? (
+        <div style={{ width:'100%', height:PRODUTO_MIDIA_H, borderRadius:8, background:C.cream, marginBottom:12, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <img src={p.image_url} alt="" loading="lazy" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
+        </div>
+      ) : (
+        <div style={{ width:'100%', height:PRODUTO_MIDIA_H, borderRadius:8, background:productBg(p), marginBottom:12 }}></div>
+      )}
+      <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
+      <div style={{ fontSize:11, color:C.muted }}>{p.code}{p.code && p.volume ? ' · ' : ''}{p.volume}</div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6 }}>
+        <div style={{ fontWeight:700, color:C.p1 }}>R$ {Number(p.price||0).toFixed(2).replace('.',',')}</div>
+        <div style={{ fontSize:11, color:p.stock<=5?'#e63946':'#2e7d32' }}>{p.stock} unid</div>
+      </div>
+      <div style={{ display:'flex', gap:6, marginTop:10 }}>
+        <button onClick={()=>onEdit(p)} style={{ flex:1, background:C.cream, border:'none', borderRadius:8, padding:'6px', fontSize:12, cursor:'pointer', fontWeight:600, color:C.ink }}>Editar</button>
+        <button aria-label="Excluir produto" onClick={()=>onDelete(p.id)} style={{ background:'none', border:'1px solid #e6394644', borderRadius:8, padding:'6px 10px', fontSize:12, cursor:'pointer', color:'#e63946' }}>×</button>
+      </div>
+    </div>
+  );
+});
+
 const ProdutosList = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [fotoBusy, setFotoBusy] = useState(false);
   const [menuFilter, setMenuFilter] = useState('all');
   const [busca, setBusca] = useState('');
+  const [buscaDeb, setBuscaDeb] = useState('');
+  const [limite, setLimite] = useState(PRODUTOS_JANELA);
+  const [totalBanco, setTotalBanco] = useState(0);
+  const [carregandoResto, setCarregandoResto] = useState(false);
+  const [erroCarga, setErroCarga] = useState('');
+  // Qual produto a gaveta esta editando AGORA — a ficha completa chega por
+  // uma consulta separada e pode voltar depois de o operador ja ter trocado.
+  const editandoRef = React.useRef(null);
   const [form, setForm] = useState({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
 
-  const loadProducts = async () => {
+  // Carregamento em duas fases. A PRIMEIRA pagina pinta a tela e tira o
+  // "Carregando produtos..." — antes a tela ficava em branco ate a ultima
+  // das 22 requisicoes voltar, porque elas eram uma DEPOIS da outra.
+  // O resto vem em paralelo, no fundo, e vai sendo emendado na lista.
+  const loadProducts = React.useCallback(async (opts) => {
+    const force = !!(opts && opts.force);
+    if(!force && _produtosCache){
+      setProducts(_produtosCache);
+      setTotalBanco(_produtosCache.length);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setErroCarga('');
     try {
-      const PAGE = 1000;
-      const byId = new Map();
-      for(let pageNo = 0; pageNo < 30; pageNo++){
-        const from = pageNo * PAGE;
-        const { data, error } = await supa.from('products').select('*').order('name').range(from, from + PAGE - 1);
-        if(error) throw error;
-        if(!data || data.length === 0) break;
-        const before = byId.size;
-        data.forEach(p => { byId.set(p.id, p); });
-        if(byId.size === before) break;
-        if(data.length < PAGE) break;
-      }
-      setProducts(Array.from(byId.values()));
+      const primeira = await supa.from('products')
+        .select(PRODUTO_COLS, { count: 'exact' })
+        .order('name').range(0, PRODUTOS_PAGE - 1);
+      if(primeira.error) throw primeira.error;
+      const paginas = [(primeira.data || []).map(prepararProduto)];
+      setProducts(paginas[0]);
+      setLoading(false);
+      const total = typeof primeira.count === 'number' ? primeira.count : paginas[0].length;
+      setTotalBanco(total);
+
+      const faltando = [];
+      for(let n = 1; n * PRODUTOS_PAGE < total; n++) faltando.push(n);
+      if(!faltando.length){ _produtosCache = paginas[0]; return; }
+
+      setCarregandoResto(true);
+      let cursor = 0;
+      // `paginas[n]` guarda cada lote na SUA posicao: as respostas chegam
+      // fora de ordem (sao paralelas) e o flat() devolve a ordem por nome.
+      const worker = async () => {
+        while(cursor < faltando.length){
+          const n = faltando[cursor++];
+          const de = n * PRODUTOS_PAGE;
+          const r = await supa.from('products').select(PRODUTO_COLS)
+            .order('name').range(de, de + PRODUTOS_PAGE - 1);
+          if(r.error) throw r.error;
+          paginas[n] = (r.data || []).map(prepararProduto);
+          const parcial = [];
+          for(const lote of paginas) if(lote) parcial.push.apply(parcial, lote);
+          setProducts(parcial);
+        }
+      };
+      const trabalhadores = [];
+      for(let i = 0; i < Math.min(PRODUTOS_PARALELO, faltando.length); i++) trabalhadores.push(worker());
+      await Promise.all(trabalhadores);
+      const completo = [];
+      for(const lote of paginas) if(lote) completo.push.apply(completo, lote);
+      _produtosCache = completo;
+      setProducts(completo);
     } catch(e) {
       console.error('loadProducts error:', e);
-      setProducts([]);
+      setErroCarga(e && e.message ? e.message : String(e));
     }
+    setCarregandoResto(false);
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { loadProducts(); }, []);
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  // Busca com atraso: sem isso cada tecla refiltrava as 21 mil linhas e
+  // remontava a grade inteira.
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaDeb(busca), 250);
+    return () => clearTimeout(t);
+  }, [busca]);
 
   const saveProduct = async () => {
     try {
@@ -801,32 +1300,57 @@ const ProdutosList = () => {
       if(!productData.name) { alert('Nome obrigatorio'); return; }
       // productsService.upsert cobre insert + update (quando id presente).
       if(editing) productData.id = editing;
-      await productsService.upsert(productData);
-      setShowForm(false); setEditing(null);
+      const salvos = await productsService.upsert(productData);
+      const linha = salvos && salvos[0];
+      // Uma linha mudou — nao ha por que buscar as outras 21 mil de novo.
+      if(linha) aplicarLinha(linha); else loadProducts({ force: true });
+      setShowForm(false); setEditing(null); editandoRef.current = null;
       setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true });
-      loadProducts();
     } catch(e) { alert('Erro: ' + (e.message || e)); }
   };
 
-  const deleteProduct = async (id) => {
+  // Emenda (ou insere) uma linha na lista ja carregada, mantendo a ordem
+  // por nome, e atualiza o cache junto.
+  const aplicarLinha = React.useCallback((row) => {
+    const p = prepararProduto(row);
+    setProducts(lista => {
+      const existe = lista.some(x => x.id === p.id);
+      const nova = existe
+        ? lista.map(x => x.id === p.id ? Object.assign({}, x, p) : x)
+        : ordenarProdutos(lista.concat(p));
+      _produtosCache = nova;
+      return nova;
+    });
+  }, []);
+
+  const deleteProduct = React.useCallback(async (id) => {
     if(!confirm('Excluir este produto?')) return;
     try {
       await productsService.remove(id);
-      loadProducts();
+      setProducts(lista => { const nova = lista.filter(p => p.id !== id); _produtosCache = nova; return nova; });
     } catch(e) { alert('Erro: ' + (e.message || e)); }
-  };
+  }, []);
 
-  const editProduct = (p) => {
-    setForm({ name:p.name||'', code:p.code||'', category:p.category||'tintas', volume:p.volume||'18L', price:p.price||'', color_hex:p.color_hex||'#c0622d', color_gradient:p.color_gradient||'', image_url:p.image_url||'', stock:p.stock||0, badge:p.badge||'', description:p.description||'', line:p.line||'', rendimento:p.rendimento||'', demaos:p.demaos||'', secagem:p.secagem||'', active:p.active!==false });
+  const preencherForm = (p) => setForm({ name:p.name||'', code:p.code||'', category:p.category||'tintas', volume:p.volume||'18L', price:p.price||'', color_hex:p.color_hex||'#c0622d', color_gradient:p.color_gradient||'', image_url:p.image_url||'', stock:p.stock||0, badge:p.badge||'', description:p.description||'', line:p.line||'', rendimento:p.rendimento||'', demaos:p.demaos||'', secagem:p.secagem||'', active:p.active!==false });
+
+  // A lista carrega so as colunas do card; os campos longos (descricao,
+  // ficha tecnica) vem agora, numa consulta de UMA linha.
+  const editProduct = React.useCallback((p) => {
+    editandoRef.current = p.id;
+    preencherForm(p);
     setEditing(p.id);
     setShowForm(true);
-  };
+    supa.from('products').select('*').eq('id', p.id).maybeSingle().then(({ data }) => {
+      // Trocou de produto (ou fechou a gaveta) antes da resposta: descarta.
+      if(data && editandoRef.current === p.id) preencherForm(data);
+    });
+  }, []);
 
-  // Agrupamento por categoria — pesado quando há milhares de produtos.
-  // Só recalcula quando a lista de produtos muda (não a cada keystroke da busca).
+  // Agrupamento por categoria — a categoria ja veio calculada em
+  // `prepararProduto`, entao aqui e so distribuir nos baldes.
   const grouped = React.useMemo(() => {
     const g = {};
-    products.forEach(p => { const k = classify(p); if(!g[k]) g[k] = []; g[k].push(p); });
+    products.forEach(p => { const k = p._cat || classify(p); if(!g[k]) g[k] = []; g[k].push(p); });
     return g;
   }, [products]);
   const orderedKeys = React.useMemo(
@@ -834,12 +1358,56 @@ const ProdutosList = () => {
     [grouped]
   );
   const totalItens = products.length;
-  const qLower = React.useMemo(() => busca.trim().toLowerCase(), [busca]);
+  const qLower = React.useMemo(() => buscaDeb.trim().toLowerCase(), [buscaDeb]);
+
+  // Categorias visiveis depois do chip + da busca.
+  const listaFiltrada = React.useMemo(() => {
+    const out = [];
+    orderedKeys.forEach(cat => {
+      if(menuFilter !== 'all' && menuFilter !== cat) return;
+      const items = qLower ? grouped[cat].filter(p => (p._q || '').includes(qLower)) : grouped[cat];
+      if(items.length) out.push({ cat, items });
+    });
+    return out;
+  }, [orderedKeys, grouped, menuFilter, qLower]);
+  const totalFiltrado = React.useMemo(
+    () => listaFiltrada.reduce((s, g) => s + g.items.length, 0),
+    [listaFiltrada]
+  );
+
+  // JANELA: so os primeiros `limite` cards existem no DOM. Era aqui que a
+  // tela travava — em "Todos" o React montava 21 mil cards de uma vez.
+  const blocos = React.useMemo(() => {
+    let resta = limite;
+    const out = [];
+    for(const g of listaFiltrada){
+      if(resta <= 0) break;
+      out.push({ cat: g.cat, total: g.items.length, items: g.items.slice(0, resta) });
+      resta -= g.items.length;
+    }
+    return out;
+  }, [listaFiltrada, limite]);
+  const mostrando = React.useMemo(() => blocos.reduce((s, b) => s + b.items.length, 0), [blocos]);
+
+  // Trocou de chip ou de busca: a janela volta pro comeco.
+  useEffect(() => { setLimite(PRODUTOS_JANELA); }, [menuFilter, qLower]);
+
+  // Sentinela no fim da lista: chegou perto, cresce a janela.
+  const sentinelaRef = React.useRef(null);
+  useEffect(() => {
+    const el = sentinelaRef.current;
+    if(!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(entradas => {
+      if(entradas.some(e => e.isIntersecting)) setLimite(l => l + PRODUTOS_JANELA);
+    }, { rootMargin: '600px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [mostrando, totalFiltrado]);
 
   const inputStyle = { width:'100%', padding:'8px 12px', borderRadius:8, border:'1px solid '+C.border, fontSize:13, outline:'none' };
   const labelStyle = { fontSize:12, color:C.muted, marginBottom:4, display:'block' };
 
-  const closeForm = () => { setShowForm(false); setEditing(null); };
+  const closeForm = () => { setShowForm(false); setEditing(null); editandoRef.current = null; };
 
   // Esc fecha a gaveta — o formulário é modal-ish (fica por cima da lista),
   // então a saída pelo teclado tem que existir.
@@ -859,9 +1427,17 @@ const ProdutosList = () => {
     // a última coluna de produtos fica atrás dela.
     <div style={{ paddingRight: showForm ? DRAWER_W + 24 : 0, transition:'padding-right .2s ease' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-        <div style={{ fontWeight:700, color:C.ink, fontSize:18 }}>🎨 Produtos / Tintas</div>
+        <div style={{ fontWeight:700, color:C.ink, fontSize:18 }}>
+          🎨 Produtos / Tintas
+          {carregandoResto && totalBanco > 0 && (
+            <span style={{ marginLeft:10, fontSize:12, fontWeight:600, color:C.muted }}>
+              carregando {totalItens.toLocaleString('pt-BR')} de {totalBanco.toLocaleString('pt-BR')}…
+            </span>
+          )}
+        </div>
         <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          <button onClick={()=>{ setEditing(null); setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true }); setShowForm(true); }} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ Novo Produto</button>
+          <button onClick={()=>loadProducts({ force:true })} disabled={loading || carregandoResto} title="Recarregar do banco" style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'8px 14px', fontSize:13, fontWeight:600, cursor: (loading||carregandoResto) ? 'default' : 'pointer', color:C.muted }}>↻ Atualizar</button>
+          <button onClick={()=>{ setEditing(null); editandoRef.current = null; setForm({ name:'', code:'', category:'tintas', volume:'18L', price:'', color_hex:'#c0622d', color_gradient:'', image_url:'', stock:0, badge:'', description:'', line:'Linha Premium', rendimento:'~10m²/L', demaos:'2', secagem:'2h', active:true }); setShowForm(true); }} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ Novo Produto</button>
         </div>
       </div>
 
@@ -895,19 +1471,32 @@ const ProdutosList = () => {
           <div style={{ marginBottom:12 }}>
             <label style={labelStyle}>Foto do produto (opcional — sobrepõe a cor)</label>
             <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-              {form.image_url && <div style={{ width:48, height:48, borderRadius:8, background:'center/cover no-repeat url('+form.image_url+')', border:'1px solid '+C.border, flexShrink:0 }}></div>}
-              <input type="file" accept="image/*" onChange={async e=>{
-                const f = e.target.files && e.target.files[0]; if(!f) return;
+              {form.image_url && <div style={{ width:48, height:48, borderRadius:8, background:C.cream+' center/contain no-repeat url('+form.image_url+')', border:'1px solid '+C.border, flexShrink:0 }}></div>}
+              <input type="file" accept="image/*" disabled={fotoBusy} onChange={async e=>{
+                const f = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if(!f) return;
+                if(!f.type.startsWith('image/')){ alert('Selecione um arquivo de imagem.'); return; }
+                if(f.size > 5 * 1024 * 1024){ alert('Imagem grande demais (max 5MB).'); return; }
+                setFotoBusy(true);
                 try {
-                  setAiBusy('Enviando foto...');
-                  const path = 'products/' + Date.now() + '-' + f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-                  const { error } = await supa.storage.from('posts').upload(path, f, { upsert:true });
+                  const { data: { user } } = await supa.auth.getUser();
+                  if(!user) throw new Error('Sessao expirada — entre de novo.');
+                  // O bucket `posts` exige que o path COMECE no id de quem
+                  // sobe (Wave 27, path validation). O caminho antigo era
+                  // 'products/...' — a RLS recusava. Isso nunca apareceu
+                  // porque o `setAiBusy` inexistente estourava antes.
+                  const nome = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                  const path = user.id + '/products/' + Date.now() + '-' + nome;
+                  const { error } = await supa.storage.from('posts')
+                    .upload(path, f, { upsert:true, contentType: f.type });
                   if(error) throw error;
                   const { data } = supa.storage.from('posts').getPublicUrl(path);
                   setForm(fm => ({ ...fm, image_url: (data && data.publicUrl) || '' }));
                 } catch(err){ alert('Erro ao enviar foto: ' + (err.message||err)); }
-                setAiBusy('');
+                setFotoBusy(false);
               }} style={{ fontSize:12, flex:1 }} />
+              {fotoBusy ? <span style={{ fontSize:12, color:C.muted, whiteSpace:'nowrap' }}>Enviando…</span> : null}
               {form.image_url && <button type="button" onClick={()=>setForm({...form,image_url:''})} style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'6px 12px', fontSize:12, cursor:'pointer', color:C.muted }}>Remover</button>}
             </div>
           </div>
@@ -940,38 +1529,31 @@ const ProdutosList = () => {
         </div>
       )}
 
+      {erroCarga && (
+        <div style={{ background:'#fdecea', border:'1px solid #f5c2c0', color:'#a4231f', borderRadius:10, padding:'10px 14px', fontSize:13, marginBottom:14 }}>
+          Erro ao carregar produtos: {erroCarga}
+        </div>
+      )}
+
       {loading ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Carregando produtos...</div> :
        products.length === 0 ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Nenhum produto cadastrado. Clique em "+ Novo Produto" para começar.</div> :
-       orderedKeys.filter(cat => menuFilter==='all' || menuFilter===cat).map(cat => {
-        const items = grouped[cat].filter(p => !qLower || (p.name||'').toLowerCase().includes(qLower) || (p.code||'').toLowerCase().includes(qLower));
-        if(items.length === 0) return null;
-        return (
-        <div key={cat} style={{ marginBottom:24 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:C.muted, marginBottom:10, textTransform:'uppercase', letterSpacing:.5 }}>{MENU_LABEL[cat] || cat} <span style={{ color:C.p1 }}>({grouped[cat].length})</span></div>
+       totalFiltrado === 0 ? <div style={{ textAlign:'center', padding:40, color:C.muted }}>Nenhum produto encontrado para essa busca.</div> :
+       blocos.map(bloco => (
+        <div key={bloco.cat} style={{ marginBottom:24 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.muted, marginBottom:10, textTransform:'uppercase', letterSpacing:.5 }}>{MENU_LABEL[bloco.cat] || bloco.cat} <span style={{ color:C.p1 }}>({bloco.total})</span></div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
-            {items.map(p => {
-              const bg = p.image_url ? 'center/cover no-repeat url('+p.image_url+')' : productBg(p);
-              return (
-                <div key={p.id} style={{ background:C.white, borderRadius:12, padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.05)', opacity:p.active===false?0.5:1, position:'relative' }}>
-                  {p.badge && <div style={{ position:'absolute', top:8, left:8, background:p.badge==='NOVO'?C.p1:'#e63946', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10, zIndex:1 }}>{p.badge}</div>}
-                  <div style={{ width:'100%', height:60, borderRadius:8, background:bg, marginBottom:12 }}></div>
-                  <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
-                  <div style={{ fontSize:11, color:C.muted }}>{p.code}{p.code && p.volume ? ' · ' : ''}{p.volume}</div>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6 }}>
-                    <div style={{ fontWeight:700, color:C.p1 }}>R$ {Number(p.price||0).toFixed(2).replace('.',',')}</div>
-                    <div style={{ fontSize:11, color:p.stock<=5?'#e63946':'#2e7d32' }}>{p.stock} unid</div>
-                  </div>
-                  <div style={{ display:'flex', gap:6, marginTop:10 }}>
-                    <button onClick={()=>editProduct(p)} style={{ flex:1, background:C.cream, border:'none', borderRadius:8, padding:'6px', fontSize:12, cursor:'pointer', fontWeight:600, color:C.ink }}>Editar</button>
-                    <button aria-label="Excluir produto" onClick={()=>deleteProduct(p.id)} style={{ background:'none', border:'1px solid #e6394644', borderRadius:8, padding:'6px 10px', fontSize:12, cursor:'pointer', color:'#e63946' }}>×</button>
-                  </div>
-                </div>
-              );
-            })}
+            {bloco.items.map(p => (
+              <ProdutoCard key={p.id} p={p} onEdit={editProduct} onDelete={deleteProduct} />
+            ))}
           </div>
         </div>
-        );
-      })}
+      ))}
+
+      {!loading && mostrando < totalFiltrado && (
+        <div ref={sentinelaRef} style={{ textAlign:'center', padding:24, color:C.muted, fontSize:13 }}>
+          Mostrando {mostrando.toLocaleString('pt-BR')} de {totalFiltrado.toLocaleString('pt-BR')} — role para ver mais…
+        </div>
+      )}
     </div>
   );
 };
@@ -1147,15 +1729,26 @@ const Camisetas = () => {
             )}
           </div>
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-            <div style={{ width:120, height:140, background:cor, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', border:'2px solid '+C.border }}>
-              {logoSel && <img src={logoSel.image_url} alt="" style={{ maxWidth:70, maxHeight:44, objectFit:'contain', marginBottom:4 }} />}
-              {logo && <div style={{ color:cor==='#ffffff'?'#333':'#fff', fontSize:11, fontFamily:'Syne,sans-serif', fontWeight:800, textAlign:'center' }}>
-                <div>CaliColors</div>
-                <div style={{ fontSize:8, marginTop:2 }}>{painterName ? painterName.slice(0, 18).toUpperCase() : 'PINTOR PRO'}</div>
-              </div>}
-              <div style={{ color:cor==='#ffffff'?'#333':'rgba(255,255,255,0.5)', fontSize:8, marginTop:8 }}>TAM {tam}</div>
+            {/* Mockup IGUAL ao do app (ShirtCustomizer): foto /img/shirt-white.webp
+                + overlay multiply mascarado pela própria foto pra tingir a cor +
+                logo do pintor no peito esquerdo (30%/22%/14%) e Cali Colors no
+                direito. Antes era um retângulo colorido que não parecia camiseta. */}
+            <div style={{ position:'relative', width:240, height:240 }}>
+              <img src="/img/shirt-white.webp" alt="Camiseta" style={{ position:'absolute', left:0, top:0, width:'100%', height:'100%', objectFit:'contain', filter:'drop-shadow(0 6px 12px rgba(0,0,0,0.08))' }} />
+              {cor !== '#ffffff' && (
+                <div style={{ position:'absolute', left:0, top:0, width:'100%', height:'100%', background:cor, mixBlendMode:'multiply', WebkitMaskImage:'url(/img/shirt-white.webp)', WebkitMaskRepeat:'no-repeat', WebkitMaskPosition:'center', WebkitMaskSize:'contain', maskImage:'url(/img/shirt-white.webp)', maskRepeat:'no-repeat', maskPosition:'center', maskSize:'contain', opacity:0.85 }}></div>
+              )}
+              {logoSel ? (
+                <img src={logoSel.image_url} alt="" style={{ position:'absolute', left:'30%', top:'22%', width:'14%', maxHeight:'14%', objectFit:'contain', borderRadius:3 }} />
+              ) : (
+                <div style={{ position:'absolute', left:'28%', top:'21%', width:'18%', height:'15%', border:'1.5px dashed rgba(0,0,0,0.3)', borderRadius:5, fontSize:7, color:'rgba(0,0,0,0.5)', fontWeight:600, display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', lineHeight:1.1, padding:2, textTransform:'uppercase', letterSpacing:'0.3px', background:'rgba(255,255,255,0.4)' }}>Aplique seu logo</div>
+              )}
+              {logo && <img src="/img/cali-colors-logo.webp" alt="Cali Colors" style={{ position:'absolute', right:'30%', top:'22%', width:'14%', maxHeight:'14%', objectFit:'contain' }} />}
             </div>
-            <button onClick={gerarPedido} style={{ marginTop:16, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', cursor:'pointer', fontWeight:600 }}>
+            <div style={{ fontSize:12, color:C.muted, marginTop:6 }}>
+              TAM {tam}{painterName ? ' · ' + painterName.slice(0, 18) : ''}
+            </div>
+            <button onClick={gerarPedido} style={{ marginTop:12, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', cursor:'pointer', fontWeight:600 }}>
               Gerar Pedido
             </button>
           </div>
@@ -1318,6 +1911,9 @@ const Chats = () => {
   const [msgText, setMsgText] = useState('');
   const [sending, setSending] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
+  // Ate quando o PORTAL ja leu cada conversa. Antes o numero na lista era
+  // o total de mensagens da conversa — nunca zerava, entao nao dizia nada.
+  const [lidoAte, setLidoAte] = useState({});   // conversation_id -> ISO
   const msgsEndRef = React.useRef(null);
   const subRef = React.useRef(null);
 
@@ -1334,6 +1930,21 @@ const Chats = () => {
       .order('created_at', { ascending: false })
       .limit(200);
     if(error || !data){ setLoading(false); return; }
+
+    const { data: reads } = await supa
+      .from('portal_chat_reads').select('conversation_id, last_read_at').limit(2000);
+    if(reads){
+      const r = {};
+      reads.forEach(x => { r[x.conversation_id] = x.last_read_at; });
+      // Nao sobrescreve marca local mais nova (upsert ainda em voo).
+      setLidoAte(prev => {
+        const merged = { ...r };
+        Object.keys(prev).forEach(k => {
+          if(!merged[k] || new Date(prev[k]) > new Date(merged[k])) merged[k] = prev[k];
+        });
+        return merged;
+      });
+    }
 
     const ids = [...new Set(data.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean))];
     let profMap = {};
@@ -1360,9 +1971,27 @@ const Chats = () => {
 
   useEffect(() => { loadConversations(); }, []);
 
+  // NAO LIDAS: mensagem que chegou depois da ultima vez que o portal abriu
+  // esta conversa, tirando o que o proprio operador mandou.
+  const naoLidasConv = (conv) => {
+    const desde = lidoAte[conv.id];
+    return conv.messages.filter(m =>
+      m.sender_id !== myUserId && (!desde || new Date(m.created_at) > new Date(desde))
+    ).length;
+  };
+
+  const marcarConvLida = async (convId) => {
+    const agora = new Date().toISOString();
+    setLidoAte(s => ({ ...s, [convId]: agora }));       // otimista
+    try { window.dispatchEvent(new CustomEvent('wa-lidas-mudou')); } catch(_){}
+    await supa.from('portal_chat_reads')
+      .upsert({ conversation_id: convId, last_read_at: agora }, { onConflict:'conversation_id' });
+  };
+
   // Open a conversation
   const openChat = async (convId) => {
     setOpenConv(convId);
+    marcarConvLida(convId);
     setChatLoading(true);
     setChatMsgs([]);
 
@@ -1387,6 +2016,7 @@ const Chats = () => {
             if(prev.some(m => m.id === payload.new.id)) return prev;
             return [...prev, payload.new];
           });
+          marcarConvLida(convId); // esta aberta na tela: ja foi lida
           setTimeout(scrollToBottom, 100);
         })
       .subscribe();
@@ -1570,7 +2200,7 @@ const Chats = () => {
             </div>
             <div style={{ textAlign:'right', flexShrink:0 }}>
               <div style={{ fontSize:11, color:C.muted }}>{dt}</div>
-              {conv.messages.length > 1 && <div style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:700, padding:'2px 7px', marginTop:4, display:'inline-block' }}>{conv.messages.length}</div>}
+              {naoLidasConv(conv) > 0 && <div title={naoLidasConv(conv) + ' mensagem(ns) que voce ainda nao abriu'} style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:700, padding:'2px 7px', marginTop:4, display:'inline-block' }}>{naoLidasConv(conv)}</div>}
             </div>
           </div>
         );
@@ -1579,197 +2209,275 @@ const Chats = () => {
   );
 };
 
-const CLAUDE_API_KEY = localStorage.getItem('claude_api_key') || '';
-const AI_SEARCH_STORE_ADDRESS = 'Estr. Pres. Juscelino K. de Oliveira, 1071 - Jardim dos Pimentas, Guarulhos - SP, 07272-345';
+// ══ IMPORTAR LEADS DE PLANILHA ═══════════════════════════════════════════
+// Substituiu o "Busca AI" (2026-08-29), que NAO buscava nada: pedia pro
+// modelo INVENTAR empresas plausiveis — nome, telefone, nota, tudo
+// fabricado. Telefone inventado em formato valido e o telefone de alguem,
+// e com o botao "Abordar" do lado isso vira mensagem pra estranho.
+//
+// Le CSV, nao .xlsx: xlsx e ZIP+XML e precisaria de biblioteca externa (o
+// portal carrega script com SRI e sem bundler). No Excel: Arquivo →
+// Salvar como → CSV.
+//
+// Dois detalhes que quebram importacao de planilha brasileira e que estao
+// tratados aqui: o Excel pt-BR separa por PONTO E VIRGULA (nao virgula) e
+// salva em ANSI/windows-1252 (nao UTF-8) — sem isso vem tudo numa coluna
+// so, ou com acento virando caractere estranho.
 
-const AiSearchModal = ({ open, onClose, onResults, existingLeads }) => {
-  const [alvo, setAlvo] = useState('');
-  const [raio, setRaio] = useState(15);
-  const [endereco, setEndereco] = useState(AI_SEARCH_STORE_ADDRESS);
-  const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState('');
+const CSV_CAMPOS = [
+  { k:'name',         rot:'Nome *',        req:true,  dicas:['nome','name','empresa','razao','razão','estabelecimento','titulo','título'] },
+  { k:'phone',        rot:'Telefone *',    req:true,  dicas:['telefone','fone','celular','phone','whatsapp','contato','tel'] },
+  { k:'category',     rot:'Categoria',     req:false, dicas:['categoria','category','tipo','ramo','atividade'] },
+  { k:'segment',      rot:'Segmento',      req:false, dicas:['segmento','segment'] },
+  { k:'city',         rot:'Cidade',        req:false, dicas:['cidade','city','municipio','município'] },
+  { k:'neighborhood', rot:'Bairro',        req:false, dicas:['bairro','neighborhood','regiao','região'] },
+  { k:'address',      rot:'Endereço',      req:false, dicas:['endereco','endereço','address','rua','logradouro'] },
+  { k:'rating',       rot:'Nota',          req:false, dicas:['nota','rating','avaliacao','avaliação','estrelas'] },
+  { k:'review_count', rot:'Nº avaliações', req:false, dicas:['avaliacoes','avaliações','review','reviews','review_count','qtd'] },
+  { k:'priority',     rot:'Prioridade',    req:false, dicas:['prioridade','priority'] },
+];
 
-  const [apiKey, setApiKey] = useState(CLAUDE_API_KEY);
-  const [showKeyInput, setShowKeyInput] = useState(!CLAUDE_API_KEY);
+const semAcento = (t) => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
 
-  const doSearch = async () => {
-    if (!alvo.trim()) { setError('Descreva o alvo da busca'); return; }
-    if (!apiKey.trim()) { setShowKeyInput(true); setError('Configure sua API Key do Claude'); return; }
-    localStorage.setItem('claude_api_key', apiKey);
-    setSearching(true); setError(''); setResults(null);
+// Parser de CSV na mao: trata aspas, aspas duplicadas ("") e quebra de
+// linha DENTRO do campo — endereco com virgula entre aspas e a regra, nao
+// a excecao, em planilha de lead.
+const parseCSV = (texto, sep) => {
+  const linhas = []; let campo = ''; let linha = []; let dentroAspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (dentroAspas) {
+      if (c === '"') {
+        if (texto[i+1] === '"') { campo += '"'; i++; } else dentroAspas = false;
+      } else campo += c;
+      continue;
+    }
+    if (c === '"') { dentroAspas = true; continue; }
+    if (c === sep) { linha.push(campo); campo = ''; continue; }
+    if (c === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; continue; }
+    if (c === '\r') continue;
+    campo += c;
+  }
+  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
+  return linhas.filter(l => l.some(v => String(v).trim() !== ''));
+};
 
-    const existingNames = existingLeads.map(l => (l.name||'').toLowerCase());
-    const prompt = `Você é um assistente de prospecção de leads para uma loja de tintas chamada "Cali Colors" localizada em: ${endereco}.
+const detectarSeparador = (primeiraLinha) => {
+  const cont = (ch) => (primeiraLinha.split(ch).length - 1);
+  const cands = [[';', cont(';')], [',', cont(',')], ['\t', cont('\t')]];
+  cands.sort((a,b) => b[1] - a[1]);
+  return cands[0][1] > 0 ? cands[0][0] : ';';
+};
 
-TAREFA: Encontre ${alvo} em um raio de até ${raio}km da loja.
+// Excel pt-BR salva CSV em ANSI. Lemos como UTF-8 e, se aparecer o
+// caractere de substituicao, relemos como windows-1252.
+const decodificar = (buffer) => {
+  const utf8 = new TextDecoder('utf-8').decode(buffer);
+  if (!utf8.includes('�')) return utf8;
+  try { return new TextDecoder('windows-1252').decode(buffer); } catch(_) { return utf8; }
+};
 
-REGRAS:
-- Retorne APENAS um JSON array com no máximo 20 resultados
-- Cada objeto deve ter: name, phone, segment, category, rating, review_count, neighborhood, city, priority, address
-- segment deve ser: RESIDENCIAL, COMERCIAL, AUTOMOTIVO ou GRAFFITI
-- priority: alta, media ou baixa (baseado em proximidade e relevância)
-- phone no formato: 11 XXXX-XXXX (DDD de Guarulhos/SP)
-- rating de 1.0 a 5.0
-- NÃO inclua estes nomes que já são leads: ${existingNames.slice(0,30).join(', ')}
-- Gere resultados realistas baseados no tipo de negócio e região
-- Responda SOMENTE com o JSON array, sem texto adicional`;
+const soDigitos = (t) => String(t||'').replace(/\D/g,'');
+const chaveTelefone = (t) => { const d = soDigitos(t); return d.length >= 8 ? d.slice(-8) : ''; };
 
+const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
+  const [linhas, setLinhas] = useState(null);   // matriz do CSV
+  const [mapa, setMapa] = useState({});         // campo → indice da coluna
+  const [erro, setErro] = useState('');
+  const [progresso, setProgresso] = useState('');
+  const [relatorio, setRelatorio] = useState(null);
+  const [importando, setImportando] = useState(false);
+
+  const reset = () => { setLinhas(null); setMapa({}); setErro(''); setProgresso(''); setRelatorio(null); };
+  const fechar = () => { reset(); onClose(); };
+
+  const lerArquivo = async (file) => {
+    reset();
+    if (!file) return;
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': CLAUDE_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: prompt }]
-        })
+      const buf = await file.arrayBuffer();
+      const texto = decodificar(buf).replace(/^﻿/, '');
+      const sep = detectarSeparador((texto.split('\n')[0] || ''));
+      const m = parseCSV(texto, sep);
+      if (m.length < 2) { setErro('A planilha precisa ter o cabecalho e ao menos uma linha.'); return; }
+      const cabec = m[0].map(h => semAcento(h));
+      // Casa cada campo com a coluna cujo titulo mais parece com ele.
+      const auto = {};
+      CSV_CAMPOS.forEach(c => {
+        const idx = cabec.findIndex(h => h && c.dicas.some(d => h === semAcento(d)));
+        const idx2 = idx >= 0 ? idx : cabec.findIndex(h => h && c.dicas.some(d => h.includes(semAcento(d))));
+        if (idx2 >= 0 && !Object.values(auto).includes(idx2)) auto[c.k] = idx2;
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message || 'Erro na API Claude');
-      const text = data.content?.[0]?.text || '';
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error('Resposta inválida da AI');
-      const parsed = JSON.parse(jsonMatch[0]);
-      setResults(parsed);
-    } catch (e) {
-      setError(e.message || 'Erro ao buscar leads');
-    } finally { setSearching(false); }
+      setMapa(auto); setLinhas(m);
+    } catch(e) { setErro('Nao consegui ler o arquivo: ' + ((e && e.message) || '?')); }
   };
 
-  const saveLeads = async () => {
-    if (!results || results.length === 0) return;
-    const rows = results.map(r => ({
-      name: r.name, phone: r.phone, segment: r.segment, category: r.category,
-      rating: r.rating, review_count: r.review_count, neighborhood: r.neighborhood,
-      city: r.city || 'Guarulhos', priority: r.priority || 'media',
-      address: r.address || '', source: 'ai_search', status: 'novo'
-    }));
-    let saved = 0;
-    try {
-      await leadsService.insertBatch(rows);
-      saved = rows.length;
-    } catch (e) {
-      // Se o batch falhar, tenta um a um para nao perder todos.
-      console.warn('insertBatch leads falhou, tentando um a um:', e);
-      for (const row of rows) {
-        try { await leadsService.insertBatch([row]); saved++; } catch(_) { /* ignora */ }
+  const dados = linhas ? linhas.slice(1) : [];
+  const val = (row, campo) => {
+    const i = mapa[campo];
+    return (i === undefined || i === null || i === '') ? '' : String(row[i] ?? '').trim();
+  };
+
+  const importar = async () => {
+    if (mapa.name === undefined || mapa.phone === undefined) {
+      setErro('Escolha ao menos as colunas de Nome e Telefone.'); return;
+    }
+    setImportando(true); setErro(''); setProgresso('Preparando…');
+
+    const jaExiste = {};
+    (existingLeads || []).forEach(l => { const k = chaveTelefone(l.phone); if (k) jaExiste[k] = true; });
+
+    const rows = []; const semTelefone = []; const repetidos = [];
+    const vistos = {};
+    dados.forEach(r => {
+      const nome = val(r, 'name');
+      const tel = val(r, 'phone');
+      const k = chaveTelefone(tel);
+      if (!nome) return;
+      if (!k) { semTelefone.push(nome); return; }
+      if (jaExiste[k] || vistos[k]) { repetidos.push(nome); return; }
+      vistos[k] = true;
+      const nota = parseFloat(String(val(r,'rating')).replace(',', '.'));
+      const qtd = parseInt(soDigitos(val(r,'review_count')), 10);
+      const prio = semAcento(val(r,'priority'));
+      rows.push({
+        name: nome.slice(0, 200),
+        phone: tel.slice(0, 40),
+        segment: (val(r,'segment') || '').toUpperCase().slice(0, 40) || null,
+        category: val(r,'category').slice(0, 80) || null,
+        city: val(r,'city').slice(0, 80) || 'Guarulhos',
+        neighborhood: val(r,'neighborhood').slice(0, 80) || null,
+        address: val(r,'address').slice(0, 250) || null,
+        rating: isFinite(nota) ? Math.min(5, Math.max(0, nota)) : null,
+        review_count: isFinite(qtd) ? qtd : null,
+        priority: ['alta','media','baixa'].includes(prio) ? prio : 'media',
+        source: 'planilha',
+        status: 'novo',
+      });
+    });
+
+    if (!rows.length) {
+      setImportando(false);
+      setRelatorio({ salvos:0, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas:0 });
+      return;
+    }
+
+    // Em lotes: 1000 linhas num INSERT so estoura tempo/limite do PostgREST.
+    let salvos = 0, falhas = 0, motivo = '';
+    const LOTE = 200;
+    for (let i = 0; i < rows.length; i += LOTE) {
+      const fatia = rows.slice(i, i + LOTE);
+      setProgresso('Salvando ' + Math.min(i + LOTE, rows.length) + ' de ' + rows.length + '…');
+      try { await leadsService.insertBatch(fatia); salvos += fatia.length; }
+      catch(e) {
+        // Lote falhou: tenta linha a linha pra nao perder as boas. GUARDA A
+        // MENSAGEM do banco — sem ela "o banco recusou 984" nao diz nada e
+        // vira adivinhacao (RLS? coluna que nao existe? CHECK?).
+        for (const row of fatia) {
+          try { await leadsService.insertBatch([row]); salvos++; }
+          catch(err) {
+            falhas++;
+            if(!motivo) motivo = (err && (err.message || err.hint || err.details)) || String(err);
+          }
+        }
+      }
+      if(motivo && salvos === 0 && i + LOTE < rows.length){
+        // Tudo falhando pelo mesmo motivo: para de martelar o banco.
+        falhas += rows.length - (i + fatia.length);
+        break;
       }
     }
-    alert('✅ ' + saved + ' leads salvos no banco!');
-    onResults();
-    onClose();
+    setImportando(false); setProgresso('');
+    setRelatorio({ salvos, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas, motivo });
+    onPronto();
   };
 
   if (!open) return null;
+  const sel = { padding:'6px 8px', borderRadius:8, border:'1px solid '+C.border, fontSize:12, background:'#fff', width:'100%' };
+
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="ai-search-modal-title" style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.white, borderRadius:20, width:620, maxHeight:'85vh', overflow:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <div style={{ background:'linear-gradient(135deg, #8338ec, #6b21c8)', padding:'24px 28px', borderRadius:'20px 20px 0 0' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div>
-              <div id="ai-search-modal-title" style={{ color:'#fff', fontSize:20, fontWeight:800, fontFamily:'Syne,sans-serif' }}>✨ Busca AI de Leads</div>
-              <div style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:4 }}>Powered by Claude AI — Encontre novos clientes na região</div>
-            </div>
-            <button aria-label="Fechar busca AI" onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, width:36, height:36, fontSize:18, color:'#fff', cursor:'pointer' }}>✕</button>
-          </div>
+    <div onClick={fechar} style={{ position:'fixed', inset:0, background:'rgba(26,26,46,.55)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:18, width:'min(760px, 96vw)', maxHeight:'90vh', overflow:'auto', boxShadow:'0 20px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ padding:'16px 20px', background:C.ink, color:'#fff', borderRadius:'18px 18px 0 0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ fontSize:18, fontWeight:800, fontFamily:'Syne,sans-serif' }}>📥 Importar leads de planilha</div>
+          <button onClick={fechar} style={{ background:'none', border:'none', color:'#fff', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
         </div>
-
-        <div style={{ padding:24 }}>
-          {/* API Key (hidden once set) */}
-          {showKeyInput && (
-            <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>🔑 API Key Claude</div>
-              <input value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-..." type="password"
-                style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', fontFamily:'monospace' }} />
-            </div>
-          )}
-          {!showKeyInput && apiKey && (
-            <div style={{ marginBottom:12, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ fontSize:12, color:C.p6 }}>✅ API Key configurada</span>
-              <button onClick={()=>setShowKeyInput(true)} style={{ fontSize:11, color:C.p5, background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Alterar</button>
-            </div>
-          )}
-
-          {/* Store address */}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>📍 Endereço da Cali Colors</div>
-            <input value={endereco} onChange={e=>setEndereco(e.target.value)}
-              style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', background:C.bg }} />
-          </div>
-
-          {/* Target description */}
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 }}>🎯 Descrição do Alvo</div>
-            <textarea value={alvo} onChange={e=>setAlvo(e.target.value)} rows={3}
-              placeholder="Ex: funilarias e oficinas de pintura automotiva, lojas de materiais de construção, pintores residenciais..."
-              style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, fontSize:13, outline:'none', resize:'vertical', fontFamily:'DM Sans,sans-serif' }} />
-          </div>
-
-          {/* Radius */}
-          <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:12, color:C.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5, marginBottom:8 }}>📏 Raio de busca: <span style={{ color:C.p5, fontSize:16, fontWeight:800 }}>{raio}km</span></div>
-            <input type="range" min={5} max={50} value={raio} onChange={e=>setRaio(Number(e.target.value))}
-              style={{ width:'100%', accentColor:C.p5 }} />
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.muted }}>
-              <span>5km</span><span>15km</span><span>30km</span><span>50km</span>
-            </div>
-          </div>
-
-          {/* Quick presets */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
-            {['Funilarias e pintura automotiva','Pintores residenciais','Construtoras e reformas','Lojas de materiais','Imobiliárias','Condomínios'].map(t => (
-              <button key={t} onClick={()=>setAlvo(t)} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+C.border, background:alvo===t?'rgba(131,56,236,0.1)':'transparent', color:alvo===t?C.p5:C.ink, fontSize:12, cursor:'pointer', fontWeight:500 }}>{t}</button>
-            ))}
-          </div>
-
-          {error && <div style={{ color:C.p4, fontSize:13, marginBottom:12, padding:'8px 14px', background:'rgba(230,57,70,0.1)', borderRadius:10 }}>⚠️ {error}</div>}
-
-          {/* Search button */}
-          <button onClick={doSearch} disabled={searching}
-            style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:searching?C.muted:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:15, fontWeight:700, cursor:searching?'wait':'pointer', fontFamily:'DM Sans,sans-serif', boxShadow:'0 4px 15px rgba(131,56,236,0.3)' }}>
-            {searching ? '🔄 Buscando com Claude AI...' : '✨ Buscar Leads com AI'}
-          </button>
-
-          {/* Results */}
-          {results && results.length > 0 && (
-            <div style={{ marginTop:20 }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:C.ink }}>🎯 {results.length} leads encontrados</div>
-                <button onClick={saveLeads} style={{ padding:'8px 18px', borderRadius:10, border:'none', background:C.p6, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>💾 Salvar todos no banco</button>
+        <div style={{ padding:20 }}>
+          {!linhas ? (
+            <div>
+              <div style={{ fontSize:13, color:C.ink, lineHeight:1.6, marginBottom:14 }}>
+                No Excel: <strong>Arquivo → Salvar como → CSV</strong>. Depois escolha o arquivo aqui.
+                A primeira linha tem que ser o cabeçalho (Nome, Telefone, Categoria…).
               </div>
-              <div style={{ maxHeight:300, overflow:'auto', borderRadius:12, border:'1px solid '+C.border }}>
+              <input type="file" accept=".csv,.txt,text/csv" onChange={e=>lerArquivo(e.target.files && e.target.files[0])}
+                style={{ display:'block', width:'100%', padding:14, border:'2px dashed '+C.border, borderRadius:12, fontSize:13, cursor:'pointer' }} />
+              <div style={{ fontSize:11, color:C.muted, marginTop:10 }}>
+                Nada é enviado até você conferir as colunas na próxima tela.
+              </div>
+            </div>
+          ) : relatorio ? (
+            <div>
+              <div style={{ fontSize:15, fontWeight:800, color:C.ink, marginBottom:10 }}>
+                {relatorio.salvos > 0 ? '✅ ' + relatorio.salvos + ' leads importados' : 'Nenhum lead novo importado'}
+              </div>
+              <div style={{ fontSize:13, color:C.muted, lineHeight:1.8 }}>
+                {relatorio.repetidos > 0 ? <div>· {relatorio.repetidos} já existiam (mesmo telefone) e foram pulados</div> : null}
+                {relatorio.semTelefone > 0 ? <div>· {relatorio.semTelefone} sem telefone válido — ficaram de fora</div> : null}
+                {relatorio.falhas > 0 ? <div style={{ color:'#b91c1c' }}>· {relatorio.falhas} o banco recusou</div> : null}
+                {relatorio.motivo ? (
+                  <div style={{ marginTop:10, background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, padding:'8px 10px', color:'#b91c1c', fontSize:12, lineHeight:1.5, wordBreak:'break-word' }}>
+                    <strong>Motivo da recusa:</strong><br/>{relatorio.motivo}
+                  </div>
+                ) : null}
+              </div>
+              <button onClick={fechar} style={{ marginTop:18, background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'10px 22px', fontWeight:700, fontSize:13, cursor:'pointer' }}>Fechar</button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize:13, color:C.ink, marginBottom:4 }}>
+                <strong>{dados.length}</strong> linhas lidas. Confira em que coluna está cada informação:
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:14 }}>Só Nome e Telefone são obrigatórios. O resto pode ficar em branco.</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:10 }}>
+                {CSV_CAMPOS.map(c => (
+                  <div key={c.k}>
+                    <label style={{ fontSize:11, fontWeight:700, color: c.req ? C.p1 : C.muted, display:'block', marginBottom:3 }}>{c.rot}</label>
+                    <select value={mapa[c.k] === undefined ? '' : mapa[c.k]} style={sel}
+                      onChange={e => setMapa(m => ({ ...m, [c.k]: e.target.value === '' ? undefined : Number(e.target.value) }))}>
+                      <option value="">— não tenho —</option>
+                      {linhas[0].map((h, i) => <option key={i} value={i}>{h || ('Coluna ' + (i+1))}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop:16, fontSize:11, fontWeight:700, color:C.muted }}>PRÉVIA DAS 3 PRIMEIRAS</div>
+              <div style={{ overflowX:'auto', border:'1px solid '+C.border, borderRadius:10, marginTop:6 }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-                  <thead>
-                    <tr style={{ background:C.bg }}>
-                      {['Nome','Segmento','Categoria','Rating','Telefone','Bairro'].map(h=>(
-                        <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:C.muted, fontSize:11 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
+                  <thead><tr style={{ background:C.bg }}>
+                    {CSV_CAMPOS.filter(c => mapa[c.k] !== undefined).map(c =>
+                      <th key={c.k} style={{ padding:'7px 9px', textAlign:'left', fontSize:11, color:C.muted, whiteSpace:'nowrap' }}>{c.rot}</th>)}
+                  </tr></thead>
                   <tbody>
-                    {results.map((r,i)=>(
+                    {dados.slice(0,3).map((r,i) => (
                       <tr key={i} style={{ borderTop:'1px solid '+C.border }}>
-                        <td style={{ padding:'8px 10px', fontWeight:600 }}>{r.name}</td>
-                        <td style={{ padding:'8px 10px' }}><StatusBadge status={(r.segment||'').toUpperCase()} colorMap={LEAD_SEG_COLORS} labelMap={{}} /></td>
-                        <td style={{ padding:'8px 10px', color:C.muted }}>{r.category}</td>
-                        <td style={{ padding:'8px 10px' }}><span style={{color:'#f5a623'}}>{'★'.repeat(Math.round(r.rating||0))}</span> {(r.rating||0).toFixed(1)}</td>
-                        <td style={{ padding:'8px 10px', color:C.p3 }}>{r.phone}</td>
-                        <td style={{ padding:'8px 10px', color:C.muted }}>{r.neighborhood}</td>
+                        {CSV_CAMPOS.filter(c => mapa[c.k] !== undefined).map(c =>
+                          <td key={c.k} style={{ padding:'7px 9px', whiteSpace:'nowrap', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis' }}>{val(r, c.k)}</td>)}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {erro ? <div style={{ color:'#b91c1c', fontSize:12, marginTop:12 }}>{erro}</div> : null}
+              <div style={{ display:'flex', gap:10, marginTop:18, alignItems:'center' }}>
+                <button onClick={importar} disabled={importando}
+                  style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'11px 24px', fontWeight:700, fontSize:13, cursor: importando?'wait':'pointer' }}>
+                  {importando ? 'Importando…' : 'Importar ' + dados.length + ' linhas'}
+                </button>
+                <button onClick={reset} disabled={importando}
+                  style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'11px 18px', fontSize:13, cursor:'pointer', color:C.muted }}>Trocar arquivo</button>
+                <span style={{ fontSize:12, color:C.muted }}>{progresso}</span>
+              </div>
             </div>
-          )}
-          {results && results.length === 0 && (
-            <div style={{ textAlign:'center', padding:20, color:C.muted, marginTop:16 }}>Nenhum lead encontrado. Tente termos diferentes.</div>
           )}
         </div>
       </div>
@@ -1780,8 +2488,365 @@ REGRAS:
 // Constantes estáticas dos Leads — movidas para módulo (eram recriadas a cada render).
 const LEAD_SEG_COLORS = { AUTOMOTIVO: '#e63946', GRAFFITI: '#8338ec', RESIDENCIAL: '#ff6b35', COMERCIAL: '#2ec4b6' };
 const LEAD_SEG_ICONS = { AUTOMOTIVO: '🚗', GRAFFITI: '🎨', 'GRAFFITI/ARTE': '🎨', RESIDENCIAL: '🏠', COMERCIAL: '🏢' };
-const LEAD_CAT_ICONS = { 'Funilaria/Auto': '🚗', 'Graffiti/Arte': '🎨', 'Pintor': '🖌', 'Reformas': '🔧', 'Construtoras': '🏗', 'Imobiliárias': '🏢', 'Arquitetura': '✏', 'Materiais': '🧱', 'Condomínios': '🏘', 'Academias': '💪', 'Bares': '🍺', 'Limpeza': '🧹', 'Marmoraria': '💎' };
+const LEAD_CAT_ICONS = { 'Funilaria/Auto': '🚗', 'Graffiti/Arte': '🎨', 'Pintor': '🖌', 'Reformas': '🔧', 'Construtoras': '🏗', 'Imobiliárias': '🏢', 'Arquitetura': '✏', 'Materiais': '🧱', 'Condomínios': '🏘', 'Academias': '💪', 'Bares': '🍺', 'Limpeza': '🧹', 'Marmoraria': '💎', 'Engenharia': '📐' };
 const LEAD_STATUS_COLORS = { novo: C.p3, contactado: C.p7, qualificado: C.p6, convertido: C.p1, perdido: C.p4 };
+
+// ══ ABORDAGEM DE LEAD POR WHATSAPP ═══════════════════════════════════════
+// Mensagem personalizada por SEGMENTO, com produtos do NOSSO catalogo.
+// REGRA DE NEGOCIO (decisao do dono, 2026-08-29): a mensagem NUNCA leva
+// preco nem orcamento — isso e trabalho de pessoa. Por isso o card de
+// produto aqui mostra nome/linha/volume e nada de R$.
+
+// Numero do lead → formato do WhatsApp. Cobre o celular ANTIGO de 8 digitos
+// (comecando 8/9, de antes de 2016) que precisa ganhar o nono digito.
+const normalizeLeadPhone = (raw) => {
+  const d = String(raw || '').replace(/\D/g, '');
+  if(!d) return null;
+  if(d.startsWith('55') && (d.length === 12 || d.length === 13)) return d;
+  if(d.length === 11 && d[2] === '9') return '55' + d;      // celular novo
+  if(d.length === 10 && /^[89]/.test(d.slice(2))) return '55' + d.slice(0,2) + '9' + d.slice(2); // celular antigo
+  if(d.length === 10) return '55' + d;                       // fixo
+  if(d.length >= 11 && d.length <= 15) return d;             // DDI estrangeiro
+  return null;
+};
+
+// Celular ou fixo, so pelo formato (deterministico no Brasil).
+const tipoDeLinha = (raw) => {
+  const d = String(raw || '').replace(/\D/g, '');
+  const local = d.startsWith('55') ? d.slice(2) : d;
+  if(local.length === 11 && local[2] === '9') return 'celular';
+  if(local.length === 10 && /^[89]/.test(local.slice(2))) return 'celular';
+  if(local.length === 10) return 'fixo';
+  return 'desconhecido';
+};
+
+// Mapa CATEGORIA DO LEAD → o que oferecer + palavras que acham o produto no
+// catalogo (busca no NOME, que e mais confiavel que a taxonomia). Ajustar
+// aqui quando a loja quiser mudar o que oferece pra cada tipo de cliente.
+const LEAD_PITCH = {
+  // `oferta` = o que a loja diz que TEM pra esse publico. Frase generica de
+  // proposito (2026-08-29): antes a mensagem listava SKU com volume, e saia
+  // coisa como "AROMINHA SPRAY CARRO NOVO 60ML (18L)" pra um grafiteiro —
+  // item errado e volume errado (o catalogo tem 18L como padrao em tudo).
+  // Quem vende e a pessoa; a abordagem so precisa dizer que a loja tem a
+  // linha que aquele profissional usa.
+  'Funilaria/Auto': { funil:'fornece', linha:'linha automotiva',
+    fecho:'Quer ver como funciona a tinta preparada na hora aqui na loja?',
+    oferta:'linha automotiva completa: tinta pronta e tinta preparada na hora, primer, verniz, massa plástica, e os materiais de acabamento e detalhamento (polimento, cera)',
+    termos:['automotiv','primer','verniz','poliester','massa pl','fundo'] },
+  'Auto Center':    { funil:'fornece', linha:'linha automotiva',
+    fecho:'Quer ver como funciona a tinta preparada na hora aqui na loja?',
+    oferta:'linha automotiva completa: tinta pronta e preparada na hora, primer, verniz e material de polimento e cera',
+    termos:['automotiv','primer','verniz','fundo','cera','polim'] },
+  'Pintor':         { funil:'fornece', linha:'linha residencial e comercial',
+    fecho:'Quer saber qual linha rende mais por lata? Tem uma que costuma surpreender quem testa.',
+    oferta:'tintas de várias marcas, da econômica à premium, incluindo linhas de alto rendimento que fecham parede com menos demão — além de massa corrida, selador e textura',
+    termos:['latex','acrilic','massa corrida','seladora','fundo'] },
+  'Graffiti/Arte':  { funil:'fornece', linha:'linha de spray e arte',
+    fecho:'Quer ver a cartela de cores que temos em spray?',
+    oferta:'spray Colorgin e Arte Urbana, com a cartela de cores completa, além de tinta acrílica pra mural e base de parede',
+    termos:['colorgin','arte urbana','spray','aerossol'] },
+  'Construtora':    { funil:'fornece', linha:'linha de obra em grande volume',
+    fecho:'Quer ver como a gente atende obra em volume?',
+    oferta:'linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante, em lata de 18L',
+    termos:['acrilic','latex','fundo prepar','textura','18l'] },
+  'Reforma':        { funil:'fornece', linha:'linha de reforma',
+    fecho:'Quer ver o que costuma poupar tempo numa reforma?',
+    oferta:'tinta econômica e premium, massa corrida, selador e textura — tudo o que a reforma pede',
+    termos:['acrilic','latex','massa','seladora'] },
+  'Materiais':      { funil:'fornece', linha:'linha completa pra revenda',
+    fecho:'Quer conhecer a nossa lista pra revenda?',
+    oferta:'linha completa pra revenda, de várias marcas: acrílico, esmalte, solvente e complementos',
+    termos:['acrilic','latex','esmalte','solvente'] },
+  'Marmoraria':     { funil:'fornece', linha:'impermeabilizantes e vernizes',
+    fecho:'Quer ver o que a gente indica pra proteger pedra?',
+    oferta:'impermeabilizantes, vernizes e resinas pra pedra',
+    termos:['verniz','impermeab','resina'] },
+  'Limpeza':        { funil:'fornece', linha:'linha de manutencao predial',
+    fecho:'Quer ver a linha que a gente indica pra manutenção predial?',
+    oferta:'linha de manutenção predial: acrílico, esmalte e solventes',
+    termos:['acrilic','esmalte','solvente'] },
+  'Engenharia':     { funil:'fornece', linha:'linha de obra e manutencao predial',
+    fecho:'Quer receber a nossa cartela de cores e as fichas técnicas?',
+    oferta:'linhas premium de acabamento e a linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante',
+    termos:['acrilic','latex','fundo prepar','textura','impermeab'] },
+  'Imobiliária':    { funil:'demanda', linha:'pintura de imoveis pra locacao e venda',
+    oferta:'tinta pra imóvel de locação e venda, do custo-benefício ao acabamento premium',
+    termos:['acrilic','latex','massa corrida'] },
+  'Condomínio':     { funil:'demanda', linha:'pintura de fachada e areas comuns',
+    oferta:'linha de fachada e áreas comuns: acrílico, textura e impermeabilizante',
+    termos:['fachada','acrilic','textura','impermeab'] },
+  'Bares':          { funil:'demanda', linha:'pintura de salao e fachada',
+    oferta:'tinta pra salão e fachada, com acabamento lavável',
+    termos:['acrilic','esmalte','epoxi'] },
+  'Academia':       { funil:'demanda', linha:'pintura de salao e piso',
+    oferta:'tinta de piso e de parede pra área de treino',
+    termos:['epoxi','piso','acrilic'] },
+  'Supermercado':   { funil:'demanda', linha:'pintura de loja, piso e fachada',
+    oferta:'tinta de piso, parede e fachada pra loja',
+    termos:['epoxi','piso','acrilic','fachada'] },
+  'Pousada':        { funil:'demanda', linha:'pintura de quartos e fachada',
+    oferta:'tinta pra quarto, área comum e fachada',
+    termos:['acrilic','latex','fachada'] },
+  'Arquitetura':    { funil:'demanda', linha:'especificacao de cores e acabamentos',
+    oferta:'linhas premium de acabamento — acetinado, fosco, efeitos e texturas — com cartela de cores completa pra especificação',
+    termos:['acrilic','textura','efeito'] },
+};
+const pitchDoLead = (l) => LEAD_PITCH[l.category] ||
+  { funil:'demanda', linha:'linha completa de tintas',
+    oferta:'linha completa de tintas, das econômicas às premium',
+    fecho:'Quer ver o que temos pra sua linha de trabalho?',
+    termos:['acrilic','latex'] };
+
+// Monta o texto da abordagem. Sem preco — ver regra no topo do bloco.
+const montarAbordagem = (lead, produtos) => {
+  const p = pitchDoLead(lead);
+  const nome = (lead.name || '').trim();
+  const ondeEsta = lead.neighborhood || lead.city || '';
+  const saudacao = 'Olá' + (nome ? ', ' + nome : '') + '!';
+  const abre = ' Aqui é a Cali Colors, loja de tintas em Guarulhos.';
+  const contexto = ondeEsta ? ' Vi que vocês atuam em ' + ondeEsta + '.' : '';
+  // Produto especifico e OPCIONAL e entra sem volume/cor: o catalogo tem
+  // "18L" como padrao em tudo, entao citar tamanho era mentir.
+  const citados = produtos.length
+    ? ' Tem, por exemplo, ' + produtos.map(x => x.name).slice(0,3).join(', ') + '.'
+    : '';
+
+  let corpo;
+  if(p.funil === 'fornece'){
+    corpo = '\n\nTemos ' + p.oferta + '.' + citados +
+      ' Atendemos profissional com condição especial.' +
+      '\n\n' + (p.fecho || 'Quer ver o que temos pra sua linha de trabalho?');
+  } else {
+    corpo = '\n\nTemos ' + p.oferta + '.' + citados +
+      ' Fornecemos a tinta e indicamos profissionais de confiança pra execução.' +
+      '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
+  }
+  // Sem convite pro app e sem rodapé de opt-out, a pedido da loja
+  // (2026-08-29). A palavra PARE continua funcionando: quem responder
+  // isso é marcado como opted_out e não recebe mais nada — só deixou de
+  // ser anunciada na mensagem.
+  return saudacao + abre + contexto + corpo;
+};
+
+// Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
+// catalogo pelo segmento (marcaveis), deixa editar o texto e envia pelo
+// canal da loja.
+const AbordagemModal = ({ lead, onClose, onSent }) => {
+  const [produtos, setProdutos] = useState([]);
+  const [sel, setSel] = useState({});
+  const [texto, setTexto] = useState('');
+  const [busca, setBusca] = useState('');
+  const [carregando, setCarregando] = useState(true);
+  const [enviando, setEnviando] = useState(false);
+  const [estagio, setEstagio] = useState('');
+  const [erro, setErro] = useState('');
+  const [editado, setEditado] = useState(false);
+  const pitch = pitchDoLead(lead);
+  const alvo = normalizeLeadPhone(lead.phone);
+  const linha = tipoDeLinha(lead.phone);
+
+  // Busca no catalogo pelos termos do segmento (ou pela busca manual).
+  const buscarProdutos = async (termosManuais) => {
+    setCarregando(true);
+    const termos = termosManuais ? [termosManuais] : pitch.termos;
+    const filtro = termos.map(t => 'name.ilike.*' + t + '*').join(',');
+    const { data } = await supa.from('products')
+      .select('id, name, volume, line, category, stock, active')
+      .or(filtro).eq('active', true).limit(12);
+    const lista = (data || []).filter(p => (p.stock == null || p.stock > 0)).slice(0, 8);
+    setProdutos(lista);
+    // NADA marcado por padrao (2026-08-29). Marcar sozinho enfiava SKU
+    // aleatorio na mensagem — um grafiteiro recebia "AROMINHA SPRAY CARRO
+    // NOVO 60ML" so porque o termo 'spray' casou. A mensagem ja diz o que a
+    // loja tem pro segmento; produto especifico e escolha do operador.
+    if(!termosManuais) setSel({});
+    setCarregando(false);
+  };
+
+  useEffect(() => { buscarProdutos(); }, []);
+
+  // Aquece o Evolution assim que a janela abre. O operador ainda vai marcar
+  // produto e reler o texto — o servidor sobe de graca nesse tempo, e o
+  // envio nao paga cold start dentro do edge (que morre esperando).
+  useEffect(() => { aquecerEvolution(); }, []);
+
+  // Recompoe o texto sempre que a selecao muda — a menos que o operador
+  // ja tenha editado na mao (nao sobrescrever o trabalho dele).
+  const escolhidos = produtos.filter(p => sel[p.id]);
+  useEffect(() => {
+    if(!editado) setTexto(montarAbordagem(lead, escolhidos));
+  }, [produtos, sel, editado]);
+
+  const enviar = async () => {
+    if(!alvo){ setErro('Numero invalido neste lead.'); return; }
+    if(!texto.trim()){ setErro('A mensagem esta vazia.'); return; }
+    setEnviando(true); setErro('');
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setErro('Sessao expirada — entre de novo.'); setEnviando(false); return; }
+      setEstagio('Enviando…');
+      await acordarEvolution(setEstagio); // vira "Acordando…" só com o servidor frio
+      const r = await fetch('/api/whatsapp/send', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, to: alvo, body: texto })
+      });
+      let raw = ''; try { raw = await r.text(); } catch(_){}
+      let res = {}; try { res = JSON.parse(raw); } catch(_){}
+      if(!r.ok || !res.ok){
+        const snippet = res.error ? '' : (raw||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
+        setErro(res.error || ('Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')'));
+        setEnviando(false); setEstagio('');
+        return;
+      }
+      // Enviou: marca o lead como contactado (best-effort — a mensagem ja saiu).
+      try {
+        await supa.from('leads').update({ status:'contactado' }).eq('id', lead.id);
+      } catch(_){}
+      if(onSent) onSent(alvo);
+      onClose();
+    } catch(_){ setErro('Falha de rede ao enviar.'); }
+    setEnviando(false); setEstagio('');
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(26,26,46,.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'min(720px, 96vw)', maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.24)' }}>
+        {/* Cabecalho */}
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid '+C.border, display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+          <div>
+            <div style={{ fontWeight:800, fontSize:16, color:C.ink }}>{lead.name || 'Lead sem nome'}</div>
+            <div style={{ fontSize:12, color:C.muted, marginTop:2, display:'flex', gap:8, flexWrap:'wrap' }}>
+              <span>{lead.category || '—'}</span>
+              <span>·</span>
+              <span>{pitch.funil === 'fornece' ? '🎨 fornece obra (compra tinta)' : '🏢 precisa de obra'}</span>
+              <span>·</span>
+              <span>{lead.phone || 'sem telefone'}</span>
+              <span style={{ background: linha==='celular' ? C.p6+'22' : C.p7+'33', color: linha==='celular' ? C.p6 : '#b8860b', borderRadius:6, padding:'1px 7px', fontWeight:600 }}>
+                {linha === 'celular' ? 'celular' : linha === 'fixo' ? 'fixo (pode não ter WhatsApp)' : 'formato estranho'}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:C.muted, lineHeight:1 }}>×</button>
+        </div>
+
+        {/* Corpo rolavel */}
+        <div style={{ padding:20, overflowY:'auto', flex:1 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:8 }}>
+            Citar algum produto? <span style={{ fontWeight:400, color:C.muted }}>— opcional. A mensagem já diz o que a loja tem pra este segmento.</span>
+          </div>
+          <input value={busca} onChange={e=>setBusca(e.target.value)}
+            onKeyDown={e => { if(e.key==='Enter'){ e.preventDefault(); buscarProdutos(busca.trim() || null); } }}
+            placeholder="Buscar outro produto no catálogo e apertar Enter…"
+            style={{ width:'100%', padding:'8px 12px', borderRadius:10, border:'1.5px solid '+C.border, fontSize:13, outline:'none', marginBottom:10 }} />
+          {carregando ? (
+            <div style={{ color:C.muted, fontSize:13, padding:'10px 0' }}>Buscando no catálogo…</div>
+          ) : produtos.length === 0 ? (
+            <div style={{ color:C.muted, fontSize:13, padding:'10px 0' }}>
+              Nenhum produto casou com este segmento. Tudo bem: a mensagem já fala das linhas que a loja tem. Use a busca acima se quiser citar algo específico.
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:16 }}>
+              {produtos.map(p => (
+                <label key={p.id} style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'8px 10px', border:'1px solid '+(sel[p.id]?C.p1:C.border), borderRadius:10, cursor:'pointer', background: sel[p.id]?C.p1+'0d':'#fff' }}>
+                  <input type="checkbox" checked={!!sel[p.id]}
+                    onChange={()=>{ setSel(s => ({ ...s, [p.id]: !s[p.id] })); setEditado(false); }} />
+                  <span style={{ fontSize:12, lineHeight:1.35 }}>
+                    <span style={{ fontWeight:600, color:C.ink }}>{p.name}</span>
+                    {p.line ? <div style={{ color:C.muted, fontSize:11 }}>{p.line}</div> : null}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span>Mensagem</span>
+            {editado ? (
+              <button onClick={()=>setEditado(false)} style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 8px', fontSize:11, cursor:'pointer', color:C.muted }}>
+                ↺ Voltar ao texto automático
+              </button>
+            ) : null}
+          </div>
+          <textarea value={texto} onChange={e=>{ setTexto(e.target.value); setEditado(true); }} rows={10}
+            style={{ width:'100%', padding:12, borderRadius:12, border:'1.5px solid '+C.border, fontSize:13, lineHeight:1.5, outline:'none', resize:'vertical', fontFamily:'DM Sans, sans-serif' }} />
+          <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>
+            Sem preço por regra da loja — valor e orçamento são tratados por uma pessoa.
+          </div>
+          {erro ? <div style={{ marginTop:10, padding:'8px 12px', background:'#fdecea', color:'#b3261e', borderRadius:8, fontSize:12 }}>{erro}</div> : null}
+        </div>
+
+        {/* Rodape */}
+        <div style={{ padding:'14px 20px', borderTop:'1px solid '+C.border, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+          <span style={{ fontSize:11, color:C.muted }}>Envia pelo número da loja · +55 11 92072-5935</span>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={onClose} style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'9px 16px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
+            <button onClick={enviar} disabled={enviando || !alvo}
+              style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 22px', fontSize:13, fontWeight:700, cursor: enviando?'wait':'pointer', opacity: enviando||!alvo ? .6 : 1 }}>
+              {enviando ? (estagio || 'Enviando…') : '📤 Enviar abordagem'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+// ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
+// Antes o header era uma lista de textos com "↕" decorativo. Cada coluna
+// agora ordena (clique no titulo, clique de novo inverte) e tem filtro
+// proprio no "▾". O estado vive no componente Leads e chega via `ctx`.
+const filtroInput = { width:'100%', padding:'7px 9px', borderRadius:8, border:'1px solid #e5e0d8', fontSize:12, outline:'none' };
+
+const OpcoesFiltro = ({ opcoes, valor, onPick, fechar }) => (
+  <div style={{ maxHeight:260, overflowY:'auto', margin:-4 }}>
+    {opcoes.map(([v, rot, qtd]) => (
+      <button key={String(v)} onClick={()=>{ onPick(v); fechar(); }}
+        style={{ display:'flex', width:'100%', alignItems:'center', justifyContent:'space-between', gap:10,
+          background: valor === v ? C.p1+'18' : 'none', border:'none', borderRadius:7, padding:'7px 9px',
+          fontSize:12, cursor:'pointer', color: valor === v ? C.p1 : C.ink, fontWeight: valor === v ? 700 : 400,
+          textAlign:'left' }}>
+        <span>{rot}</span>
+        {qtd != null ? <span style={{ color:C.muted, fontSize:11 }}>{qtd}</span> : null}
+      </button>
+    ))}
+  </div>
+);
+
+const ThLead = ({ rot, campo, ativo, ctx, children }) => {
+  const ordenando = campo && ctx.sortCol === campo;
+  const aberto = ctx.menuCol === rot;
+  return (
+    <th style={{ position:'relative', textAlign:'left', padding:'12px 10px', color:C.muted,
+      fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:0.5, whiteSpace:'nowrap' }}>
+      <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+        {campo ? (
+          <button onClick={()=>ctx.ordenarPor(campo)} title="Ordenar por esta coluna"
+            style={{ background:'none', border:'none', padding:0, cursor:'pointer', font:'inherit',
+              textTransform:'inherit', letterSpacing:'inherit', color: ordenando ? C.p1 : C.muted,
+              display:'inline-flex', alignItems:'center', gap:4 }}>
+            {rot}<span style={{ fontSize:9 }}>{ordenando ? (ctx.sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+          </button>
+        ) : <span>{rot}</span>}
+        {children ? (
+          <button onClick={()=>ctx.setMenuCol(aberto ? null : rot)} title="Filtrar esta coluna"
+            style={{ background: ativo ? C.p1 : 'none', color: ativo ? '#fff' : C.border, border:'none',
+              borderRadius:5, width:16, height:16, lineHeight:'14px', fontSize:9, cursor:'pointer', padding:0 }}>▼</button>
+        ) : null}
+      </span>
+      {children && aberto ? (
+        <span>
+          <span onClick={()=>ctx.setMenuCol(null)} style={{ position:'fixed', inset:0, zIndex:40, display:'block' }} />
+          <div style={{ position:'absolute', top:'100%', left:6, zIndex:41, background:'#fff',
+            border:'1px solid '+C.border, borderRadius:10, boxShadow:'0 10px 30px rgba(26,26,46,.16)',
+            padding:8, minWidth:200, textTransform:'none', letterSpacing:0, fontWeight:400 }}>
+            {children}
+          </div>
+        </span>
+      ) : null}
+    </th>
+  );
+};
+
 const LEAD_PRIO_COLORS = { alta: C.p6, media: C.p7, baixa: C.muted };
 
 const Leads = () => {
@@ -1791,8 +2856,19 @@ const Leads = () => {
   const [filtroStatus, setFiltroStatus] = useState('Todos');
   const [filtroSegmento, setFiltroSegmento] = useState('TODOS');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
-  const [ordenar, setOrdenar] = useState('rating');
-  const [aiModalOpen, setAiModalOpen] = useState(false);
+  // ORDENACAO E FILTRO POR COLUNA (2026-08-29). Antes o cabecalho tinha
+  // setinhas "↕" que eram so enfeite — nao ordenavam nada. Agora cada
+  // coluna ordena de verdade e tem o proprio filtro no "▾".
+  const [sortCol, setSortCol] = useState('rating');
+  const [sortDir, setSortDir] = useState('desc');
+  const [menuCol, setMenuCol] = useState(null);   // qual filtro esta aberto
+  const [fNome, setFNome] = useState('');
+  const [fTel, setFTel] = useState('');
+  const [fPrio, setFPrio] = useState('Todas');
+  const [fRating, setFRating] = useState(0);
+  const [fCidade, setFCidade] = useState('Todas');
+  const [importOpen, setImportOpen] = useState(false);
+  const [abordar, setAbordar] = useState(null); // lead da janela de abordagem
 
   const removeDuplicates = async (allLeads) => {
     const seen = {};
@@ -1848,12 +2924,45 @@ const Leads = () => {
     if (filtroStatus !== 'Todos') out = out.filter(l => l.status === filtroStatus.toLowerCase());
     if (filtroSegmento !== 'TODOS') out = out.filter(l => (l.segment||'').toUpperCase() === filtroSegmento);
     if (filtroCategoria !== 'Todas') out = out.filter(l => l.category === filtroCategoria);
+    // Filtros de coluna (cabecalho)
+    if (fNome.trim()) { const q = fNome.trim().toLowerCase(); out = out.filter(l => (l.name||'').toLowerCase().includes(q)); }
+    if (fTel.trim()) { const d = fTel.replace(/\D/g,''); if(d) out = out.filter(l => (l.phone||'').replace(/\D/g,'').includes(d)); }
+    if (fPrio !== 'Todas') out = out.filter(l => (l.priority||'media') === fPrio);
+    if (fRating > 0) out = out.filter(l => Number(l.rating||0) >= fRating);
+    if (fCidade !== 'Todas') out = out.filter(l => (l.city||'—') === fCidade);
 
-    if (ordenar === 'rating') out = [...out].sort((a,b) => (b.rating||0) - (a.rating||0));
-    else if (ordenar === 'reviews') out = [...out].sort((a,b) => (b.review_count||0) - (a.review_count||0));
-    else if (ordenar === 'name') out = [...out].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    // Ordenacao: numero compara como numero, o resto como texto (pt-BR).
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const numerica = sortCol === 'rating' || sortCol === 'review_count';
+    out = [...out].sort((a,b) => {
+      if (numerica) return ((Number(a[sortCol])||0) - (Number(b[sortCol])||0)) * dir;
+      return String(a[sortCol]||'').localeCompare(String(b[sortCol]||''), 'pt-BR') * dir;
+    });
     return out;
-  }, [leads, busca, filtroStatus, filtroSegmento, filtroCategoria, ordenar]);
+  }, [leads, busca, filtroStatus, filtroSegmento, filtroCategoria, sortCol, sortDir,
+      fNome, fTel, fPrio, fRating, fCidade]);
+
+  const cidades = React.useMemo(() => {
+    const c = {};
+    leads.forEach(l => { const k = l.city || '—'; c[k] = (c[k]||0)+1; });
+    return c;
+  }, [leads]);
+
+  const filtrosAtivos = (busca?1:0) + (filtroStatus!=='Todos'?1:0) + (filtroSegmento!=='TODOS'?1:0)
+    + (filtroCategoria!=='Todas'?1:0) + (fNome?1:0) + (fTel?1:0) + (fPrio!=='Todas'?1:0)
+    + (fRating>0?1:0) + (fCidade!=='Todas'?1:0);
+  // Clique no titulo ordena; clique de novo inverte. Coluna nova comeca
+  // decrescente quando e numero (nota/avaliacoes) e crescente em texto.
+  const ordenarPor = (campo) => {
+    if (sortCol === campo) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(campo); setSortDir(campo === 'rating' || campo === 'review_count' ? 'desc' : 'asc'); }
+  };
+  const thCtx = { sortCol, sortDir, ordenarPor, menuCol, setMenuCol };
+
+  const limparFiltros = () => {
+    setBusca(''); setFiltroStatus('Todos'); setFiltroSegmento('TODOS'); setFiltroCategoria('Todas');
+    setFNome(''); setFTel(''); setFPrio('Todas'); setFRating(0); setFCidade('Todas'); setMenuCol(null);
+  };
 
   // Segment / Category / Status counts — só dependem de leads.
   const segments = React.useMemo(() => {
@@ -1880,8 +2989,8 @@ const Leads = () => {
   const sortedCategories = React.useMemo(() => Object.entries(categories).sort((a,b) => b[1]-a[1]), [categories]);
 
   const exportCSV = () => {
-    const header = ['#','Nome','Bairro','Segmento','Categoria','Rating','Reviews','Telefone','Prioridade','Status'];
-    const rows = filtered.map((l,i) => [i+1, l.name||'', l.neighborhood||'', l.segment||'', l.category||'', l.rating||'', l.review_count||'', l.phone||'', l.priority||'', l.status||'']);
+    const header = ['#','Nome','Cidade','Bairro','Endereco','Segmento','Categoria','Rating','Reviews','Telefone','Prioridade','Status'];
+    const rows = filtered.map((l,i) => [i+1, l.name||'', l.city||'', l.neighborhood||'', l.address||'', l.segment||'', l.category||'', l.rating||'', l.review_count||'', l.phone||'', l.priority||'', l.status||'']);
     const csv = [header, ...rows].map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
     const blob = new Blob(['\uFEFF'+csv], { type:'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1889,12 +2998,14 @@ const Leads = () => {
     URL.revokeObjectURL(url);
   };
 
+  // Abre o WhatsApp no APARELHO do operador (canal secundario — quando ele
+  // prefere falar do proprio celular em vez do numero da loja).
   const openWhatsApp = (phone, name) => {
     if (!phone) return;
-    const num = phone.replace(/\D/g, '');
-    const fullNum = num.startsWith('55') ? num : '55' + num;
+    const alvo = normalizeLeadPhone(phone);
+    if (!alvo) { alert('Numero invalido neste lead.'); return; }
     const msg = encodeURIComponent('Olá ' + (name||'') + '! Somos da Cali Colors — QueroUmaCor. Gostaríamos de apresentar nossa plataforma para você. Podemos conversar?');
-    window.open('https://wa.me/' + fullNum + '?text=' + msg, '_blank', 'noopener,noreferrer');
+    window.open('https://wa.me/' + alvo + '?text=' + msg, '_blank', 'noopener,noreferrer');
   };
 
   if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando leads...</div>;
@@ -1935,13 +3046,16 @@ const Leads = () => {
             <option value="Convertido">Convertido</option>
             <option value="Perdido">Perdido</option>
           </select>
-          <select value={ordenar} onChange={e=>setOrdenar(e.target.value)} style={{ padding:'10px 14px', borderRadius:10, border:'1px solid '+C.border, background:C.bg, color:C.ink, fontSize:12, outline:'none', cursor:'pointer' }}>
-            <option value="rating">Ordenar: Rating ↓</option>
-            <option value="reviews">Ordenar: Reviews ↓</option>
-            <option value="name">Ordenar: Nome A-Z</option>
-          </select>
+          {/* A ordenacao saiu daqui e foi pro cabecalho da tabela, onde a
+              coluna esta. No lugar, o que faltava: sair de um filtro. */}
+          {filtrosAtivos > 0 ? (
+            <button onClick={limparFiltros} title="Voltar a ver todos os leads"
+              style={{ padding:'10px 16px', borderRadius:10, border:'1px solid '+C.p1, background:C.p1+'14', color:C.p1, fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap' }}>
+              ✕ Limpar {filtrosAtivos} filtro{filtrosAtivos > 1 ? 's' : ''}
+            </button>
+          ) : null}
           <button onClick={exportCSV} style={{ padding:'10px 16px', borderRadius:10, border:'1px solid '+C.border, background:C.bg, color:C.ink, fontSize:12, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>⬇ CSV</button>
-          <button onClick={()=>setAiModalOpen(true)} style={{ padding:'10px 16px', borderRadius:10, border:'none', background:'linear-gradient(135deg, #8338ec, #6b21c8)', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(131,56,236,0.35)' }}>✨ Busca AI</button>
+          <button onClick={()=>setImportOpen(true)} title="Importar leads de uma planilha (Excel salvo como CSV)" style={{ padding:'10px 16px', borderRadius:10, border:'none', background:C.p1, color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6 }}>📥 Importar planilha</button>
         </div>
 
         {/* SEGMENT CHIPS */}
@@ -1970,14 +3084,49 @@ const Leads = () => {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, color:C.ink }}>
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['NOME ↕','SEGMENTO ↕','CATEGORIA ↕','RATING ↕','TELEFONE','PRIO.','STATUS','AÇÃO'].map(h => (
-                <th key={h} style={{ textAlign:'left', padding:'12px 10px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>{h}</th>
-              ))}
+              <ThLead rot="NOME" campo="name" ativo={!!fNome} ctx={thCtx}>
+                <input autoFocus value={fNome} onChange={e=>setFNome(e.target.value)} placeholder="Buscar no nome…"
+                  style={filtroInput} />
+              </ThLead>
+              <ThLead rot="CIDADE" campo="city" ativo={fCidade!=='Todas'} ctx={thCtx}>
+                <OpcoesFiltro valor={fCidade} onPick={setFCidade} fechar={()=>setMenuCol(null)}
+                  opcoes={[['Todas','Todas as cidades', leads.length]].concat(
+                    Object.entries(cidades).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,k,v]))} />
+              </ThLead>
+              <ThLead rot="SEGMENTO" campo="segment" ativo={filtroSegmento!=='TODOS'} ctx={thCtx}>
+                <OpcoesFiltro valor={filtroSegmento} onPick={setFiltroSegmento} fechar={()=>setMenuCol(null)}
+                  opcoes={[['TODOS','Todos os segmentos', leads.length]].concat(
+                    Object.entries(segments).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,k,v]))} />
+              </ThLead>
+              <ThLead rot="CATEGORIA" campo="category" ativo={filtroCategoria!=='Todas'} ctx={thCtx}>
+                <OpcoesFiltro valor={filtroCategoria} onPick={setFiltroCategoria} fechar={()=>setMenuCol(null)}
+                  opcoes={[['Todas','Todas as categorias', leads.length]].concat(
+                    Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,k,v]))} />
+              </ThLead>
+              <ThLead rot="RATING" campo="rating" ativo={fRating>0} ctx={thCtx}>
+                <OpcoesFiltro valor={fRating} onPick={setFRating} fechar={()=>setMenuCol(null)}
+                  opcoes={[[0,'Qualquer nota',null],[4.5,'4,5 ou mais',null],[4,'4,0 ou mais',null],[3,'3,0 ou mais',null]]} />
+              </ThLead>
+              <ThLead rot="TELEFONE" campo="phone" ativo={!!fTel} ctx={thCtx}>
+                <input autoFocus value={fTel} onChange={e=>setFTel(e.target.value)} placeholder="Digitos do telefone…"
+                  style={filtroInput} />
+              </ThLead>
+              <ThLead rot="PRIO." campo="priority" ativo={fPrio!=='Todas'} ctx={thCtx}>
+                <OpcoesFiltro valor={fPrio} onPick={setFPrio} fechar={()=>setMenuCol(null)}
+                  opcoes={[['Todas','Todas',null],['alta','Alta',null],['media','Média',null],['baixa','Baixa',null]]} />
+              </ThLead>
+              <ThLead rot="STATUS" campo="status" ativo={filtroStatus!=='Todos'} ctx={thCtx}>
+                <OpcoesFiltro valor={filtroStatus} onPick={setFiltroStatus} fechar={()=>setMenuCol(null)}
+                  opcoes={[['Todos','Todos', statusCounts.total]].concat(
+                    ['novo','contactado','qualificado','convertido','perdido'].map(k =>
+                      [k.charAt(0).toUpperCase()+k.slice(1), LEADS_STATUS_LABELS[k], statusCounts[k]]))} />
+              </ThLead>
+              <ThLead rot="AÇÃO" ctx={thCtx} />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={8} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
+              <tr><td colSpan={9} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
             )}
             {filtered.map((l, i) => {
               const sc = statusColor(l.status);
@@ -1988,7 +3137,11 @@ const Leads = () => {
                 <tr key={l.id || i} style={{ borderBottom:'1px solid '+C.border, transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(0,0,0,0.02)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <td style={{ padding:'12px 10px' }}>
                     <div style={{ fontWeight:600, color:C.ink }}>{l.name || '—'}</div>
-                    <div style={{ fontSize:11, color:C.muted }}>{l.neighborhood || l.city || '—'}</div>
+                    <div style={{ fontSize:11, color:C.muted }}>{l.address || '—'}</div>
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
+                    <div style={{ color:C.ink, fontSize:12 }}>{l.city || '—'}</div>
+                    {l.neighborhood ? <div style={{ fontSize:11, color:C.muted }}>{l.neighborhood}</div> : null}
                   </td>
                   <td style={{ padding:'12px 10px' }}>
                     <StatusBadge status={(l.segment||'—').toUpperCase()} colorMap={LEAD_SEG_COLORS} labelMap={{}} />
@@ -2017,9 +3170,14 @@ const Leads = () => {
                   </td>
                   <td style={{ padding:'12px 10px' }}>
                     {l.phone ? (
-                      <button onClick={()=>openWhatsApp(l.phone, l.name)} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:11, fontWeight:600, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
-                        <span>📱</span> WhatsApp
-                      </button>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <button onClick={()=>setAbordar(l)} title="Abordagem personalizada pelo numero da loja" style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:11, fontWeight:600, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+                          <span>💬</span> Abordar
+                        </button>
+                        {/* Canal alternativo: abre no aparelho do operador. */}
+                        <button onClick={()=>openWhatsApp(l.phone, l.name)} title="Abrir no MEU WhatsApp (nao usa o numero da loja)"
+                          style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:12 }}>📱</button>
+                      </div>
                     ) : <span style={{ color:C.muted }}>—</span>}
                   </td>
                 </tr>
@@ -2028,7 +3186,14 @@ const Leads = () => {
           </tbody>
         </table>
       </div>
-      <AiSearchModal open={aiModalOpen} onClose={()=>setAiModalOpen(false)} onResults={fetchLeads} existingLeads={leads} />
+      <ImportarPlanilhaModal open={importOpen} onClose={()=>setImportOpen(false)} onPronto={fetchLeads} existingLeads={leads} />
+      {abordar ? (
+        <AbordagemModal
+          lead={abordar}
+          onClose={()=>setAbordar(null)}
+          onSent={()=>fetchLeads()}
+        />
+      ) : null}
     </div>
   );
 };
@@ -2124,6 +3289,9 @@ const ClientesList = () => {
     return profiles.map(p => ({ ...p, _generated_codes: inviteMap[p.id] || [] }));
   }, []);
   const clientes = data || [];
+  const [selIds, setSelIds] = useState([]);
+  const toggleSel = (id) => setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : s.concat(id));
+  const allSel = clientes.length > 0 && selIds.length === clientes.length;
 
   if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando clientes...</div>;
 
@@ -2131,13 +3299,17 @@ const ClientesList = () => {
     <div style={{ background: C.white, borderRadius: 16, padding: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
       <div style={{ fontWeight: 700, marginBottom: 16, color: C.ink }}>👥 Clientes Cadastrados ({clientes.length})</div>
       <CreateAppUserForm onCreated={fetchClientes} defaultRole="cliente" />
+      <BulkDeleteBar list={clientes} selIds={selIds} setSelIds={setSelIds} after={fetchClientes} />
       {clientes.length === 0 && <div style={{ color: C.muted, fontSize: 13 }}>Nenhum cliente cadastrado.</div>}
       <div style={{ overflowX:'auto' }}>
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:800 }}>
         {clientes.length > 0 && (
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['Nome','Tipo','@Tag','Email','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado','PRO','Portal'].map(h => (
+              <th style={{ padding:'8px 12px', width:34 }}>
+                <input type="checkbox" checked={allSel} onChange={e => setSelIds(e.target.checked ? clientes.map(x => x.id) : [])} title="Selecionar todos" />
+              </th>
+              {['Nome','Tipo','@Tag','Email','Telefone','Cidade','Estado','Cadastro','Codigo Gerado','Codigo Utilizado','PRO','Portal'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -2147,18 +3319,22 @@ const ClientesList = () => {
           {clientes.map((c, i) => {
             const data = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
             return (
-              <tr key={c.id || i} style={{ borderBottom:'1px solid '+C.border }}>
+              <tr key={c.id || i} style={{ borderBottom:'1px solid '+C.border, background: selIds.includes(c.id) ? C.cream : 'transparent' }}>
+                <td style={{ padding:'10px 12px' }}>
+                  <input type="checkbox" checked={selIds.includes(c.id)} onChange={() => toggleSel(c.id)} />
+                </td>
                 <td style={{ padding:'10px 12px' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <AvatarCell name={c.name} avatarUrl={c.avatar_url} size={32} />
-                    <span style={{ fontWeight:600 }}>{c.name || 'Sem nome'}</span>
+                    <NameCell profile={c} after={fetchClientes} />
                   </div>
                 </td>
                 <td style={{ padding:'10px 12px' }}><RoleSelect profile={c} after={fetchClientes} /></td>
-                <td style={{ padding:'10px 12px', color:C.p3, fontWeight:600 }}>{c.tag ? '@'+c.tag : '—'}</td>
-                <td style={{ padding:'10px 12px', color:C.muted }}>{c.email || '—'}</td>
-                <td style={{ padding:'10px 12px' }}>{c.city || '—'}</td>
-                <td style={{ padding:'10px 12px' }}>{c.state || '—'}</td>
+                <td style={{ padding:'10px 12px' }}><TagCell profile={c} after={fetchClientes} /></td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={c} after={fetchClientes} /></td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><PhoneCell profile={c} after={fetchClientes} /></td>
+                <td style={{ padding:'10px 12px' }}><CityCell profile={c} after={fetchClientes} /></td>
+                <td style={{ padding:'10px 12px' }}><StateCell profile={c} after={fetchClientes} /></td>
                 <td style={{ padding:'10px 12px', color:C.muted }}>{data}</td>
                 <td style={{ padding:'10px 12px', fontFamily:'monospace', fontSize:11, fontWeight:700, letterSpacing:1 }}>{c._generated_codes && c._generated_codes.length > 0 ? c._generated_codes.join(', ') : '—'}</td>
                 <td style={{ padding:'10px 12px', fontFamily:'monospace', fontSize:11, fontWeight:700, letterSpacing:1 }}>{c.invite_code_used || '—'}</td>
@@ -2743,7 +3919,7 @@ const PortalUsersList = () => {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:600 }}>
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
-              {['Nome','Email','Papel','PRO','Criado em','Acoes'].map(h => (
+              {['Nome','Email','Telefone','Papel','PRO','Criado em','Acoes'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted, fontWeight:600, fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
@@ -2754,10 +3930,11 @@ const PortalUsersList = () => {
                 <td style={{ padding:'10px 12px' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <AvatarCell name={u.name} avatarUrl={u.avatar_url} size={32} />
-                    <span style={{ fontWeight:600 }}>{u.name || 'Sem nome'}</span>
+                    <NameCell profile={u} after={fetchUsers} />
                   </div>
                 </td>
-                <td style={{ padding:'10px 12px', color:C.muted, fontSize:12 }}>{u.email || '—'}</td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><EmailCell profile={u} after={fetchUsers} /></td>
+                <td style={{ padding:'10px 12px', fontSize:12 }}><PhoneCell profile={u} after={fetchUsers} /></td>
                 <td style={{ padding:'10px 12px' }}><span style={{ background:C.p5+'22', color:C.p5, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{u.role || u.user_type || 'admin'}</span></td>
                 <td style={{ padding:'10px 12px' }}>
                   <ProBadgeCell profile={u} onChange={fetchUsers} />
@@ -3086,10 +4263,868 @@ const AvaliacoesTab = () => {
   );
 };
 
+// ── WhatsApp (Evolution API, numero secundario +55 11 92072-5935) ──
+// Estilo WhatsApp Web: coluna esquerda = uma conversa por numero (nome do
+// perfil do app quando o telefone casa, senao o nome do WhatsApp/numero);
+// direita = balões + campo de resposta. Le direto de whatsapp_messages
+// (RLS libera SELECT pra portal admin); envia pela rota /api/whatsapp/send
+// (que despacha pra Evolution). Poll de 15s, igual as demais telas.
+// Formata SO numero brasileiro no padrao (DD) 9xxxx-xxxx. Numero de outro
+// pais (ex.: EUA 16503154274) fica como +DDI... — antes o codigo tirava o
+// '55' de qualquer numero e exibia um DDD brasileiro que nao existe.
+const fmtWaPhone = (d) => {
+  if(!d) return '';
+  if(d.startsWith('55') && (d.length === 12 || d.length === 13)){
+    const n = d.slice(2);
+    if(n.length === 11) return '(' + n.slice(0,2) + ') ' + n.slice(2,7) + '-' + n.slice(7);
+    if(n.length === 10) return '(' + n.slice(0,2) + ') ' + n.slice(2,6) + '-' + n.slice(6);
+  }
+  if(d.startsWith('1') && d.length === 11){ // EUA/Canada
+    return '+1 (' + d.slice(1,4) + ') ' + d.slice(4,7) + '-' + d.slice(7);
+  }
+  return '+' + d;
+};
+const waHora = (m) => {
+  const iso = m.wa_timestamp || m.created_at;
+  if(!iso) return '';
+  const dt = new Date(iso);
+  const hoje = new Date();
+  const mesmoDia = dt.toDateString() === hoje.toDateString();
+  return mesmoDia
+    ? dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })
+    : dt.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+};
+
+// ── Aquecimento do Evolution API (COMPARTILHADO) ────────────────────────
+// O edge do Cloudflare morre esperando um upstream lento — e quando morre,
+// quem chega na tela e a pagina "502 Bad gateway" do PROPRIO Cloudflare, sem
+// dizer nada. Por isso quem espera o servidor subir e o NAVEGADOR, que espera
+// a vontade: a aba cutuca o Evolution direto e so chama /api/whatsapp/send
+// quando ele ja respondeu.
+//
+// Estas funcoes viviam DENTRO da tela de WhatsApp, e por isso a abordagem de
+// lead (outra aba, outro componente) nunca aquecia nada: ela chamava a rota
+// de envio direto, com o servidor possivelmente frio, e pagava o cold start
+// dentro do edge — que e exatamente o que o edge nao aguenta. Foi o 502 de
+// 2026-08-31. Agora o estado e do modulo: aquecer numa tela vale pra outra.
+const EVO_BASE_URL = 'https://evolution-api-8arv.onrender.com';
+const EVO_WARM_TTL = 5 * 60 * 1000;   // ping recente = servidor comprovadamente de pe
+const EVO_WARM_EVERY = 5 * 60 * 1000; // cutucada periodica com a aba aberta
+
+let evoWarmAt = 0;      // quando a ultima request VOLTOU (falha nao conta)
+let evoWarming = null;  // ping em voo, pra nao empilhar
+
+const evoAquecido = () => Date.now() - evoWarmAt < EVO_WARM_TTL;
+
+const aquecerEvolution = () => {
+  if(evoWarming) return evoWarming;
+  const p = fetch(EVO_BASE_URL, { mode:'no-cors', cache:'no-store' })
+    .then(() => { evoWarmAt = Date.now(); })
+    .catch(() => {})
+    .then(() => { evoWarming = null; });
+  evoWarming = p;
+  return p;
+};
+
+// Antes de enviar: se o servidor ja respondeu ha pouco, segue direto. Senao
+// da 2,5s de silencio e, se ainda nao voltou, avisa a pessoa ("Acordando o
+// servidor…") e espera ate 60s — o navegador pode, o edge nao pode.
+const acordarEvolution = async (onStage) => {
+  if(evoAquecido()) return;
+  const ping = aquecerEvolution();
+  await Promise.race([ping, new Promise(r => setTimeout(r, 2500))]);
+  if(evoAquecido()) return;
+  if(onStage) onStage('Acordando o servidor…');
+  await Promise.race([ping, new Promise(r => setTimeout(r, 60000))]);
+};
+
+// Balaozinho de ajuda: um "?" discreto que abre a explicacao ao passar o
+// mouse (e no clique, pra quem esta no celular/tablet). Existe porque o
+// nome do botao nunca cabe a explicacao inteira — e o custo de errar em
+// "Rodar follow-up" e mandar mensagem pra cliente de verdade.
+const Ajuda = ({ titulo, itens, largura }) => {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <span style={{ position:'relative', display:'inline-flex', alignItems:'center' }}
+      onMouseEnter={()=>setAberto(true)} onMouseLeave={()=>setAberto(false)}>
+      <button type="button" onClick={()=>setAberto(a=>!a)} aria-label="Ajuda"
+        style={{ width:19, height:19, borderRadius:'50%', border:'1px solid '+C.border, background:'#fff',
+          color:C.muted, fontSize:11, fontWeight:800, lineHeight:'17px', textAlign:'center',
+          cursor:'help', padding:0, flexShrink:0 }}>?</button>
+      {aberto ? (
+        <div style={{ position:'absolute', top:26, right:0, zIndex:60, width: largura || 360,
+          background:'#fff', border:'1px solid '+C.border, borderRadius:12,
+          boxShadow:'0 10px 34px rgba(26,26,46,.18)', padding:14, textAlign:'left',
+          fontSize:12, lineHeight:1.5, color:C.ink, fontWeight:400, cursor:'default', whiteSpace:'normal' }}>
+          <div style={{ fontWeight:800, fontSize:13, marginBottom:9 }}>{titulo}</div>
+          {itens.map((it, i) => (
+            <div key={i} style={{ marginBottom: i === itens.length - 1 ? 0 : 9 }}>
+              <div style={{ fontWeight:700 }}>{it.t}</div>
+              <div style={{ color:C.muted }}>{it.d}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </span>
+  );
+};
+
+const AJUDA_WHATSAPP = [
+  { t:'🕐 Só horário comercial ⟷ Responde 24h',
+    d:'Se a IA atende a qualquer hora ou só das 8h às 19h de Brasília, sem domingo.' },
+  { t:'💬 Auto-resposta',
+    d:'Quando a IA NÃO vai responder (fora do horário ou com a chave desligada), o cliente recebe uma mensagem se apresentando, agradecendo e prometendo retorno — em vez de ficar sem resposta nenhuma. No máximo uma a cada 12h por conversa.' },
+  { t:'🔁 Follow-up',
+    d:'De hora em hora o sistema: cobra pendência parada há mais de 3h sem resposta sua, avisa o cliente UMA vez que o pedido está na fila, e dá um toque em quem sumiu há 48h (no máximo 1 por semana). Nunca fala com quem pediu PARE.' },
+  { t:'👀 Simular follow-up',
+    d:'Faz a varredura inteira e mostra o que ela FARIA — sem enviar nada a ninguém. É o ensaio, use à vontade.' },
+  { t:'▶ Rodar follow-up agora',
+    d:'Faz a varredura DE VERDADE, enviando as mensagens. No dia a dia não precisa: o sistema já roda sozinho de hora em hora. Serve só pra antecipar.' },
+  { t:'Última varredura (linha de baixo)',
+    d:'Quando rodou pela última vez, quantas conversas foram analisadas e o que saiu de cada tipo.' },
+];
+
+// Conteudo de uma bolha: foto, audio com player, video, documento ou
+// texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
+// se o arquivo nao foi salvo, mostra o marcador de sempre, entao nada
+// quebra em mensagem antiga.
+// Previa na lista de conversas: audio mostra a transcricao em vez de
+// "[audio]" — da pra saber do que a conversa trata sem abrir.
+const previewMsg = (m) => {
+  if(!m) return '';
+  if(m.transcript) return '🎤 ' + m.transcript;
+  if(m.type === 'image') return '📷 ' + (m.body && m.body !== '[imagem]' ? m.body : 'Foto');
+  if(m.type === 'audio') return '🎤 Áudio';
+  if(m.type === 'video') return '🎬 Vídeo';
+  if(m.type === 'document') return '📎 ' + (m.body || 'Documento');
+  return m.body || '[' + (m.type || 'msg') + ']';
+};
+
+const BolhaConteudo = ({ m, url }) => {
+  const tipo = m.type || 'text';
+  const legenda = (m.body || '').trim();
+  const marcador = /^\[(áudio|imagem|vídeo|figurinha|documento|msg|mensagem)\]$/i.test(legenda);
+  const [aberta, setAberta] = useState(false);
+
+  if(tipo === 'text' || !m.media_url) {
+    return <span>{legenda || '[' + tipo + ']'}</span>;
+  }
+  if(!url) {
+    return <span style={{ opacity:.75 }}>{legenda || '[' + tipo + ']'} <span style={{ fontSize:11 }}>· carregando…</span></span>;
+  }
+
+  if(tipo === 'image' || tipo === 'sticker') {
+    return (
+      <span>
+        <img src={url} alt={legenda || 'imagem'} onClick={()=>setAberta(true)}
+          style={{ display:'block', maxWidth:260, maxHeight:320, borderRadius:8, cursor:'zoom-in', objectFit:'cover' }} />
+        {legenda && !marcador ? <div style={{ marginTop:6 }}>{legenda}</div> : null}
+        {aberta ? (
+          <span onClick={(e)=>{ e.stopPropagation(); setAberta(false); }}
+            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.85)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
+            <img src={url} alt={legenda || 'imagem'} style={{ maxWidth:'92vw', maxHeight:'92vh', borderRadius:8 }} />
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+  if(tipo === 'audio') {
+    return (
+      <span>
+        <audio controls preload="none" src={url} style={{ display:'block', width:260, maxWidth:'100%' }} />
+        {m.transcript ? (
+          <div style={{ marginTop:6, fontSize:12, fontStyle:'italic', opacity:.85 }}>“{m.transcript}”</div>
+        ) : (
+          <div style={{ marginTop:4, fontSize:11, opacity:.7 }}>sem transcrição</div>
+        )}
+      </span>
+    );
+  }
+  if(tipo === 'video') {
+    return (
+      <span>
+        <video controls preload="metadata" src={url} style={{ display:'block', maxWidth:280, borderRadius:8 }} />
+        {legenda && !marcador ? <div style={{ marginTop:6 }}>{legenda}</div> : null}
+      </span>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      style={{ color:'inherit', textDecoration:'underline' }}>
+      📎 {legenda && !marcador ? legenda : 'Abrir documento'}
+    </a>
+  );
+};
+
+const WhatsAppTab = () => {
+  const [msgs, setMsgs] = useState([]);
+  const [profByPhone, setProfByPhone] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [openWa, setOpenWa] = useState(null); // wa_id da conversa aberta
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState('');
+  const [busca, setBusca] = useState('');
+  const endRef = React.useRef(null);
+
+  // PRE-AQUECIMENTO. Antes, quem pagava o cold start era o operador NA HORA
+  // do envio ("Acordando o servidor…", ate 1min). Agora a aba cutuca o
+  // servidor enquanto ele trabalha — ao abrir, a cada 5min, ao voltar pra
+  // aba e ao comecar a digitar — e o envio sai sem espera nenhuma.
+  // A mecanica mora no modulo (ver "Aquecimento do Evolution API"), porque a
+  // abordagem de lead precisa dela tambem.
+  useEffect(() => {
+    aquecerEvolution();
+    const t = setInterval(aquecerEvolution, EVO_WARM_EVERY);
+    const onVis = () => { if(document.visibilityState === 'visible' && !evoAquecido()) aquecerEvolution(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+
+  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
+
+  // MIDIA (Wave 49). O bucket e PRIVADO — conversa de cliente nao vira
+  // link publico. Pedimos URL assinada em lote pras mensagens visiveis e
+  // guardamos em memoria; a assinatura vale 1h, e recarregada no proximo
+  // load. Sem isso seria uma chamada de rede por bolha.
+  const [midiaUrls, setMidiaUrls] = useState({});   // path -> url assinada
+  const assinandoRef = React.useRef({});
+  const assinarMidias = async (paths) => {
+    const novos = paths.filter(p => p && !midiaUrls[p] && !assinandoRef.current[p]);
+    if(!novos.length) return;
+    novos.forEach(p => { assinandoRef.current[p] = true; });
+    try {
+      const { data } = await supa.storage.from('whatsapp-media').createSignedUrls(novos, 3600);
+      const map = {};
+      (data || []).forEach(d => { if(d && d.path && d.signedUrl) map[d.path] = d.signedUrl; });
+      if(Object.keys(map).length) setMidiaUrls(u => ({ ...u, ...map }));
+    } catch(_){ /* sem assinatura a bolha cai no marcador de texto */ }
+  };
+
+  const load = async () => {
+    const { data } = await supa
+      .from('whatsapp_messages')
+      .select(WA_COLS)
+      .order('created_at', { ascending:false })
+      .limit(500);
+    if(data){
+      // So troca o state se algo MUDOU de verdade — sem isso cada poll
+      // recriava o array e a tela repintava (a "piscada").
+      setMsgs(prev => {
+        if(prev.length === data.length && prev.length > 0 && prev[0].id === data[0].id) return prev;
+        return data;
+      });
+    }
+    setLoading(false);
+  };
+
+  // Quem e o dono do numero? Duas fontes, casadas pelos ULTIMOS 8 DIGITOS
+  // (robusto a DDI, nono digito e formatacao):
+  //   1. profiles — usuario cadastrado no app (tem @tag)
+  //   2. leads    — contato da prospeccao (ainda nao e usuario)
+  // Sem isso, conversa que a LOJA inicia fica so com o numero na tela: o
+  // nome do WhatsApp (pushName) so chega quando a pessoa RESPONDE.
+  const [leadByPhone, setLeadByPhone] = useState({});
+  // Chave da IA por conversa (Wave 46) + alertas abertos do portal.
+  const [iaState, setIaState] = useState({});   // wa_id → true/false
+  const [iaWhy, setIaWhy] = useState({});       // wa_id → ultima decisao da IA
+  // Ate quando o OPERADOR ja viu esta conversa. A IA responder NAO conta
+  // como lida: quem precisa saber que chegou mensagem e a pessoa.
+  const [readAt, setReadAt] = useState({});     // wa_id → ISO
+  const [iaPadrao, setIaPadrao] = useState(false);
+  const [alertas, setAlertas] = useState([]);
+
+  const loadIa = async () => {
+    // Config em tabela PROPRIA (Wave 47) — app_settings guarda segredo de
+    // sistema e recusa escrita do portal, corretamente.
+    const [st, cfg, al] = await Promise.all([
+      supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at, last_read_at').limit(2000),
+      supa.from('whatsapp_ai_config')
+        .select('hours, default_on, followup_on, away_on, last_sweep_at, last_sweep_note')
+        .eq('id',1).maybeSingle(),
+      supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at')
+        .eq('resolved', false).order('created_at', { ascending:false }).limit(50),
+    ]);
+    const m = {}; const w = {}; const rd = {};
+    (st.data || []).forEach(r => {
+      if(r.last_read_at) rd[r.wa_id] = r.last_read_at;
+      // enabled NULL (Wave 48) = "nunca foi decidido nesta conversa" →
+      // segue o padrao global. Guardamos o valor CRU de proposito.
+      m[r.wa_id] = r.enabled;
+      if(r.last_why) w[r.wa_id] = { why: r.last_why, at: r.last_at };
+    });
+    setIaState(m); setIaWhy(w);
+    // Nao sobrescreve marca local mais nova (upsert ainda em voo).
+    setReadAt(prev => {
+      const merged = { ...rd };
+      Object.keys(prev).forEach(k => {
+        if(!merged[k] || new Date(prev[k]) > new Date(merged[k])) merged[k] = prev[k];
+      });
+      return merged;
+    });
+    setIaPadrao(Boolean(cfg.data && cfg.data.default_on));
+    setAlertas(al.data || []);
+    setHoras((cfg.data && cfg.data.hours) || '8-19');
+    setFollowupOn(!cfg.data || cfg.data.followup_on !== false);
+    setAwayOn(!cfg.data || cfg.data.away_on !== false);
+    setSweep(cfg.data ? { at: cfg.data.last_sweep_at, note: cfg.data.last_sweep_note } : null);
+  };
+
+  // Sem decisao propria (linha ausente ou enabled NULL), vale o padrao
+  // global — mesma regra do servidor.
+  const iaLigada = (waId) => (typeof iaState[waId] === 'boolean') ? iaState[waId] : iaPadrao;
+
+  // Janela de atendimento da IA (app_settings 'whatsapp_ai_hours').
+  // '0-24' = responde a qualquer hora; '8-19' = so comercial (padrao).
+  const [horas, setHoras] = useState('8-19');
+  const foraDeHorarioLiberado = horas.trim() === '0-24';
+  const toggleForaDeHorario = async () => {
+    const novo = foraDeHorarioLiberado ? '8-19' : '0-24';
+    setHoras(novo); // otimista
+    const { error } = await supa.from('whatsapp_ai_config')
+      .upsert({ id:1, hours: novo, updated_at: new Date().toISOString() }, { onConflict:'id' });
+    if(error){
+      setHoras(foraDeHorarioLiberado ? '0-24' : '8-19');
+      alert('Nao consegui salvar o horario da IA: ' + error.message);
+    }
+  };
+
+  // FOLLOW-UP AUTOMATICO (Wave 48). Chave mestra + botao pra rodar na
+  // hora. A varredura de verdade roda de hora em hora no banco (pg_cron);
+  // aqui e so pra ver o resultado sem esperar.
+  const [followupOn, setFollowupOn] = useState(true);
+  // Mensagem de ausencia: quando a IA nao vai responder (fora do horario
+  // ou chave desligada), o cliente recebe UMA cortesia da loja em vez de
+  // silencio — no maximo 1 a cada 12h, nunca pra quem pediu PARE.
+  const [awayOn, setAwayOn] = useState(true);
+  const toggleAway = async () => {
+    const novo = !awayOn;
+    setAwayOn(novo); // otimista
+    const { error } = await supa.from('whatsapp_ai_config')
+      .upsert({ id:1, away_on: novo, updated_at: new Date().toISOString() }, { onConflict:'id' });
+    if(error){
+      setAwayOn(!novo);
+      alert('Nao consegui salvar a auto-resposta: ' + error.message);
+    }
+  };
+  const [sweep, setSweep] = useState(null);
+  const [sweeping, setSweeping] = useState(false);
+  const toggleFollowup = async () => {
+    const novo = !followupOn;
+    setFollowupOn(novo); // otimista
+    const { error } = await supa.from('whatsapp_ai_config')
+      .upsert({ id:1, followup_on: novo, updated_at: new Date().toISOString() }, { onConflict:'id' });
+    if(error){
+      setFollowupOn(!novo);
+      alert('Nao consegui salvar o follow-up: ' + error.message);
+    }
+  };
+  const rodarFollowup = async (dryRun) => {
+    if(sweeping) return;
+    setSweeping(true); setDiag(null);
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setDiag('Sessao expirada — entre de novo.'); setSweeping(false); return; }
+      const r = await fetch('/api/whatsapp-evo/followup', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, dryRun: !!dryRun })
+      });
+      let raw=''; try { raw = await r.text(); } catch(_){}
+      let j=null; try { j = JSON.parse(raw); } catch(_){}
+      setDiag(j || ('HTTP ' + r.status + ' — ' + (raw||'').slice(0,200)));
+      loadIa(); load();
+    } catch(e){ setDiag('Falha de rede: ' + ((e && e.message) || '?')); }
+    setSweeping(false);
+  };
+
+  const toggleIa = async (waId) => {
+    const novo = !iaLigada(waId);
+    setIaState(s => ({ ...s, [waId]: novo })); // otimista
+    const { error } = await supa.from('whatsapp_ai_state')
+      .upsert({ wa_id: waId, enabled: novo, updated_at: new Date().toISOString() }, { onConflict:'wa_id' });
+    if(error){
+      setIaState(s => ({ ...s, [waId]: !novo }));
+      alert('Nao consegui salvar a chave da IA: ' + error.message);
+    }
+  };
+
+  // Copiloto: pede a sugestao da IA e joga no campo de texto (NAO envia).
+  // Funciona a qualquer hora — quem pediu foi uma pessoa.
+  const [sugerindo, setSugerindo] = useState(false);
+  const sugerirResposta = async () => {
+    if(!openWa || sugerindo) return;
+    setSugerindo(true); setErr('');
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setErr('Sessao expirada — entre de novo.'); setSugerindo(false); return; }
+      const r = await fetch('/api/whatsapp-evo/suggest', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, waId: openWa })
+      });
+      let raw=''; try { raw = await r.text(); } catch(_){}
+      let res={}; try { res = JSON.parse(raw); } catch(_){}
+      if(!r.ok || !res.ok){
+        setErr(res.error || ('IA nao respondeu (HTTP ' + r.status + ')'));
+      } else {
+        setText(res.reply || '');
+        if(res.escalate){
+          setErr('⚠️ Esta conversa pede ' + (res.reason === 'preco' ? 'PREÇO' : res.reason === 'orcamento' ? 'ORÇAMENTO' : 'atendimento humano') + ' — a sugestão acima só ganha tempo. Responda você.');
+        }
+      }
+    } catch(_){ setErr('Falha de rede ao pedir a sugestao.'); }
+    setSugerindo(false);
+  };
+
+  const resolverAlerta = async (id) => {
+    setAlertas(a => a.filter(x => x.id !== id)); // otimista
+    await supa.from('portal_alerts').update({ resolved:true, resolved_at:new Date().toISOString() }).eq('id', id);
+  };
+  const loadProfiles = async () => {
+    const [profRes, leadRes] = await Promise.all([
+      supa.from('profiles').select('id, name, tag, phone').not('phone','is',null).limit(3000),
+      supa.from('leads').select('id, name, phone, category, status').not('phone','is',null).limit(3000),
+    ]);
+    const mapP = {};
+    (profRes.data || []).forEach(p => {
+      const dig = String(p.phone || '').replace(/\D/g, '');
+      if(dig.length >= 8) mapP[dig.slice(-8)] = p;
+    });
+    setProfByPhone(mapP);
+    const mapL = {};
+    (leadRes.data || []).forEach(l => {
+      const dig = String(l.phone || '').replace(/\D/g, '');
+      if(dig.length >= 8) mapL[dig.slice(-8)] = l;
+    });
+    setLeadByPhone(mapL);
+  };
+
+  // REALTIME (Wave 45): o banco AVISA quando entra mensagem — a msg
+  // aparece em ~1s, sem poll curto e sem repintar a tela inteira (so a
+  // linha nova entra no array). O poll continua, mas em 60s, apenas como
+  // rede de seguranca (aba que dormiu, websocket caido, tabela ainda fora
+  // da publication do Supabase).
+  const subRef = React.useRef(null);
+  useEffect(() => {
+    load(); loadProfiles(); loadIa();
+    subRef.current = supa
+      .channel('portal-whatsapp')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'whatsapp_messages' },
+        (payload) => {
+          setMsgs(prev => prev.some(m => m.id === payload.new.id) ? prev : [payload.new, ...prev]);
+        })
+      .subscribe();
+    const t = setInterval(load, 60000);
+    const tIa = setInterval(loadIa, 30000); // alertas novos da IA
+    return () => {
+      clearInterval(t); clearInterval(tIa);
+      if(subRef.current) supa.removeChannel(subRef.current);
+    };
+  }, []);
+
+  // Assina a midia da conversa aberta (so o que esta na tela).
+  useEffect(() => {
+    if(!openWa) return;
+    const paths = msgs.filter(m => m.wa_id === openWa && m.media_url).map(m => m.media_url);
+    if(paths.length) assinarMidias(paths);
+  }, [openWa, msgs.length]);
+
+  // Chegou mensagem na conversa que esta ABERTA na tela? Ja esta sendo
+  // lida — nao deixa o contador subir na cara do operador.
+  useEffect(() => {
+    if(!openWa) return;
+    const c = convs.find(x => x.waId === openWa);
+    if(c && naoLidas(c) > 0) marcarLida(openWa);
+  }, [openWa, msgs.length]);
+
+  // Rola pro fim so quando FAZ SENTIDO: ao abrir a conversa, ou quando
+  // chega mensagem nova E o operador ja estava olhando o fim. Se ele
+  // subiu pra ler historico, a tela nao arranca dele.
+  const threadRef = React.useRef(null);
+  const [nMsgs, setNMsgs] = useState(0);
+  useEffect(() => {
+    const el = threadRef.current;
+    const abriuConversa = msgs.length === nMsgs;
+    setNMsgs(msgs.length);
+    if(!el) return;
+    const pertoDoFim = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if(abriuConversa || pertoDoFim) endRef.current?.scrollIntoView({ behavior: abriuConversa ? 'auto' : 'smooth' });
+  }, [openWa, msgs.length]);
+
+  // Agrupa por numero (mensagem mais recente primeiro).
+  const convs = React.useMemo(() => {
+    const map = {};
+    msgs.forEach(m => {
+      if(!m.wa_id) return;
+      if(!map[m.wa_id]) map[m.wa_id] = { waId: m.wa_id, msgs: [], last: m, name: '' };
+      map[m.wa_id].msgs.push(m);
+      if(m.direction === 'in' && m.profile_name && !map[m.wa_id].name) map[m.wa_id].name = m.profile_name;
+      if(new Date(m.created_at) > new Date(map[m.wa_id].last.created_at)) map[m.wa_id].last = m;
+    });
+    return Object.values(map).sort((a,b) => new Date(b.last.created_at) - new Date(a.last.created_at));
+  }, [msgs]);
+
+  // NAO LIDAS: mensagens RECEBIDAS depois da ultima vez que o operador
+  // abriu a conversa. A resposta da IA nao zera nada — ela nao substitui
+  // alguem ler. Conversa nunca aberta conta tudo que chegou.
+  const naoLidas = (c) => {
+    const desde = readAt[c.waId];
+    return c.msgs.filter(m => m.direction === 'in' && (!desde || new Date(m.created_at) > new Date(desde))).length;
+  };
+
+  // Marca lida ate agora. Otimista na tela; o banco guarda pra valer
+  // (assim a marca vale em qualquer computador, nao so neste navegador).
+  const marcarLida = async (waId) => {
+    const agora = new Date().toISOString();
+    setReadAt(s => ({ ...s, [waId]: agora }));
+    try { window.dispatchEvent(new CustomEvent('wa-lidas-mudou')); } catch(_){}
+    await supa.from('whatsapp_ai_state')
+      .upsert({ wa_id: waId, last_read_at: agora }, { onConflict:'wa_id' });
+  };
+
+  const abrirConversa = (waId) => { setOpenWa(waId); setErr(''); marcarLida(waId); };
+
+  // Prioridade: usuario do app > lead da prospeccao > nome do WhatsApp >
+  // numero formatado.
+  const nomeDe = (c) => {
+    const chave = c.waId.slice(-8);
+    const prof = profByPhone[chave];
+    if(prof) return (prof.name || '@' + prof.tag) + (prof.tag ? ' (@' + prof.tag + ')' : '');
+    const lead = leadByPhone[chave];
+    if(lead && lead.name) return lead.name;
+    return c.name || fmtWaPhone(c.waId);
+  };
+  // Etiqueta de origem, pra saber com quem se esta falando.
+  // QUEM esta tocando a conversa: a ultima mensagem enviada com origem
+  // conhecida decide. 'origin' e gravado desde 2026-08-30 (portal/ia/
+  // celular); pra mensagem antiga, sent_by preenchido ja denuncia portal.
+  // Sem nenhuma pista (historico velho), sem chip — nada de adivinhar.
+  const canalDe = (c) => {
+    let melhor = null;
+    c.msgs.forEach(m => {
+      if(m.direction !== 'out') return;
+      const o = m.origin || (m.sent_by ? 'portal' : null);
+      if(!o) return;
+      if(!melhor || new Date(m.created_at) > new Date(melhor.t)) melhor = { o, t: m.created_at };
+    });
+    return melhor ? melhor.o : null;
+  };
+  const CANAL_CHIP = {
+    celular: { rotulo: '📱 celular', cor: C.p6, dica: 'Última resposta enviada pelo WhatsApp do CELULAR da loja' },
+    portal:  { rotulo: '🖥️ portal',  cor: C.p3, dica: 'Última resposta enviada por uma pessoa AQUI no portal' },
+    ia:      { rotulo: '🤖 IA',      cor: C.p1, dica: 'Última resposta enviada pela IA automática' },
+  };
+  const ChipCanal = ({ c, mini }) => {
+    const canal = canalDe(c);
+    if(!canal) return null;
+    const cfg = CANAL_CHIP[canal];
+    return (
+      <span title={cfg.dica} style={{ fontSize: mini ? 9 : 11, fontWeight:700, color: cfg.cor,
+        border:'1px solid ' + cfg.cor + '55', background: cfg.cor + '14',
+        borderRadius:8, padding: mini ? '0px 5px' : '2px 8px', whiteSpace:'nowrap' }}>{cfg.rotulo}</span>
+    );
+  };
+
+  const origemDe = (c) => {
+    const chave = c.waId.slice(-8);
+    if(profByPhone[chave]) return null; // usuario do app ja aparece com @tag
+    const lead = leadByPhone[chave];
+    return lead ? (lead.category || 'Lead') : null;
+  };
+
+  const convsFiltradas = convs.filter(c => {
+    if(!busca.trim()) return true;
+    const q = busca.toLowerCase();
+    return c.waId.includes(q.replace(/\D/g, '') || '§') || nomeDe(c).toLowerCase().includes(q);
+  });
+
+  const aberta = convs.find(c => c.waId === openWa);
+  const thread = aberta ? [...aberta.msgs].sort((a,b) => new Date(a.created_at) - new Date(b.created_at)) : [];
+
+  const [sendStage, setSendStage] = useState('');
+
+  const enviar = async () => {
+    const body = text.trim();
+    if(!body || !openWa || sending) return;
+    setSending(true); setErr('');
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session){ setErr('Sessao expirada — entre de novo.'); setSending(false); return; }
+      setSendStage('Enviando…');
+      await acordarEvolution(setSendStage); // vira "Acordando…" só se o Render estiver frio
+      const r = await fetch('/api/whatsapp/send', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token, to: openWa, body })
+      });
+      // Texto primeiro: 5xx do PROPRIO Cloudflare vem como HTML — o trecho
+      // cru no erro aponta a camada (mesma tatica do relatorio de exclusao).
+      let raw = ''; try { raw = await r.text(); } catch(_){}
+      let res = {}; try { res = JSON.parse(raw); } catch(_){}
+      if(!r.ok || !res.ok){
+        const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
+        setErr(res.error || ('Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')'));
+      }
+      else {
+        setText('');
+        // Mostra a mensagem enviada NA HORA (o realtime/poll depois traz a
+        // linha real do banco; o dedupe por id evita duplicar).
+        setMsgs(prev => [{
+          id: 'local-' + Date.now(), direction:'out', wa_id: openWa,
+          type:'text', body, created_at: new Date().toISOString(), wa_timestamp: null
+        }, ...prev]);
+        load();
+      }
+    } catch(_) { setErr('Falha de rede ao enviar.'); }
+    setSending(false); setSendStage('');
+  };
+
+  // Mesma regra do servidor (normalizeWhatsAppTarget): numero brasileiro
+  // local ganha o 55; numero que ja vem com DDI de outro pais passa direto.
+  const novaConversa = () => {
+    const v = prompt('Numero do WhatsApp\n(Brasil: DDD + numero, ex: 11 99999-9999)\n(outro pais: DDI + numero, ex: 1 650 315 4274):');
+    if(v === null) return;
+    const d = v.replace(/\D/g, '');
+    let alvo = null;
+    if(d.startsWith('55') && (d.length === 12 || d.length === 13)) alvo = d;
+    else if(d.length === 10) alvo = '55' + d;
+    else if(d.length === 11 && d[2] === '9') alvo = '55' + d;
+    else if(d.length >= 11 && d.length <= 15) alvo = d;
+    if(!alvo){ alert('Numero invalido. Brasil: DDD + numero. Outro pais: DDI + numero.'); return; }
+    abrirConversa(alvo);
+  };
+
+  // Area de resultado (varredura de follow-up). O botao "Testar conexao"
+  // saiu da tela em 2026-08-29: era ferramenta de depuracao do 502 do
+  // envio, ja resolvido. A rota /api/whatsapp-evo/ping CONTINUA no ar —
+  // se precisar diagnosticar de novo, e so chamar ela direto com o token
+  // de admin.
+  const [diag, setDiag] = useState(null);
+
+  return (
+    <div>
+      <div style={{ marginBottom:10, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+        <span style={{ fontSize:11, color:C.muted }}>Canal: Evolution · +55 11 92072-5935</span>
+        {/* Padrao global da IA: vale pra conversa que ainda nao tem chave
+            propria. Serve de "desliga tudo" em caso de emergencia. */}
+        <span style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:12 }}>
+          {/* Chave do horario: responder fora do comercial (8h-19h BRT). */}
+          <button onClick={toggleForaDeHorario}
+            title={foraDeHorarioLiberado
+              ? 'A IA responde a QUALQUER hora. Clique pra limitar ao horario comercial (8h-19h de Brasilia, sem domingo).'
+              : 'A IA so responde das 8h as 19h de Brasilia (sem domingo). Clique pra liberar 24h.'}
+            style={{ display:'flex', alignItems:'center', gap:7, background: foraDeHorarioLiberado ? C.p6+'1f' : '#fff',
+              border:'1px solid '+(foraDeHorarioLiberado ? C.p6 : C.border), color: foraDeHorarioLiberado ? C.p6 : C.muted,
+              borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background: foraDeHorarioLiberado ? C.p6 : C.border, display:'inline-block' }} />
+            {foraDeHorarioLiberado ? '🕐 Responde 24h' : '🕐 Só horário comercial'}
+          </button>
+          {/* Auto-resposta de ausencia (fora do horario / IA desligada). */}
+          <button onClick={toggleAway}
+            title={awayOn
+              ? 'Auto-resposta LIGADA: fora do horario, ou com a IA desligada, o cliente recebe uma mensagem se apresentando ("aqui e da Cali Colors, obrigado pelo contato, retornamos em breve"). Uma a cada 12h por conversa, nunca pra quem pediu PARE. Clique pra desligar.'
+              : 'Auto-resposta DESLIGADA: quem escrever fora do horario nao recebe nada. Clique pra ligar.'}
+            style={{ display:'flex', alignItems:'center', gap:7, background: awayOn ? C.p6+'1f' : '#fff',
+              border:'1px solid '+(awayOn ? C.p6 : C.border), color: awayOn ? C.p6 : C.muted,
+              borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background: awayOn ? C.p6 : C.border, display:'inline-block' }} />
+            {awayOn ? '💬 Auto-resposta ligada' : '💬 Auto-resposta desligada'}
+          </button>
+          {/* Follow-up: cobra pendencia esquecida e reengaja quem sumiu. */}
+          <button onClick={toggleFollowup}
+            title={followupOn
+              ? 'Follow-up LIGADO: de hora em hora o sistema cobra pendencia sem resposta e da um toque em quem sumiu (1 por semana, so em horario de atendimento, nunca em quem pediu PARE). Clique pra desligar.'
+              : 'Follow-up DESLIGADO: ninguem e cobrado e ninguem recebe toque automatico. Clique pra ligar.'}
+            style={{ display:'flex', alignItems:'center', gap:7, background: followupOn ? C.p6+'1f' : '#fff',
+              border:'1px solid '+(followupOn ? C.p6 : C.border), color: followupOn ? C.p6 : C.muted,
+              borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background: followupOn ? C.p6 : C.border, display:'inline-block' }} />
+            {followupOn ? '🔁 Follow-up ligado' : '🔁 Follow-up desligado'}
+          </button>
+          <Ajuda titulo="O que cada botão faz" itens={AJUDA_WHATSAPP} />
+          <button onClick={()=>rodarFollowup(true)} disabled={sweeping}
+            title="Simula a varredura agora e mostra o que ela FARIA, sem enviar nada."
+            style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:600, cursor: sweeping?'wait':'pointer', color:C.muted }}>
+            {sweeping ? '…' : '👀 Simular follow-up'}
+          </button>
+          <button onClick={()=>{ if(confirm('Rodar o follow-up AGORA? Mensagens podem ser enviadas aos clientes.')) rodarFollowup(false); }} disabled={sweeping}
+            title="Roda a varredura de verdade agora, sem esperar a proxima hora."
+            style={{ background:'#fff', border:'1px solid '+C.border, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:600, cursor: sweeping?'wait':'pointer', color:C.muted }}>
+            {sweeping ? '…' : '▶ Rodar follow-up agora'}
+          </button>
+          <span style={{ fontSize:11, color:C.muted }}>
+            IA por padrão em conversas novas: <strong style={{ color: iaPadrao ? C.p6 : C.muted }}>{iaPadrao ? 'ligada' : 'desligada'}</strong>
+          </span>
+        </span>
+      </div>
+      {sweep && sweep.at ? (
+        <div style={{ fontSize:11, color:C.muted, marginTop:-4, marginBottom:10 }}>
+          Última varredura de follow-up: {new Date(sweep.at).toLocaleString('pt-BR')}
+          {sweep.note ? ' — ' + sweep.note : ''}
+        </div>
+      ) : null}
+
+      {/* ALERTAS — pedido de preco/orcamento e escalonamentos da IA. */}
+      {alertas.length > 0 ? (
+        <div style={{ background:'#fff7ed', border:'1px solid #fdba74', borderRadius:12, padding:12, marginBottom:12 }}>
+          <div style={{ fontWeight:800, fontSize:13, color:'#9a3412', marginBottom:8 }}>
+            🔔 {alertas.length} {alertas.length === 1 ? 'pedido aguardando você' : 'pedidos aguardando você'}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {alertas.slice(0, 6).map(a => (
+              <div key={a.id} style={{ display:'flex', alignItems:'center', gap:10, background:'#fff', border:'1px solid '+C.border, borderRadius:10, padding:'8px 12px' }}>
+                <span style={{ background: a.kind==='preco' ? '#fee2e2' : a.kind==='orcamento' ? '#dbeafe' : '#f3f4f6',
+                  color: a.kind==='preco' ? '#b91c1c' : a.kind==='orcamento' ? '#1d4ed8' : '#374151',
+                  borderRadius:6, padding:'2px 8px', fontSize:10, fontWeight:700, textTransform:'uppercase' }}>{a.kind}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:C.ink }}>{a.title}</div>
+                  {a.body ? <div style={{ fontSize:11, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>“{a.body}”</div> : null}
+                </div>
+                <button onClick={()=>abrirConversa(a.wa_id)}
+                  style={{ background:C.p1, color:'#fff', border:'none', borderRadius:8, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                  Abrir conversa
+                </button>
+                <button onClick={()=>resolverAlerta(a.id)} title="Marcar como resolvido"
+                  style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'5px 10px', fontSize:11, cursor:'pointer', color:C.muted }}>✓</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {diag ? (
+        <pre style={{ background:'#1a1a2e', color:'#e6e6f0', padding:12, borderRadius:10, fontSize:11, lineHeight:1.5, overflowX:'auto', marginBottom:12, maxHeight:260 }}>
+          {typeof diag === 'string' ? diag : JSON.stringify(diag, null, 2)}
+        </pre>
+      ) : null}
+      <div style={{ background:'#fff', borderRadius:16, boxShadow:'0 2px 12px rgba(26,26,46,.06)', overflow:'hidden', display:'flex', height:'calc(100vh - 230px)', minHeight:420 }}>
+        {/* Coluna de conversas */}
+        <div style={{ width:320, minWidth:260, borderRight:'1px solid '+C.border, display:'flex', flexDirection:'column' }}>
+          <div style={{ padding:12, borderBottom:'1px solid '+C.border, display:'flex', gap:8 }}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar numero ou nome…"
+              style={{ flex:1, padding:'8px 12px', borderRadius:10, border:'1.5px solid '+C.border, fontSize:13, outline:'none' }} />
+            <button onClick={novaConversa} title="Nova conversa"
+              style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'0 14px', fontWeight:700, fontSize:18, cursor:'pointer' }}>+</button>
+          </div>
+          <div style={{ flex:1, overflowY:'auto' }}>
+            {loading ? (
+              <div style={{ padding:20, color:C.muted, fontSize:13 }}>Carregando…</div>
+            ) : convsFiltradas.length === 0 ? (
+              <div style={{ padding:20, color:C.muted, fontSize:13 }}>
+                {convs.length === 0
+                  ? 'Nenhuma conversa ainda. Mensagens recebidas no +55 11 92072-5935 aparecem aqui.'
+                  : 'Nada encontrado na busca.'}
+              </div>
+            ) : convsFiltradas.map(c => (
+              <div key={c.waId} onClick={() => abrirConversa(c.waId)}
+                style={{ padding:'12px 14px', cursor:'pointer', borderBottom:'1px solid '+C.cream,
+                  background: openWa === c.waId ? C.cream : 'transparent' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'center' }}>
+                  <strong style={{ fontSize:13, color:C.ink, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                    fontWeight: naoLidas(c) > 0 ? 800 : 600 }}>{nomeDe(c)}</strong>
+                  <span style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                    {naoLidas(c) > 0 ? (
+                      <span title={naoLidas(c) + ' mensagem(ns) que voce ainda nao abriu'}
+                        style={{ background:C.p1, color:'#fff', borderRadius:10, fontSize:10, fontWeight:800,
+                          padding:'1px 7px', lineHeight:'16px' }}>{naoLidas(c) > 99 ? '99+' : naoLidas(c)}</span>
+                    ) : null}
+                    <ChipCanal c={c} mini />
+                    <span style={{ fontSize:11, color:C.muted, whiteSpace:'nowrap' }}>{waHora(c.last)}</span>
+                  </span>
+                </div>
+                {origemDe(c) ? (
+                  <div style={{ fontSize:10, color:C.p3, fontWeight:600, marginTop:1 }}>{origemDe(c)}</div>
+                ) : null}
+                <div style={{ fontSize:12, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>
+                  {(c.last.direction === 'out' ? 'Voce: ' : '') + previewMsg(c.last)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Thread */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', background:C.cream }}>
+          {!openWa ? (
+            <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:C.muted, fontSize:14, padding:20, textAlign:'center' }}>
+              Selecione uma conversa ao lado — ou toque em + pra comecar uma nova.<br/>Canal: +55 11 92072-5935 (Evolution).
+            </div>
+          ) : (
+            <>
+              <div style={{ padding:'12px 16px', background:'#fff', borderBottom:'1px solid '+C.border, fontWeight:700, fontSize:14, color:C.ink }}>
+                {aberta ? nomeDe(aberta) : (leadByPhone[openWa.slice(-8)]?.name || fmtWaPhone(openWa))}
+                <span style={{ fontWeight:400, color:C.muted, fontSize:12, marginLeft:8 }}>{fmtWaPhone(openWa)}</span>
+                {(() => {
+                  const org = aberta ? origemDe(aberta) : (leadByPhone[openWa.slice(-8)]?.category || null);
+                  return org ? <span style={{ marginLeft:8, background:C.p3+'1f', color:C.p3, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{org}</span> : null;
+                })()}
+                {aberta ? <span style={{ marginLeft:8 }}><ChipCanal c={aberta} /></span> : null}
+                {/* CHAVE DA IA — liga/desliga a resposta automatica NESTA
+                    conversa. Desliga sozinha quando escala pra humano. */}
+                <button onClick={()=>toggleIa(openWa)} title={iaLigada(openWa) ? 'IA respondendo — clique pra assumir a conversa' : 'IA desligada — clique pra ela responder'}
+                  style={{ float:'right', display:'flex', alignItems:'center', gap:6, background: iaLigada(openWa) ? C.p6+'1f' : 'transparent',
+                    border:'1px solid '+(iaLigada(openWa) ? C.p6 : C.border), color: iaLigada(openWa) ? C.p6 : C.muted,
+                    borderRadius:20, padding:'4px 12px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                  <span style={{ width:8, height:8, borderRadius:'50%', background: iaLigada(openWa) ? C.p6 : C.border, display:'inline-block' }} />
+                  {iaLigada(openWa) ? 'IA ligada' : 'IA desligada'}
+                </button>
+                {/* Ultima decisao da IA nesta conversa — explica o silencio
+                    (horario, teto diario, chave, erro) em vez de deixar o
+                    operador adivinhando. */}
+                {iaWhy[openWa] ? (
+                  <div style={{ clear:'both', textAlign:'right', fontSize:10, color:C.muted, fontWeight:400, marginTop:2 }}>
+                    IA: {iaWhy[openWa].why}
+                    {iaWhy[openWa].at ? ' · ' + new Date(iaWhy[openWa].at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : ''}
+                  </div>
+                ) : null}
+              </div>
+              <div ref={threadRef} style={{ flex:1, overflowY:'auto', padding:16, display:'flex', flexDirection:'column', gap:6 }}>
+                {thread.length === 0 ? (
+                  <div style={{ color:C.muted, fontSize:13, textAlign:'center', marginTop:20 }}>Sem historico com este numero — escreva a primeira mensagem abaixo.</div>
+                ) : thread.map(m => (
+                  <div key={m.id} style={{
+                    alignSelf: m.direction === 'out' ? 'flex-end' : 'flex-start',
+                    maxWidth:'72%', padding:'8px 12px', borderRadius:12, fontSize:13, lineHeight:1.45,
+                    background: m.direction === 'out' ? C.p1 : '#fff',
+                    color: m.direction === 'out' ? '#fff' : C.ink,
+                    boxShadow:'0 1px 3px rgba(0,0,0,.06)', whiteSpace:'pre-wrap', wordBreak:'break-word'
+                  }}>
+                    <BolhaConteudo m={m} url={m.media_url ? midiaUrls[m.media_url] : null} />
+                    <div style={{ fontSize:10, opacity:.7, marginTop:3, textAlign:'right' }}>{waHora(m)}</div>
+                  </div>
+                ))}
+                <div ref={endRef} />
+              </div>
+              {err ? <div style={{ padding:'8px 16px', background:'#fdecea', color:'#b3261e', fontSize:12 }}>{err}</div> : null}
+              <div style={{ display:'flex', gap:8, padding:12, background:'#fff', borderTop:'1px solid '+C.border }}>
+                <input value={text} onChange={e=>{ setText(e.target.value); if(!evoAquecido()) aquecerEvolution(); }}
+                  onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviar(); } }}
+                  placeholder="Escreva uma mensagem…"
+                  style={{ flex:1, padding:'10px 14px', borderRadius:12, border:'1.5px solid '+C.border, fontSize:14, outline:'none' }} />
+                {/* COPILOTO: traz a sugestao da IA pro campo, sem enviar.
+                    Funciona a qualquer hora (quem pediu foi uma pessoa). */}
+                <button onClick={sugerirResposta} disabled={sugerindo} title="A IA lê a conversa e escreve a resposta aqui (você revisa antes de enviar)"
+                  style={{ background:'#fff', color:C.p3, border:'1.5px solid '+C.border, borderRadius:12, padding:'0 14px', fontWeight:700, fontSize:13,
+                    cursor: sugerindo ? 'wait' : 'pointer', whiteSpace:'nowrap' }}>
+                  {sugerindo ? '✨ Pensando…' : '✨ Sugerir'}
+                </button>
+                <button onClick={enviar} disabled={sending || !text.trim()}
+                  style={{ background:C.p1, color:'#fff', border:'none', borderRadius:12, padding:'0 20px', fontWeight:700, fontSize:14,
+                    cursor: sending ? 'wait' : 'pointer', opacity: sending || !text.trim() ? .6 : 1 }}>
+                  {sending ? (sendStage || 'Enviando…') : 'Enviar'}
+                </button>
+              </div>
+              {sending && sendStage === 'Acordando o servidor…' ? <div style={{ padding:'4px 16px 10px', background:'#fff', color:C.muted, fontSize:11 }}>O servidor do WhatsApp dorme apos 15min parado (plano free) — acordando ele antes de enviar, pode levar ate 1 minuto.</div> : null}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PAGES_DEF = [
   { id:'dashboard', icon:'📊', label:'Dashboard', section:'PRINCIPAL', component:<Dashboard /> },
   { id:'avisos', icon:'📢', label:'Avisos / Notificacoes', section:'PRINCIPAL', component:<Avisos /> },
   { id:'chats', icon:'💬', label:'Chats 3-Way', section:'PRINCIPAL', badgeKey:'chats', component:<Chats /> },
+  { id:'whatsapp', icon:'📱', label:'WhatsApp', section:'PRINCIPAL', badgeKey:'whatsapp', component:<WhatsAppTab /> },
   { id:'orcamentos', icon:'📋', label:'Orçamentos', section:'PRINCIPAL', badgeKey:'orcamentos', component:<Orcamentos /> },
   { id:'pintores', icon:'🖌️', label:'Pintores', section:'PESSOAS', badgeKey:'pintores', component:<PintoresList key="pintores" roleFilter={p=>currentRoleKey(p)==='pintor'} title="Pintores Cadastrados" defaultRole="pintor" emptyMsg="Nenhum pintor cadastrado." /> },
   { id:'grafiteiros', icon:'🎨', label:'Grafiteiros', section:'PESSOAS', badgeKey:'grafiteiros', component:<PintoresList key="grafiteiros" roleFilter={p=>currentRoleKey(p)==='grafiteiro'} title="Grafiteiros / Muralistas" defaultRole="grafiteiro" emptyMsg="Nenhum grafiteiro cadastrado." /> },
@@ -3244,14 +5279,17 @@ function App() {
     try {
       const sb = supa;
       if(!sb) return;
-      const [msgsRes, quotesRes, profiles, leadsRes] = await Promise.all([
-        sb.from('messages').select('id', { count: 'exact', head: true }),
+      const [quotesRes, profiles, leadsRes] = await Promise.all([
         sb.from('quotes').select('id', { count: 'exact', head: true }),
         profilesService.list({ fields: 'role, user_type, profession, portal_access' }),
         sb.from('leads').select('id', { count: 'exact', head: true }),
       ]);
-      setBadges({
-        chats: msgsRes.count || 0,
+      // Mescla em vez de substituir: o badge do WhatsApp e carregado
+      // por outro caminho (loadWaBadge) e nao pode ser apagado aqui.
+      setBadges(b => ({
+        ...b,
+        // `chats` NAO entra aqui: virou nao-lidas, calculado em
+        // loadNaoLidos junto com o do WhatsApp.
         orcamentos: quotesRes.count || 0,
         pintores: profiles.filter(p => isProProfile(p) && currentRoleKey(p)==='pintor').length,
         grafiteiros: profiles.filter(p => isProProfile(p) && currentRoleKey(p)==='grafiteiro').length,
@@ -3259,11 +5297,62 @@ function App() {
         leads: leadsRes.count || 0,
         clientes: profiles.filter(isClienteProfile).length,
         portalUsers: profiles.filter(p => p.portal_access === true).length,
-      });
+      }));
     } catch(e) { console.error('loadBadges error:', e); }
   };
 
-  useEffect(() => { if(loggedIn) loadBadges(); }, [loggedIn]);
+  // WhatsApp nao lido: mensagens RECEBIDAS depois da ultima vez que o
+  // operador abriu aquela conversa (whatsapp_ai_state.last_read_at). Fica
+  // separado do loadBadges porque precisa ser leve e frequente — o resto
+  // dos badges e caro e quase estatico.
+  const loadWaBadge = async () => {
+    try {
+      const desde = new Date(Date.now() - 30*24*3600*1000).toISOString();
+      const { data: { session } } = await supa.auth.getSession();
+      const meuId = session && session.user ? session.user.id : null;
+      const [msgsRes, stRes, chatRes, chatReadRes] = await Promise.all([
+        supa.from('whatsapp_messages').select('wa_id, created_at')
+          .eq('direction','in').gte('created_at', desde).limit(3000),
+        supa.from('whatsapp_ai_state').select('wa_id, last_read_at').limit(3000),
+        supa.from('messages').select('conversation_id, sender_id, created_at')
+          .gte('created_at', desde).limit(3000),
+        supa.from('portal_chat_reads').select('conversation_id, last_read_at').limit(2000),
+      ]);
+      const lido = {};
+      (stRes.data || []).forEach(r => { if(r.last_read_at) lido[r.wa_id] = r.last_read_at; });
+      const n = (msgsRes.data || []).filter(m =>
+        !lido[m.wa_id] || new Date(m.created_at) > new Date(lido[m.wa_id])).length;
+
+      // Chats 3-Way: mesma conta. Antes o badge era o TOTAL de mensagens
+      // da tabela — nao dizia nada e nunca baixava.
+      const lidoChat = {};
+      (chatReadRes.data || []).forEach(r => { lidoChat[r.conversation_id] = r.last_read_at; });
+      const nChat = (chatRes.data || []).filter(m => {
+        if(meuId && m.sender_id === meuId) return false;
+        const marca = lidoChat[m.conversation_id];
+        return !marca || new Date(m.created_at) > new Date(marca);
+      }).length;
+
+      setBadges(b => (b.whatsapp === n && b.chats === nChat ? b : { ...b, whatsapp: n, chats: nChat }));
+    } catch(e) { /* badge e enfeite: nunca derruba o portal */ }
+  };
+
+  useEffect(() => {
+    if(!loggedIn) return;
+    loadBadges(); loadWaBadge();
+    // Realtime avisa na hora que chegou mensagem; o intervalo e rede de
+    // seguranca; o evento vem da propria aba quando alguem le a conversa.
+    const canal = supa.channel('portal-wa-badge')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'whatsapp_messages' }, loadWaBadge)
+      .subscribe();
+    const t = setInterval(loadWaBadge, 45000);
+    window.addEventListener('wa-lidas-mudou', loadWaBadge);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('wa-lidas-mudou', loadWaBadge);
+      supa.removeChannel(canal);
+    };
+  }, [loggedIn]);
 
   useEffect(() => {
     (async () => {

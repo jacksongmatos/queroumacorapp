@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
+import { SplashMascotes } from '@/components/SplashMascotes';
 
 export default function HomePage() {
   const router = useRouter();
@@ -16,11 +17,11 @@ export default function HomePage() {
     router.replace(user ? '/feed' : '/login');
   }, [loading, user, router]);
 
-  // Placeholder discreto enquanto auth resolve + redirect dispara
-  // (50-200ms na primeira visita).
+  // Splash com os mascotes enquanto auth resolve + redirect dispara —
+  // mascara a espera com a marca em vez do "Carregando..." seco.
   return (
-    <main className="min-h-screen flex items-center justify-center p-8">
-      <div className="text-[color:var(--color-muted)] text-sm">Carregando...</div>
+    <main>
+      <SplashMascotes />
     </main>
   );
 }

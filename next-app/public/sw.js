@@ -31,8 +31,27 @@
 // o HTML guardado — que aponta pros bundles de uma build ANTERIOR, servidos
 // cache-first de `/_next/static/`. O aparelho fica com um app inteiro de uma
 // versão passada e correção nova nenhuma chega. O bump zera essa combinação.
+//
+// v5 → v6 (2026-09-01): o 5xx de PAYLOAD RSC também deixa de voltar cru.
+// A v5 cobriu a navegação de documento, mas o caso real do aparelho era
+// outro: a falha vinha no fetch do RSC, o router do Next pintava a própria
+// tela de erro ("500 | Server Error") sem nunca fazer uma navegação de
+// documento, e por isso NADA daqui rodava. Agora o 5xx de RSC vira 503 sem
+// corpo — o mesmo tratamento da rede morta, que é o caminho comprovado de
+// forçar o hard-nav e cair nas defesas completas.
+//
+// v4 → v5 (2026-08-28): 5xx CRU NUNCA MAIS CHEGA NA TELA em navegação de
+// documento. O v4 já tentava de novo e já preferia o cache, mas quando não
+// havia cópia boa devolvia o 500 do servidor — e como o app navega por
+// dentro (SPA), documento no cache é raro: era a tela "500 | Server Error"
+// morta ao retomar o WebView do background (o usuário tinha que matar o
+// app). Agora o último recurso pra 5xx é a MESMA página amigável do modo
+// offline, que se recarrega sozinha (backoff + teto por sessão) — o soluço
+// do edge passa e o app volta sem intervenção. RSC continua recebendo o
+// status cru (o router do Next trata e faz hard-nav, que cai aqui de novo
+// como documento).
 
-const CACHE_VERSION = 'quc-v4';
+const CACHE_VERSION = 'quc-v6';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const IMG_CACHE = `${CACHE_VERSION}-img`;
@@ -138,22 +157,58 @@ async function matchUsable(req) {
   }
 }
 
-// Última linha de defesa: página gerada na hora, com botão de recarregar.
-// Nunca vem do cache, então não tem como envelhecer nem envenenar nada.
-function offlineFallbackResponse() {
+// Última linha de defesa: página gerada na hora, com botão de recarregar E
+// auto-retry (backoff crescente, teto de 6 tentativas por incidente via
+// sessionStorage — janela de 2min zera o contador). Nunca vem do cache,
+// então não tem como envelhecer nem envenenar nada. `status` presente =
+// era um 5xx do servidor (mensagem diz isso); ausente = falha de rede.
+function offlineFallbackResponse(status) {
+  const detail = status
+    ? `O servidor deu uma instabilidade (erro ${status}). Vou tentar de novo sozinho em instantes.`
+    : 'Não consegui falar com o servidor agora. Assim que a conexão voltar, eu tento de novo sozinho.';
   const html = `<!doctype html><html lang="pt-BR"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>QueroUmaCor — sem conexão</title></head>
+<title>QueroUmaCor — reconectando</title></head>
 <body style="margin:0;display:flex;min-height:100dvh;align-items:center;justify-content:center;background:#fdfbf7;color:#1a1a2e;font:400 15px/1.6 system-ui,-apple-system,sans-serif;text-align:center;padding:24px">
 <div><div style="font-size:44px;margin-bottom:12px">📶</div>
-<h1 style="font-size:19px;margin:0 0 8px">Sem conexão</h1>
-<p style="margin:0 0 20px;color:#6b6b7b;max-width:280px">Não consegui falar com o servidor agora. Confira sua internet e tente de novo.</p>
-<button onclick="location.reload()" style="border:0;border-radius:10px;background:#ff6b35;color:#fff;font:700 15px system-ui;padding:12px 26px">Tentar de novo</button>
-</div></body></html>`;
+<h1 style="font-size:19px;margin:0 0 8px">Reconectando…</h1>
+<p style="margin:0 0 20px;color:#6b6b7b;max-width:280px">${detail}</p>
+<button onclick="location.reload()" style="border:0;border-radius:10px;background:#ff6b35;color:#fff;font:700 15px system-ui;padding:12px 26px">Tentar agora</button>
+</div>
+<script>(function(){try{
+var K='qucAutoRetry';var now=Date.now();var st=null;
+try{st=JSON.parse(sessionStorage.getItem(K)||'null')}catch(e){}
+if(!st||now-st.t>120000)st={n:0,t:now};
+if(st.n<6){st.n++;try{sessionStorage.setItem(K,JSON.stringify(st))}catch(e){}
+setTimeout(function(){location.reload()},2500+st.n*1500);}
+window.addEventListener('online',function(){location.reload()});
+}catch(e){}})();</script>
+</body></html>`;
   return new Response(html, {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
   });
+}
+
+// Telemetria best-effort de incidente: registra no /api/log-error (aparece
+// no /admin/errors) quando uma navegação terminou em 5xx mesmo após a
+// retentativa. Fire-and-forget: se o edge está mal, este POST também pode
+// falhar — nunca custa a resposta pro usuário.
+function logNavIncident(status, url) {
+  try {
+    fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'sw-nav-5xx',
+        msg: `navegação ${status} após retry: ${url}`,
+        ua: (typeof navigator !== 'undefined' && navigator.userAgent) || '',
+        ctx: 'sw',
+      }),
+    }).catch(() => {});
+  } catch {
+    // ignora
+  }
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -241,20 +296,56 @@ self.addEventListener('fetch', (event) => {
     url.searchParams.has('_rsc') ||
     req.headers.get('RSC') === '1' ||
     req.headers.get('Next-Router-Prefetch') === '1';
-  if (req.mode === 'navigate' || req.destination === 'document' || isRsc) {
+
+  // Payloads RSC. HTML de fallback aqui corromperia o router (ele espera
+  // flight data), então a resposta é sempre "vazia" — o que muda é o STATUS.
+  //
+  // v6 (2026-09-01) — O 5xx DEIXOU DE VOLTAR CRU. A versão anterior devolvia
+  // o 500 do servidor apostando que "o router trata" fazendo hard-nav. O
+  // aparelho provou que não: o runtime do Next pinta a PRÓPRIA tela de erro
+  // ("500 | Server Error" — a marcação `next-error-h1` está no bundle do
+  // cliente, `main-*.js`), e como não houve navegação de documento, nenhuma
+  // das defesas daqui de baixo chega a rodar. Também não é erro de render,
+  // então `error.tsx`/`global-error.tsx` não pegam. Resultado: uma lápide
+  // que só saía reiniciando o app, com o service worker no comando o tempo
+  // todo — o /diag do usuário confirmou "Service Worker controlando: sim".
+  //
+  // Agora o 5xx recebe o MESMO tratamento da rede morta: 503 sem corpo, que
+  // é o caminho comprovado — o router descarta e faz hard-nav, a navegação
+  // volta pra cá como documento e aí sim ganha a página "Reconectando…" com
+  // auto-retry.
+  if (isRsc) {
     event.respondWith(
       (async () => {
         try {
           const res = await fetchNavigation(req);
-          // Só cacheia navegação real (document), não os payloads RSC — RSC é
-          // versionado por build e poluiria o cache com entries órfãos.
-          // `putSafe` já barra 4xx/5xx: erro nunca vira conteúdo persistido.
-          if (!isRsc) await putSafe(STATIC_CACHE, req, res);
-          // 5xx que sobreviveu à retentativa: se existir uma cópia BOA no
-          // cache, ela é melhor que a página de erro do servidor.
           if (res.status >= 500) {
+            logNavIncident(res.status, url.pathname + ' (rsc)');
+            return new Response('', { status: 503 });
+          }
+          return res;
+        } catch {
+          return new Response('', { status: 503 });
+        }
+      })(),
+    );
+    return;
+  }
+
+  if (req.mode === 'navigate' || req.destination === 'document') {
+    event.respondWith(
+      (async () => {
+        try {
+          const res = await fetchNavigation(req);
+          // `putSafe` já barra 4xx/5xx: erro nunca vira conteúdo persistido.
+          await putSafe(STATIC_CACHE, req, res);
+          // 5xx que sobreviveu à retentativa NUNCA vai cru pra tela (era a
+          // tela "500 | Server Error" morta ao retomar o WebView): primeiro
+          // uma cópia BOA do cache; senão a página amigável com auto-retry.
+          if (res.status >= 500) {
+            logNavIncident(res.status, url.pathname);
             const cached = (await matchUsable(req)) || (await matchUsable('/'));
-            if (cached) return cached;
+            return cached || offlineFallbackResponse(res.status);
           }
           return res;
         } catch {

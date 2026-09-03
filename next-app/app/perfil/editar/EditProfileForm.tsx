@@ -18,13 +18,15 @@
 //    deste form. Input fica readonly informativo.
 //  - avatar preview usa URL.createObjectURL + state local — não mutamos DOM.
 //    objectURL é revogado no useEffect cleanup pra não vazar memory.
-//  - upload do avatar é feito SEPARADO do update do profile: fluxo é
+//  - avatar sobe NA HORA (2026-08-29), igual ao logo: uploadAvatar →
+//    update({avatar_url}) → toast. Antes esperava o submit e virava um
+//    preview que a pessoa achava que tinha salvado. Fluxo antigo era
 //    uploadAvatar → patch.avatar_url = publicUrl → updateProfile. Se o
 //    upload falhar, a UI mostra o erro e NÃO aplica nada (não persiste meio
 //    update — comportamento mais previsível que o "best-effort" do vanilla
 //    que salvava o resto mesmo se avatar quebrasse).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -40,6 +42,12 @@ import {
 import { fetchLogo, uploadLogo, saveLogo } from '@/lib/services/aiLogo';
 import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
+import { CameraCapture } from '@/components/CameraCapture';
+import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
+import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
+import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
+import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 // Schema dos campos editáveis. Tag e email NÃO entram aqui — são
 // readonly/immutable na UI.
@@ -101,10 +109,38 @@ export function EditProfileForm() {
   const { profile, loading, error, update, isUpdating } = useProfile();
   const dialog = useDialog();
 
-  // Avatar local: arquivo selecionado + preview URL via createObjectURL.
-  // Nada é gravado no banco até o submit; até lá só fica em state.
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  // Avatar: sobe NA HORA, igual ao logo do negócio logo abaixo.
+  //
+  // Antes esperava o submit e a foto virava só um preview — a pessoa
+  // escolhia, via a cara nova na tela, saía da página e nada tinha sido
+  // salvo. Nenhuma mensagem, porque nada tinha acontecido mesmo. Pior:
+  // o logo, no mesmo formulário, JÁ salvava sozinho — dois controles
+  // vizinhos com comportamentos opostos.
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const cancelarAvisoRef = useRef<(() => void) | null>(null);
+  // Galeria não abriu (app empacotado) / câmera aberta na mão.
+  const [galeriaBloqueada, setGaleriaBloqueada] = useState(false);
+  const [reiniciouNaEscolha, setReiniciouNaEscolha] = useState(false);
+  const [camAberta, setCamAberta] = useState(false);
+  const podeCamera = useOfereceCamera();
+
+  // P7: cancela o que o `armarSelecao` armou quando a tela sai — senão
+  // sobram ouvintes vivos e a marca de recuperação no localStorage vira
+  // aviso falso na próxima abertura.
+  useEffect(() => () => cancelarAvisoRef.current?.(), []);
+
+  // Voltamos de um app que o Android matou com a galeria aberta? A foto se
+  // perdeu no caminho e ninguém contou pra pessoa — ela só viu o app voltar
+  // pro início. Conta aqui, com as saídas (ver lib/utils/pickerRecovery).
+  useEffect(() => {
+    if (!consumirEscolhaPendente('perfil/editar')) return;
+    setReiniciouNaEscolha(true);
+    setGaleriaBloqueada(true);
+    reportFailure('picker-restart', new Error('app reiniciou com a galeria aberta'), {
+      ctx: 'perfil/editar',
+    });
+  }, []);
   // Logo do negócio: lê do banco via fetchLogo (sincronizado com camisetas
   // — mesma URL `profiles.business_logo_url` que ShirtCustomizer/AiArt usam).
   // Upload faz commit imediato (não espera o submit do form principal) pra
@@ -120,6 +156,7 @@ export function EditProfileForm() {
     handleSubmit,
     reset,
     watch,
+    setFocus,
     formState: { errors, isDirty },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -225,11 +262,18 @@ export function EditProfileForm() {
   // Commit imediato (não espera submit) — comportamento idêntico ao
   // ShirtCustomizer pra manter sync entre as 2 telas.
   async function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !user) return;
-    if (!file.type.startsWith('image/')) {
-      showToast('Selecione uma imagem (PNG, JPG, WebP, SVG)', 'error');
+    // `file.type` VAZIO é rotina no seletor do wrapper (ver
+    // lib/utils/mediaType.ts) — validar por ele recusava foto de verdade.
+    file = await normalizarArquivo(file);
+    if (provadoNaoImagem(file)) {
+      showToast(`Esse arquivo não é imagem (${file.type})`, 'error');
+      reportFailure('avatar-fail', new Error(`logo nao-imagem: ${descreverArquivo(file)}`), {
+        userId: user?.id,
+        ctx: 'perfil/editar/logo',
+      });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -271,39 +315,94 @@ export function EditProfileForm() {
     }
   }
 
-  // Cleanup do objectURL quando trocar o arquivo ou desmontar — sem isso
-  // o blob fica no heap até o GC, e em uploads sucessivos vaza.
-  useEffect(() => {
-    if (!avatarFile) {
-      setAvatarPreview(null);
-      return;
-    }
-    const url = URL.createObjectURL(avatarFile);
-    setAvatarPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [avatarFile]);
-
+  // Enquanto sobe, mostra o arquivo local; depois vale o que está no
+  // banco. O objectURL é revogado pra não vazar blob no heap.
   const currentAvatarUrl = useMemo(() => {
     if (avatarPreview) return avatarPreview;
     return profile?.avatar_url ?? null;
   }, [avatarPreview, profile?.avatar_url]);
 
-  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    return () => {
+      if (avatarPreview?.startsWith('blob:')) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    cancelarAvisoRef.current?.();
     const f = e.target.files?.[0] ?? null;
-    if (!f) {
-      setAvatarFile(null);
-      return;
-    }
-    if (!f.type.startsWith('image/')) {
-      setSubmitError('Selecione um arquivo de imagem');
+    e.target.value = ''; // permite reescolher o MESMO arquivo depois
+    await processarAvatar(f);
+  }
+
+  /**
+   * Sobe a foto de perfil. Recebe o File pronto — venha ele da galeria ou
+   * da câmera (`CameraCapture`), que é o caminho de quem está no app
+   * empacotado, onde a galeria não abre.
+   */
+  async function processarAvatar(entrada: File | null) {
+    let f = entrada;
+    if (!f || !user || avatarBusy) return;
+    // O seletor do app instalado devolve a foto SEM MIME type — era isto
+    // que barrava a troca de foto com "Selecione um arquivo de imagem" na
+    // cara de quem tinha selecionado exatamente isso.
+    f = await normalizarArquivo(f);
+    // Recusa só com PROVA. Antes bastava o Android não declarar o tipo pra
+    // barrar a foto — era o bug que travou a troca de foto no app.
+    if (provadoNaoImagem(f)) {
+      showToast(`Esse arquivo não é imagem (${f.type})`, 'error');
+      reportFailure('avatar-fail', new Error(`avatar nao-imagem: ${descreverArquivo(f)}`), {
+        userId: user?.id,
+        ctx: 'perfil/editar',
+      });
       return;
     }
     if (f.size > 5 * 1024 * 1024) {
-      setSubmitError('Imagem muito grande (máx 5MB)');
+      showToast('Imagem muito grande (máx 5MB)', 'error');
       return;
     }
-    setSubmitError(null);
-    setAvatarFile(f);
+    const local = URL.createObjectURL(f);
+    setAvatarPreview(local);
+    setAvatarBusy(true);
+    try {
+      const url = await uploadAvatar(user.id, f);
+      await update({ avatar_url: url } as Parameters<typeof update>[0]);
+      setAvatarPreview(null); // a partir daqui vale a do banco
+      URL.revokeObjectURL(local);
+      showToast('Foto atualizada!', 'success');
+    } catch (err) {
+      setAvatarPreview(null);
+      URL.revokeObjectURL(local);
+      showToast((err as Error).message || 'Não consegui salvar a foto', 'error');
+      // O toast some em segundos e nunca chegava aqui — sem isso, "não
+      // salvou a foto" continua sendo relato, não evidência.
+      reportFailure('avatar-fail', err, { userId: user.id, ctx: 'perfil/editar' });
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  /**
+   * Validação reprovou. Sem isto o botão "Salvar" não fazia NADA visível:
+   * o erro aparecia lá embaixo, ao lado do campo, e quem estava no topo
+   * da página (trocando a foto, por exemplo) só via o botão piscar. Agora
+   * a página rola até o primeiro campo com problema e diz o que falta.
+   */
+  function onInvalid(errs: Record<string, { message?: string }>) {
+    setSubmitSuccess(false);
+    const primeiro = Object.keys(errs)[0] as keyof FormData | undefined;
+    const msg = primeiro ? errs[primeiro as string]?.message : '';
+    setSubmitError(msg ? `Falta corrigir: ${msg}` : 'Confira os campos destacados em vermelho.');
+    if (primeiro) {
+      try {
+        setFocus(primeiro);
+        document
+          .querySelector(`[name="${String(primeiro)}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch {
+        /* foco é conforto, não requisito */
+      }
+    }
   }
 
   async function onSubmit(data: FormData) {
@@ -312,11 +411,6 @@ export function EditProfileForm() {
     setSubmitSuccess(false);
 
     try {
-      let avatarUrl: string | undefined;
-      if (avatarFile) {
-        avatarUrl = await uploadAvatar(user.id, avatarFile);
-      }
-
       // bio/address opcionais: enviar string vazia como null pra normalizar
       // no banco (consistente com a coluna nullable).
       await update({
@@ -331,11 +425,9 @@ export function EditProfileForm() {
         business_name: data.business_name ? data.business_name : null,
         instagram_url: data.instagram_url ? data.instagram_url : null,
         website_url: data.website_url ? data.website_url : null,
-        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
       } as Parameters<typeof update>[0] & { business_name?: string | null });
 
       setSubmitSuccess(true);
-      setAvatarFile(null); // limpa preview pós-save
       // Apaga rascunho pra não restaurar valores antigos no próximo mount.
       autosave.clear();
       setDraftSavedAt(0);
@@ -383,7 +475,11 @@ export function EditProfileForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+    <form
+      onSubmit={handleSubmit(onSubmit, onInvalid as Parameters<typeof handleSubmit>[1])}
+      className="space-y-4"
+      noValidate
+    >
       {/* Avatar + upload */}
       <div className="flex items-center gap-4">
         <div className="w-20 h-20 rounded-full bg-[color:var(--color-border)] overflow-hidden flex-shrink-0">
@@ -403,9 +499,31 @@ export function EditProfileForm() {
         <div className="flex-1">
           <label
             htmlFor="avatar-input"
+            onClick={() => {
+              // WebView do wrapper pode nao abrir a galeria — sem erro
+              // nenhum. Ver lib/utils/filePickerWatch. Quando não abre, o
+              // app oferece a câmera (que não passa pelo seletor) em vez
+              // de um toast que some em 3s.
+              cancelarAvisoRef.current?.();
+              cancelarAvisoRef.current = armarSelecao({
+                rota: '/perfil/editar',
+                ctx: 'perfil/editar',
+                onNaoAbriu: () => {
+                  setReiniciouNaEscolha(false);
+                  setGaleriaBloqueada(true);
+                  reportFailure('picker-fail', new Error('galeria nao abriu'), {
+                    userId: user?.id,
+                    ctx: 'perfil/editar',
+                  });
+                },
+                // Abriu depois do relógio: retira o aviso falso.
+                onAbriuAtrasado: () => setGaleriaBloqueada(false),
+              });
+            }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
+            style={{ opacity: avatarBusy ? 0.6 : 1, pointerEvents: avatarBusy ? 'none' : 'auto' }}
           >
-            Trocar foto
+            {avatarBusy ? 'Enviando…' : 'Trocar foto'}
           </label>
           <input
             id="avatar-input"
@@ -414,11 +532,50 @@ export function EditProfileForm() {
             className="sr-only"
             onChange={handleAvatarChange}
           />
+          {podeCamera ? (
+            <button
+              type="button"
+              onClick={() => setCamAberta(true)}
+              disabled={avatarBusy}
+              className="inline-block ml-2 px-4 py-2 bg-white border border-[color:var(--color-border)] rounded-xl text-sm font-semibold"
+              style={{ opacity: avatarBusy ? 0.6 : 1 }}
+              data-testid="avatar-camera"
+            >
+              📷 Tirar foto
+            </button>
+          ) : null}
           <p className="text-xs text-[color:var(--color-muted)] mt-1">
-            JPG/PNG/WebP — máx 5MB
+            JPG/PNG/WebP — máx 5MB. Salva sozinha ao escolher.
           </p>
         </div>
       </div>
+
+      {/* Câmera: o caminho que NÃO depende do seletor de arquivos — no app
+          empacotado a galeria não abre (ver lib/utils/filePickerWatch). */}
+      <CameraCapture
+        open={camAberta}
+        facing="user"
+        title="Foto de perfil"
+        onClose={() => setCamAberta(false)}
+        onCapture={(f) => void processarAvatar(f)}
+        ctx="perfil/editar"
+        userId={user?.id}
+      />
+      <GaleriaBloqueadaSheet
+        open={galeriaBloqueada}
+        onClose={() => setGaleriaBloqueada(false)}
+        onFoto={(f) => void processarAvatar(f)}
+        facing="user"
+        urlNoNavegador="https://queroumacor.com.br/perfil/editar"
+        titulo={reiniciouNaEscolha ? 'O app reiniciou no meio da escolha' : undefined}
+        descricao={
+          reiniciouNaEscolha
+            ? 'O Android fechou o app pra liberar memória enquanto a galeria estava aberta, e a foto se perdeu no caminho. Duas saídas:'
+            : undefined
+        }
+        ctx="perfil/editar"
+        userId={user?.id}
+      />
 
       {/* Logo do negócio — espelha profiles.business_logo_url, mesma fonte
           que /camisetas e arte-ig leem. Upload imediato (não espera submit
@@ -705,7 +862,7 @@ export function EditProfileForm() {
 
       <button
         type="submit"
-        disabled={isUpdating || (!isDirty && !avatarFile)}
+        disabled={isUpdating || !isDirty}
         className="w-full py-3 bg-[color:var(--color-p1)] text-white rounded-xl font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
       >
         {isUpdating ? 'Salvando...' : 'Salvar'}

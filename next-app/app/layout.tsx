@@ -9,6 +9,7 @@ import { ReferralCapture } from '@/components/ReferralCapture';
 import { DialogProvider } from '@/components/Dialog';
 import { AuthGateProvider } from '@/components/AuthGate';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
+import { AndroidWebViewScrollPin } from '@/components/AndroidWebViewScrollPin';
 import { EmailVerifyBanner } from '@/components/EmailVerifyBanner';
 import './globals.css';
 
@@ -65,6 +66,21 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
+  // `viewport-fit: cover` (2026-08-29). O app inteiro já reserva espaço com
+  // `env(safe-area-inset-*)` — TopNav, BottomNav, AppShell, bottom sheets,
+  // toasts. Só que no Android esses valores voltam ZERO enquanto a página
+  // não declara `cover`: a reserva existia no código e não valia nada.
+  //
+  // Isso deixou de ser detalhe: a partir do targetSdk 35 (Android 15) o
+  // sistema desenha o app DE BORDA A BORDA por padrão — a WebView passa por
+  // baixo da barra de status e da barra de navegação. Sem `cover`, o
+  // cabeçalho fica embaixo do relógio e a barra de baixo embaixo dos botões
+  // do sistema. Com `cover`, os `env()` que já estão no código passam a
+  // devolver a medida real e cada barra se afasta sozinha.
+  //
+  // No iPhone o efeito é o mesmo que o `black-translucent` do PWA já pedia,
+  // agora consistente entre os dois sistemas.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -92,6 +108,30 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`,
           }}
         />
+        {/* REGRA DO QUEROUMACOR (2026-08-28): todo horário exibido é o de
+            BRASÍLIA (America/Sao_Paulo), independente do fuso do aparelho.
+            Patch na raiz: injeta timeZone default em toLocale{Date,Time,}String
+            de Date — cobre todas as telas atuais e futuras sem editar cada
+            chamada. Quem passar timeZone explícito continua mandando. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var TZ='America/Sao_Paulo';['toLocaleDateString','toLocaleTimeString','toLocaleString'].forEach(function(fn){var orig=Date.prototype[fn];Date.prototype[fn]=function(loc,opts){return orig.call(this,loc||'pt-BR',Object.assign({timeZone:TZ},opts||{}));};});}catch(e){}})();`,
+          }}
+        />
+        {/* Pin pré-hidratação do Android (camada 1 da trava do
+            pull-to-refresh nativo — ver useAndroidWebViewScrollPin.ts).
+            Sem isso, do primeiro byte até o React hidratar o documento fica
+            em scrollY 0 e o SwipeRefreshLayout do wrapper segue armado
+            justamente durante o boot. Roda no <head>: estica o <html> (que
+            já existe) e prende o scroll assim que possível, com re-pin no
+            DOMContentLoaded/load. Espelha a detecção e as constantes do
+            hook (qualquer Android; 4px de folga em dvh com fallback vh;
+            pin em 2) — mudou lá, mudar aqui. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{if(!/Android/i.test(navigator.userAgent||''))return;var s=document.documentElement.style;s.minHeight='calc(100vh + 4px)';s.minHeight='calc(100dvh + 4px)';var pin=function(){if(window.scrollY<2)window.scrollTo(0,2);};pin();document.addEventListener('DOMContentLoaded',pin);window.addEventListener('load',pin);}catch(e){}})();`,
+          }}
+        />
         {/* Eruda: console de DevTools mobile, ativa so dentro do app nativo
             (Capacitor) pra debugar o WebView sem precisar de Mac/Safari
             Web Inspector. Toca no botao flutuante pra abrir o console. */}
@@ -109,6 +149,10 @@ export default function RootLayout({
             consomem ambos (useNotifications etc.) tenham acesso ao user no
             queryKey/enabled sem ordem de inicialização ambígua. */}
         <ServiceWorkerRegister />
+        {/* Trava do pull-to-refresh nativo do wrapper Android (WebIntoApp):
+            prende o documento em scrollY=1 pra que o SwipeRefreshLayout
+            nunca arme o reload. No-op fora do WebView Android. */}
+        <AndroidWebViewScrollPin />
         <AuthProvider>
           <QueryProvider>
             <DialogProvider>

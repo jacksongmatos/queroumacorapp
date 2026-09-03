@@ -14,6 +14,34 @@
 // Dynamic import do jsPDF pra não pesar o bundle inicial (~150kb gz).
 
 import type { Quote } from '@/lib/types';
+import { reportFailure } from '@/lib/utils/reportFailure';
+
+/**
+ * Texto que a fonte embutida do jsPDF consegue DESENHAR. A Helvetica dele
+ * é WinAnsi (Latin-1): acento do pt-BR passa, mas emoji vira lixo na tela
+ * ("Ø=ÜÌ" — visto em produção em 2026-08-30, no bloco ESCOPO TÉCNICO).
+ * Tudo fora do alcance da fonte é removido; espaço duplicado, recolhido.
+ */
+export function textoPdfSeguro(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .replace(/[^\n\r\t\u0020-\u007E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]/gu, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^[ \t]+/gm, '');
+}
+
+/**
+ * Tira emoji do texto que viaja em URL (wa.me, sms:). O wrapper decodifica
+ * a URL errado e cada emoji chega como "�" no WhatsApp — melhor a linha
+ * limpa ("Tipo: ...") que uma interrogação por item.
+ */
+export function semEmoji(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}]/gu, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^[ \t]+/gm, '');
+}
 
 export interface PainterForPdf {
   name?: string | null;
@@ -88,10 +116,11 @@ export async function generateQuotePdfBlob(
   // Prioridade: name primeiro, business_name como fallback. Antes priorizávamos
   // business_name (legado vanilla salvava label do logo da camisa lá), o que
   // poluía os PDFs com nomes de teste antigos.
-  const painterName =
+  const painterName = textoPdfSeguro(
     painter?.name ||
     painter?.business_name ||
-    (painter?.tag ? '@' + painter.tag : 'Pintor');
+    (painter?.tag ? '@' + painter.tag : 'Pintor'),
+  ) || 'Pintor';
   const painterTag = painter?.tag ? '@' + painter.tag : '';
   const painterPhone = painter?.phone || '';
   const painterEmail = painter?.email || '';
@@ -183,14 +212,14 @@ export async function generateQuotePdfBlob(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(INK);
-  doc.text(quote.client_name || 'Cliente não informado', margin + 4, cardY + 5.5);
+  doc.text(textoPdfSeguro(quote.client_name) || 'Cliente não informado', margin + 4, cardY + 5.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(85, 85, 85);
   const clientLine = [
-    quote.client_phone ? `Tel: ${quote.client_phone}` : '',
-    quote.address ? `End: ${quote.address}` : '',
+    quote.client_phone ? `Tel: ${textoPdfSeguro(quote.client_phone)}` : '',
+    quote.address ? `End: ${textoPdfSeguro(quote.address)}` : '',
   ]
     .filter(Boolean)
     .join('   ·   ');
@@ -208,7 +237,9 @@ export async function generateQuotePdfBlob(
 
   const rows: Array<[string, string]> = [];
   const push = (k: string, v: string | null | undefined) => {
-    if (v && v !== '—') rows.push([k, String(v)]);
+    // textoPdfSeguro em todo valor dinâmico: campo livre pode trazer emoji.
+    const limpo = textoPdfSeguro(v == null ? '' : String(v));
+    if (limpo && limpo !== '—') rows.push([k, limpo]);
   };
 
   push('Serviço', quote.service_type || quote.title || '');
@@ -265,7 +296,7 @@ export async function generateQuotePdfBlob(
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(INK);
-    const scopeLines = doc.splitTextToSize(quote.description, contentW) as string[];
+    const scopeLines = doc.splitTextToSize(textoPdfSeguro(quote.description), contentW) as string[];
     for (const line of scopeLines) {
       if (cursorY > 280) {
         doc.addPage();
@@ -329,9 +360,85 @@ export async function generateQuotePdfBlob(
 export async function shareOrDownloadQuotePdf(
   quote: Quote,
   painter: PainterForPdf | null,
-): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  whatsapp?: WhatsAppFallback,
+  onLink?: LinkPronto,
+): Promise<ShareResult> {
   const blob = await generateQuotePdfBlob(quote, painter);
-  const filename = `orcamento-${(quote.id || 'novo').slice(0, 8)}.pdf`;
+  return shareOrDownloadPdfBlob(
+    blob,
+    nomeArquivoOrcamento(quote),
+    `Orçamento ${quote.service_type || ''}`.trim(),
+    whatsapp,
+    onLink,
+  );
+}
+
+/**
+ * Nome do arquivo do PDF: `orcamento-<numero>-<cliente>.pdf`.
+ *
+ * Antes era só `orcamento-<8 chars do id>.pdf`, e no app instalado nem
+ * isso aparecia — o "Save As" abria com o campo VAZIO, porque o wrapper
+ * recebia uma URL `blob:` e não tem de onde tirar nome. Quem salvava
+ * ficava com um monte de arquivo sem identificação na pasta Downloads.
+ *
+ * O "número" são os mesmos 8 caracteres do id que o PDF imprime no
+ * cabeçalho ("ORÇAMENTO #..."), então papel e arquivo batem. É recorte de
+ * UUID: não se repete na prática.
+ */
+export function nomeArquivoOrcamento(quote: Quote): string {
+  const numero = (quote.id || 'novo').slice(0, 8);
+  const cliente = apelidoArquivo(quote.client_name || quote.client?.name || '');
+  return `orcamento-${numero}${cliente ? '-' + cliente : ''}.pdf`;
+}
+
+/** Vira pedaço de nome de arquivo: sem acento, sem espaço, sem surpresa. */
+function apelidoArquivo(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+}
+
+export type ShareResult = 'shared' | 'shared-link' | 'downloaded' | 'cancelled' | 'failed';
+
+/**
+ * Plano pro app instalado, onde NÃO existe share sheet: em vez de anexar o
+ * arquivo, manda o LINK dele pelo WhatsApp. `text` é a mensagem que
+ * acompanha; `phone` (dígitos, sem DDI) abre já na conversa do cliente.
+ */
+export interface WhatsAppFallback {
+  text: string;
+  phone?: string | null;
+}
+
+/**
+ * Chamado no app instalado quando o PDF já está no ar e só falta escolher
+ * PRA ONDE mandar. Quem passa isso mostra a própria lista de apps — é o
+ * mais perto de uma tela de compartilhar que dá pra chegar sem build
+ * nativo (ver a nota sobre `intent:` lá embaixo). Sem ele, vai direto pro
+ * WhatsApp.
+ */
+export type LinkPronto = (url: string, texto: string, filename: string) => void;
+
+/**
+ * Compartilha OU baixa um Blob de PDF qualquer. Extraído do fluxo do
+ * orçamento pra reuso (PDF do pedido da loja, etc.). É o caminho que
+ * FUNCIONA dentro do WebView Android: `window.print()` é no-op lá (o
+ * wrapper não implementa diálogo de impressão), mas o share sheet nativo
+ * via navigator.share({files}) funciona — e o download por anchor cobre
+ * desktop/navegador.
+ */
+export async function shareOrDownloadPdfBlob(
+  blob: Blob,
+  filename: string,
+  title: string,
+  whatsapp?: WhatsAppFallback,
+  onLink?: LinkPronto,
+): Promise<ShareResult> {
   const file = new File([blob], filename, { type: 'application/pdf' });
 
   // Tenta Web Share API com arquivo (Chrome Android, Safari iOS 15+).
@@ -344,8 +451,8 @@ export async function shareOrDownloadQuotePdf(
     try {
       await nav.share({
         files: [file],
-        title: `Orçamento ${quote.service_type || ''}`.trim(),
-        text: 'Orçamento em anexo.',
+        title,
+        text: 'Documento em anexo.',
       });
       return 'shared';
     } catch (e) {
@@ -354,16 +461,225 @@ export async function shareOrDownloadQuotePdf(
     }
   }
 
-  // Fallback: download direto via anchor.
+  // WebView Android sem share de arquivo: NENHUM canal local funciona no
+  // wrapper — blob: o DownloadListener não lê ("Save As" vazio), e data:
+  // o DownloadManager do Android recusa (só baixa http/https). O único
+  // canal à prova de wrapper é um LINK HTTPS de verdade: sobe o PDF pro
+  // Storage (bucket `exports`, Wave 41) e navega pra URL pública com
+  // `?download=` — o Android baixa como qualquer download normal.
+  // ATENÇÃO ao gate (2026-08-29): aqui havia `isAndroidWebView(ua)`, que
+  // exige o token `wv` ou "WebIntoApp" no user agent. O wrapper NÃO tem
+  // nenhum dos dois — os pings `scrollpin-diag` em produção chegaram todos
+  // com `wv=false`. Ou seja: no app instalado esse gate dava FALSE e todo
+  // este caminho era pulado; o compartilhar caía no branch de navegador,
+  // com uma URL `blob:` que o wrapper não sabe nomear — o "Save As" abria
+  // com o campo VAZIO. Agora o gate é só Android: navegador Android de
+  // verdade já foi atendido pelo `navigator.share` acima, então quem chega
+  // aqui é justamente quem não tem share de arquivo.
+  const { isAndroid } = await import('@/lib/hooks/useAndroidWebViewScrollPin');
+  if (isAndroid(navigator.userAgent || '')) {
+    const url = await uploadPdfForLink(blob, filename);
+    if (!url) {
+      // NUNCA cair pra data URL aqui (tentado e revertido em 2026-08-29).
+      // Havia um "último recurso" que transformava o PDF inteiro numa data
+      // URL e colava no `href` de uma âncora. No WebView isso são megabytes
+      // de string numa única atribuição: o app CONGELA e o Android mostra
+      // "QueroUmaCor isn't responding". O remédio era pior que a doença —
+      // e ainda mentia, dizendo "Download concluído".
+      //
+      // MAS: navegador Android DE VERDADE (Firefox etc., que não passou no
+      // canShare de arquivo lá em cima) baixa por âncora+blob numa boa — só
+      // no wrapper isso vira o "Save As" vazio. O discriminador é o
+      // `navigator.share`: todo navegador Android real tem; a WebView do
+      // wrapper não tem NENHUM. (Achado da revisão de 2026-08-30 — o gate
+      // largado pra /Android/i tinha tirado o download local de quem podia
+      // usá-lo.)
+      if (typeof nav?.share === 'function') {
+        const local = URL.createObjectURL(blob);
+        clickDownloadAnchor(local, filename);
+        setTimeout(() => URL.revokeObjectURL(local), 5000);
+        return 'downloaded';
+      }
+      // Wrapper sem link: não há caminho — melhor falhar dizendo isso.
+      return 'failed';
+    }
+    // Texto cortado em 1200: ele viaja dentro da URL do destino, e escopo
+    // muito longo estoura o limite do intent do Android. O PDF tem tudo.
+    // Sem emoji: o wrapper decodifica a URL errado e cada emoji chega "�".
+    const texto = `${semEmoji(whatsapp?.text || title || '').slice(0, 1200)}\n\n${url}`;
+
+    // NÃO TENTAR `intent:` COM ACTION_SEND AQUI (tentado e revertido em
+    // 2026-08-29). A ideia era pedir a tela de compartilhar do próprio
+    // Android; na prática o wrapper trata a URL do intent como DOWNLOAD:
+    // abre o "Save As" com a URL inteira (milhares de caracteres) no campo
+    // de nome, e salvar dali FECHA O APP. Nem por iframe escapa. Sem
+    // `navigator.share`, não existe tela de compartilhar do sistema pelo
+    // lado web — quem quiser escolher o app tem que ver uma lista NOSSA
+    // (`onLink`), com destinos que são URLs comuns que o wrapper já sabe
+    // abrir.
+    if (onLink) {
+      onLink(url, texto, filename);
+      return 'shared-link';
+    }
+
+    if (whatsapp) {
+      // Sem lista mas com destino: WhatsApp, o caminho conhecido.
+      const alvo = waMeTarget(whatsapp.phone);
+      const destino = alvo
+        ? `https://wa.me/${alvo}?text=${encodeURIComponent(texto)}`
+        : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+      // window.open costuma ser barrado (já saímos do gesto do toque no
+      // await do upload); o wrapper intercepta o wa.me na navegação.
+      const aba = window.open(destino, '_blank', 'noopener,noreferrer');
+      if (!aba) window.location.href = destino;
+      return 'shared-link';
+    }
+
+    // Sem lista e sem WhatsApp = o chamador quer o ARQUIVO ("Salvar PDF").
+    // Bug de 2026-08-29 corrigido em 2026-08-30: este caso caía no wa.me
+    // vazio — quem pedia pra salvar era jogado no WhatsApp. `?download=`
+    // liga o Content-Disposition: attachment e o DownloadManager baixa sem
+    // navegar a página.
+    window.location.href = urlParaBaixar(url, filename);
+    return 'downloaded';
+  }
+
+  // Navegador: download direto via anchor + blob.
   const url = URL.createObjectURL(blob);
+  clickDownloadAnchor(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return 'downloaded';
+}
+
+// Sobe o PDF pro bucket público `exports` (SQL Wave 41: escrita só no
+// próprio path userId/..., leitura pública) e devolve a URL com
+// `?download=` (Content-Disposition: attachment). Best-effort: null =
+// caller usa o fallback local.
+async function uploadPdfForLink(blob: Blob, filename: string): Promise<string | null> {
+  // 1) Sessão com TETO. `getSession()` pode fazer refresh pela rede e, no
+  //    WebView, promessa pendurada não rejeita nunca (regra do boot,
+  //    2026-08-22) — sem o race o toque ficava "pensando" pra sempre.
+  let uid = '';
+  let token = '';
+  let sb: Awaited<ReturnType<typeof importaSupabase>> | null = null;
+  try {
+    sb = await importaSupabase();
+    const result = await Promise.race([
+      sb.auth.getSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+    ]);
+    uid = result?.data.session?.user?.id || '';
+    token = result?.data.session?.access_token || '';
+  } catch {
+    // Sem cliente/sessão: os dois caminhos abaixo vão reportar.
+  }
+
+  // 2) Caminho principal: a ROTA. Além de imune a policy (service role) e
+  //    de criar o bucket se faltar, é ela que devolve o LINK CURTO
+  //    (queroumacor.com.br/pdf/<id>) — o endereço gigante do Supabase no
+  //    WhatsApp era queixa do usuário (2026-08-30).
+  if (token) {
+    try {
+      const chamarRota = (t: string) =>
+        fetch('/api/quote-pdf-upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            Authorization: `Bearer ${t}`,
+            'x-filename': filename,
+          },
+          body: blob,
+        });
+
+      let r = await chamarRota(token);
+
+      if (r.status === 401 && sb) {
+        // Visto em produção (2026-08-30): token com assinatura válida que o
+        // GoTrue não reconhece mais — sessão rotacionada (app + Chrome na
+        // mesma conta). Renovar a sessão UMA vez resolve; com teto, porque
+        // no WebView promessa de rede pendurada não rejeita nunca.
+        try {
+          const renovada = await Promise.race([
+            sb.auth.refreshSession(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+          ]);
+          const novoToken = renovada?.data.session?.access_token;
+          if (novoToken && novoToken !== token) r = await chamarRota(novoToken);
+        } catch {
+          // Renovação falhou: o 401 original segue pro report abaixo.
+        }
+      }
+
+      if (r.ok) {
+        const j = (await r.json().catch(() => null)) as { url?: string } | null;
+        if (j?.url) return j.url;
+      } else {
+        const corpo = await r.text().catch(() => '');
+        reportFailure('pdf-link-fail', new Error(`rota ${r.status}: ${corpo.slice(0, 200)}`), {
+          userId: uid || null,
+          ctx: 'exports-rota',
+        });
+      }
+    } catch (e) {
+      reportFailure('pdf-link-fail', e, { userId: uid || null, ctx: 'exports-rota' });
+    }
+  } else {
+    reportFailure('pdf-link-fail', new Error('sem sessao'), { ctx: 'exports-rota' });
+  }
+
+  // 3) Reserva: upload direto do app pro bucket (precisa das policies da
+  //    Wave 41). O link sai no formato longo do Storage — funciona, só não
+  //    é bonito. Melhor um link feio que nenhum.
+  if (uid && sb) {
+    try {
+      const path = `${uid}/${Date.now()}-${filename}`;
+      const up = await sb.storage
+        .from('exports')
+        .upload(path, blob, { contentType: 'application/pdf', upsert: true });
+      if (!up.error) {
+        const pub = sb.storage.from('exports').getPublicUrl(path);
+        if (pub.data?.publicUrl) return pub.data.publicUrl;
+      } else {
+        reportFailure('pdf-link-fail', up.error, { userId: uid, ctx: 'exports-direto' });
+      }
+    } catch (e) {
+      reportFailure('pdf-link-fail', e, { userId: uid, ctx: 'exports-direto' });
+    }
+  }
+  return null;
+}
+
+async function importaSupabase() {
+  const { getSupabase } = await import('@/lib/supabase');
+  return getSupabase();
+}
+
+/**
+ * Dígitos prontos pro wa.me, na REGRA DO REPO (2026-08-28, a mesma do
+ * `normalizeWhatsAppTarget` do servidor): 12+ dígitos = já tem DDI, passa
+ * verbatim; 11 dígitos SÓ é celular BR se o 3º for 9 (o contato dos EUA
+ * `16503154274` tem 11 e não é); 10-11 BR locais ganham '55'. O `'55' +`
+ * cego daqui era exatamente o erro que derrubou o envio com 502.
+ */
+export function waMeTarget(raw: string | null | undefined): string {
+  const d = (raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length > 11) return d;
+  if (d.length === 11 && d[2] !== '9') return d;
+  if (d.length >= 10) return '55' + d;
+  return d;
+}
+
+/** Mesma URL, mas pedindo download em vez de abrir. */
+export function urlParaBaixar(url: string, filename: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}download=${encodeURIComponent(filename)}`;
+}
+
+function clickDownloadAnchor(href: string, filename: string): void {
   const a = document.createElement('a');
-  a.href = url;
+  a.href = href;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 100);
-  return 'downloaded';
+  setTimeout(() => a.remove(), 100);
 }

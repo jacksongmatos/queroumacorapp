@@ -11,9 +11,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { useUnreadMessageCount } from '@/lib/hooks/useUnreadMessageCount';
+import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
+import { canSeeProFeature, isAdmin } from '@/lib/policies';
+
+// Telas-raiz (as 5 abas da BottomNav): nelas não há "de onde voltar".
+// Nas DEMAIS, o TopNav ganha um ← — importante no app Android, onde o
+// botão voltar nativo do wrapper fecha o app em vez de navegar.
+const ROOT_PATHS = new Set(['/', '/feed', '/search', '/loja', '/notificacoes', '/perfil']);
 
 interface TopNavProps {
   /** Override do badge — usado em telas onde a regra de derivação não
@@ -26,27 +34,31 @@ export function TopNav({ proStatus }: TopNavProps) {
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
   const unreadChat = useUnreadMessageCount();
+  const router = useRouter();
+  const pathname = usePathname();
+  const showBack = !!pathname && !ROOT_PATHS.has(pathname);
+
+  function handleBack() {
+    // Sem histórico (deep-link, app recém-aberto nessa tela), volta pro
+    // feed em vez de não fazer nada.
+    if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+    else router.push('/feed');
+  }
 
   // Derivação automática se o caller não passou proStatus.
-  // is_admin/portal_access podem não estar no SELECT (Profile type
-  // marca opcional) — só is_pro é garantido pela view profiles_public.
-  const p = profile as
-    | (typeof profile & {
-        is_admin?: boolean | null;
-        portal_access?: boolean | null;
-        pro_expires_at?: string | null;
-        pro_grace_until?: string | null;
-      })
-    | null;
-
-  // PRO ativo: is_pro=true OU pro_expires_at futuro OU pro_grace_until futuro.
-  // Cobre o caso em que o trigger do banco ainda não atualizou is_pro mas
-  // o user já comprou (expires_at preenchido) ou está em grace period.
-  const now = Date.now();
-  const isProActive =
-    !!p?.is_pro ||
-    (p?.pro_expires_at ? new Date(p.pro_expires_at).getTime() > now : false) ||
-    (p?.pro_grace_until ? new Date(p.pro_grace_until).getTime() > now : false);
+  //
+  // A1 (01/09/2026) — ESTA DERIVAÇÃO ERA UMA SEGUNDA FONTE DE VERDADE.
+  // O selo dizia PRO com `is_pro=true` sozinho, enquanto quem realmente
+  // destranca as ferramentas (`canSeeProFeature`, usado em Agenda, CRM,
+  // Anotações…) exige `is_pro=true` E data futura quando há data. Como
+  // NADA limpa `is_pro` no vencimento — não há cron nem trigger pra isso,
+  // e o portal ativa PRO gravando `is_pro=true` + expiração —, o estado
+  // "is_pro=true com data vencida" é permanente. Nele a pessoa via PRO na
+  // barra de cima e levava "Esta função é exclusiva do Plano PRO" ao tocar
+  // em qualquer ferramenta. Pagou, o app dizia que era PRO, e nada abria.
+  //
+  // Agora o selo pergunta às MESMAS funções que trancam a porta.
+  const policyUser = usePolicyUser();
 
   // Durante o loading (profile ainda não chegou do banco/cache), mostra
   // '···' em vez de cair pra 'GRÁTIS' default — evita flash falso pra admin/PRO
@@ -55,11 +67,12 @@ export function TopNav({ proStatus }: TopNavProps) {
   const computed: 'GRÁTIS' | 'PRO' | 'ADMIN' | '···' =
     profileLoading && !profile
       ? '···'
-      : p?.is_admin || p?.portal_access
+      : isAdmin(policyUser)
         ? 'ADMIN'
-        : isProActive
+        : canSeeProFeature(policyUser)
           ? 'PRO'
           : 'GRÁTIS';
+
   const badge = proStatus ?? computed;
 
   return (
@@ -72,6 +85,27 @@ export function TopNav({ proStatus }: TopNavProps) {
         paddingRight: 'max(14px, env(safe-area-inset-right))',
       }}
     >
+      {showBack ? (
+        <button
+          type="button"
+          onClick={handleBack}
+          aria-label="Voltar"
+          className="flex items-center justify-center flex-shrink-0 text-white"
+          style={{
+            width: 36,
+            height: 36,
+            marginRight: -6,
+            background: 'rgba(255,255,255,.08)',
+            border: 'none',
+            borderRadius: 10,
+            cursor: 'pointer',
+            fontSize: 18,
+            lineHeight: 1,
+          }}
+        >
+          ←
+        </button>
+      ) : null}
       <Link
         href={user ? '/feed' : '/'}
         className="text-white font-extrabold tracking-tight whitespace-nowrap"

@@ -13,6 +13,7 @@
 //   - Tipos TS estritos pra payload do MP.
 
 import { ServiceError, getSupabaseUrl, getSupabaseAnonKey } from '../security';
+import { getRuntimeEnv } from '../env';
 
 const MP_TIMEOUT_MS = 15000;
 const AUTH_TIMEOUT_MS = 10000;
@@ -35,7 +36,7 @@ export async function createProCheckout(args: {
 }): Promise<CreateProCheckoutResult> {
   const { accessToken } = args;
 
-  if (!process.env.MP_ACCESS_TOKEN) {
+  if (!getRuntimeEnv('MP_ACCESS_TOKEN')) {
     throw new ServiceError(
       'MP_ACCESS_TOKEN não configurada no projeto Cloudflare Pages',
       503
@@ -74,7 +75,7 @@ export async function createProCheckout(args: {
     const r = await fetch('https://api.mercadopago.com/preapproval', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+        Authorization: `Bearer ${getRuntimeEnv('MP_ACCESS_TOKEN')}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),

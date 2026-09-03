@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
+import { showToast } from '@/lib/toast';
 import type { CartItem } from '@/lib/services/mkt';
 
 interface OrderData {
@@ -113,8 +114,30 @@ export function OrderConfirmView({ orderId }: { orderId: string }) {
     setSaving(false);
   }
 
-  function handlePrint() {
-    window.print();
+  // "Baixar PDF": antes era window.print() — NO-OP dentro do WebView
+  // Android (o wrapper não tem diálogo de impressão; o toque não fazia
+  // nada). Agora gera PDF de verdade (jsPDF) e entrega pelo share sheet
+  // nativo, com fallback de download no navegador.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function handlePdf() {
+    if (!order || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const { shareOrDownloadOrderPdf } = await import('@/lib/pdf/orderPdf');
+      const r = await shareOrDownloadOrderPdf(order);
+      // 'failed' RETORNA, não lança — sem isto o toque era mudo no app
+      // instalado (achado da revisão de 2026-08-30): nem toast, nem erro.
+      if (r === 'downloaded') {
+        showToast('PDF salvo no aparelho (pasta Downloads).', 'success');
+      } else if (r === 'failed') {
+        showToast('Não consegui preparar o PDF agora. Tente de novo em instantes.', 'error');
+      }
+    } catch {
+      // Último recurso: diálogo de impressão (funciona no navegador).
+      try { window.print(); } catch { /* no-op */ }
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   function handleWhatsApp() {
@@ -280,8 +303,9 @@ export function OrderConfirmView({ orderId }: { orderId: string }) {
 
           <button
             type="button"
-            onClick={handlePrint}
-            className="w-full py-3 rounded-xl font-semibold border border-[color:var(--color-border)] bg-white text-[color:var(--color-ink)] flex items-center justify-center gap-2"
+            onClick={handlePdf}
+            disabled={pdfBusy}
+            className="w-full py-3 rounded-xl font-semibold border border-[color:var(--color-border)] bg-white text-[color:var(--color-ink)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -289,7 +313,7 @@ export function OrderConfirmView({ orderId }: { orderId: string }) {
               <line x1="12" y1="18" x2="12" y2="12"/>
               <line x1="9" y1="15" x2="15" y2="15"/>
             </svg>
-            Baixar PDF
+            {pdfBusy ? 'Gerando…' : 'Baixar PDF'}
           </button>
 
           <Link

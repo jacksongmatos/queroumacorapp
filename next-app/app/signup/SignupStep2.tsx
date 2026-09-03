@@ -8,7 +8,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { emailSchema, tagSchema, phoneSchema, phoneOptionalSchema, requiredField, birthDateSchema, calculateAge, MIN_AGE } from '@/lib/schemas';
 import { useTagAvailability } from '@/lib/hooks/useTagAvailability';
+import { CameraCapture } from '@/components/CameraCapture';
+import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import type { UserRole } from '@/lib/types';
+import { ehImagem } from '@/lib/utils/mediaType';
 
 // 27 UFs brasileiras (vanilla index.html linha 430+).
 const UFS: ReadonlyArray<{ value: string; label: string }> = [
@@ -94,7 +97,8 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
 
   const [avatarFile, setAvatarFile] = useState<File | null>(initial?.avatarFile ?? null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [avatarError, setAvatarError] = useState(false);
+  const [camAberta, setCamAberta] = useState(false);
+  const podeCamera = useOfereceCamera();
 
   const {
     register,
@@ -135,12 +139,16 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
   const birthTooYoung = birthAge >= 0 && birthAge < MIN_AGE;
 
   function handleAvatarPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
+    aceitarFoto(e.target.files?.[0] ?? null);
+  }
+
+  /** Vem da galeria ou da câmera — no app empacotado a galeria não abre. */
+  function aceitarFoto(file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith('image/')) return;
+    // MIME vazio = seletor do wrapper, não arquivo inválido.
+    if (!ehImagem(file)) return;
     if (file.size > 5 * 1024 * 1024) return;
     setAvatarFile(file);
-    setAvatarError(false);
     const reader = new FileReader();
     reader.onload = (ev) => setAvatarPreview(String(ev.target?.result ?? ''));
     reader.readAsDataURL(file);
@@ -148,11 +156,11 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
 
   function onSubmit(data: Step2Data) {
     if (tagStatus === 'taken') return;
-    // Foto de perfil obrigatória (decisão de produto 2026-06-18).
-    if (!avatarFile) {
-      setAvatarError(true);
-      return;
-    }
+    // Foto agora é OPCIONAL no cadastro (2026-08-28): no wrapper Android,
+    // abrir a galeria manda o app pro fundo e o sistema pode matar o
+    // processo — o usuário voltava pra tela inicial com o cadastro perdido
+    // e, com a foto obrigatória, não tinha como completar a conta. A foto
+    // pode ser adicionada depois em /perfil/editar sem risco.
     onNext({ ...data, avatarFile });
   }
 
@@ -180,22 +188,21 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
         />
       </Field>
 
-      {/* Foto de perfil — obrigatória. Upload acontece em handleStep3
-          (lib/services/signup uploadAvatar + UPDATE em profiles). */}
+      {/* Foto de perfil — OPCIONAL (upload acontece em handleStep3 quando
+          escolhida). No wrapper Android o seletor pode derrubar o app, então
+          nunca pode ser porta obrigatória do cadastro. */}
       <div>
         <label
           className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]"
         >
-          Foto de perfil
+          Foto de perfil (opcional)
         </label>
         <div className="flex items-center gap-3">
           <div
             className="w-16 h-16 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0"
             style={{
               background: 'var(--color-border)',
-              border: avatarError
-                ? '2px solid var(--color-danger)'
-                : '2px solid var(--color-border)',
+              border: '2px solid var(--color-border)',
             }}
           >
             {avatarPreview ? (
@@ -223,16 +230,29 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
               onChange={handleAvatarPick}
             />
           </label>
+          {podeCamera ? (
+            <button
+              type="button"
+              onClick={() => setCamAberta(true)}
+              className="py-2.5 px-3 border-2 border-[color:var(--color-border)] rounded-xl font-bold text-sm"
+              data-testid="signup-avatar-camera"
+            >
+              📷
+            </button>
+          ) : null}
         </div>
-        {avatarError ? (
-          <p className="text-sm text-[color:var(--color-danger)] mt-1" role="alert">
-            Escolha uma foto de perfil para continuar.
-          </p>
-        ) : (
-          <p className="text-xs text-[color:var(--color-muted)] mt-1">
-            Aparece no seu story e perfil.
-          </p>
-        )}
+        <CameraCapture
+          open={camAberta}
+          facing="user"
+          title="Foto de perfil"
+          onClose={() => setCamAberta(false)}
+          onCapture={aceitarFoto}
+          ctx="signup"
+        />
+        <p className="text-xs text-[color:var(--color-muted)] mt-1">
+          Aparece no seu story e perfil. Dá pra adicionar depois em Perfil →
+          Editar.
+        </p>
       </div>
 
       <Field id="tag" label="Sua tag única" error={errors.tag?.message}>

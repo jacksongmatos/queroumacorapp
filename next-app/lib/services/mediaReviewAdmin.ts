@@ -84,10 +84,6 @@ interface AnyRow {
 interface UpdateChain {
   eq: (col: string, val: string) => PromiseLike<{ error: AnyError | null }>;
 }
-// Insert simples (sem .select()) basta — só queremos saber se houve erro.
-// `object` em vez de interface vazia (lint no-empty-object-type): o chain do
-// insert não é consultado além do await do PromiseLike.
-type InsertChain = object;
 interface SelectChain {
   order: (col: string, opts: { ascending: boolean }) => SelectChain;
   limit: (n: number) => SelectChain;
@@ -100,9 +96,8 @@ interface SelectChain {
 interface MhblTableClient {
   select: (cols: string) => SelectChain;
   update: (vals: Record<string, unknown>) => UpdateChain;
-  insert: (
-    row: Record<string, unknown>,
-  ) => PromiseLike<{ error: AnyError | null }> & InsertChain;
+  // Insert simples (sem .select()) basta — só queremos saber se houve erro.
+  insert: (row: Record<string, unknown>) => PromiseLike<{ error: AnyError | null }>;
 }
 
 function mrqClient() {

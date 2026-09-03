@@ -29,6 +29,7 @@ import { showToast } from '@/lib/toast';
 import { useAgenda } from '@/lib/hooks/useAgenda';
 import { AgendaDay } from './AgendaDay';
 import { JobFormModal } from './JobFormModal';
+import { ymdBrt } from '@/lib/utils';
 
 // Labels PT-BR via Intl pra alinhar com o resto do app (em vez de array
 // hard-coded como no vanilla). `month: 'long'` dá "Maio", "Junho", etc.
@@ -38,16 +39,7 @@ const MONTH_FMT = new Intl.DateTimeFormat('pt-BR', { month: 'long' });
 // com `Date.getDay()` que retorna 0=Dom.
 const DOW = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
-/**
- * Helper: formata "yyyy-mm-dd" no fuso local (sem shift UTC). Usado pra
- * comparar células do grid com `selectedDay` / `todayKey`. Inline aqui em
- * vez de importar agYmd pra não acoplar — só usamos pra hoje.
- */
-function localYmd(d: Date): string {
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 10);
-}
+
 
 function MonthHeader({
   year,
@@ -111,7 +103,10 @@ function CalendarGrid({
   // Date(year, month, 0).getDate() = último dia do mês corrente (pra Maio → 31).
   const startDow = new Date(year, month - 1, 1).getDay();
   const daysInMonth = new Date(year, month, 0).getDate();
-  const todayKey = localYmd(new Date());
+  // Hoje em BRASÍLIA, não no fuso do aparelho: as células do grid são chaves
+  // de calendário e o app inteiro exibe em Brasília — destacar o dia pelo
+  // relógio do celular marcava a célula errada fora desse fuso.
+  const todayKey = ymdBrt();
 
   // 7 cells de cabeçalho + N preenchimento + N dias do mês.
   const cells: React.ReactNode[] = [];

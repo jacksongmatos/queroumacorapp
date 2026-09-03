@@ -89,6 +89,126 @@ describe('POST /api/admin/users', () => {
     expect(patchBody).toContain('true');
   });
 
+  // O telefone que o portal grava tem que sair no MESMO formato que o app
+  // grava (digitos com o DDI 55). Com mascara, o numero deixaria de casar
+  // com as conversas do WhatsApp e com os leads, que comparam digitos.
+  it('set_info normaliza o telefone com mascara para digitos com o 55', async () => {
+    let patchBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        patchBody = String(init.body);
+        return Promise.resolve(new Response(JSON.stringify([{ id: 'target' }]), { status: 200 }));
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '(11) 95976-5031' })
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(patchBody)).toEqual({ phone: '5511959765031' });
+  });
+
+  it('set_info com telefone vazio LIMPA o campo (null)', async () => {
+    let patchBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        patchBody = String(init.body);
+        return Promise.resolve(new Response(JSON.stringify([{ id: 'target' }]), { status: 200 }));
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '   ' })
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(patchBody)).toEqual({ phone: null });
+  });
+
+  // Numero ESTRANGEIRO nao pode ganhar '55': foi assim que o contato dos
+  // EUA 16503154274 virou 5516503154274 (inexistente) e derrubou o envio
+  // do WhatsApp com 502. Mesma regra de `normalizeWhatsAppTarget`.
+  it('set_info guarda numero estrangeiro verbatim, sem colar o 55', async () => {
+    let patchBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        patchBody = String(init.body);
+        return Promise.resolve(new Response(JSON.stringify([{ id: 'target' }]), { status: 200 }));
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '+1 650 315-4274' })
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(patchBody)).toEqual({ phone: '16503154274' });
+  });
+
+  it('set_info recusa telefone com contagem de digitos impossivel', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'set_info', userId: 'target', phone: '123' })
+    );
+    expect(res.status).toBe(400);
+  });
+
   it('caller in ADMIN_EMAILS but without portal_access returns 403', async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/auth/v1/user')) {
@@ -113,6 +233,71 @@ describe('POST /api/admin/users', () => {
     expect(res.status).toBe(403);
   });
 
+  it('sync_email reveals the Auth login email and mirrors it into profiles', async () => {
+    let mirrorBody = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('/auth/v1/admin/users/')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'target', email: 'Bianca@Mail.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rest/v1/profiles') && init?.method === 'PATCH') {
+        mirrorBody = String(init.body);
+        return Promise.resolve(new Response('[{"id":"target"}]', { status: 200 }));
+      }
+      if (url.includes('/rest/v1/profiles')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(mkReq({ accessToken: 'good', action: 'sync_email', userId: 'target' }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.email).toBe('bianca@mail.com');
+    expect(body.source).toBe('auth');
+    expect(JSON.parse(mirrorBody).email).toBe('bianca@mail.com');
+  });
+
+  it('sync_email 404s when the profile has no Auth login and no mirrored email', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('/auth/v1/admin/users/')) {
+        return Promise.resolve(new Response('{"msg":"not found"}', { status: 404 }));
+      }
+      if (url.includes('/rest/v1/profiles') && url.includes('select=email')) {
+        return Promise.resolve(new Response(JSON.stringify([{ email: null }]), { status: 200 }));
+      }
+      if (url.includes('/rest/v1/profiles')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(mkReq({ accessToken: 'good', action: 'sync_email', userId: 'orphan' }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/órfão/);
+  });
+
   it('invalid action returns 400', async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/auth/v1/user')) {
@@ -123,6 +308,15 @@ describe('POST /api/admin/users', () => {
       if (url.includes('/rpc/check_rate_limit')) {
         return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
       }
+      // Sem esta linha o caller não tem portal_access e a rota devolve 403
+      // ANTES de olhar a action — foi o que quebrou este teste. A ordem é
+      // proposital (autorização antes de validar payload) e está coberta
+      // pelo teste seguinte.
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: true }]), { status: 200 })
+        );
+      }
       return Promise.resolve(new Response('[]', { status: 200 }));
     });
     const { POST } = await import('@/app/api/admin/users/route');
@@ -130,5 +324,29 @@ describe('POST /api/admin/users', () => {
       mkReq({ accessToken: 'good', action: 'bogus', userId: 'target' })
     );
     expect(res.status).toBe(400);
+  });
+
+  it('caller sem portal_access leva 403 — autorização vem antes de validar a action', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'caller', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('select=portal_access')) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ portal_access: false }]), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/users/route');
+    const res = await POST(
+      mkReq({ accessToken: 'good', action: 'promote', userId: 'target' })
+    );
+    expect(res.status).toBe(403);
   });
 });

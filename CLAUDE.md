@@ -5,12 +5,15 @@
   - **C1 ✓** `gateProAI`/`gateProAIForm` agora retornam 401 pra anônimo/token
     inválido (antes: requisição SEM token chegava na IA sem PRO, rate limit
     nem cota). 6 testes de regressão em `__tests__/api/gate-anon.test.ts`.
-  - **C2 ✓** Headers de segurança (CSP completa, Permissions-Policy,
-    COOP/CORP) agora em `next-app/public/_headers` (entra no output do
-    build) E no `headers()` do next.config (rotas do worker) — os DOIS têm
-    que mudar juntos. `app/robots.ts` criado (o robots.txt da raiz nunca
-    deployava). `assetlinks.json` copiado pra `next-app/public/.well-known/`
-    (também não deployava). **Validar com `curl -I` em produção pós-deploy.**
+  - **C2 ✓ — CSP validada em produção (PR #163).** A fonte ÚNICA dos headers
+    de segurança é o `headers()` do `next.config.mjs` (CSP + Permissions-
+    Policy + COOP/CORP + CORS restrito em `/api/*`). O `_headers` da raiz NÃO
+    entra no output do Next-on-Pages (`.vercel/output/static`) — por isso a
+    política vive no next.config. NÃO recriar `next-app/public/_headers` com
+    CSP: seria uma segunda CSP divergente. `app/robots.ts` criado.
+    `assetlinks.json` servido de `next-app/public/.well-known/`. A CSP tem
+    `*.onrender.com` (Evolution API do WhatsApp) — revalidar com `curl -I` a
+    cada mudança.
   - **C3/A-D1 ✓ — SQL JÁ EXECUTADO no Supabase (2026-09-03)**:
     `/migrations/2026-09-03-fix-quotes-policy-and-is-portal-admin.sql`
     (DROP da policy furada "View quotes active" + `is_portal_admin()`
@@ -19,10 +22,14 @@
     novo. (Sanidade rápida se admin sumir do /admin/*:
     `SELECT prosrc FROM pg_proc WHERE proname='is_portal_admin';` — o corpo
     deve conter `to_jsonb`.)
-  - **C4 ✓ (parcial)** applicationId Android UNIFICADO em
-    `br.com.queroumacor.app` (twa-manifest, assetlinks, docs, product ID
-    virou `br.com.queroumacor.app.pro.monthly`). Falta só o SHA-256 real do
-    keystore no twa-manifest/assetlinks quando gerar o keystore definitivo.
+  - **C4 ✓ — resolvido por PR #163 (2026-09-03).** Identidades são DISTINTAS
+    e corretas assim: **Android package = `br.com.queroumacor`** (Play
+    Console, `twa-manifest.json`, `.well-known/assetlinks.json` — SHA-256
+    real do App Signing Key já bate); **iOS bundle + scheme de deep link =
+    `br.com.queroumacor.app`** (Info.plist, `br.com.queroumacor.app://auth/
+    callback`). NÃO tentar "unificar" os dois — são de stores diferentes. O
+    product ID de billing segue `com.calicolors.queroumacor.pro.monthly`
+    (configurado nas stores; não renomear sem mexer lá).
   - **C5 ✓ (código)** Suíte 100% verde, 0 erros de lint, ci.yml roda também
     em push pra main, typecheck.yml duplicado deletado. Falta (painel
     GitHub): branch protection exigindo o job `validate`.
@@ -41,8 +48,11 @@
     ProfileFooter (só aparece na casca com plugin); o ENVIO server-side via
     FCM ainda não existe (precisa de projeto Firebase + service account —
     etapa futura). Não pedir pra rodar de novo.
-  - Câmera nativa ligada no fluxo de publicar: botão "📸 Tirar foto" no
-    `MediaUploader` quando `native.camera.isAvailable()`.
+  - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
+    existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
+    galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto
+    (superado). `lib/native/camera` fica como primitivo do bridge (testado),
+    disponível pra outros usos.
 
 - **Fronteira nativa `lib/native/` + OAuth pelo browser do sistema
   (2026-09-03).** Decisão de arquitetura: casca mobile continua CAPACITOR
@@ -67,6 +77,1072 @@
     (sem isso o callback cai no Site URL e o login nativo não completa);
     (2) na casca, instalar `@capacitor/{browser,app,camera,share,push-notifications}`
     + `npx cap sync`; (3) tabela de device tokens + envio FCM pro push.
+- **"502 Bad gateway" VOLTOU no envio de WhatsApp — agora na ABORDAGEM DE
+  LEAD (2026-08-31).** Não é a causa de 28/08 (número estrangeiro): o
+  telefone do caso (`11 96268-0094`) é celular BR e passa correto pelo
+  `normalizeWhatsAppTarget`. A página de 502 é do PRÓPRIO Cloudflare — ou
+  seja, a function do edge morreu antes de responder. Duas falhas de
+  estrutura, as duas corrigidas:
+  - **A rota não tinha ORÇAMENTO TOTAL.** Cada hop tinha o seu teto (auth
+    10s + rate limit 10s + envio 25s + gravar 8s + audit 5s = **até 58s**),
+    mas ninguém somava — e o CF mata a function bem antes disso. Agora:
+    `ROUTE_DEADLINE_MS` de 22s embrulha o handler inteiro (`Promise.race`,
+    responde 504 explicando em vez de deixar o CF responder HTML cru),
+    `SEND_TIMEOUT_MS` caiu 25s → **14s**, e gravar+audit passaram a rodar
+    **em paralelo** com teto próprio de 6s (`BOOKKEEPING_BUDGET_MS`).
+    Escrituração depois do envio era caminho real pro 502 **com a mensagem
+    já entregue** — o operador via "falhou" e mandava de novo.
+    **REGRA: rota de edge = orçamento total, não só timeout por hop.**
+  - **A abordagem nunca aquecia a Evolution.** `aquecerEvolution` /
+    `acordarEvolution` viviam DENTRO do componente da tela de WhatsApp;
+    a `AbordagemModal` (aba Leads) chamava `/api/whatsapp/send` direto, com
+    o servidor possivelmente frio, e pagava o cold start DENTRO do edge —
+    exatamente o que a arquitetura diz que só o navegador pode fazer. As
+    duas funções subiram pra escopo de MÓDULO (estado compartilhado: aquecer
+    numa tela vale na outra); o modal aquece ao abrir (enquanto o operador
+    lê o texto) e mostra "Acordando o servidor…" antes de enviar.
+    **REGRA: tela nova que chama `/api/whatsapp/send` chama
+    `acordarEvolution` antes.**
+  - **Bônus: o erro de timeout deixou de mentir.** Dizia sempre "o Render
+    dorme após 15min" — falso desde 29/08 (plano pago). Agora, ao estourar,
+    o service sonda `GET /instance/connectionState/<instância>` (4s) e diz a
+    causa: `close`/`connecting` → "reconecte o QR no Manager" (aí o Baileys
+    pendura pra sempre e timeout maior não resolve); `open` → "só lentidão,
+    a mensagem NÃO saiu, tente de novo". 4 testes novos.
+  - **Ainda não confirmado qual dos dois gatilhos disparou** (Render frio ×
+    sessão do WhatsApp caída) — sem acesso ao banco nem à rede daqui. O
+    próprio erro passa a dizer na próxima vez. Diagnóstico manual:
+    `GET /api/whatsapp-evo/ping` com token de admin (a rota continua no ar,
+    só o botão saiu da tela).
+
+- **REGRA FIXA (2026-08-29): NÃO EXISTE BUILD NATIVO. Não sugerir.** O
+  projeto é código no GitHub → Cloudflare Pages → **WebIntoApp** empacota
+  o site num AAB. Capacitor, Bubblewrap/TWA e plugins nativos estão FORA
+  de escopo — o `capacitor.config.ts` e o `docs/IOS_BUILD.md` no repo são
+  restos de uma direção abandonada. Toda limitação de WebView se resolve
+  de duas formas, nesta ordem: (1) uma opção no painel do WebIntoApp, ou
+  (2) se o painel não oferecer, uma alternativa pelo lado web — e, quando
+  não houver nenhuma, dizer isso e seguir. **Nunca responder "só com
+  build nativo" como se fosse um plano.**
+  - **Corolário (2026-09-02, pedido do usuário): mudança do lado do
+    WRAPPER só chega no aparelho com um AAB NOVO gerado no WebIntoApp e
+    publicado na loja.** Deploy web (merge no `main`) atualiza na hora o
+    que é site — mas splash do wrapper, opções do painel (file chooser,
+    seleção múltipla, pull-to-refresh, user agent, share nativo),
+    permissões e targetSdk NÃO mudam sem regerar o AAB. Ao entregar
+    correção dessa família, dizer explicitamente: "só vale depois do
+    próximo AAB" (a lista viva do que entra é `docs/AAB_PROXIMA_VERSAO.md`).
+
+- **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
+  no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
+  "Cliente não informado" em pedido de cliente LOGADO:
+  `create_quote_from_post` grava `client_id` mas nunca preencheu
+  `client_name`/`client_phone`. Forma final: **trigger BEFORE INSERT**
+  `trg_fill_quote_client_info` em `quotes` (não a recriação da RPC — o
+  bloco grande corrompia na colagem pelo celular, e o trigger cobre
+  qualquer caminho de criação futuro). Congela nome+telefone do perfil na
+  ÉPOCA do pedido; só preenche se `client_id` existe e o nome veio vazio.
+  Backfill feito. `OrcamentoSheet` mostra "Em nome de <nome> · <fone>" no
+  topo. **Colagem de SQL pelo CELULAR corta/emenda blocos grandes — SQL
+  pra rodar no aparelho tem que ser curto, e a aba precisa estar vazia.**
+
+- **Wave 54 (2026-08-30) — contador de seguidores em DOBRO — JÁ
+  EXECUTADA no Supabase (2026-08-30). Não pedir pra rodar de novo.**
+  Perfil novo com 3 follows mostrava 6 (2× exato, sem backfill no meio =
+  veio só de trigger; o app não escreve nos contadores). Causa: DOIS
+  triggers de contador vivos em `follows` — um legado além do
+  `trg_maintain_follow_counts` da Wave 40, que só derruba o homônimo.
+  `/migrations/2026-08-30-follow-counts-dedupe.sql` derruba todo trigger
+  de contador não-canônico (filtro: a função toca followers/following/
+  posts_count — triggers de pontos/notificação passam) e RECONTA os três
+  contadores da verdade. **Lição: wave nova de trigger precisa varrer
+  duplicatas por FUNÇÃO, não só pelo próprio nome.**
+
+- **Wave 55 (2026-08-30) — origem das mensagens do WhatsApp — JÁ
+  EXECUTADA no Supabase (2026-08-30). Não pedir pra rodar de novo.**
+  `whatsapp_messages.origin` ('portal'|'ia'|'celular'): rota de envio
+  grava portal; runner da IA + follow-up gravam ia; o webhook grava
+  celular em toda 'out' que chega de fora (o eco do que portal/IA
+  enviaram colide no `message_id` UNIQUE e o ignore-duplicates descarta —
+  só sobra o que nasceu no aparelho). Portal (v=20260830a): chip
+  📱 celular / 🖥️ portal / 🤖 IA por conversa (lista + cabeçalho),
+  decidido pela ÚLTIMA 'out' com origem conhecida; histórico sem pista
+  fica sem chip. Backfill só do afirmável (sent_by NOT NULL = portal).
+
+- **PDF do orçamento: as DUAS causas de produção nomeadas (2026-08-30).**
+  A telemetria `pdf-link-fail` provou: (1) o bucket `exports` EXISTE mas as
+  **policies da Wave 41 nunca rodaram** ("new row violates row-level
+  security policy" no upload direto — desde o primeiro dia); (2) o GoTrue
+  recusa token cuja SESSÃO rotacionou ("401 token inválido") enquanto
+  Storage/PostgREST aceitam o mesmo token — eles validam só a assinatura.
+  Correções: rota `/api/quote-pdf-upload` (edge) com autenticação em DOIS
+  degraus — GoTrue ok → service role (imune a policy, cria o bucket se
+  faltar); GoTrue recusou → upload com o token do PRÓPRIO usuário e quem
+  valida é a policy do Storage (path amarrado ao `auth.uid()`; o `sub`
+  decodificado do JWT NÃO é prova de identidade, só prefixo). Client tenta
+  direto → rota; 401 na rota ganha UMA `refreshSession` com teto de 6s.
+  **SQL das policies do `exports` PENDENTE** (bloco da Wave 41; sem ele o
+  degrau 2 não funciona — o 1 sim). **Regra nova: fluxo do app que
+  autentica em rota própria NÃO deve depender só do GoTrue `/auth/v1/user`
+  — token session-stale é estado normal de WebView.**
+
+- **`quotes.post_id` NÃO EXISTIA — Wave 53 (2026-08-30), PENDENTE.**
+  "Enviar orçamento" morria com `42703: column "post_id" of relation
+  "quotes" does not exist`. A **Wave 42** recriou `create_quote_from_post`
+  passando a GRAVAR `post_id` (antes a RPC recebia `p_post_id` e jogava
+  fora em silêncio), mas a coluna nunca existiu — a migration foi escrita a
+  partir do que o CÓDIGO mandava, não do schema real. Enquanto o parâmetro
+  era ignorado ninguém notava; ao passar a gravar, estourou na cara do
+  cliente. **Mesmo erro de `leads.city`.** `/migrations/
+  2026-08-30-quotes-post-id.sql` cria a coluna (FK pra `posts` com ON
+  DELETE SET NULL) + índice parcial `(painter_id, post_id)`, que é o que o
+  filtro de leads comprados consulta (`lib/services/leads.ts`) e que nunca
+  casou por falta da coluna.
+  - **REGRA: conferir o schema real antes de escrever INSERT/UPDATE em SQL.**
+    A lista de colunas do código não é a da tabela. Já custou dois
+    incidentes em dois dias.
+
+- **Coluna TELEFONE nas listas de pessoas (2026-08-29, v=20260829zb).**
+  Nenhuma aba mostrava o telefone de quem se cadastrou, embora
+  `profiles.phone` já viesse no `select('*')`. Coluna nova (com ✏️ pra
+  editar e 📱 que abre o wa.me) em **Pintores** — logo Grafiteiros e
+  Funileiros, que reusam `PintoresList` —, **Clientes** e **Usuários com
+  acesso ao Portal**; entre as três, todo perfil cadastrado aparece
+  (`isClienteProfile` pega quem não é profissional nem admin). Célula
+  `PhoneCell` + `editUserPhone`; a action `set_info` de
+  `/api/admin/users` passou a aceitar `phone`.
+  - **A normalização segue `normalizeWhatsAppTarget`, NÃO
+    `normalizeBrPhone`:** com 11 dígitos só é celular BR quando o 3º é 9;
+    10 dígitos = fixo BR; 11-15 em outro formato = estrangeiro, guardado
+    verbatim. A primeira versão colava '55' em qualquer coisa com 11
+    dígitos — o mesmo erro que transformou o contato dos EUA
+    `16503154274` em `5516503154274` e derrubou o envio com 502. Guardar
+    com máscara também está proibido: o número deixaria de casar com
+    `whatsapp_messages` e com os leads, que comparam dígitos. 4 testes
+    novos em `__tests__/api/admin-users.test.ts`.
+  - **Campo novo no body de `/api/admin/users` = campo novo no TIPO do
+    `body`** (o `let body: { … }` no topo do `route.ts`). Esquecer disso
+    QUEBRA O DEPLOY: `next build` roda "Checking validity of types" e
+    falha com TS2339 ("Property 'phone' does not exist on type…"), o
+    Cloudflare não gera deployment nenhum e o painel mostra só "No
+    deployment available" — inclusive pros commits seguintes, que herdam
+    o erro. Aconteceu com `phone` em 2026-08-29. `vitest` NÃO pega isso
+    (roda por transpilação, sem type-check).
+
+- **Produtos do portal: carregamento (2026-08-29, v=20260829z).** O catálogo
+  passou de **21 mil** linhas e a tela ficava minutos em "Carregando
+  produtos...": eram até 22 requisições `select('*')` **em fila** (cada uma
+  esperando a anterior) e, no fim, o React montava **um card por produto** —
+  em "Todos", 21 mil cards de uma vez. Agora: (1) só as colunas do card
+  (`PRODUTO_COLS`) — `description` e a ficha técnica saíram do payload e a
+  gaveta busca a linha inteira (`select('*')` de UMA linha) no "Editar";
+  (2) a 1ª página pinta a tela e **tira o "Carregando"**, o resto vem em
+  paralelo (4 conexões) e é emendado — `paginas[n]` guarda cada lote na sua
+  posição, senão a ordem por nome embaralha; (3) **janela de 60 cards**
+  crescendo por IntersectionObserver (`PRODUTOS_JANELA`); (4) `_cat` e `_q`
+  calculados uma vez em `prepararProduto` (antes `classify` e o
+  `toLowerCase` do filtro rodavam 21 mil vezes por tecla) + busca com 250ms
+  de atraso; (5) cache em memória (`_produtosCache`) — sair da tela e voltar
+  não refaz nada, e há o botão "↻ Atualizar"; (6) salvar/excluir emendam a
+  linha na lista (`aplicarLinha`) em vez de recarregar tudo — por isso
+  `productsService.upsert` agora termina em `.select()`.
+  - **Wave 52** (`/migrations/2026-08-29-products-name-index.sql`) — **JÁ
+    EXECUTADA no Supabase (2026-08-29). Não pedir pra rodar de novo.**
+    `CREATE INDEX CONCURRENTLY idx_products_name` (roda sozinho, fora de
+    transação): sem ele cada uma das ~22 páginas reordenava as 21 mil
+    linhas. Confirmado pelo `EXPLAIN ANALYZE`: "Index Scan using
+    idx_products_name on products", 3,0 ms na fatia OFFSET 5000.
+  - **Foto do produto cortada (2026-08-29, v=20260829za).** A caixa da
+    imagem era uma faixa de 60px com `cover` — a foto entrava cortada pelo
+    meio (quem cadastra não reconhecia a peça). Agora a área de mídia tem
+    96px (`PRODUTO_MIDIA_H`) e a foto entra INTEIRA (`contain`) sobre fundo
+    creme; sem foto, a mesma caixa vira o bloco de cor. Mesma correção na
+    LOJA DO APP, que tinha o mesmo `cover`: miniatura do `ProductCard`
+    (quadrado de 64px) e hero do `ProductDetailSheet` (140px) passaram a
+    `object-contain`.
+
+- **Captação de leads por WhatsApp com IA (2026-08-29).** Duas etapas, as
+  duas no ar; SQL Wave 46 JÁ EXECUTADA (2026-08-29).
+  - **Etapa A — botão "💬 Abordar"** na lista de Leads (portal). Abre
+    `AbordagemModal`: mostra categoria, sub-funil (fornece obra × precisa
+    de obra, via `LEAD_PITCH`), telefone e se é celular ou fixo
+    (`tipoDeLinha`); sugere produtos do catálogo por palavras no NOME
+    (`LEAD_PITCH[].termos`, marcáveis + busca manual); monta o texto
+    personalizado (`montarAbordagem`) e envia pelo canal da loja. Ao
+    enviar, lead vira `contactado`. Ícone 📱 ao lado mantém o wa.me no
+    aparelho do operador. `normalizeLeadPhone` cobre celular antigo de 8
+    dígitos (ganha o nono).
+  - **REGRA DA LOJA (inegociável):** mensagem e IA **NUNCA** falam preço,
+    valor, desconto, condição de pagamento nem fazem orçamento — isso é
+    de pessoa. Aplicada em DOIS pontos: no prompt E em trava de código
+    (`clientAsksForPrice` escala antes de chamar o modelo;
+    `replyLeaksPrice` barra vazamento na saída). 14 testes em
+    `__tests__/services/whatsapp-ai.test.ts`.
+  - **Etapa B — IA meio-termo.** `whatsapp-ai.ts` (prompt + travas +
+    horário comercial de Brasília 8h-19h, sem domingo + opt-out PARE +
+    modelo por env `WHATSAPP_AI_MODEL`, default gpt-4o-mini). **Teto de
+    30 respostas automáticas por CONVERSA por DIA** (anti-loop/custo) —
+    o "dia" é o de Brasília via `diaBrt()`, não o UTC (com `toISOString`
+    cru o contador virava às 21h daqui e cortava conversa de noite). e
+    `whatsapp-ai-runner.ts` (cola com o webhook; ordem: opt-out > IA
+    desligada > fora do horário > teto de 12/dia > responde). Ao escalar,
+    DESLIGA a IA na conversa e cria alerta. Runner é best-effort: nunca
+    derruba o 200 do webhook. Chamado SÓ em mensagem `in` de texto.
+  - **Wave 46** (`/migrations/2026-08-29-whatsapp-ai.sql`):
+    `whatsapp_ai_state` (chave por conversa + contador diário) e
+    `portal_alerts` (preco/orcamento/humano), RLS só `is_portal_admin()`.
+  - **Wave 47** (`/migrations/2026-08-29-whatsapp-ai-config.sql`) — JÁ
+    EXECUTADA (2026-08-29). `whatsapp_ai_config` (linha única id=1:
+    `hours` '8-19'|'0-24'|'8-19 +dom', `default_on`) + `last_why`/
+    `last_at` em `whatsapp_ai_state`. **NÃO usar `app_settings` pra
+    config que o portal ESCREVE** — ela guarda segredo de sistema
+    (`push_internal_secret`, `push_notify_url`) e a RLS recusa a escrita,
+    corretamente (erro visto em produção: "new row violates row-level
+    security policy for table app_settings").
+  - **MENSAGEM DE AUSÊNCIA (2026-08-29, junto da Wave 48).** As duas
+    saídas silenciosas do runner deixaram de ser silêncio: fora do horário
+    OU com a chave desligada, o cliente recebe UMA cortesia fixa ("aqui é
+    da Cali Colors, obrigado pelo contato, retornamos em breve" — texto
+    fixo, não é a IA falando, então nem chega perto de preço).
+    `textoAusencia` + `shouldSendAway` em `whatsapp-ai.ts` (puros,
+    testados); `enviarAusencia` no runner. Travas: nada pra `opted_out`,
+    1 a cada 12h por conversa (`whatsapp_ai_state.away_at`), e silêncio
+    se uma PESSOA respondeu nas últimas 2h (ela está no volante). Também
+    abre alerta no portal (`humano`) já marcado `followed_up_at` — a loja
+    vê quem escreveu de madrugada, a varredura cobra depois ("sem resposta
+    há Xh") e NÃO repete a promessa. Config: `whatsapp_ai_config.away_on`
+    (chave no portal) + `away_text` (texto custom, NULL = padrão).
+  - **Wave 48** (`/migrations/2026-08-29-whatsapp-followup.sql`) — **JÁ
+    EXECUTADA no Supabase (2026-08-29), incluindo os complementos
+    `away_on`/`away_text`/`away_at` e `last_read_at`. Cron confirmado:
+    `run_whatsapp_followup()` devolveu 200 com
+    `{"ok":true,"ran":true,"conversas":5}` e o `app_settings.
+    whatsapp_followup_url` já está com o token real. Não pedir pra rodar
+    de novo.** FOLLOW-UP AUTOMÁTICO: varredura de
+    hora em hora (pg_cron → pg_net → `POST /api/whatsapp-evo/followup
+    ?token=<EVOLUTION_WEBHOOK_TOKEN>`, URL guardada em `app_settings.
+    whatsapp_followup_url`) que olha TODAS as conversas já existentes
+    (janela de 30 dias) e faz 3 coisas: (1) alerta parado vira "⏰ sem
+    resposta há Xh" — cutucão interno, qualquer hora; (2) cobra o cliente
+    UMA vez ("seu pedido está na fila"), só em horário de atendimento;
+    (3) reengaja quem sumiu depois que a LOJA falou por último (inclui o
+    lead que nunca respondeu à abordagem), 1 toque por semana. **Nenhum
+    texto automático anuncia o "responda PARE"** (decisão da loja,
+    2026-08-29) — a palavra continua valendo no runner: quem responde vira
+    `opted_out` e não recebe mais nada. Teto de 10
+    envios por varredura. Nunca fala com quem pediu PARE (`opted_out`)
+    nem com a conversa cuja chave o operador desligou na mão. Lógica pura
+    em `lib/api/_services/whatsapp-followup.ts` (`planFollowups`), 25
+    testes. **"Resposta de gente" = `whatsapp_messages.sent_by NOT NULL`**
+    — a IA grava NULL; é o único discriminador que existe.
+    - **Correção junto (importante):** `whatsapp_ai_state.enabled` era
+      NOT NULL DEFAULT false, mas várias escritas criam a linha de raspão
+      (`registrarDecisao`, marca de follow-up) — cada uma DESLIGAVA a IA
+      naquela conversa sem ninguém pedir (invisível só porque o padrão
+      global também é off). Agora **NULL = "nunca decidido" → vale o
+      padrão global**; a wave faz backfill (`enabled=false` sem PARE volta
+      pra NULL). Servidor (`isAiEnabledFor`) e portal (`iaLigada`) checam
+      `typeof enabled === 'boolean'`. **Nunca escrever `enabled` em
+      upsert que não seja a chave de propósito.**
+  - Portal (v=20260829n): chave "IA ligada/desligada" por conversa +
+    botão "💬 Auto-resposta ligada/desligada" (mensagem de ausência) +
+    botão "🔁 Follow-up ligado/desligado" + "👀 Simular follow-up" (dryRun, mostra o
+    que a varredura FARIA sem enviar) + "▶ Rodar follow-up agora" + linha com a última
+    varredura (`last_sweep_at`/`last_sweep_note`) +
+    botão 🕐 "Só horário comercial ⟷ Responde 24h" + faixa de alertas
+    com "Abrir conversa" + botão "✨ Sugerir" (copiloto: rota
+    `/api/whatsapp-evo/suggest`, ignora horário e teto porque quem pediu
+    foi uma pessoa; travas de preço seguem valendo). Embaixo da chave, a
+    ÚLTIMA DECISÃO da IA naquela conversa (`last_why`) — silêncio da IA
+    deixa de ser caça ao fantasma. Nome do contato resolve por 3 fontes:
+    usuário do app > lead > pushName do WhatsApp. **NÃO LIDAS
+    (2026-08-29):** contador de mensagens recebidas na lista de conversas
+    + badge total no menu lateral. Marca em
+    `whatsapp_ai_state.last_read_at` (banco, não localStorage — vale em
+    qualquer computador); **resposta da IA NÃO zera** — só o operador
+    abrir a conversa. `loadWaBadge` no root (realtime + poll 45s + evento
+    `wa-lidas-mudou`) é separado do `loadBadges` (caro e quase estático);
+    por isso `loadBadges` MESCLA o state em vez de substituir. Componente
+    `Ajuda`
+    (o "?" ao lado dos botões, abre no hover E no clique pra funcionar em
+    tablet) explica cada controle da barra — conteúdo em
+    `AJUDA_WHATSAPP`; **botão novo ali = item novo nessa lista**.
+  - **Próximas fases (não feitas):** classificação automática do lead
+    pela IA (temperatura/resumo) e os funis de PROs e Clientes — a
+    máquina foi construída pra ser reaproveitada trocando roteiro e
+    público.
+
+- **Foto do seletor do wrapper vem SEM MIME TYPE (2026-09-01).** "Trocar
+  foto" morria com "Selecione um arquivo de imagem" — na cara de quem
+  tinha selecionado exatamente isso. O seletor do WebIntoApp **não é a
+  galeria do sistema**: é um diálogo próprio, **"Files Chooser"
+  (Camera × Files)**, e pelo ramo Files o `File` volta com `type` VAZIO ou
+  `application/octet-stream` (o content:// provider não declarou o tipo).
+  Pelo Chrome o mesmo arquivo vem `image/jpeg` — daí o clássico "no
+  navegador funciona".
+  - **REGRA MAIS IMPORTANTE: recusar só com PROVA.** "Não provei que é
+    imagem" ≠ "provei que NÃO é". A 1ª regra punia a pessoa pela omissão do
+    Android e foi o que travou a troca de foto. Use `provadoNaoImagem`
+    (false quando ninguém identificou → passa; o Storage dá a palavra
+    final). Extensões de não-mídia (.pdf/.csv/…) estão no mapa DE PROPÓSITO:
+    servem pra recusar com prova e pro certificado em PDF subir certo.
+  - **Mensagem de erro tem que carregar a EVIDÊNCIA** (`descreverArquivo`).
+    Em 01/09 a mensagem antiga e a nova eram a mesma frase e não deu pra
+    saber qual código rodava no aparelho — um dia perdido em adivinhação.
+  - **REGRA: nunca validar mídia por `file.type` sozinho.**
+    `lib/utils/mediaType.ts` decide em TRÊS degraus, nesta ordem: tipo
+    declarado → **extensão** do nome → **bytes** do arquivo (magic numbers).
+    O 3º degrau existe porque alguns content providers do Android devolvem
+    nome SEM extensão (um id puro) — aí só o conteúdo responde; `ftyp`
+    precisa da MARCA no offset 8 pra separar HEIC de MP4. Caminho novo que
+    aceita arquivo escolhido pela pessoa = `await normalizarArquivo(file)`
+    ANTES de `ehImagem`/`ehVideo`, nunca `startsWith('image/')`.
+  - **A varredura de 01/09 achou 6 caminhos além do avatar** — todos
+    derivavam `contentType` de `file.type` vazio, e dois RECUSAVAM o
+    arquivo: `chat-attachments` ("Tipo de arquivo não permitido" ao mandar
+    foto no chat) e `artReferences` ("Formato não suportado", + extensão
+    sempre .jpg). Também `stories`, `aiLogo`, `QualsSection` (PDF virava
+    image/jpeg) e `posts.uploadMedia`, que chutava `image/jpeg` pra toda
+    imagem sem tipo — acertava .jpg por sorte e etiquetava png/webp/heic
+    errado. **Em `uploadMedia` o fallback `image/jpeg` FICA de propósito**
+    pro caso sem nenhuma das três pistas: recusar quebraria justamente o
+    fluxo que isso conserta.
+  - **Corrigir o `type` não é cosmético:** os buckets têm
+    `allowed_mime_types`, então subir como octet-stream seria recusado pelo
+    **Storage** mesmo depois de passar pela validação da tela. Por isso o
+    helper devolve o File com o tipo certo, e os 8 pontos de entrada
+    (avatar, logo, publicar, cadastro passo 2, arte-ig, aiLogo, aiArt,
+    dimensões) passam por ele.
+  - **O aviso "A galeria não abriu" era FALSO POSITIVO** nesse wrapper: o
+    "Files Chooser" é um DIÁLOGO do próprio app, e diálogo **não tira o
+    foco da página** — o relógio de 1,8s do `filePickerWatch` estourava
+    enquanto a pessoa ainda lia Camera × Files. Agora a espera padrão é
+    **8s** (`PADRAO_ESPERA_MS`) e, se o app sair DEPOIS do aviso, ele é
+    **retirado da tela** (`onAbriuAtrasado`) e a marca de recuperação volta
+    a valer. **Aviso errado ensina a ignorar o aviso certo.**
+
+- **"500 | Server Error" ao APAGAR E ACENDER a tela (2026-09-01).** Relato:
+  app aberto, apaga a tela do celular, acende — vem 500, e **fica assim até
+  reiniciar o app**. Mecanismo: com a tela apagada o Android mata o processo
+  do **RENDERIZADOR** da WebView (não o app); ao voltar, a WebView recria o
+  renderizador e **RE-NAVEGA** pra URL atual. Se essa navegação pega um
+  soluço do edge, vem 500 — e a página interna do Next não tem UMA LINHA de
+  JS nosso: nem SW, nem boundary, nem retry. Uma lápide. Por isso só saía
+  reiniciando: **nada mais navegava**.
+  - **`pages/500.tsx`** substitui aquela página e se recupera sozinha
+    (mesmo freio do `autoRetry`: 2,5s + n·1,5s, teto 6 em 2min, reload no
+    evento `online`). O retry é `<script>` INLINE, não `useEffect`: se a
+    pessoa vê essa tela, o servidor acabou de falhar — apostar que os
+    chunks vão baixar e hidratar é apostar no que está quebrado.
+  - **Por que em `pages/` num app App Router:** `error.tsx` e
+    `global-error.tsx` só pegam erro de RENDER do React. Falha ABAIXO disso
+    (carga de módulo, roteamento, soluço da function) nunca chega neles — e
+    é essa que produz a tela. `pages/500` é o único ponto de override.
+  - **PEGADINHA: criar `pages/` MUDA A TIPAGEM GLOBAL.** `useSearchParams()`
+    passa a ser anulável e o build quebra em quem não trata (era
+    `LoginForm.tsx`). **`npx tsc --noEmit` NÃO pega isso** — só o
+    `next build`, que usa os tipos gerados em `.next/types`. Rodar
+    `next build` de verdade antes de publicar mudança estrutural.
+  - **Causa raiz provável do 500, corrigida junto:** `lib/api/env-check.ts`
+    lia `process.env` DIRETO e era chamado no **MODULE-LOAD** de
+    `security.ts` — as duas coisas que este arquivo proíbe. No edge os
+    secrets não estão em `process.env`, e `process.env[k]` com `k` variável
+    nem é substituído no build (só a forma literal). Ou seja: a lista podia
+    sair TODA "ausente" e o throw derrubar a CARGA DO MÓDULO com as envs
+    perfeitamente configuradas — o que o Next devolve como 500 puro. Agora
+    lê por `getRuntimeEnv` e **não roda mais no boot**; o fail-closed que
+    importa (CRIT-5) já é por request em `requirePro`/`gateAiUsage`.
+  - **Continua sem prova de qual dos dois disparou** — falta saber se o SW
+    controla a página na WebView. **`/diag` já responde isso** (linha
+    "Service Worker controlando a página"): abrir no app instalado.
+
+- **"500 | Server Error" CRU no app instalado — o SW NÃO está no comando
+  (2026-09-01, EM ABERTO).** O `sw.js` v5 prova por construção que 5xx
+  nunca vai cru pra tela em navegação de documento (troca pela página
+  "Reconectando…" com auto-retry). A tela crua apareceu mesmo assim → **o
+  service worker não controlava aquela navegação** no app empacotado. Os
+  boundaries do React também não renderizaram (`error.tsx` e
+  `global-error.tsx` existem e têm auto-retry), logo a falha é da própria
+  function do edge, **abaixo do render do Next** — e o `middleware.ts` está
+  fora (só casa `/api/*`).
+  - **Estamos CEGOS nisso:** a telemetria `sw-nav-5xx` só dispara com o SW
+    no comando, que é justamente o que falta. O `ServiceWorkerRegister`
+    engole falha de registro num `.catch()` vazio, e o ping com o campo
+    `sw=` foi removido em 30/08. **Próximo passo: telemetria de
+    registro/controle do SW antes de qualquer palpite sobre a causa do
+    500.** Não escrever correção especulativa antes disso.
+
+- **CAUSA DO "500 | Server Error" FECHADA (2026-09-01) — era o payload
+  RSC, não a navegação.** O `/diag` do usuário no app instalado entregou o
+  dado que faltava: **"Service Worker controlando a página: sim"**. Com o SW
+  no comando, o `sw.js` v5 tornava impossível um 5xx cru chegar na tela em
+  navegação de DOCUMENTO — logo, não era navegação de documento.
+  - **O que era:** o 5xx vinha no fetch do **payload RSC**. O SW devolvia
+    esse 500 CRU pro router, apostando que "o router trata" fazendo
+    hard-nav. Não trata: o runtime do Next pinta a PRÓPRIA tela de erro (a
+    marcação `next-error-h1` está no bundle do cliente, `main-*.js`). Como
+    não houve navegação de documento, nenhuma defesa do SW rodou; e como não
+    é erro de render, `error.tsx`/`global-error.tsx` também não pegaram.
+    Uma lápide que só saía reiniciando o app.
+  - **Correção (sw.js v6):** 5xx de RSC recebe o MESMO tratamento da rede
+    morta — 503 sem corpo, que é o caminho comprovado: o router descarta,
+    faz hard-nav, a navegação volta como documento e ganha a página
+    "Reconectando…" com auto-retry. Incidente logado como `sw-nav-5xx` com
+    sufixo `(rsc)`.
+  - **O teste TROCOU DE LADO** — antes exigia o 5xx cru "porque o router
+    trata". Teste que codifica uma suposição errada protege o bug.
+  - **Lição de método:** `pages/500.tsx` e `pages/_error.tsx` foram DUAS
+    tentativas erradas seguidas, ambas escritas antes de eu ter evidência.
+    O que fechou o caso foi procurar a string no output publicado
+    (`.vercel/output/static`) e pedir UM dado do aparelho. As duas páginas
+    ficam — cobrem o erro de servidor de verdade —, mas não eram isto.
+
+- **O 500 do App Router NÃO passa por `pages/500` nem por `pages/_error`
+  (2026-09-01, PROVADO).** Duas tentativas minhas falharam pela MESMA razão,
+  e só a evidência fechou a questão. No output publicado
+  (`.vercel/output/static`): o `500.html` é a minha tela ("Reconectando…",
+  sem `next-error-h1`), mas a marcação da tela padrão do Next
+  (`next-error-h1`) vive dentro do **worker**
+  (`_worker.js/__next-on-pages-dist__/webpack/*.js`) — ou seja, quem
+  responde é o runtime do Next DENTRO do worker, em rota de App Router, e
+  ali os arquivos do Pages Router não são consultados. `error.tsx` e
+  `global-error.tsx` também não pegam, porque a falha não é de render.
+  - **Não escrever uma 3ª tentativa às cegas.** Restam dois caminhos, e a
+    escolha depende de UM dado: o service worker controla a página no app?
+    Se controla, o `sw.js` v5 já resolve (troca 5xx pela tela de reconexão)
+    e o bug é outro; se não controla, a única interceptação possível é
+    embrulhar o `_worker.js` gerado num passo pós-build — o que amarra o
+    deploy a um script nosso e precisa ser decidido com o usuário.
+  - O dado chega sozinho: `sw-status` no `/admin/errors` (1 linha por
+    aparelho por dia) ou o link "Diagnóstico do aparelho" no rodapé do
+    perfil.
+
+- **Story: o X existia, mas ficava POR BAIXO das barras do app
+  (2026-09-01).** O relato foi "não tem um X pra fechar?". Tinha — só que o
+  `StoryViewer` era `fixed inset-0 z-50` e a **BottomNav é `z-[300]`**, a
+  TopNav `z-50`. As barras de progresso (`top-2`) e o botão de fechar
+  (`top-6`) nasciam atrás delas. O `fixed inset-0` sempre cobriu a tela
+  toda; o que faltava era z-index. Agora **`z-[400]`**, o story fica
+  imersivo (as barras do app somem enquanto ele está aberto, como no
+  Instagram), o viewer é montado em **portal no `<body>`** (o z-index
+  sozinho bastaria hoje, mas basta um ancestral ganhar `transform` pra o
+  `fixed` deixar de cobrir a tela) e o X virou alvo de 40px com fundo
+  próprio — antes era um `×`
+  de texto solto, invisível sobre story claro. Progresso e header respeitam
+  `env(safe-area-inset-top)`.
+  - **Botão VOLTAR do Android fecha o story.** Ao abrir, o viewer empurra
+    uma entrada no histórico; o "voltar" consome ela e dispara `popstate`,
+    que fecha sem navegar. Fechando pelo X ou pelo arrasto, a entrada
+    fantasma é desfeita na limpeza — senão o próximo "voltar" não sairia da
+    tela, só apagaria a sobra. `onClose` fica numa ref pra o efeito não
+    rearmar e empilhar uma entrada por render.
+  - **PLAY gigante no vídeo:** a WebView bloqueia `autoPlay` até haver gesto
+    (`setMediaPlaybackRequiresUserGesture` é true por padrão no wrapper) e o
+    player nativo desenha o botão. Correção em dois tempos: `play()`
+    explícito quando o story entra em cena (aproveita o gesto que abriu o
+    viewer) + `poster` 1×1 transparente, pra que o intervalo até o primeiro
+    quadro fique preto em vez de exibir a arte do player.
+
+- **Auditoria 2 (2026-09-01) — A1..A4 corrigidos.**
+  - **A1: o selo PRO mentia pra quem venceu.** Havia DUAS fontes de verdade:
+    o `TopNav` dizia PRO com `is_pro=true` sozinho, enquanto
+    `canSeeProFeature` (o portão real, usado em Agenda/CRM/Anotações) exige
+    `is_pro=true` **E** data futura quando há data. E **nada limpa `is_pro`
+    no vencimento** — não há cron nem trigger, e o portal ativa PRO gravando
+    `is_pro=true` + expiração. Ou seja, "is_pro com data vencida" é estado
+    PERMANENTE: a pessoa via PRO na barra e levava "exclusivo do Plano PRO"
+    em toda ferramenta. O `TopNav` agora usa `usePolicyUser` +
+    `canSeeProFeature`/`isAdmin`. **REGRA: selo e portão perguntam à mesma
+    função.** (Há uma 3ª implementação no banco, `is_pro_active`.)
+  - **A2: "hoje" saía do fuso do APARELHO.** O patch de fuso do `layout.tsx`
+    cobre só `toLocale{Date,Time,}String` — **`getTimezoneOffset()` passa
+    direto**, e era ele que decidia o dia em 5 lugares. O Brasil tem mais de
+    um fuso (Manaus, UTC−4): entre meia-noite e 1h o aparelho diz um dia e
+    Brasília já está no seguinte. Deslocava o destaque de "hoje" na agenda,
+    o recorte do dia no Financeiro e a data de follow-up do pipeline.
+    Helpers novos em `utils.ts`: **`ymdBrt()`** (que dia é hoje em Brasília,
+    via `Intl` com `timeZone` — não depende do patch, que mexe só em
+    `Date.prototype`) e **`ymdDeCampos()`** (formata um Date montado a
+    partir de ano/mês/dia, como os limites de mês do grid — ali passar por
+    fuso é que introduziria deslocamento). `agYmd` virou apelido depreciado.
+    **Nada de acesso depende disso** — os 4 usos são de tela/data, nenhum em
+    auth, RLS ou rota de API. Pra quem está FORA do Brasil o efeito é o
+    pretendido pela regra do projeto: "hoje" passa a ser o mesmo dia que as
+    datas já exibidas na tela (antes o destaque vinha do celular e o resto de
+    Brasília — inconsistentes entre si). `ymdBrt` tem fallback: se o `Intl`
+    falhar (WebView sem ICU completo), cai no fuso do aparelho em vez de
+    devolver `"--"`, que a coluna `date` do Postgres recusaria — o Financeiro
+    grava a data direto dali. Suíte verde em São Paulo, Manaus, UTC, Tóquio,
+    Los Angeles e Lisboa.
+  - A3 (legenda/comentário sem `overflowWrap` — palavra longa era cortada
+    pelo `overflow-x: hidden` do AppShell; comentário precisou de
+    `minWidth: 0` por ser flex item) e A4 (`cartTotal` somava float e
+    gravava 269.70000000000005 no pedido; agora soma em centavos).
+  - **Descartado após verificar:** rotas "sem gate" (autenticam uma camada
+    abaixo, no service) e 97 "botões sem `aria-label`" (regex meu estava
+    errado; as amostras têm texto ou o atributo em linha seguinte).
+
+- **A página 500 do Next tem DOIS caminhos — cobrir só um não adianta
+  (2026-09-01).** Criei `pages/500.tsx`, confirmei no build que a tela nova
+  estava lá dentro (`grep Reconectando .next/server/pages/500.html`) e o
+  aparelho SEGUIU recebendo o "500 | Server Error" cru. Motivo: `500.tsx`
+  cobre a 500 **estática**; erro em **runtime** cai no **`pages/_error.tsx`**,
+  que continuava sendo o padrão do Next. Os dois agora renderizam
+  `components/TelaReconectando` (auto-retry inline). O `_error` trata 404 à
+  parte — recarregar sozinho uma página que não existe só repetiria o "não
+  existe". **Conferir `.next/server/pages/_error.js`, não só o `500.html`.**
+
+- **Auditoria 2026-09-01 — 9 achados corrigidos (P1..P9).** Os que valem
+  virar regra:
+  - **P1 (o mais grave): `parseBRL` multiplicava por 100.** Apagava TODO
+    ponto como milhar antes de trocar a vírgula: `"1500.50"` → 150050,
+    `"0.99"` → 99, e até `parseBRL(1500.5)` → 15005 (número passava por
+    `String()`). O campo de preço usa `inputMode="decimal"` e o teclado do
+    Android oferece PONTO — era o caminho comum, não caso de canto.
+    Atingia preço de arte à venda, Financeiro, Agenda e o `brlSchema`. Pior:
+    os comentários em `utils.ts` e `schemas.ts` JÁ AFIRMAVAM aceitar
+    `"1500.50"`. **Regra nova: vírgula sempre é decimal; ponto é decimal com
+    1-2 casas (ou parte inteira zerada) e milhar com 3.** 7 testes novos —
+    o antigo só cobria `"1.500,50"`, vazio e o inteiro `42`.
+  - **P3: busca aproximada NUNCA decide destinatário de mensagem.**
+    `resolveCalicolorsUserId` caía em `.ilike('name','%cali%').limit(1)` sem
+    `order` — casava com Calixto/Micaeli/Carlos Calisto e escolhia de forma
+    não-determinística. Esse id abre a conversa "🎨 Loja": dava pra mandar
+    pra um estranho. Agora só igualdade exata (tags conhecidas → nome
+    exato), e **erro do Supabase não é mais lido como "não existe"**.
+  - **P2 foi FALSO ALARME e a lição é essa.** `linkUrl` faltava nas deps do
+    `useCallback` de submit, mas não causava bug: `autosave` também está nas
+    deps e o `useAutosave` devolve **objeto novo a cada render**, então o
+    callback era recriado sempre. A correção do link dependia de um acidente
+    em outra dependência — estabilizar o retorno do `useAutosave` (o certo
+    pra perf) reintroduziria o bug em silêncio. **Só confirmei porque o
+    teste de regressão passou SEM o fix.** Teste que não falha sem a
+    correção não é teste de regressão.
+  - **P4/P5: `catch {}` mudo esconde bug por meses.** O upload da foto no
+    CADASTRO falhava em silêncio (nem toast, nem `/admin/errors`) — foi o
+    que escondeu o bug de MIME em todo cadastro novo. O perfil público
+    engolia falha de quals/cursos/avaliações e renderizava **vazio**: pintor
+    com 20 avaliações aparecia sem nenhuma, na tela onde o cliente decide
+    contratar. Os `.catch` individuais dentro de `Promise.all` também
+    precisam marcar a falha.
+  - P6 (`linkUrl`/`artType` não limpos após publicar), P7 (regressão minha:
+    `armarSelecao` sem cancelar no unmount deixava ouvintes vivos e marca no
+    localStorage → aviso falso "o app reiniciou"), P8 (`??` não é fallback
+    pra efeito colateral: `handler?.(err) ?? console.warn(...)` logava
+    sempre) e P9 (pílulas `bg-gray-100` sem inversão no dark).
+  - **`eslint.ignoreDuringBuilds: true`** no `next.config.mjs`: os ~17
+    avisos do linter nunca aparecem no deploy. Rodar `next lint` na mão.
+
+- **57 leituras de `process.env` cruas corrigidas (2026-09-01).** A regra de
+  22/08 ("ler sempre por `getRuntimeEnv()`, nunca `process.env` direto")
+  estava sendo violada em **38 arquivos**: toda a camada de IA (legenda,
+  transcrição, TTS, moderação, análise financeira, OCR, arte-IG, resolver
+  cor, as 4 personas) e os pagamentos (`checkout`, `mp-webhook`), além do
+  `/api/health` — que por isso podia reportar saúde errada. No edge do
+  Cloudflare esses secrets não estão em `process.env`, então ou essas
+  funções estavam quebradas em produção, ou a regra é mais forte do que
+  precisa ser — a conversão é segura nos dois casos, porque `getRuntimeEnv`
+  tenta o contexto da request e CAI PRO `process.env`.
+  - **Teste de arquitetura novo** (`__tests__/lib/env-runtime-rule.test.ts`)
+    varre `lib/api` e `app/api` e falha se a leitura crua voltar. Regra que
+    ninguém verifica é sugestão.
+  - Verificado no worker REAL (`wrangler pages dev .vercel/output/static`):
+    `/api/health` responde `supabase: true` e as rotas seguem de pé.
+
+- **Carrossel de fotos no post — Wave 57 (2026-09-01) — JÁ EXECUTADA no
+  Supabase (2026-09-01). Não pedir pra rodar de novo.** O
+  composer sempre deixou escolher **até 5 fotos**, subia TODAS pro bucket
+  `posts` e gravava **só a primeira** em `posts.media_url` — as outras
+  quatro viravam arquivo órfão, pagas em banda e storage, invisíveis. O
+  próprio tipo já dizia: `mediaUrls: string[]; // resto ignorado`.
+  - `/migrations/2026-09-01-posts-media-urls.sql`: **uma linha**
+    (`ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls text[]`) — curta
+    de propósito, porque colar SQL grande pelo celular corta o bloco.
+  - **Post ANTIGO não ganha carrossel**: as fotos extras dele foram
+    descartadas no ato da publicação (nunca chegaram a `media_url` nem a
+    lugar nenhum consultável), então só post novo tem o conjunto. Os
+    arquivos órfãos velhos seguem no bucket — `cleanup_orphan_media()` os
+    lista como órfãos, e quem apaga é `execute_cleanup_orphan_media()` na
+    mão.
+  - **`media_url` NÃO muda de papel**: segue sendo a primeira foto, e é o
+    que o RPC `get_feed_v2`, o grid do perfil e todo post antigo leem. Foi o
+    que permitiu **não recriar a `get_feed_v2`** (bloco grande, arriscado no
+    aparelho): o feed busca as extras numa consulta leve à parte
+    (`anexarFotosExtras`), que só traz os posts com mais de uma foto.
+  - **`createPost` tolera 42703**: se a migration ainda não rodou, o insert
+    é refeito sem `media_urls` e o post sai com a primeira foto. Publicar
+    não pode quebrar por causa de SQL pendente — foi exatamente o que
+    aconteceu com `quotes.post_id` e `leads.city`.
+  - `PostCarousel` usa **scroll-snap**, não arrasto por JS: o gesto fica com
+    o navegador (inércia e encaixe nativos) e não briga com o scroll
+    vertical do feed — `overscrollBehaviorX: 'contain'` corta o
+    encadeamento. Contador `1/5` no canto e bolinhas clicáveis. Só a
+    PRIMEIRA foto usa `media_width/height` gravados; aplicar nas outras
+    reservaria o espaço errado e causaria salto.
+
+- **Story com SOM (2026-09-01).** O `<video muted>` era fixo — `muted` é o
+  que a WebView exige pra tocar SEM gesto, então todo story rodava mudo. Mas
+  ali existe gesto (um toque abriu o viewer): agora tenta com áudio e, se o
+  aparelho recusar o `play()`, cai pra mudo e acende o botão 🔊/🔇 no
+  cabeçalho, em vez de deixar o vídeo parado com o PLAY gigante.
+
+- **Story virou só a mídia (2026-09-01, decisão da loja).** Sem legenda e
+  sem link "ver mais": é conteúdo que some em 24h, e pedir texto só atrasa
+  quem quer postar a foto da obra e seguir trabalhando. O payload vai com
+  `caption: ''` e `linkUrl: null` — sem isso um rascunho antigo restaurado
+  pelo autosave mandaria texto que a pessoa não tem mais como ver nem
+  editar. A coluna `posts.link_url` e o CTA do `StoryViewer` continuam
+  existindo pros stories antigos; só não há mais como criar novos. A aba
+  "Foto / Vídeo" passou a se chamar **"Post"**.
+
+- **A galeria ABRE, mas o app MORRE no meio da escolha (2026-09-01).** O
+  AAB de 31/08 resolveu o `onShowFileChooser` — o seletor aparece
+  (confirmado no aparelho do Bruno). Só que apareceu o problema seguinte:
+  ele toca na foto e **o app volta pra tela inicial**, sem foto e sem
+  legenda. Não é permissão: o seletor de fotos é OUTRA activity, pesada de
+  memória; o Android encerra o processo do app que ficou atrás; na volta o
+  wrapper recria tudo e carrega a **URL inicial**, e o `ValueCallback` que
+  receberia o arquivo morreu junto.
+  - **Nenhum código web impede isso** — a correção de raiz é do WebIntoApp
+    (`ValueCallback` + `WebView.saveState()/restoreState()` na recriação da
+    activity; `docs/AAB_PROXIMA_VERSAO.md` §1.1b). O que o app faz é não
+    deixar a pessoa no escuro: `lib/utils/pickerRecovery.ts` grava uma marca
+    em **localStorage** (sobrevive à morte do processo; `sessionStorage`
+    NÃO — WebView nova nasce com ele vazio) antes de abrir o seletor e a
+    apaga em TODO final normal (arquivo chegou / cancelou / nem abriu).
+    Marca sobrevivendo num documento recém-carregado = aquele documento
+    morreu com a escolha pendente.
+  - `components/PickerRecovery.tsx` (montado no `AppShell`) leva de volta
+    pra rota da marca; quem **consome** a marca é a tela dona dela (filtro
+    por `ctx`), porque só ela sabe o que fazer com a foto. Se o boot
+    consumisse, o app navegaria em silêncio e ninguém entenderia nada.
+  - Janela de 5min: escolher foto leva segundos. Fora dela é sessão nova, e
+    avisar seria mentira. **Só arma no Android** (mesmo gate `ehAndroid` do
+    `filePickerWatch`, agora exportado — se os dois divergirem, uma tela
+    marca e a outra não limpa).
+  - A **câmera é imune** (`getUserMedia` roda na própria página, não sai pra
+    outra activity) — por isso o `GaleriaBloqueadaSheet` segue sendo a
+    saída, agora com título/texto por prop: dizer "a galeria não abriu"
+    aqui seria mentira, ela abriu.
+  - `Composer` grava o rascunho NO GESTO que abre o seletor
+    (`onAntesDeAbrir` → `writeDraft`): o autosave é throttled em 5s e quem
+    digita e toca em seguida perderia o texto junto com a foto.
+  - Telemetria nova: `picker-restart` no `/admin/errors`.
+  - **Permissões (conferido em 01/09):** Câmera concedida e com uso real
+    registrado → o wrapper implementa `onPermissionRequest`. Fotos/mídia
+    **não aparece** na lista → o toggle de storage provavelmente gerou a
+    antiga `READ_EXTERNAL_STORAGE`, ignorada no Android 13+. Não bloqueia o
+    seletor (ele entrega o arquivo por Intent).
+
+- **App instalado NÃO ABRE A GALERIA — a saída pela CÂMERA (2026-08-30).**
+  Voltou em 30/08 com DOIS pintores (Bruno Valentim e Leo): não trocam a
+  foto de perfil nem publicam portfólio. Causa é a mesma de 29/08 e não é
+  código nosso: as duas telas usam o mesmo `<input type="file">` e a
+  WebView do WebIntoApp só abre a galeria se o wrapper implementar
+  `onShowFileChooser` + permissões de mídia. Sem isso o toque **não faz
+  nada** — sem erro, sem log. **Correção de raiz continua no painel do
+  WebIntoApp** (`docs/AAB_PROXIMA_VERSAO.md` §1.1).
+  - **O que mudou agora: o beco virou saída.** `filePickerWatch` (relógio
+    de 1,8s; se a página não perdeu o foco, o seletor não abriu) deixou de
+    mostrar um toast vermelho — o toast some em 3s, manda DIGITAR
+    "queroumacor.com.br" e não resolve nada. No lugar entra o
+    `components/GaleriaBloqueadaSheet` com duas saídas: **📷 tirar foto
+    agora** (`components/CameraCapture.tsx` — `getUserMedia` + canvas
+    geram o File na mão, sem passar pelo seletor) e **🌐 abrir no
+    navegador** (`lib/utils/openInBrowser.ts`: URL `intent:` com
+    `action=VIEW`, que é o que a WebView entende como "sair pro Chrome";
+    `window.open` dentro dela abre outra tela do próprio app). Se nem o
+    intent abrir, copia o link.
+  - O botão de câmera também aparece **sem precisar falhar antes**: ao
+    lado de "Trocar foto" (`/perfil/editar`), embaixo do dropzone de
+    `/publicar` e no passo 2 do cadastro. Só em tela de toque com câmera
+    (`ofereceCamera`) — no desktop o seletor funciona e o botão só poluiria.
+  - **A câmera na WebView é a MESMA classe de dependência** (o wrapper
+    precisa responder `onPermissionRequest` + `android.permission.CAMERA`):
+    pode falhar também. A diferença é que ela falha **visível** — a
+    promessa rejeita, a tela diz o que fazer e o `/admin/errors` recebe
+    `camera-fail`. Também tem TETO DE TEMPO de 12s no `getUserMedia`: em
+    WebView promessa pendurada não rejeita (mesma lição do `getSession`).
+  - **Bug real achado junto — o aviso DUPLICADO da foto do pintor.** O
+    `inputRef.click()` do `MediaUploader` sobe (bubbling) até a div do
+    dropzone, que tem `onClick={handleSelect}`: um toque armava DOIS
+    relógios e mostrava a mensagem duas vezes (a segunda chamada de
+    `click()` é barrada pelo próprio browser, então parava em 2). Corrigido
+    com `stopPropagation` no input + cancelar o relógio anterior antes de
+    armar outro. Teste de regressão em
+    `__tests__/components/MediaUploaderPicker.test.tsx` (falha sem o fix).
+  - Foto tirada aqui sai no máximo com 1600px no lado maior e JPEG 0.9 —
+    foto crua de celular passa dos 5MB do avatar.
+
+- **Conta NOVA barrada de publicar: sessão diz "e-mail não confirmado"
+  (2026-08-29).** `getSession()` devolve o usuário GUARDADO no
+  localStorage, **não** o do servidor. Quem confirma o e-mail FORA do app
+  (abre o link no Chrome ou no app de e-mail) fica com uma cópia dizendo
+  não-confirmado → `usePublishPost` barra com "Confirme seu email antes de
+  publicar" e a faixa amarela não sai. O snapshot só se atualiza no refresh
+  do token (1h), que **no WebView quase nunca acontece** (o app é morto e
+  restaurado antes). Por isso só pega conta nova — as antigas já
+  refrescaram alguma vez. Agora, e SÓ quando a cópia local diz
+  não-confirmado, o `AuthProvider` chama `getUser()` (servidor, mesma
+  corrida contra `SESSION_TIMEOUT_MS`) e adota o usuário fresco.
+  - **Falha capturada NÃO chega no `/admin/errors`** — só erro não
+    capturado chega. O catch do avatar vira toast e o erro do publish vira
+    faixa vermelha; os dois morrem na tela. Concluir "a tabela `errors`
+    está vazia, logo não houve falha" é **errado**. `lib/utils/
+    reportFailure.ts` (best-effort, nunca lança) manda
+    `type='avatar-fail'` e `'publish-fail'` com `user_id`, mensagem, UA e
+    URL. **Fluxo novo que engole erro em catch = chamar `reportFailure`.**
+
+- **NÃO LIDAS nos Chats 3-Way (2026-08-29, v=20260829y, Wave 51 — JÁ
+  EXECUTADA no Supabase em 2026-08-29; não pedir pra rodar de novo).** O
+  número da conversa era `conv.messages.length` (total da
+  conversa) e o do menu era o COUNT de `messages` inteiro — o famoso "23".
+  Nenhum dos dois baixava ao abrir. Agora vale a marca em
+  `portal_chat_reads` (`/migrations/2026-08-29-portal-chat-reads.sql`),
+  separada de propósito de `messages.read_at`, que é do APP: se a loja
+  escrevesse ali, apagaria o não-lido de quem é o destinatário de verdade.
+  Não conta o que o próprio operador mandou; abrir a conversa zera; chegou
+  mensagem com a conversa aberta, já entra lida. O badge do menu passou pro
+  `loadWaBadge` (agora calcula WhatsApp + chats) e saiu do `loadBadges`.
+
+- **Foto de produto no portal (2026-08-29, v=20260829x).** Dois bugs
+  empilhados: (1) o handler chamava `setAiBusy`, que **não existe** nesse
+  componente — sobra de copy/paste; ele estourava na PRIMEIRA linha do
+  try, então o upload nunca acontecia (o alerta "setAiBusy is not
+  defined" era o próprio bug); (2) atrás dele, o path era
+  `products/<arquivo>`, e a **Wave 27 exige que o path no bucket `posts`
+  comece no `auth.uid()`** — a RLS teria recusado assim que o (1) fosse
+  corrigido. Agora sobe em `<uid>/products/<arquivo>`, com validação de
+  tipo/tamanho e "Enviando…". **Wave 50** (`/migrations/
+  2026-08-29-cleanup-preserva-foto-produto.sql`) — **JÁ EXECUTADA no
+  Supabase (2026-08-29), não pedir pra rodar de novo** — ensina
+  `cleanup_orphan_media()` a poupar `products.image_url`; sem ela a foto
+  entraria na lista de órfãos em 7 dias (o cron só LISTA; quem apaga é
+  `execute_cleanup_orphan_media()` na mão, então era mina desarmada).
+
+- **Compartilhar PDF de orçamento NO APP INSTALADO (2026-08-29).** A
+  WebView do wrapper não expõe `navigator.share`, então anexar o ARQUIVO
+  é impossível pelo lado web — o botão caía no download e o pintor tinha
+  que achar o PDF em Downloads e anexar na mão. Agora
+  `shareOrDownloadPdfBlob` aceita `whatsapp?: {text, phone}` e, no
+  WebView, sobe o PDF pro bucket `exports` e abre o **wa.me com o LINK**
+  (já na conversa do cliente quando há telefone) — mesmo mecanismo do
+  botão de WhatsApp que já funciona ali. Ordem: share sheet nativo >
+  link por WhatsApp (app) > download (desktop). Retorno virou
+  `ShareResult` com `'shared-link'`. `window.open` pode ser bloqueado
+  (o await do upload sai do gesto do toque) → cai pra
+  `window.location.href`. **Anexo de arquivo de verdade só com build
+  nativo** (Capacitor Share plugin) — não sai por código web.
+
+- **"Trocar foto" do perfil não salvava (2026-08-29).** A pessoa escolhia
+  a foto, via a cara nova na tela, saía e nada tinha mudado — sem
+  mensagem, porque de fato nada acontecia: o avatar só virava PREVIEW
+  (`createObjectURL`) e o upload esperava o submit lá no fim da página.
+  Pior: o **logo do negócio, no MESMO formulário, já salvava sozinho** —
+  dois controles vizinhos com comportamentos opostos. Agora o avatar sobe
+  na hora (`uploadAvatar` → `update({avatar_url})` → toast), igual ao logo.
+  - **Bug 2, o que escondia o primeiro:** `handleSubmit(onSubmit)` sem
+    `onInvalid`. Perfil antigo com cidade/UF/telefone vazio reprovava na
+    validação e o botão "Salvar" **não fazia nada visível** — o erro
+    aparecia ao lado do campo, fora da tela. Agora `onInvalid` mostra
+    "Falta corrigir: …" e rola até o campo.
+
+- **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL PENDENTE.**
+  Foto, áudio, vídeo e documento chegavam como MARCADOR de texto
+  (`[áudio]`, `[imagem]`): o evento do WhatsApp não traz o arquivo, só o
+  aviso. Agora `whatsapp-media.ts` pega o base64 (do payload, se o
+  Manager estiver com **Webhook Base64** ligado, senão busca em
+  `/chat/getBase64FromMediaMessage`), sobe pro bucket PRIVADO
+  `whatsapp-media` e grava o PATH em `whatsapp_messages.media_url` (path,
+  não URL — assinatura expira). Portal (`BolhaConteudo`) pede URL
+  assinada em lote (`createSignedUrls`, 1h) e renderiza foto com lightbox,
+  player de áudio, vídeo e link de documento; a lista de conversas mostra
+  a transcrição em vez de "[áudio]".
+  - **Áudio é transcrito** (Whisper, coluna `transcript`) e **entra no
+    histórico que a IA lê** — antes ela respondia no vácuo quando o
+    cliente mandava voz. `loadTurns` usa `transcript || body` e descarta
+    marcador sem transcrição.
+  - Tudo best-effort: falha de download/upload/Whisper não impede a
+    mensagem de ser gravada nem derruba o 200 do webhook.
+  - **O `readBody` do webhook subiu de 1MB pra 20MB** por causa disso: com
+    Base64 ligado o ARQUIVO viaja dentro do JSON e infla ~37%. No limite
+    antigo uma foto grande estourava e a mensagem INTEIRA era descartada
+    (o catch devolve 200 sem gravar) — a foto da parede sumia do portal.
+  - Migration `/migrations/2026-08-29-whatsapp-media.sql` — **JÁ
+    EXECUTADA (2026-08-29)** e "Webhook Base64" JÁ LIGADO no Manager.
+
+- **Leads: "Busca AI" REMOVIDO, importador de planilha no lugar
+  (2026-08-29, portal v=20260829o).** O botão "✨ Busca AI" NÃO buscava
+  nada: mandava o modelo INVENTAR empresas plausíveis (nome, telefone,
+  nota, avaliações) e salvava como lead `source='ai_search'`. Telefone
+  inventado em formato válido é o telefone de alguém — e com o botão
+  "💬 Abordar" ao lado, viram mensagem pra estranho. A base tinha 0
+  `ai_search` (os 88 originais são `captacao`), então nada a limpar.
+  No lugar entrou **"📥 Importar planilha"** (`ImportarPlanilhaModal`):
+  lê CSV (xlsx é ZIP+XML e exigiria biblioteca; o portal não tem
+  bundler), **detecta separador `;`/`,`/tab e re-decodifica em
+  windows-1252** quando o UTF-8 falha (Excel pt-BR salva ANSI e com
+  ponto-e-vírgula — sem isso vem tudo numa coluna ou com acento
+  quebrado), casa as colunas sozinho por nome de cabeçalho com correção
+  manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
+  grava em lotes de 200 com `source='planilha'`.
+  - **Importação de 986 leads do Google Maps (2026-08-29)** —
+    `/migrations/2026-08-29-import-leads-planilha.sql`, **PENDENTE de
+    rodar.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    sem telefone ficaram fora). Categoria crua do Maps ("Architect",
+    "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
+    quando a categoria briga com ele; "Região" separada em cidade ×
+    bairro (696 linhas traziam o TERMO DE BUSCA, tipo "arquiteto Osasco
+    SP", não região); prioridade pela distância (alta = Guarulhos +
+    vizinhos 422, media = metropolitana 311, baixa = interior 253).
+    `LEAD_PITCH` ganhou a chave **'Engenharia'** (funil `fornece`) — 234
+    leads caem nela.
+  - **Cabeçalho da tabela de Leads (2026-08-29, v=20260829q):** as setas
+    "↕" eram DECORATIVAS — o header era `['NOME ↕', …].map()`. Agora cada
+    coluna ordena de verdade (`ThLead`/`ordenarPor`, clique inverte) e tem
+    filtro próprio no "▾" (`OpcoesFiltro`): Nome e Telefone por texto,
+    Cidade/Segmento/Categoria/Prioridade/Status por lista com contagem,
+    Rating por nota mínima. Coluna **CIDADE** nova na tabela (o endereço
+    desceu pra linha de baixo do nome). O select "Ordenar" do topo saiu
+    (virou redundante) e no lugar entrou "✕ Limpar N filtros", que só
+    aparece com filtro ativo. Segmento/Categoria/Status do header escrevem
+    nos MESMOS states dos chips do topo — uma fonte de verdade só.
+  - **PEGADINHA (2026-08-29): `leads` NÃO tinha `city` nem
+    `neighborhood`.** O portal lê `l.neighborhood || l.city` em 4 lugares
+    (por isso todo lead mostrava "—" embaixo do nome) e o antigo Busca AI
+    também mandava as duas no INSERT — o banco recusava com 42703 e o erro
+    era engolido. A migration de importação cria as duas colunas antes de
+    inserir. **Conferir o schema real antes de escrever INSERT em `leads`**
+    (a lista de colunas do código não bate com a tabela).
+
+- **REGRA: TODO horário do QueroUmaCor é BRASÍLIA (2026-08-28).** App e
+  portal exibem sempre `America/Sao_Paulo`, independente do fuso do
+  aparelho/computador. Implementado por patch na RAIZ (não em cada
+  chamada): script inline no `<head>` do `app/layout.tsx` (app) e no
+  `public/portal/index.html` (portal) sobrescreve
+  `Date.prototype.toLocale{Date,Time,}String` injetando
+  `timeZone:'America/Sao_Paulo'` + locale `pt-BR` por default — quem
+  passa `timeZone` explícito continua mandando. Cobre as ~36 chamadas
+  existentes e qualquer tela futura de graça. Datas gravadas no banco
+  seguem em UTC (correto); a conversão é só de exibição.
+
+- **WhatsApp do PORTAL: Evolution API (2026-08-28) — canal ÚNICO até a
+  Meta autenticar.** Evolution API self-hosted (Baileys) em Docker no
+  Render FREE (`https://evolution-api-8arv.onrender.com`, Manager em
+  `/manager`; dorme ~15min → 1ª request pós-sono até 50s; DB no schema
+  `evolution_api` do Supabase). Instância `meu-whatsapp` conectada ao
+  número SECUNDÁRIO +55 11 92072-5935 (o oficial +55 11 95976-5031 fica
+  reservado pra Cloud API da Meta, que ainda NÃO autenticou). Service
+  `lib/api/_services/whatsapp-evo.ts` (config + sendEvolutionText com
+  timeout 55s pro cold start + jidToPhone + parseEvolutionWebhook);
+  webhook `POST /api/whatsapp-evo/webhook?token=<EVOLUTION_WEBHOOK_TOKEN>`
+  (Evolution não assina eventos → segredo na URL; pós-token sempre 200;
+  MESSAGES_UPSERT; fromMe→'out'; grupos ignorados; grava na MESMA
+  `whatsapp_messages` → aparece em /admin/whatsapp). A rota
+  `/api/whatsapp/send` DESPACHA: texto → Evolution quando configurada
+  (senão Meta); template → SÓ Meta (503 amigável sem ela). 4 ENVS no CF
+  Pages (JÁ CONFIGURADAS em 2026-08-28, confirmadas pelo ping):
+  `EVOLUTION_API_URL`,
+  `EVOLUTION_API_KEY` (= AUTHENTICATION_API_KEY do Render, secret),
+  `EVOLUTION_INSTANCE` (opcional, default meu-whatsapp),
+  `EVOLUTION_WEBHOOK_TOKEN` (string aleatória nossa, secret). Depois do
+  deploy: configurar a URL do webhook no Manager (Configurations →
+  Webhook, evento MESSAGES_UPSERT). 21 testes em
+  `__tests__/services/whatsapp-evo.test.ts`.
+  - **CAUSA DO "502 Bad gateway" NO ENVIO (2026-08-28, fechada):** era
+    número ESTRANGEIRO tratado como BR. O envio usava `normalizeBrPhone`,
+    que cola '55' em qualquer coisa com 10-11 dígitos → contato dos EUA
+    `16503154274` (+1 650 315-4274) virava `5516503154274`, inexistente;
+    o Baileys pendurava tentando resolver o JID e o CF matava a function
+    ANTES de qualquer resposta nossa (por isso o 502 cru, com o
+    diagnóstico do edge todo verde). Agora o envio usa
+    `normalizeWhatsAppTarget` (BR local ganha 55; **11 dígitos só é
+    celular BR se o 3º for 9**; 11-15 dígitos em outro formato = DDI
+    estrangeiro, passa VERBATIM). `fmtWaPhone` do portal e o "+" (nova
+    conversa) seguem a mesma regra. NÃO usar `normalizeBrPhone` no
+    caminho da Evolution.
+  - **SQL Wave 45 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-29).
+    Não pedir pra rodar de novo.**
+    (`/migrations/2026-08-28-whatsapp-realtime.sql`) Põe
+    `whatsapp_messages` na publication `supabase_realtime` (+ REPLICA
+    IDENTITY FULL). Sem ela a aba do portal só descobre mensagem nova no
+    poll. Com ela: banco AVISA, mensagem entra em ~1s. Realtime respeita
+    RLS → só `is_portal_admin()` recebe evento. A tela já está pronta
+    (v=20260828m): subscribe em INSERT + poll de 60s como rede de
+    segurança + `setMsgs` só troca o array quando MUDOU (matava a
+    "piscada" do poll) + auto-scroll só se o operador já estava no fim +
+    eco local otimista no envio.
+  - **Diagnóstico**: `GET /api/whatsapp-evo/ping` (admin-only) mede
+    conectividade + apikey + estado da instância a partir do edge e
+    reporta as envs sem vazar segredo. O botão "🔌 Testar conexao" SAIU da
+    tela em 2026-08-29 (era ferramenta do 502 do envio, já resolvido) —
+    a rota continua no ar, chamar direto com token de admin se precisar.
+  - **Render é PAGO desde 2026-08-29 (Starter US$7/mês) — NÃO dorme mais.**
+    O plano free dormia com 15min parado e derrubava a conexão do
+    WhatsApp junto (o pior efeito; a lentidão de ~50s era só o sintoma
+    visível). O keep-alive por cron do GitHub
+    (`.github/workflows/keepalive-evolution.yml`) foi **removido**: além
+    de nunca ter disparado nenhuma execução AGENDADA, o histórico do
+    outro cron `*/10` deste repo (o "Uptime monitor", 1118 runs) mostra
+    o que o agendador do GitHub entrega de verdade — 12 a 36min de
+    intervalo de dia e **45 a 79min de madrugada**, contra os 15min de
+    sono do Render. Ou seja: não resolveria. Não recriar esse workflow.
+    O pré-aquecimento do portal (`aquecerEvolution`, v=20260829b) FICA:
+    agora só cobre os segundos de reinício pós-deploy do Evolution, e
+    `acordarEvolution` virou fallback que praticamente nunca espera
+    (TTL de 5min). Mantido também o `SEND_TIMEOUT_MS` de 25s — sem cold
+    start, sobra folga.
+
+- **Portal: alterar o PERÍODO do PRO (2026-08-29, v=20260829t).** Antes, quem
+  já era PRO só tinha "Remover" — pra esticar ou encurtar o plano era
+  desligar e habilitar de novo (perdendo a data atual de vista). Agora o
+  `ProBadgeCell` tem um ✏️ ao lado do "até DD/MM/AAAA" que reabre o mesmo
+  modal em modo edição. `askProDate(opts)` virou reutilizável
+  (`title`/`desc`/`confirmLabel`/`current`/`paid`): mostra a expiração
+  vigente, já vem com ela preenchida e tem atalhos **+1 mês / +3 / +6 /
+  +1 ano** que somam A PARTIR da data que ainda vale (renovação empilha em
+  cima do que sobrou; se já venceu, conta de hoje). Por baixo é o MESMO
+  `set_pro` com `value:true` + `expiresAt` — nenhuma rota nova, nenhum SQL.
+  Assinatura paga do Mercado Pago (`mp_preapproval_id`) também pode ser
+  editada, mas o modal AVISA que a próxima renovação automática pode
+  sobrescrever a data (o botão "Remover" segue escondido nesse caso, como
+  era).
+
+- **Portal: e-mail sumido ("—") e sem lápis — consertado (2026-08-29,
+  v=20260829e).** Duas coisas diferentes apareciam como um bug só. (1)
+  `profiles.email` é só um ESPELHO: quem se cadastrou por um fluxo que não
+  preenchia a coluna (ou nasceu antes dela) fica com `email` NULL e o
+  portal mostra "—" pra sempre — o login de verdade mora em `auth.users`,
+  invisível pra chave anon do portal. Agora a action `sync_email` de
+  `/api/admin/users` (service `syncEmailFromAuth`) lê o e-mail no GoTrue
+  admin, devolve pro portal e ESPELHA em `profiles.email`; o botão 🔄 na
+  `EmailCell` (só aparece quando o espelho está vazio) dispara isso.
+  Perfil órfão sem login responde 404 com texto explicando (aí é usar o
+  lápis, que cria/troca o login via `set_email`). (2) A coluna de e-mail
+  só existia na aba Clientes: **Pintores** (e Grafiteiros/Funileiros, que
+  reusam `PintoresList`) ganharam a coluna Email, e a lista "Usuarios com
+  acesso ao Portal" trocou nome/e-mail em texto puro por `NameCell` +
+  `EmailCell`. Helper novo `adminUsersData` (irmão do `adminUsers`) devolve
+  o CORPO da resposta — `adminUsers` virou wrapper booleano dele.
+
+- **SQL Wave 44 (2026-08-28) — JÁ EXECUTADA no Supabase (verificado em
+  2026-08-29: `admin_delete_user(p_user_id uuid, p_force_admin boolean)`
+  existe e 0 FKs public→profiles/auth.users com NO ACTION/RESTRICT).
+  Não pedir pra rodar de novo.**
+  (`/migrations/2026-08-28-delete-user-fk-sweep.sql`) CAUSA RAIZ do 502
+  de exclusão comprovada: `quotes_painter_id_fkey` (e possivelmente
+  outras FKs) referencia profiles SEM ON DELETE → conta com orçamento
+  não excluía (era o que derrubava GoTrue/edge). A wave (1) varre
+  dinamicamente TODAS as FKs public→profiles/auth.users com NO ACTION/
+  RESTRICT e recria: coluna nullable → SET NULL, NOT NULL → CASCADE;
+  (2) recria `admin_delete_user(uuid, boolean)` com `p_force_admin` —
+  portal (v=20260828g) manda true após 3ª confirmação pra excluir
+  conta admin/portal ("habilitar para excluir aqui tbm"); a PRÓPRIA
+  conta segue sempre bloqueada. Trocar pra "JÁ EXECUTADO" após rodar.
+
+- **Portal: editar nome, e-mail, cidade, UF e especialidades
+  (2026-08-28, v=20260828h).** Células com lápis igual TagCell:
+  `NameCell` (Pintores + Clientes), `EmailCell` (Clientes), `CityCell` +
+  `StateCell` (Pintores + Clientes), `SpecialtiesCell` (Pintores). As
+  abas Grafiteiros e Funileiros REUTILIZAM o componente `PintoresList`
+  (roleFilter) — edição neles vem de graça. Actions na rota
+  `/api/admin/users`: `set_name` (2-60 chars), `set_email` (PUT no
+  GoTrue admin — troca o LOGIN — + espelho em profiles.email; 409 se em
+  uso; critical no audit_log; perfil órfão ganha só o espelho) e
+  `set_info` (city ≤60 / state UF 2 letras / specialties ≤200; string
+  vazia LIMPA o campo).
+
+- **SQL Wave 43 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-28). Não
+  pedir pra rodar de novo.**
+  (`/migrations/2026-08-28-admin-delete-user-rpc.sql`) Exclusão
+  permanente de conta pelo portal: a rota `/api/admin/users`
+  (action delete_user) morria com a página "502 Bad Gateway" do PRÓPRIO
+  Cloudflare (corpo capturado no relatório do portal comprovou) — o
+  edge era derrubado durante a chamada HTTP ao GoTrue. Solução: RPC
+  `admin_delete_user(uuid)` SECURITY DEFINER que roda a cascata inteira
+  dentro do Postgres (guardas: is_portal_admin, nunca a própria conta,
+  nunca admin/portal — colunas via to_jsonb; audit_log antes do
+  delete). O portal (v=20260828f) chama a RPC direto via supabase-js;
+  a rota edge segue existindo pras outras actions (set_tag/set_pro/…).
+
+- **SQL Wave 42 (2026-08-28) — JÁ EXECUTADA no Supabase (2026-08-28,
+  verificação retornou security_definer=true pras 2 RPCs). Não pedir
+  pra rodar de novo.**
+  (`/migrations/2026-08-28-quotes-insert-fix.sql`) Fix do "new row
+  violates row-level security policy for table quotes" ao Gravar/Enviar
+  orçamento: as RPCs `create_painter_draft` e `create_quote_from_post`
+  só existiam no `supabase_init.sql` (nenhuma wave incremental as criou
+  no banco vivo na forma SECURITY DEFINER) e as policies de INSERT
+  direto em `quotes` foram derrubadas no hardening → o INSERT da função
+  viva batia na RLS. A wave derruba TODAS as overloads vivas, recria as
+  2 RPCs canônicas (SECURITY DEFINER + search_path), passa a gravar
+  `post_id` (a versão do init recebia `p_post_id` e NÃO gravava — o
+  filtro de leads comprados nunca casava) e adiciona policy de INSERT
+  fallback (cliente = quote própria; pintor = só rascunho sem
+  client_id).
+
+- **SQL Waves 40 e 41 (2026-08-28) — JÁ EXECUTADAS no Supabase (2026-08-28). Não pedir pra rodar de novo.**
+  - **Wave 40** (`/migrations/2026-08-28-profile-counters-triggers.sql`):
+    os contadores `followers_count`/`following_count`/`posts_count` de
+    `profiles` NUNCA tiveram trigger de manutenção no repo (a migration
+    2026-06-14 só recriou a view assumindo que existiam) → o perfil
+    mostrava "0 seguindo" com dezenas de follows reais. Cria os triggers
+    (SECURITY DEFINER — sem isso a RLS barra o UPDATE no profile do OUTRO
+    usuário) + BACKFILL a partir de follows/posts.
+  - **Wave 41** (`/migrations/2026-08-28-exports-bucket.sql`): bucket
+    `exports` (público, 10MB, só application/pdf, escrita no próprio
+    path). No WebView do wrapper NENHUM download local funciona (share de
+    arquivo ausente; blob: o nativo não lê; data: o DownloadManager
+    recusa) — o app sobe o PDF pro bucket e entrega o LINK público com
+    `?download=` (quotePdf.uploadPdfForLink). Sem o bucket, cai no
+    fallback data URL (que no wrapper não salva).
+
+- **Respostas automáticas do chat — consertadas, SQL Wave 39 JÁ EXECUTADO
+  no Supabase (2026-08-28).** Dois bugs: (1) `auto_responses` nasceu SEM unique em
+  `(user_id, trigger_type)` → o upsert `onConflict` do AutoRespostaSheet
+  falhava com 42P10 em TODO salvamento, e o código não conferia o `error`
+  do supabase-js (não lança!) → toast "salvas!" mentiroso, toggle voltava
+  desligado; agora o save é 1 upsert em lote com erro conferido. (2) O
+  disparo rodava no NAVEGADOR do pintor (useChatRealtime.maybeAutoReply)
+  — só respondia com o app aberto; o listener foi REMOVIDO e o disparo
+  virou trigger no banco. **Wave 39**
+  (`/migrations/2026-08-28-auto-responses-fix.sql`): limpa duplicatas,
+  cria a UNIQUE e o trigger `trg_auto_reply_on_message` (responde mesmo
+  com app fechado; anti-loop pelo marcador "🤖 Resposta automática:";
+  máx 1 por conversa/12h; EXCEPTION WHEN OTHERS igual Wave 36). **Wave 39 rodada em 2026-08-28 — não pedir pra rodar de
+  novo.** Follow-up (3 dias) segue não implementado (precisa de
+  pg_cron; só o slot new_message dispara).
+
+- **Pull-to-refresh nativo do AAB (WebIntoApp) — neutralizado pelo lado web
+  (2026-08-28).** O AAB da Play Store envolve a WebView num
+  `SwipeRefreshLayout`; ele arma o reload quando `canChildScrollUp()` é
+  false, e como o app é shell 100dvh + overflow hidden (só o `<main>` rola),
+  o documento vivia em scrollY 0 → reload armado na tela INTEIRA (arrasto
+  rápido pra baixo = círculo de recarregar, em qualquer posição). CSS/JS não
+  alcançam o toque nativo, mas o ESTADO consultado sim. Defesa em 3
+  camadas, em QUALQUER Android (gate largado em 2026-08-28 de "UA com
+  token wv" pra "/Android/i" — o wrapper pode customizar o UA e o pin
+  ficava mudo; no Chrome/PWA o pin é inofensivo e ainda mata o
+  pull-to-refresh do próprio Chrome; iOS/desktop são no-op): (1) script
+  inline no `<head>` do layout.tsx pina ANTES da hidratação (senão o boot
+  ficava desprotegido); (2) hook `useAndroidWebViewScrollPin` (montado no
+  RootLayout via `<AndroidWebViewScrollPin>`) estica o body em 4px — em
+  `dvh` com fallback `vh`, senão a barra de URL do Chrome ganharia ~60px
+  de scroll real — e PINA o documento em `scrollY = 2`, com re-pin em
+  scroll/resize/pageshow/visibilitychange (retomada do WebView); (3)
+  guarda de dreno: touchmove no document cancela arrasto descendente que
+  nasce fora de qualquer scroller (TopNav, /login) — sem ela o gesto
+  drenava o pin 2→0 e re-armava o reload no meio do movimento. Com o
+  documento fora do topo, o nativo responde "pode subir" e o gesto nunca
+  arma. **Constantes espelhadas** entre o hook e o script inline do
+  layout — mudou um, mudar o outro. **Diagnóstico `scrollpin-diag`
+  REMOVIDO em 2026-08-30** — cumpriu a missão: os pings de produção
+  provaram que o UA do wrapper é `Dalvik/2.1.0 (Linux; U; Android 16;
+  SM-...)` (sem token `wv`, sem "Chrome") → o gate `/Android/i` pega o
+  app instalado; qualquer gate estrito de WebView ficaria mudo nele. O
+  filtro segue no `/admin/errors` pras linhas históricas. AAB novo com
+  "Pull to Refresh" desmarcado no painel foi publicado em 2026-08-30.
+  Testes em `__tests__/hooks/useAndroidWebViewScrollPin.test.tsx`.
 
 - **WhatsApp Cloud API — LIVE ponta a ponta (2026-08-25).** O número
   oficial (+55 11 95976-5031) está na Cloud API da Meta (WABA
@@ -117,6 +1193,17 @@
     **`CACHE_VERSION` foi pra `quc-v3` — é o bump que limpa os caches já
     envenenados de quem está preso hoje** (o `activate` apaga toda chave fora
     da versão). Bumpar de novo em qualquer mudança de estratégia do SW.
+    **v5 (2026-08-28): 5xx cru NUNCA mais chega na tela em navegação de
+    documento.** O v4 preferia o cache mas, sem cópia boa (comum: SPA quase
+    não gera navegação de documento), devolvia o 500 cru — era a tela
+    "500 | Server Error" morta ao reabrir a tela do celular com o app aberto
+    (renderer morto → re-navegação → soluço 5xx do edge). Agora o último
+    recurso pra 5xx é a página "Reconectando…" com AUTO-RETRY (backoff
+    2.5s+n·1.5s, teto 6/2min via sessionStorage, reload também no evento
+    `online`) — o app volta sozinho sem matar o processo. RSC segue
+    recebendo status cru (router faz hard-nav). Incidente 5xx pós-retry
+    loga `type='sw-nav-5xx'` no /admin/errors (best-effort). O ping
+    `scrollpin-diag` ganhou o campo `sw=` (SW controlando a página?).
   - **Sem retentativa.** Navegação agora repete UMA vez (600ms) em falha de
     rede e em 5xx. Cobre a retomada do WebView e cold start ruim do edge.
     `install` também deixou de ser all-or-nothing (`addAll` → puts tolerantes):
@@ -185,7 +1272,8 @@
   este igual ao do CF); (4) cada aparelho toca "Ativar notificações" no
   perfil. **Sem a env pública o `PushOptIn` retorna null** — é por isso que a
   opção "não aparece" no celular.
-  - **SQL Wave 36 — PENDENTE.** O gatilho de push escuta `notifications`, e
+  - **SQL Wave 36 — JÁ EXECUTADA (verificado em 2026-08-29: trigger
+    `trg_notify_on_message` existe e `notif_actor_label` também).** O gatilho de push escuta `notifications`, e
     só `likes`/`comments` criavam linha lá: **mensagem de chat não gerava
     notificação nenhuma**, então nunca viraria push. Migration em
     `/migrations/2026-08-22-notify-on-message.sql` cria
@@ -242,7 +1330,7 @@
     ou cria a conversa direta com a loja. Antes só existia a ABA "Cali
     Colors", que FILTRA conversas existentes — quem nunca tinha falado com a
     loja precisava adivinhar o nome dela na busca do "+".
-  - **SQL Wave 35 — PENDENTE de rodar.** A policy de SELECT em `messages`
+  - **SQL Wave 35 — JÁ EXECUTADA no Supabase (2026-08-29).** A policy de SELECT em `messages`
     liberava só sender/receiver, e a loja responde escolhendo UM destinatário
     → o terceiro não via a mensagem. A policy nova acrescenta participante
     ESTRUTURAL: `POSITION(auth.uid()::text IN conversation_id) > 0`. **Não usar

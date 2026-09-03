@@ -32,7 +32,7 @@ manter atualizado.
 bubblewrap init --manifest=https://queroumacor.com.br/manifest.webmanifest
 ```
 
-- Quando perguntar `Application ID`, confirme `br.com.queroumacor.app`.
+- Quando perguntar `Application ID`, confirme `com.calicolors.queroumacor`.
 - Aceite os defaults exceto onde diverge de `twa-manifest.json` deste repo
   (cores, ícones, shortcuts — copiar manualmente dos valores do JSON).
 
@@ -94,7 +94,7 @@ bubblewrap build
 
 3. **Os 2 primeiros assetlinks também precisam ter o `package_name`
    trocado** de `br.com.queroumacor` (placeholder atual, NÃO é o bundle
-   ID oficial) pra `br.com.queroumacor.app`. Se ainda não foi feito,
+   ID oficial) pra `com.calicolors.queroumacor`. Se ainda não foi feito,
    esse PR é a hora.
 
 4. Deploy `main` → Cloudflare Pages publica → aguarde ~90s.
@@ -113,7 +113,7 @@ bubblewrap build
 > **2 valores placeholder que vão bloquear o app de abrir como TWA**:
 >
 > 1. `package_name: br.com.queroumacor` (errado — o bundle ID oficial é
->    `br.com.queroumacor.app`)
+>    `com.calicolors.queroumacor`)
 > 2. `sha256_cert_fingerprints[0]` está com um hash placeholder
 >    (`D5:0E:E0:09:...:39`) que não corresponde a nenhuma keystore real
 >
@@ -142,7 +142,7 @@ Resposta esperada:
       "relation": "delegate_permission/common.handle_all_urls",
       "target": {
         "androidApp": {
-          "packageName": "br.com.queroumacor.app",
+          "packageName": "com.calicolors.queroumacor",
           "certificate": {
             "sha256Fingerprint": "XX:XX:..."
           }
@@ -274,7 +274,7 @@ repo (PWA Next.js) não roda Bubblewrap.
 - Digital Asset Links não validou. Re-verifique:
   - `assetlinks.json` retorna 200 + JSON válido em
     `https://queroumacor.com.br/.well-known/assetlinks.json`
-  - `package_name` no JSON = `br.com.queroumacor.app`
+  - `package_name` no JSON = `com.calicolors.queroumacor`
   - Fingerprint no JSON = `keytool -list` output (case insensitive,
     com `:` separadores)
 - Aguarde 24h pra Chrome cachear de novo.
@@ -329,10 +329,60 @@ Pro nativo o documento está no topo o tempo todo, então o gesto de
 recarregar fica armado em toda a tela. Arrasto lento a WebView consome
 primeiro; arrasto rápido passa do touch slop e o nativo intercepta antes.
 
-**Nada de CSS ou JS resolve** — o `SwipeRefreshLayout` intercepta o toque
+**Nada de CSS ou JS resolve o TOQUE** — o `SwipeRefreshLayout` intercepta
 antes de a WebView receber. O lado web já faz a sua parte para navegador
 comum (`overscroll-behavior-y: contain` + o guard `useNoPullToRefresh`), e
 é por isso que no Chrome não acontece.
+
+**MAS o ESTADO de scroll do documento o nativo consulta** — e isso o web
+controla. Desde 2026-08-28 o app "pina" o documento em `scrollY = 1`
+dentro do WebView Android (hook `useAndroidWebViewScrollPin`, montado no
+RootLayout via `<AndroidWebViewScrollPin>`): com o documento fora do topo,
+`canChildScrollUp()` responde "sim" e o gesto nunca arma. Chega via deploy
+web em todos os aparelhos já instalados, sem regenerar AAB. Desligar o
+"Pull to Refresh" no painel do WebIntoApp continua sendo a correção de
+raiz — fazer no próximo rebuild.
+
+### Galeria não abre: `onShowFileChooser` (2026-08-29)
+
+Sintoma: tocar em "Trocar foto" (perfil) ou "Selecionar foto" (publicar /
+portfólio) **não faz nada**. Sem erro, sem log — o `<input type="file">`
+simplesmente não abre nada. Aconteceu com um pintor real, que ficou sem
+foto e sem portfólio até descobrirmos que ele usava o app instalado.
+
+A WebView do Android **não abre seletor de arquivo sozinha**: o app
+hospedeiro precisa implementar `WebChromeClient.onShowFileChooser` e
+declarar as permissões. Se o WebIntoApp tiver a opção de upload de
+arquivo / câmera, **ligar**; se o build passar a ser próprio:
+
+```kotlin
+webView.webChromeClient = object : WebChromeClient() {
+  override fun onShowFileChooser(
+    view: WebView?, callback: ValueCallback<Array<Uri>>?,
+    params: FileChooserParams?
+  ): Boolean {
+    fileCallback = callback
+    startActivityForResult(params!!.createIntent(), RC_FILE)
+    return true
+  }
+}
+```
+
+Pelo lado web (no ar desde 30/08), a falha deixou de ser um beco:
+`lib/utils/filePickerWatch.ts` percebe que a galeria não abriu (a página
+não perdeu o foco) e o app abre o `components/GaleriaBloqueadaSheet` com
+duas saídas — **📷 tirar foto na hora** (`components/CameraCapture.tsx`:
+`getUserMedia` + canvas geram o File sem passar pelo seletor) e **🌐 abrir
+no navegador** (URL `intent:`, que é o que a WebView entende como "sair pro
+Chrome"). O botão de câmera também fica visível o tempo todo ao lado de
+"Trocar foto", do dropzone de publicar e no cadastro.
+
+Atenção: a câmera na WebView depende de o wrapper responder ao
+`WebChromeClient.onPermissionRequest` (`VIDEO_CAPTURE`) e declarar
+`android.permission.CAMERA` — no painel do WebIntoApp, ligar *Camera
+access* junto com *File upload*. A diferença é que a falha de câmera
+**aparece** (a promessa rejeita, vira `camera-fail` no `/admin/errors`),
+enquanto a da galeria é silêncio.
 
 **Correção**, no projeto Android:
 
@@ -371,7 +421,7 @@ interno), não vale só por isso.
 - [ ] SHA-256 real em `assetlinks.json` (raiz + `next-app/public/`) +
       `twa-manifest.json`
 - [ ] `package_name` em ambos `assetlinks.json` está
-      `br.com.queroumacor.app` (não o placeholder
+      `com.calicolors.queroumacor` (não o placeholder
       `br.com.queroumacor`)
 - [ ] Digital Asset Links validador retorna statement válido
 - [ ] Privacy policy + delete account URL respondem 200

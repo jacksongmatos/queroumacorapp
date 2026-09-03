@@ -2,10 +2,11 @@
 // existente) que cobre list/save/softDelete/undo.
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotes } from '@/lib/hooks/useNotes';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
+import { isAndroidWebView } from '@/lib/hooks/useAndroidWebViewScrollPin';
 import { transcribeAudio } from '@/lib/services/audioStt';
 import { canSeeProFeature } from '@/lib/policies';
 import { ListSkeleton } from '@/components/Skeletons';
@@ -57,27 +58,63 @@ export function NotesView() {
     }
   }
 
+  // Transcrição compartilhada entre os DOIS caminhos de captura: o
+  // MediaRecorder da página e o gravador nativo (input file capture).
+  async function handleTranscribeBlob(blob: Blob) {
+    setTranscribing(true);
+    showToast('Transcrevendo áudio…', 'info');
+    try {
+      const text = await transcribeAudio(blob);
+      const trimmed = (text || '').trim();
+      if (trimmed) {
+        setDraft((prev) => (prev ? prev + ' ' + trimmed : trimmed));
+        showToast('Transcrição pronta!', 'success');
+      } else {
+        showToast('Não consegui transcrever esse áudio', 'error');
+      }
+    } catch (e) {
+      showToast((e as Error).message || 'Erro ao transcrever', 'error');
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  // Fallback do wrapper Android: a WebView do app da loja não recebe a
+  // permissão de microfone (getUserMedia falha ou nem existe), então lá o
+  // botão abre o GRAVADOR NATIVO do celular via seletor de arquivo com
+  // `capture` — mesmo canal que o app já usa pra subir fotos.
+  const audioFileRef = useRef<HTMLInputElement | null>(null);
+  const [micFellBack, setMicFellBack] = useState(false);
+
+  function openNativeRecorder() {
+    setMicFellBack(true);
+    audioFileRef.current?.click();
+  }
+
   // Gravação de áudio → transcrição (vanilla notes.js iniciarGravacaoNota).
   // Pro user → gravar → /api/transcribe → texto vai no draft (append).
   const rec = useAudioRecording({
     onStop: async (blob) => {
       if (!blob) return;
-      setTranscribing(true);
-      showToast('Transcrevendo áudio…', 'info');
-      try {
-        const text = await transcribeAudio(blob);
-        const trimmed = (text || '').trim();
-        if (trimmed) {
-          setDraft((prev) => (prev ? prev + ' ' + trimmed : trimmed));
-          showToast('Transcrição pronta!', 'success');
-        } else {
-          showToast('Não consegui transcrever esse áudio', 'error');
-        }
-      } catch (e) {
-        showToast((e as Error).message || 'Erro ao transcrever', 'error');
-      } finally {
-        setTranscribing(false);
+      await handleTranscribeBlob(blob);
+    },
+    // SEM este handler o hook só fazia console.warn: no celular, negar (ou
+    // nem receber) a permissão de microfone deixava o botão "sem fazer
+    // nada". Agora o motivo aparece na tela, com o caminho da correção.
+    onError: (err) => {
+      const name = (err as Error & { name?: string }).name || '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        showToast('Sem permissão de microfone aqui — abrindo o gravador do celular.', 'info');
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        showToast('Microfone da página indisponível — abrindo o gravador do celular.', 'info');
+      } else if (name === 'NotReadableError' || name === 'AbortError') {
+        showToast('O microfone está ocupado — tente pelo gravador do celular.', 'info');
+      } else {
+        showToast('Não consegui abrir o microfone daqui — abrindo o gravador do celular.', 'info');
       }
+      // Qualquer falha do getUserMedia cai pro gravador nativo: no wrapper
+      // a permissão nunca chega, e fora dele ainda dá um caminho de saída.
+      openNativeRecorder();
     },
   });
 
@@ -88,6 +125,16 @@ export function NotesView() {
       // só mostrava um toast — parecia que o botão "não fazia nada".
       showToast('Gravar e transcrever áudio é um recurso PRO. Troque seus pontos pelo plano PRO.', 'info');
       router.push('/pro');
+      return;
+    }
+    // Wrapper Android (WebView) ou browser sem MediaRecorder: nem tenta o
+    // getUserMedia — vai direto pro gravador nativo do celular.
+    if (
+      rec.unsupported ||
+      micFellBack ||
+      (typeof navigator !== 'undefined' && isAndroidWebView(navigator.userAgent || ''))
+    ) {
+      openNativeRecorder();
       return;
     }
     if (rec.recording) {
@@ -197,7 +244,9 @@ export function NotesView() {
           ? 'Transcrevendo…'
           : rec.recording
             ? `🔴 Gravando · ${rec.elapsedSec}s · Parar`
-            : '🎤 Gravar áudio e transcrever'}
+            : micFellBack
+              ? '🎤 Gravar com o gravador do celular'
+              : '🎤 Gravar áudio e transcrever'}
         {!isPro ? (
           <span
             className="text-white font-extrabold"
@@ -213,6 +262,25 @@ export function NotesView() {
           </span>
         ) : null}
       </button>
+
+      {/* Canal do gravador NATIVO (fallback do wrapper): `capture` faz o
+          Android abrir o gravador de voz do sistema; o arquivo volta aqui
+          e segue pro mesmo /api/transcribe. Escondido — quem abre é o
+          botão de microfone acima. */}
+      <input
+        ref={audioFileRef}
+        type="file"
+        accept="audio/*"
+        capture
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void handleTranscribeBlob(file);
+        }}
+      />
 
       <button
         type="button"

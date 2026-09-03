@@ -23,7 +23,7 @@ TestFlight e App Store Connect. Cobre **C2 (wrapper Capacitor)** e
 | CocoaPods | `sudo gem install cocoapods` |
 | Node.js 20+ | `nvm install 20` |
 | Conta Apple Developer ($99/ano) | https://developer.apple.com/programs/ |
-| Bundle ID registrado | Apple Developer → Certificates, Identifiers & Profiles → Identifiers → `+` → App IDs → Bundle ID `br.com.queroumacor.app`. Habilitar **Push Notifications** capability. |
+| Bundle ID registrado | Apple Developer → Certificates, Identifiers & Profiles → Identifiers → `+` → App IDs → Bundle ID `com.calicolors.queroumacor`. Habilitar **Push Notifications** capability. |
 | APNs Key (.p8) | Apple Developer → Keys → `+` → "Apple Push Notifications service (APNs)". Baixar o `.p8` UMA VEZ e guardar — não dá pra rebaixar. Anotar o Key ID e o Team ID. |
 
 ---
@@ -105,7 +105,7 @@ npx @capacitor/assets generate \
    ```
 2. No Xcode → selecione o target **App** → **Signing & Capabilities**.
 3. **Team:** selecione o Apple Developer Team da Cali Colors.
-4. **Bundle Identifier:** confirme que é `br.com.queroumacor.app`.
+4. **Bundle Identifier:** confirme que é `com.calicolors.queroumacor`.
 5. Clique **+ Capability** e adicione:
    - **Push Notifications**
    - **Background Modes** → habilite **Remote notifications**
@@ -114,7 +114,7 @@ npx @capacitor/assets generate \
    - `APNS_TEAM_ID`
    - `APNS_KEY_ID`
    - `APNS_PRIVATE_KEY` (conteúdo do `.p8` em formato PEM)
-   - `APNS_BUNDLE_ID=br.com.queroumacor.app`
+   - `APNS_BUNDLE_ID=com.calicolors.queroumacor`
    - `APNS_PRODUCTION=true` (uma vez em TestFlight)
 
 ---
@@ -197,7 +197,7 @@ Pra integrar Apple IAP da subscription PRO (R$ 9,90/mês), seguir o
 documento **`docs/BILLING_STRATEGY.md`** (sendo escrito em paralelo).
 Esse guia AQUI cobre só wrapper + Privacy Manifest. StoreKit envolve:
 
-- Criar produto `br.com.queroumacor.app.pro.monthly` em App Store
+- Criar produto `com.calicolors.queroumacor.pro.monthly` em App Store
   Connect → Subscriptions
 - Subscription Group: "PRO QueroUmaCor"
 - Plugin `@capacitor-community/in-app-purchases` ou nativo

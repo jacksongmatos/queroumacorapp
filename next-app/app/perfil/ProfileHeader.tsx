@@ -164,8 +164,18 @@ export function ProfileHeader() {
 
           <div className="flex-1 flex items-center justify-around">
             <StatBlock value={stats.posts} label="posts" />
-            <StatBlock value={stats.followers} label="seguidores" />
-            <StatBlock value={stats.following} label="seguindo" />
+            {/* Seguidores/seguindo abrem a lista (estilo IG) — antes eram
+                número morto: não dava pra ver QUEM segue. */}
+            <StatBlock
+              value={stats.followers}
+              label="seguidores"
+              href={profile?.id ? `/perfil/${profile.id}/conexoes?tab=seguidores` : undefined}
+            />
+            <StatBlock
+              value={stats.following}
+              label="seguindo"
+              href={profile?.id ? `/perfil/${profile.id}/conexoes?tab=seguindo` : undefined}
+            />
           </div>
         </div>
 
@@ -350,9 +360,18 @@ export function ProfileHeader() {
   );
 }
 
-function StatBlock({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="text-center">
+function StatBlock({
+  value,
+  label,
+  href,
+}: {
+  value: number;
+  label: string;
+  /** Quando presente, o bloco vira link pra lista correspondente. */
+  href?: string;
+}) {
+  const content = (
+    <>
       <div
         className="text-2xl font-extrabold leading-none"
         style={{ fontFamily: 'var(--font-display)' }}
@@ -360,7 +379,13 @@ function StatBlock({ value, label }: { value: number; label: string }) {
         {value}
       </div>
       <div className="text-xs text-white/65 mt-1">{label}</div>
-    </div>
+    </>
+  );
+  if (!href) return <div className="text-center">{content}</div>;
+  return (
+    <Link href={href} className="text-center" aria-label={`Ver ${label}`}>
+      {content}
+    </Link>
   );
 }
 

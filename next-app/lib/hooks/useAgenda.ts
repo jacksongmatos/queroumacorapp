@@ -34,7 +34,7 @@ import {
   type OptimizeDayResult,
 } from '@/lib/services/agenda';
 import type { Job, JobInput, JobStatus } from '@/lib/types';
-import { agYmd } from '@/lib/utils';
+import { ymdBrt } from '@/lib/utils';
 
 export interface UseAgendaResult {
   // Dados
@@ -86,7 +86,7 @@ export function useAgenda(): UseAgendaResult {
   // Date a cada render (só na montagem).
   const [{ year, month }, setYm] = useState(() => ymOf(new Date()));
   const [selectedDay, setSelectedDay] = useState<string>(() =>
-    agYmd(new Date())
+    ymdBrt()
   );
 
   // queryKey carrega painterId + ano + mês pra isolar cache por sessão E por

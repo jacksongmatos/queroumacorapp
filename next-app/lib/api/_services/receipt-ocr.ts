@@ -4,6 +4,7 @@
 
 import { ServiceError } from '../security';
 import { imageToDataUrl } from '../_ai';
+import { getRuntimeEnv } from '../env';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 30000;
@@ -69,7 +70,7 @@ export async function ocrReceipt(args: {
     );
   }
 
-  const key = process.env.OPENAI_API_KEY;
+  const key = getRuntimeEnv('OPENAI_API_KEY');
   try {
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

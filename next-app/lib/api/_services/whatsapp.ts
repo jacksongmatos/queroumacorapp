@@ -209,6 +209,9 @@ export async function sendWhatsAppTemplate(opts: {
 // ─── Persistência (SQL Wave 38: tabela whatsapp_messages) ───────────────────
 
 export interface PersistWhatsAppMessageInput {
+  /** De onde saiu a mensagem 'out': portal (gente), ia (automática) ou
+   *  celular (digitada no aparelho — só o webhook enxerga essa). */
+  origin?: 'portal' | 'ia' | 'celular' | null;
   direction: 'in' | 'out';
   waId: string;
   profileName?: string;
@@ -221,6 +224,11 @@ export interface PersistWhatsAppMessageInput {
   sentBy?: string;
   /** Epoch em SEGUNDOS como a Meta manda (string). */
   waTimestamp?: string;
+  /** Caminho do arquivo no bucket `whatsapp-media` (foto/áudio/vídeo). */
+  mediaUrl?: string | null;
+  mediaMime?: string | null;
+  /** Texto do áudio (Whisper) — o que a IA lê no lugar do "[áudio]". */
+  transcript?: string | null;
 }
 
 const PERSIST_TIMEOUT_MS = 8000;
@@ -254,7 +262,14 @@ export async function persistWhatsAppMessage(
       body: input.body || null,
       template: input.template || null,
       sent_by: input.sentBy || null,
+      // Origem do envio (2026-08-30): 'portal' | 'ia' | 'celular'. É o que
+      // permite marcar no portal quem está tocando cada conversa — antes
+      // IA e celular eram indistinguíveis (os dois gravavam sent_by NULL).
+      ...(input.origin ? { origin: input.origin } : {}),
       wa_timestamp: waTimestamp,
+      ...(input.mediaUrl ? { media_url: input.mediaUrl } : {}),
+      ...(input.mediaMime ? { media_mime: input.mediaMime } : {}),
+      ...(input.transcript ? { transcript: input.transcript } : {}),
     };
 
     const res = await fetch(

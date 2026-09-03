@@ -10,11 +10,12 @@ import {
 } from '@/lib/api/security';
 import { generateLogo } from '@/lib/api/_services/generate-logo';
 import { persistBrandLogos } from '@/lib/api/_services/brand-logos';
+import { getRuntimeEnv } from '../../../lib/api/env';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getRuntimeEnv('OPENAI_API_KEY')) {
     return NextResponse.json(
       { error: 'OPENAI_API_KEY não configurada' },
       { status: 503 }

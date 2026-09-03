@@ -57,6 +57,7 @@ import {
   is3WayConvId,
   strip3WayPrefix,
 } from '../../lib/services/chat';
+import { resolveCalicolorsUserId } from '../../lib/services/chat-conversations';
 import { NetworkError, ValidationError } from '../../lib/errors';
 
 // ─── Fake supabase chainable ───────────────────────────────────────────────
@@ -79,6 +80,7 @@ interface Spies {
   eqsByTable: Record<string, Array<{ col: string; val: unknown }>>;
   isByTable: Record<string, Array<{ col: string; val: unknown }>>;
   insByTable: Record<string, Array<{ col: string; vals: unknown[] }>>;
+  orsByTable: Record<string, string[]>;
   rpcCalls: Array<{ fn: string }>;
   uploads: Array<{ bucket: string; path: string; mime?: string }>;
   publicUrls: string[];
@@ -104,6 +106,7 @@ function makeFakeClient(
     eqsByTable: {},
     isByTable: {},
     insByTable: {},
+    orsByTable: {},
     rpcCalls: [],
     uploads: [],
     publicUrls: [],
@@ -134,7 +137,10 @@ function makeFakeClient(
     };
     chain.neq = () => chain;
     chain.ilike = () => chain;
-    chain.or = () => chain;
+    chain.or = (filter: string) => {
+      (spies.orsByTable[table] ??= []).push(filter);
+      return chain;
+    };
     chain.in = (col: string, vals: unknown[]) => {
       (spies.insByTable[table] ??= []).push({ col, vals });
       return chain;
@@ -674,12 +680,11 @@ describe('searchUsers', () => {
     expect(ctl.spies.fromCalls).toHaveLength(0);
   });
 
-  it('filtra por nome e tag NO SERVIDOR (or/ilike) e mapeia o resultado', async () => {
-    // O filtro saiu do client: searchUsers monta `.or(name.ilike.%q%,
-    // tag.ilike.%q%)` e confia no PostgREST. O teste antigo devolvia 3 rows
-    // (com um Bob que não casa) e esperava filtragem client-side — ficou
-    // vermelho na baseline até a auditoria 2026-08-26 detectar o drift.
-    // Aqui o mock devolve o que o PostgREST devolveria pro filtro.
+  it('filtra por nome (case-insensitive) e por tag', async () => {
+    // Quem casa nome/tag é o PostgREST (`or` com dois ilike), não o cliente —
+    // então o que se prova aqui é o FILTRO enviado, e que as linhas que o
+    // banco devolveu passam adiante. O fake não emula `or`: se a fixture
+    // trouxesse o Bob, ele voltaria junto (foi o que quebrou este teste).
     const ctl = makeFakeClient({
       profiles_public: [
         {
@@ -691,8 +696,12 @@ describe('searchUsers', () => {
       ],
     });
     __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
-    const out = await searchUsers('alice');
+    const out = await searchUsers('ALICE');
     expect(out.map((u) => u.id).sort()).toEqual(['1', '3']);
+    // ilike já é case-insensitive; a query desce em minúsculas e com % dos dois lados.
+    expect(ctl.spies.orsByTable.profiles_public?.[0]).toBe(
+      'name.ilike.%alice%,tag.ilike.%alice%',
+    );
   });
 
   it('exclui IDs informados em excludeIds (e o próprio user em geral)', async () => {
@@ -804,3 +813,36 @@ describe('undoDeleteMessage', () => {
 
 // silenciar warning sobre vi nÃo usado se for o caso (mas estamos usando).
 void vi;
+
+// P3 (01/09/2026): o fallback era `.ilike('name', '%cali%')` com `.limit(1)`
+// sem `order` — casava com Calixto, Micaeli, Carlos Calisto, e escolhia de
+// forma não-determinística. Como este id abre a conversa "🎨 Loja", dava pra
+// mandar pra um estranho o que a pessoa achava estar mandando pra loja.
+// Busca aproximada NUNCA pode decidir destinatário de mensagem.
+describe('resolveCalicolorsUserId — nunca por busca aproximada', () => {
+  it('não achando a loja, devolve null em vez de chutar um perfil parecido', async () => {
+    const ctl = makeFakeClient({ profiles_public: [{}, {}, {}, {}] });
+    __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(resolveCalicolorsUserId()).resolves.toBeNull();
+  });
+
+  it('toda busca da loja é por igualdade exata (tag ou nome)', async () => {
+    const ctl = makeFakeClient({ profiles_public: [{}, {}, {}, {}] });
+    __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
+    await resolveCalicolorsUserId();
+    const filtros = ctl.spies.eqsByTable['profiles_public'] ?? [];
+    expect(filtros.length).toBeGreaterThan(0);
+    for (const f of filtros) expect(['tag', 'name']).toContain(f.col);
+  });
+
+  it('erro do Supabase não é tratado como "loja não existe"', async () => {
+    const ctl = makeFakeClient({
+      profiles_public: [{ error: { message: 'rls bloqueou' } }],
+    });
+    __setSupabaseForTests(ctl.client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(resolveCalicolorsUserId()).resolves.toBeNull();
+    // Uma consulta só: falhou, parou. Antes seguia pro fallback aproximado
+    // como se a loja simplesmente não tivesse conta.
+    expect((ctl.spies.eqsByTable['profiles_public'] ?? []).length).toBe(1);
+  });
+});

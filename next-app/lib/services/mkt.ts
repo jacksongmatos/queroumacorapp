@@ -295,9 +295,11 @@ export const MKT_MENU_LABEL: Record<string, string> = {
 };
 
 /**
- * Classifica um produto numa categoria do menu pelo nome. Evoluiu do vanilla:
- * exceções atuais — vonixx → estetica_automotiva, metalatex/novacor → tintas,
- * esmalte sintético não-automotivo → madeiras_metais.
+ * Classifica um produto numa categoria do menu por código e nome. Nasceu do
+ * vanilla, mas já DIVERGIU dele onde o catálogo pedia: Vonixx virou
+ * `estetica_automotiva` (menu que o vanilla não tinha) e esmalte sintético
+ * não-automotivo virou `madeiras_metais`. Metalatex/Novacor seguem em
+ * `tintas`. As regras abaixo mandam — este comentário só resume.
  */
 export function mktClassify(p: Pick<Product, 'name' | 'code'> | null | undefined): MktCategory {
   const n = ' ' + String((p && p.name) || '').toLowerCase() + ' ';
@@ -1292,10 +1294,16 @@ export function changeItemQty(items: CartItem[], id: string, delta: number): Car
  * Soma do total do carrinho em R$. Determinístico, usado no hook + checkout.
  */
 export function cartTotal(items: CartItem[]): number {
-  return items.reduce(
-    (sum, item) => sum + Number(item.price || 0) * (item.qty || 1),
+  // A4 (01/09/2026): somar float direto deixava resíduo — 89,90 × 3 dava
+  // 269.70000000000005, e esse número ia para o pedido. A tela arredondava
+  // na exibição, então ninguém via; o valor gravado é que ficava sujo.
+  // Somar em CENTAVOS (inteiros) e dividir no fim mantém o total exato.
+  const centavos = items.reduce(
+    (soma, item) =>
+      soma + Math.round(Number(item.price || 0) * 100) * (Number(item.qty) || 1),
     0
   );
+  return centavos / 100;
 }
 
 /**

@@ -24,10 +24,16 @@ import { getRuntimeEnv, getSupabaseServiceKey } from './env';
 import { isAdminEmail } from './admin-config';
 export { isAdminEmail };
 
-// Boot-time check: roda 1x por cold-start de edge runtime. Em produção
-// throws se faltar env crítica (Supabase URL/anon/service-role) — preferível
-// a fail-open silencioso. Em dev/staging é no-op.
-assertProductionEnvs();
+// NÃO chamar `assertProductionEnvs()` aqui. Era o que este arquivo fazia
+// até 2026-09-01, e é exatamente o que o CLAUDE.md proíbe: no module-load
+// não existe request, logo não existe env no edge do Cloudflare — o throw
+// podia disparar com tudo configurado e derrubar a CARGA do módulo, o que
+// o Next devolve como 500 puro (sem passar por error.tsx, porque não é
+// erro de render). A garantia que importa é fail-closed POR REQUEST, e ela
+// já existe em `requirePro` e `gateAiUsage` (503 sem service key).
+// `assertProductionEnvs` segue exportado pra quem quiser checar dentro de
+// um request.
+void assertProductionEnvs;
 
 export const ERR_PRO_ONLY = 'Esta função é exclusiva do Plano PRO ⚡';
 export const ERR_UNAVAILABLE = 'serviço temporariamente indisponível';

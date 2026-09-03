@@ -6,6 +6,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   parseBRL,
+  ymdBrt,
+  ymdDeCampos,
   fmtBRL,
   escapeHtml,
   escapeJsArg,
@@ -22,10 +24,93 @@ import {
   throttle,
 } from '../lib/utils';
 
+// A2 (01/09/2026): "hoje" era calculado com `getTimezoneOffset()`, ou seja,
+// pelo fuso do APARELHO — enquanto o app exibe tudo em Brasília (o patch do
+// layout cobre só `toLocale*String`). Fora do fuso de São Paulo isso
+// deslocava o destaque de "hoje" na agenda, o recorte do dia no Financeiro e
+// a data de follow-up do pipeline.
+describe('utils — datas em Brasília', () => {
+  it('ymdBrt devolve o dia em SÃO PAULO, não em UTC', () => {
+    // 2026-09-02T02:00Z já é dia 2 em UTC, mas ainda é dia 1 em Brasília
+    // (UTC−3): é a virada que produzia o dia errado.
+    expect(ymdBrt(new Date('2026-09-02T02:00:00Z'))).toBe('2026-09-01');
+  });
+
+  it('ymdBrt vira o dia às 03:00Z (meia-noite em Brasília)', () => {
+    expect(ymdBrt(new Date('2026-09-02T02:59:59Z'))).toBe('2026-09-01');
+    expect(ymdBrt(new Date('2026-09-02T03:00:00Z'))).toBe('2026-09-02');
+  });
+
+  it('ymdBrt não depende do fuso de quem roda o teste', () => {
+    // O instante é absoluto; o resultado é sempre o dia em São Paulo.
+    expect(ymdBrt(new Date(Date.UTC(2026, 0, 1, 12, 0, 0)))).toBe('2026-01-01');
+  });
+
+  it('nunca devolve data malformada, mesmo se o Intl falhar', () => {
+    // A coluna `date` do Postgres recusa "--", e o Financeiro grava direto
+    // daqui: um Intl sem dados de fuso viraria erro na cara de quem só
+    // lançou uma despesa. O fallback erra o dia na virada, no pior caso —
+    // mas entrega data válida.
+    const real = Intl.DateTimeFormat;
+    try {
+      // @ts-expect-error — simula runtime sem ICU completo.
+      Intl.DateTimeFormat = function () {
+        throw new Error('sem ICU');
+      };
+      expect(ymdBrt(new Date(2026, 8, 1))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    } finally {
+      Intl.DateTimeFormat = real;
+    }
+  });
+
+  it('ymdDeCampos formata o Date pelos CAMPOS, sem passar por fuso', () => {
+    // Limite de mês do grid da agenda: ano/mês já são números de calendário.
+    expect(ymdDeCampos(new Date(2026, 8, 1))).toBe('2026-09-01');
+    expect(ymdDeCampos(new Date(2026, 11, 31))).toBe('2026-12-31');
+    // Overflow de dezembro → janeiro, que a agenda usa pro fim do range.
+    expect(ymdDeCampos(new Date(2026, 12, 1))).toBe('2027-01-01');
+  });
+});
+
 describe('utils — parseBRL/fmtBRL', () => {
   it('parseBRL trata "1.500,50" como 1500.5', () => {
     expect(parseBRL('1.500,50')).toBeCloseTo(1500.5);
   });
+  // Regressão do bug de 01/09/2026: o decimal com PONTO multiplicava por 100.
+  // O teclado do Android (inputMode="decimal") oferece ponto, então isto não
+  // era caso de canto — era o caminho comum de quem digita preço no celular.
+  it('parseBRL trata ponto como DECIMAL quando sobram 1-2 casas', () => {
+    expect(parseBRL('1500.50')).toBeCloseTo(1500.5);
+    expect(parseBRL('0.99')).toBeCloseTo(0.99);
+    expect(parseBRL('12.5')).toBeCloseTo(12.5);
+  });
+
+  it('parseBRL trata ponto como MILHAR quando sobram 3 casas (uso pt-BR)', () => {
+    expect(parseBRL('1.500')).toBe(1500);
+    expect(parseBRL('1.234.567')).toBe(1234567);
+  });
+
+  it('parseBRL: vírgula sempre manda, ponto vira milhar', () => {
+    expect(parseBRL('1500,50')).toBeCloseTo(1500.5);
+    expect(parseBRL('1.500,50')).toBeCloseTo(1500.5);
+    expect(parseBRL('1.234.567,89')).toBeCloseTo(1234567.89);
+  });
+
+  it('parseBRL: número entra direto (String() quebrava o decimal)', () => {
+    expect(parseBRL(1500.5)).toBeCloseTo(1500.5);
+    expect(parseBRL(0.99)).toBeCloseTo(0.99);
+    expect(parseBRL(Infinity)).toBe(0);
+  });
+
+  it('parseBRL ignora símbolo de moeda e espaços', () => {
+    expect(parseBRL('R$ 1.500,50')).toBeCloseTo(1500.5);
+    expect(parseBRL('R$ 89,90')).toBeCloseTo(89.9);
+  });
+
+  it('parseBRL: parte inteira zerada mantém o ponto como decimal', () => {
+    expect(parseBRL('0.999')).toBeCloseTo(0.999);
+  });
+
   it('parseBRL devolve 0 pra vazio/null', () => {
     expect(parseBRL('')).toBe(0);
     expect(parseBRL(null)).toBe(0);

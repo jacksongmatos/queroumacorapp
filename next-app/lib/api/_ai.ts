@@ -1,3 +1,4 @@
+import { getRuntimeEnv } from './env';
 // lib/api/_ai.ts — port de `functions/api/_ai.js`.
 //
 // Wrapper compartilhado de OpenAI Chat Completions com FALLBACK automático
@@ -61,7 +62,7 @@ export async function callAIText(opts: AITextOpts): Promise<AITextResult> {
   } = opts;
 
   const tryOpenAI = async (): Promise<AITextResult> => {
-    const key = process.env.OPENAI_API_KEY;
+    const key = getRuntimeEnv('OPENAI_API_KEY');
     if (!key) return { text: '', error: 'OPENAI_API_KEY ausente' };
     try {
       const messages: OpenAIChatBody['messages'] = [
@@ -100,7 +101,7 @@ export async function callAIText(opts: AITextOpts): Promise<AITextResult> {
   };
 
   const tryGemini = async (): Promise<AITextResult> => {
-    const key = process.env.GEMINI_API_KEY;
+    const key = getRuntimeEnv('GEMINI_API_KEY');
     if (!key) return { text: '', error: 'GEMINI_API_KEY ausente' };
     try {
       const contents = [

@@ -50,18 +50,10 @@ const nextConfig = {
     // estáticos, HTML prerenderizado incluso) e aqui (rotas servidas pelo
     // worker, /api/* incluso). Mudou um? Mude o outro — os valores são
     // idênticos de propósito.
+    // CSP validada em produção/preview (PR #163). NÃO alterar sem revalidar
+    // com curl -I: `*.onrender.com` cobre a Evolution API do WhatsApp.
     const csp =
-      "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://*.sentry-cdn.com https://cdn.jsdelivr.net; " +
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-      "font-src 'self' https://fonts.gstatic.com; " +
-      'img-src \'self\' data: blob: https:; ' +
-      'media-src \'self\' blob: data: https://*.supabase.co; ' +
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://sentry.io https://*.sentry.io https://cdn.jsdelivr.net https://storage.googleapis.com; " +
-      'frame-src https://challenges.cloudflare.com; ' +
-      "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; " +
-      "object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; " +
-      'upgrade-insecure-requests';
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://*.sentry-cdn.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.onrender.com https://challenges.cloudflare.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://sentry.io https://*.sentry.io https://cdn.jsdelivr.net https://storage.googleapis.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests";
     return [
       {
         source: '/(.*)',

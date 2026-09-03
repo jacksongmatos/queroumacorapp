@@ -1,8 +1,11 @@
 // AutoRespostaSheet — modal de configuração de respostas automáticas.
 // Espelha o `#auto-resp-modal` do vanilla (index.html linha 1962+).
 // Persiste em `auto_responses` (3 rows: new_quote, follow_up, new_message)
-// via upsert por (user_id, trigger_type). Listener em useChatRealtime
-// dispara o auto-reply quando new_message está ativo.
+// via upsert por (user_id, trigger_type) — o UNIQUE que esse onConflict
+// exige é da SQL Wave 39; sem ela o upsert falha com 42P10.
+// Quem DISPARA a resposta é o banco (trigger `trg_auto_reply_on_message`,
+// Wave 39): funciona com o app fechado, coisa que o listener client-side
+// antigo (useChatRealtime) não conseguia.
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -10,7 +13,6 @@ import { useAuth } from '@/components/AuthProvider';
 import { getSupabase } from '@/lib/supabase';
 import { BottomSheet } from '@/components/BottomSheet';
 import { showToast } from '@/lib/toast';
-import { invalidateAutoReplyCfg } from '@/lib/hooks/useChatRealtime';
 
 interface AutoConfig {
   message_template: string;
@@ -111,23 +113,20 @@ export function AutoRespostaSheet({ open, onClose }: AutoRespostaSheetProps) {
     setSaving(true);
     try {
       const sb = getSupabase();
-      for (const slot of SLOTS) {
-        const cfg = configs[slot.key];
-        await sb
-          .from('auto_responses')
-          .upsert(
-            {
-              user_id: user.id,
-              trigger_type: slot.key,
-              message_template: cfg.message_template,
-              is_active: cfg.is_active,
-              delay_minutes: slot.delayMinutes,
-            },
-            { onConflict: 'user_id,trigger_type' },
-          );
-      }
-      // Força recarga do config no próximo auto-reply trigger.
-      invalidateAutoReplyCfg();
+      const rows = SLOTS.map((slot) => ({
+        user_id: user.id,
+        trigger_type: slot.key,
+        message_template: configs[slot.key].message_template,
+        is_active: configs[slot.key].is_active,
+        delay_minutes: slot.delayMinutes,
+      }));
+      // Um upsert só, e CONFERINDO o erro: o supabase-js não lança — antes
+      // o erro 42P10 (faltava o UNIQUE, Wave 39) passava batido, o toast
+      // dizia "salvas!" e o toggle voltava desligado na reabertura.
+      const { error } = await sb
+        .from('auto_responses')
+        .upsert(rows, { onConflict: 'user_id,trigger_type' });
+      if (error) throw new Error(error.message);
       showToast('Respostas automáticas salvas!', 'success');
       onClose();
     } catch (e) {

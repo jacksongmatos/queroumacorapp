@@ -116,13 +116,16 @@ describe('DB.profiles — colunas públicas', () => {
 });
 
 describe('DB.posts — colunas', () => {
-  it('COLS bate com POST_COLS de app.js (10 colunas)', () => {
+  it('COLS tem as colunas do card, incluindo media_urls (carrossel)', () => {
     const cols = DB.posts.COLS.split(',').map((s) => s.trim());
     expect(cols).toContain('id');
     expect(cols).toContain('user_id');
     expect(cols).toContain('media_type');
     expect(cols).toContain('status');
-    expect(cols.length).toBe(10);
+    // Wave 57 (2026-09-02): sem `media_urls` o caminho legacy do feed e os
+    // grids de perfil rendiam post de várias fotos sem carrossel.
+    expect(cols).toContain('media_urls');
+    expect(cols.length).toBe(11);
   });
 });
 
