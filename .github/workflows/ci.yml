@@ -20,7 +20,11 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 10min era apertado demais: em runners lentos o job era CANCELADO no meio
+    # do npm ci/typecheck ANTES dos testes rodarem (2 cancelamentos seguidos em
+    # 2026-09-03), deixando o check obrigatório vermelho sem falha real. 20min
+    # dá folga pra npm ci + audit + lint + typecheck + ~1481 testes.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: next-app
