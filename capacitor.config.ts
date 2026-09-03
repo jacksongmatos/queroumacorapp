@@ -54,6 +54,16 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
     webContentsDebuggingEnabled: false,
   },
+  plugins: {
+    // Push nativo (FCM no Android, APNs no iOS). O device token registrado
+    // é persistido em `push_device_tokens` por lib/services/pushTokens.ts;
+    // o envio server-side é /api/push-notify (canal FCM em lib/api/_services/
+    // fcm.ts). `presentationOptions` controla como a notificação aparece com
+    // o app em foreground no iOS.
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
+  },
 };
 
 export default config;

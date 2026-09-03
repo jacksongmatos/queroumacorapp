@@ -44,13 +44,55 @@ feature-detection; browser/PWA seguem no fluxo web intocado.
       derivar, adicionar `br.com.queroumacor://auth/callback` como 2ª
       Redirect URL e ajustar `NATIVE_OAUTH_REDIRECT`. iOS já está certo
       (scheme = bundle `br.com.queroumacor.app`).
-- [ ] Casca: instalar `@capacitor/browser`, `@capacitor/app`,
-      `@capacitor/camera`, `@capacitor/share`, `@capacitor/push-notifications`
-      e rodar `npx cap sync`. (Scheme iOS já registrado no
-      `Info.plist` → `CFBundleURLTypes`; Android: intent-filter do scheme ao
-      criar o projeto com `npx cap add android`.)
-- [ ] Push servidor: tabela de device tokens + envio FCM/APNs (o
-      `registerNativePush` já devolve o token; persistência é o próximo passo).
+- [x] Deps dos plugins já no `package.json` da raiz (`@capacitor/browser`,
+      `app`, `camera`, `share`, `push-notifications`, `@capacitor/android`).
+      Falta rodar na MÁQUINA DE BUILD (precisa de Android SDK/Xcode, não roda
+      no CI/remoto): `npm install` → `npx cap add android` → `npx cap sync`.
+- [x] Envio FCM server-side FEITO em código (`lib/api/_services/fcm.ts`,
+      canal nativo do `/api/push-notify`). Falta a config (abaixo).
+
+## Push nativo — o que falta ligar (config, não código)
+
+O código do envio está pronto: `/api/push-notify` manda pros DOIS canais —
+Web Push (VAPID, quem já existia) e FCM/APNs (novo, `fcm.ts`), cada um
+independente do outro. Pra o canal nativo sair do papel:
+
+1. **Firebase**: criar/usar um projeto Firebase, adicionar o app Android
+   (package `br.com.queroumacor`) e iOS (bundle `br.com.queroumacor.app`),
+   baixar `google-services.json` (Android) / `GoogleService-Info.plist`
+   (iOS) e colocá-los no projeto nativo após `cap add`. Gerar uma **service
+   account** (Configurações → Contas de serviço → Gerar nova chave privada).
+2. **3 envs no CF Pages (Secret)**, do JSON da service account:
+   `FCM_PROJECT_ID` (`project_id`), `FCM_CLIENT_EMAIL` (`client_email`),
+   `FCM_PRIVATE_KEY` (`private_key` — cola com os `\n` literais; o `fcm.ts`
+   normaliza). Sem elas, o canal nativo fica inerte e o web push segue
+   funcionando (nenhum 503 novo).
+3. **iOS**: subir a APNs Auth Key (.p8) no Firebase (Cloud Messaging), pra
+   ele falar com a Apple.
+
+Teste ponta a ponta: com as envs setadas, um POST em `/api/push-notify`
+(header `x-internal-secret`) responde `{"native":{"sent":N,...}}`.
+
+## Android — intent-filter do deep link do OAuth (após `cap add android`)
+
+O `cap add android` gera `android/app/src/main/AndroidManifest.xml`. Como o
+`applicationId` é `br.com.queroumacor` mas o esquema do callback é
+`br.com.queroumacor.app` (o que `lib/native/auth.ts` usa), o intent-filter
+tem que declarar o esquema EXPLICITAMENTE dentro da `<activity>` principal:
+
+```xml
+<intent-filter android:autoVerify="false">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="br.com.queroumacor.app" android:host="auth" />
+</intent-filter>
+```
+
+(Alternativa sem editar manifest: usar o esquema derivado do package
+`br.com.queroumacor://auth/callback` e adicionar essa 2ª URL nas Redirect
+URLs do Supabase + trocar `NATIVE_OAUTH_REDIRECT` — os dois caminhos
+funcionam, escolha um.)
 - [ ] Fluxo B (SDKs nativos + `signInWithIdToken`, one-tap): exige client
       OAuth por plataforma (iOS client ID; Android com SHA-256 do keystore) —
       fazer junto da unificação de applicationId (achado C4 da auditoria).
