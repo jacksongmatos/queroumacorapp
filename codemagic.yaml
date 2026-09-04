@@ -16,7 +16,12 @@ workflows:
   android-aab:
     name: Android AAB (Capacitor)
     max_build_duration: 60
-    instance_type: linux_x2
+    # macOS M2 é a única máquina com minutos gratuitos no plano pessoal
+    # (500/mês). Linux/Windows não têm cota grátis e exigem assinatura — foi o
+    # que fez a primeira build morrer com "instance type is not available with
+    # the current billing plan". Android compila normalmente em mac (a imagem
+    # traz JDK + Android SDK).
+    instance_type: mac_mini_m2
     environment:
       android_signing:
         - queroumacor_keystore
@@ -42,7 +47,9 @@ workflows:
       - name: google-services.json (se houver)
         script: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+            # openssl em vez de `base64 --decode`: a flag longa é do GNU e o
+            # base64 do macOS (onde esta build roda) não a aceita.
+            printf '%s' "$GOOGLE_SERVICES_JSON" | openssl base64 -d -A > android/app/google-services.json
             echo "google-services.json escrito (FCM habilitado)."
           else
             echo "SEM GOOGLE_SERVICES_JSON — AAB compila, mas push FCM não registra token."
