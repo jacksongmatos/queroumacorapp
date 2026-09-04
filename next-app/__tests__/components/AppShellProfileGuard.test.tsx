@@ -25,6 +25,9 @@ vi.mock('@/lib/hooks/useProfile', () => ({ useProfile: () => mockProfile }));
 // Chrome e efeitos colaterais fora do escopo do guard.
 vi.mock('@/components/TopNav', () => ({ TopNav: () => <div /> }));
 vi.mock('@/components/BottomNav', () => ({ BottomNav: () => <div /> }));
+// NativeBadge usa os hooks de não-lidas (react-query), igual TopNav/BottomNav —
+// mockado pra o teste do guard não precisar de QueryClientProvider.
+vi.mock('@/components/NativeBadge', () => ({ NativeBadge: () => null }));
 vi.mock('@/components/RealtimeBindings', () => ({ RealtimeBindings: () => null }));
 vi.mock('@/components/AppTour', () => ({ AppTour: () => null }));
 

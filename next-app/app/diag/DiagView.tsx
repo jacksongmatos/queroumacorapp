@@ -66,6 +66,28 @@ export function DiagView() {
     ];
     setRows(out);
 
+    // Infos NATIVAS (casca Capacitor): modelo, OS, versão/build do app — o que
+    // o suporte precisa e o navegador não sabe. Assíncrono; no web só mostra
+    // "Casca nativa: não".
+    import('@/lib/native')
+      .then(async ({ native }) => {
+        const d = await native.device.getInfo();
+        const nativeRows: Row[] = [
+          { k: 'Casca nativa (Capacitor)', v: d.isNative ? 'sim' : 'não', tone: d.isNative ? 'ok' : undefined },
+        ];
+        if (d.isNative) {
+          nativeRows.push(
+            { k: 'Plataforma', v: d.platform },
+            { k: 'Modelo', v: d.model || '—' },
+            { k: 'Versão do SO', v: d.osVersion || '—' },
+            { k: 'Versão do app', v: d.appVersion || '—' },
+            { k: 'Build', v: d.appBuild || '—' },
+          );
+        }
+        setRows([...out, ...nativeRows]);
+      })
+      .catch(() => {});
+
     // Registra também no /api/log-error: assim, quando a env de admin for
     // corrigida, o histórico já está lá no /admin/errors. Best-effort.
     try {

@@ -86,6 +86,20 @@
     `@capacitor/filesystem` novo na raiz; sem permissão nova no Manifest
     (pickImages usa o Photo Picker do sistema; Filesystem grava app-scoped).
     9 testes novos; suíte 1492/1492. Só vale no aparelho com AAB novo.
+  - **Onda C de capacidades nativas (2026-09-04, PR #181)** — utilidades.
+    Wrappers novos em `lib/native/`: `network` (plugin Network + eventos web),
+    `clipboard` (plugin Clipboard → Web Clipboard → execCommand), `browser`
+    (`openExternal` via plugin Browser/Custom Tab — DIFERENTE de
+    `lib/utils/openInBrowser`, que é o escape-hatch `intent:` pra sair pro
+    Chrome), `device` (`getDeviceInfo` de Device+App) e `badge` (`setAppBadge`
+    via `@capawesome/capacitor-badge`). Componentes novos no `AppShell`:
+    `<OfflineBanner>` (faixa "sem conexão") e `<NativeBadge>` (nº no ícone =
+    não-lidas de aviso+mensagem). `PostActions` passou a compartilhar/copiar
+    pelos wrappers (share nativo → Web Share → copiar). `DiagView` mostra
+    modelo/OS/versão/build nativos. Plugins novos na raiz: `@capacitor/{network,
+    clipboard,device}` + `@capawesome/capacitor-badge`. Sem permissão nova no
+    Manifest. 16 testes novos; suíte 1502/1502. Só vale no aparelho com AAB
+    novo. **Onda D NÃO será feita (decisão do usuário).**
   - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
     existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
     galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto

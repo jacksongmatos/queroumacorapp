@@ -30,6 +30,12 @@ import {
   pickImagesNative,
   isNativeFilesystemAvailable,
   saveFileNative,
+  isOnlineNow,
+  onNetworkChange,
+  copyToClipboard,
+  openExternal,
+  getDeviceInfo,
+  setAppBadge,
 } from '../lib/native';
 
 type CapacitorMock = {
@@ -304,5 +310,91 @@ describe('lib/native Onda B — dentro da casca', () => {
     expect(isNativeFilesystemAvailable()).toBe(true);
     const r = await saveFileNative('x.pdf', 'YQ==');
     expect(r).toEqual({ status: 'ok', uri: 'file:///Documents/x.pdf' });
+  });
+});
+
+describe('lib/native Onda C — utilidades fora da casca', () => {
+  it('device info web = não-nativo', async () => {
+    const d = await getDeviceInfo();
+    expect(d.isNative).toBe(false);
+    expect(d.platform).toBe('web');
+    expect(d.model).toBeNull();
+  });
+  it('setAppBadge é no-op silencioso', () => {
+    expect(() => setAppBadge(3)).not.toThrow();
+    expect(() => setAppBadge(0)).not.toThrow();
+  });
+  it('openExternal recusa não-http e aceita http (window.open)', async () => {
+    const orig = window.open;
+    let opened = '';
+    // @ts-expect-error mock
+    window.open = (u: string) => { opened = u; return {}; };
+    await expect(openExternal('javascript:alert(1)')).resolves.toBe(false);
+    await expect(openExternal('https://x.com')).resolves.toBe(true);
+    expect(opened).toBe('https://x.com');
+    window.open = orig;
+  });
+  it('copyToClipboard usa navigator.clipboard quando existe', async () => {
+    let copied = '';
+    const nav = navigator as unknown as { clipboard?: { writeText?: (s: string) => Promise<void> } };
+    const orig = nav.clipboard;
+    nav.clipboard = { writeText: async (s: string) => { copied = s; } };
+    await expect(copyToClipboard('#FF0000')).resolves.toBe(true);
+    expect(copied).toBe('#FF0000');
+    nav.clipboard = orig;
+  });
+  it('onNetworkChange devolve unsubscribe (eventos web)', () => {
+    const off = onNetworkChange(() => {});
+    expect(typeof off).toBe('function');
+    expect(() => off()).not.toThrow();
+  });
+  it('isOnlineNow reflete navigator.onLine', () => {
+    expect(typeof isOnlineNow()).toBe('boolean');
+  });
+});
+
+describe('lib/native Onda C — dentro da casca', () => {
+  it('copyToClipboard usa o plugin Clipboard', async () => {
+    let written = '';
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: { Clipboard: { write: async (o: { string: string }) => { written = o.string; } } },
+    });
+    await expect(copyToClipboard('abc')).resolves.toBe(true);
+    expect(written).toBe('abc');
+  });
+  it('openExternal usa o plugin Browser', async () => {
+    let url = '';
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'ios',
+      Plugins: { Browser: { open: async (o: { url: string }) => { url = o.url; } } },
+    });
+    await expect(openExternal('https://loja.com')).resolves.toBe(true);
+    expect(url).toBe('https://loja.com');
+  });
+  it('getDeviceInfo agrega Device + App', async () => {
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        Device: { getInfo: async () => ({ model: 'SM-X', platform: 'android', osVersion: '14' }) },
+        App: { getInfo: async () => ({ version: '1.2.1', build: '10201' }) },
+      },
+    });
+    const d = await getDeviceInfo();
+    expect(d).toMatchObject({ isNative: true, model: 'SM-X', osVersion: '14', appVersion: '1.2.1', appBuild: '10201' });
+  });
+  it('setAppBadge chama set/clear do plugin Badge', () => {
+    const calls: string[] = [];
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: { Badge: { set: async () => { calls.push('set'); }, clear: async () => { calls.push('clear'); } } },
+    });
+    setAppBadge(5);
+    setAppBadge(0);
+    expect(calls).toEqual(['set', 'clear']);
   });
 });

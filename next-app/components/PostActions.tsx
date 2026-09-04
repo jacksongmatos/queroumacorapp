@@ -117,25 +117,14 @@ export function PostActions({
         : '');
     if (!url) return;
 
-    // Web Share API: disponível em mobile Safari/Chrome. Outros fallam pra
-    // clipboard. Cancel pelo usuário é silencioso (não estoura toast).
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      try {
-        await navigator.share({ url, text: shareText });
-        return;
-      } catch (e) {
-        if ((e as Error).name === 'AbortError') return;
-        // Continua pro fallback se share falhou por outro motivo.
-      }
-    }
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      try {
-        await navigator.clipboard.writeText(url);
-        onToast?.('Link copiado!');
-      } catch {
-        onToast?.('Erro ao copiar');
-      }
-    }
+    // Share sheet: plugin nativo (casca) → Web Share API (navegador/PWA). O
+    // shareNative devolve true quando ENTREGOU a alguma sheet (ou o usuário
+    // cancelou) — aí não caímos pro copiar.
+    const { native, copyToClipboard } = await import('@/lib/native');
+    if (await native.share({ url, text: shareText })) return;
+    // Sem share sheet: copia o link (plugin Clipboard → Web Clipboard → exec).
+    if (await copyToClipboard(url)) onToast?.('Link copiado!');
+    else onToast?.('Erro ao copiar');
   }, [postId, shareUrl, shareText, onToast]);
 
   return (
