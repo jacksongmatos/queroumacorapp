@@ -88,4 +88,27 @@
          aparelhos sem um. Gravar voz é opcional (dá pra digitar), então não
          pode virar exigência. -->
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Vibração. O @capacitor/haptics usa o Vibrator do Android, que exige
+         VIBRATE. Sem ela TODO o háptico da Onda A falha em silêncio: trocar aba
+         (BottomNav), curtir e salvar (usePostInteractions) e publicar
+         (usePublishPost). É permissão NORMAL — não abre diálogo, o usuário nem
+         vê; só precisa estar declarada. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Estado da rede. O @capacitor/network exige ACCESS_NETWORK_STATE pra ler
+         a conectividade. Sem ela o <OfflineBanner> (faixa "sem conexão") e o
+         isOnlineNow() de lib/native/network.ts não enxergam nada, e a Onda C
+         fica pela metade. Também NORMAL — sem diálogo. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Localização (runtime). O filtro "📍 Perto de você" do feed chama
+         navigator.geolocation.getCurrentPosition (lib/services/nearbyFeed.ts,
+         usado em app/feed/FeedView.tsx). Mesma regra da câmera/microfone: a
+         WebView só concede a localização se o app declarar a permissão — senão
+         nega sozinha, sem perguntar. COARSE basta: o feed filtra por cidade,
+         não precisa de precisão de GPS fino. iOS já tem o
+         NSLocationWhenInUseUsageDescription no Info.plist. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- required="false" pelo mesmo motivo da câmera: declarar localização faz o
+         Play exigir o hardware implicitamente e sumir com o app de aparelhos sem
+         GPS. "Perto de você" é UM filtro entre vários — o app funciona sem. -->
+    <uses-feature android:name="android.hardware.location" android:required="false" />
 </manifest>
