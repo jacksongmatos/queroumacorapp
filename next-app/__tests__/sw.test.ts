@@ -268,13 +268,14 @@ describe('service worker — navegação', () => {
   });
 
   it('activate apaga os caches de versões anteriores', async () => {
-    await h.cacheStorage.open('quc-v4-static');
     await h.cacheStorage.open('quc-v5-static');
     await h.cacheStorage.open('quc-v6-static');
+    await h.cacheStorage.open('quc-v7-static');
     await h.runActivate();
     // Só a versão corrente sobrevive — é o bump de CACHE_VERSION que limpa
-    // cache envenenado de versões antigas.
-    expect(await h.cacheStorage.keys()).toEqual(['quc-v6-static']);
+    // cache envenenado de versões antigas. (Acompanha o CACHE_VERSION do
+    // sw.js: hoje quc-v7.)
+    expect(await h.cacheStorage.keys()).toEqual(['quc-v7-static']);
   });
 });
 

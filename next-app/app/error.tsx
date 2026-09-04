@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 import { agendarRetomada } from '@/lib/utils/autoRetry';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 export default function Error({
   error,
@@ -20,6 +21,12 @@ export default function Error({
 
   useEffect(() => {
     Sentry.captureException(error, { tags: { boundary: 'route-error' } });
+    // Também grava na tabela `errors` (visível no /admin/errors, que o Sentry
+    // não é daqui): mensagem + digest + URL da rota que quebrou. É o que separa
+    // "algo deu errado" genérico da causa real. Best-effort, nunca lança.
+    reportFailure('render-error', error, {
+      ctx: error.digest ? `digest:${error.digest}` : 'client',
+    });
   }, [error]);
 
   useEffect(() => {

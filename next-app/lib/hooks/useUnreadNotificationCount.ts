@@ -13,7 +13,7 @@
 
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
 import { getSupabase } from '@/lib/supabase';
@@ -23,6 +23,10 @@ const KEY_BASE = 'notifications-unread-count' as const;
 export function useUnreadNotificationCount(): number {
   const { user } = useAuth();
   const qc = useQueryClient();
+  // ID único por instância — o Supabase deduplica canais pelo nome; sem isto,
+  // dois consumidores do hook (BottomNav + NativeBadge) colidem e o 2º `.on()`
+  // estoura "cannot add callbacks after subscribe()" → error boundary.
+  const chanId = useId();
 
   const query = useQuery({
     queryKey: [KEY_BASE, user?.id],
@@ -44,7 +48,7 @@ export function useUnreadNotificationCount(): number {
     if (!user) return;
     const sb = getSupabase();
     const channel = sb
-      .channel(`notif-count:${user.id}`)
+      .channel(`notif-count:${user.id}:${chanId}`)
       .on(
         'postgres_changes',
         {
@@ -62,7 +66,7 @@ export function useUnreadNotificationCount(): number {
     return () => {
       sb.removeChannel(channel);
     };
-  }, [user, qc]);
+  }, [user, qc, chanId]);
 
   return query.data ?? 0;
 }

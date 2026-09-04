@@ -100,6 +100,22 @@
     clipboard,device}` + `@capawesome/capacitor-badge`. Sem permissão nova no
     Manifest. 16 testes novos; suíte 1502/1502. Só vale no aparelho com AAB
     novo. **Onda D NÃO será feita (decisão do usuário).**
+  - **BOOT LOGADO QUEBROU — assinatura realtime duplicada (2026-09-04, PR
+    #184).** Depois da Onda C, todo usuário LOGADO caía em "Algo deu errado"
+    (error boundary), no app E no Chrome; incognito também. Causa: o
+    `<NativeBadge>` (Onda C) usa `useUnreadMessageCount` + `useUnreadNotification
+    Count`, mas o **TopNav já usava** o de mensagem e o **BottomNav já usava** o
+    de notificação. O Supabase **deduplica canais realtime pelo NOME**
+    (`msg-count:<uid>` / `notif-count:<uid>`): o 2º consumidor chamava `.on()`
+    num canal já `subscribe()`-ado e estourava `cannot add postgres_changes
+    callbacks after subscribe()`, que sobe pelo React até o error boundary. Fix:
+    **nome de canal ÚNICO por instância** do hook (`useId()` no sufixo) — os
+    dois hooks agora são reutilizáveis por N componentes. **REGRA: hook com
+    canal realtime = nome único por instância** (`useId`), senão dois
+    consumidores colidem. `next build`/tsc/vitest NÃO pegam (o mock de supabase
+    não deduplica canal); só o console do navegador com o supabase real. Achado
+    lendo o console (F12); `error.tsx` passou a gravar `render-error` na tabela
+    `errors` p/ o próximo caso aparecer no /admin/errors sem depender do Sentry.
   - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
     existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
     galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto
