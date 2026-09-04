@@ -8,6 +8,14 @@
 #      alias e senhas. Isso injeta CM_KEYSTORE_PATH/PASSWORD/KEY_ALIAS/KEY_PASSWORD.
 #   3. (Opcional, pro push) Environment variables → grupo `firebase` →
 #      GOOGLE_SERVICES_JSON = `base64 -w0 google-services.json` (marcar Secure).
+#   4. (Deploy na Play) Environment variables → grupo `google_credentials` →
+#      GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS = JSON da service account
+#      (Secure). A service account precisa de permissão de Releases no app.
+#
+# O que a build faz: gera o AAB assinado, MANDA POR E-MAIL e SOBE AUTOMÁTICO na
+# faixa `internal` (Internal Testing) da Play. Produção continua MANUAL (a regra
+# do projeto: nunca ir direto pra produção — promover Internal→produção na Play
+# Console). O versionCode é o maior da Play + 1 (auto), então nunca repete.
 #
 # Disparo: manual pelo painel (sem bloco `triggering`, não roda a cada push).
 # Ver docs/ANDROID_AAB_CODEMAGIC.md.
@@ -26,7 +34,8 @@ workflows:
       android_signing:
         - queroumacor_keystore
       groups:
-        - firebase        # fornece GOOGLE_SERVICES_JSON (opcional)
+        - firebase            # fornece GOOGLE_SERVICES_JSON (opcional, push)
+        - google_credentials  # fornece GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS (deploy Play)
       node: 20
       java: 17
     cache:
@@ -37,6 +46,27 @@ workflows:
         - $HOME/.npm
         - $HOME/.gradle/caches
     scripts:
+      # versionCode = maior build number da Play + 1. Como cada build agora
+      # SOBE na Play (publishing.google_play), o número não pode repetir nunca
+      # (a Play rejeita duplicata). Sem `--tracks` o CLI devolve o maior de
+      # TODAS as tracks; a credencial é lida do env GOOGLE_PLAY_SERVICE_ACCOUNT_
+      # CREDENTIALS automaticamente (grupo google_credentials). Guardado: se o
+      # CLI falhar (permissão, API), cai no ANDROID_VERSION_CODE manual ou 10202,
+      # pra o passo de versão NUNCA derrubar a build. build.gradle lê essa env.
+      - name: versionCode = maior da Play + 1
+        script: |
+          set +e
+          LATEST=$(google-play get-latest-build-number --package-name br.com.queroumacor 2>/dev/null)
+          RC=$?
+          set -e
+          if [ $RC -eq 0 ] && echo "$LATEST" | grep -qE '^[0-9]+$'; then
+            NEXT=$((LATEST + 1))
+            echo "Maior versionCode na Play: $LATEST → esta build: $NEXT"
+          else
+            NEXT="${ANDROID_VERSION_CODE:-10202}"
+            echo "get-latest-build-number indisponível (rc=$RC) — fallback versionCode $NEXT"
+          fi
+          echo "ANDROID_VERSION_CODE=$NEXT" >> $CM_ENV
       - name: Install deps (Capacitor CLI + plugins)
         script: npm ci
       # webDir (next-app/.next/static) não existe em checkout limpo, e o app
@@ -80,3 +110,12 @@ workflows:
         notify:
           success: true
           failure: true
+      # Sobe o AAB direto na faixa `internal` (Internal Testing). `track:
+      # internal` respeita a regra "nunca ir direto pra produção" — a promoção
+      # Internal→produção continua MANUAL na Play Console. `submit_as_draft:
+      # false` = release completo pros testadores internos (não fica em rascunho).
+      # A credencial vem do grupo google_credentials.
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: false

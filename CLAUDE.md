@@ -215,11 +215,20 @@
     `android/key.properties` (gitignored) — o Codemagic monta esse arquivo do
     keystore do painel (`CM_KEYSTORE_*`, reference `queroumacor_keystore`);
     build local sem o arquivo sai não-assinado, sem quebrar. `google-services.json`
-    entra por env `GOOGLE_SERVICES_JSON` (base64) do grupo `firebase`. O AAB sai
-    por e-mail + artifact. **GitHub Actions foi DESCARTADO pra build de AAB**
-    (PR #172 fechado sem merge) — Codemagic é melhor pra mobile (iOS/macOS +
-    assinatura Apple no mesmo lugar). Doc: `docs/ANDROID_AAB_CODEMAGIC.md`.
-    **`versionCode` tem que crescer a cada upload** (Play atual 10100, repo 10200).
+    entra por env `GOOGLE_SERVICES_JSON` (base64) do grupo `firebase`. **GitHub
+    Actions foi DESCARTADO pra build de AAB** (PR #172 fechado sem merge) —
+    Codemagic é melhor pra mobile (iOS/macOS + assinatura Apple no mesmo lugar).
+    Doc: `docs/ANDROID_AAB_CODEMAGIC.md`.
+  - **Deploy AUTOMÁTICO na Play (2026-09-04, PR #182):** `publishing.google_play`
+    sobe o AAB direto na faixa **`internal`** (Internal Testing); produção
+    continua MANUAL (regra do projeto). Credencial no grupo `google_credentials`
+    (`GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS`, JSON da service account — lido
+    automaticamente pelo CLI). **`versionCode` virou automático**: 1º step roda
+    `google-play get-latest-build-number --package-name br.com.queroumacor`
+    (maior de todas as tracks) +1, com fallback pra `ANDROID_VERSION_CODE`/10202
+    se o CLI falhar (nunca derruba a build). O AAB SEGUE saindo por e-mail +
+    artifact também. Lado Play (não-código): a service account precisa de
+    permissão de Releases no app + Google Play Android Developer API habilitada.
 
 - **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
   no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
