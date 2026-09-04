@@ -42,6 +42,7 @@ import { notFound } from 'next/navigation';
 // `process.env.NEXT_PUBLIC_*` ficam como fallback: o build do Next inlina
 // essas expressões, então seguem funcionando onde o contexto faltar.
 import { getRuntimeEnv } from '@/lib/api/env';
+import { resolveSupabaseEnv } from '@/lib/api/security';
 
 const SESSION_COOKIE = 'sb-session-token';
 const AUTH_TIMEOUT_MS = 10_000;
@@ -51,22 +52,23 @@ interface AdminGuardResult {
   email: string;
 }
 
+// Delegam no par ÚNICO de security.ts — antes este arquivo tinha a PRÓPRIA
+// ordem, que discordava da do `security.ts`. Caminhos diferentes escolhiam
+// chaves diferentes, e só um deles funcionava.
 function getSupabaseUrl(): string | null {
-  const url =
-    getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL') ||
-    getRuntimeEnv('SUPABASE_URL') ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    '';
-  return url ? url.replace(/\/$/, '') : null;
+  try {
+    return resolveSupabaseEnv().url;
+  } catch {
+    return null;
+  }
 }
 
 function getAnonKey(): string | null {
-  return (
-    getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
-    getRuntimeEnv('SUPABASE_ANON_KEY') ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    null
-  );
+  try {
+    return resolveSupabaseEnv().anonKey;
+  } catch {
+    return null;
+  }
 }
 
 function getServiceKey(): string | null {

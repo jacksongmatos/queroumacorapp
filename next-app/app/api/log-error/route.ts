@@ -36,6 +36,7 @@ import { logErrorSchema } from '@/lib/api/schemas/log-error';
 // Secrets no edge do Cloudflare só existem no request context. Ver lib/api/env.ts.
 import { getRuntimeEnv } from '@/lib/api/env';
 
+import { getSupabaseUrl } from '@/lib/api/security';
 export const runtime = 'edge';
 
 const INSERT_TIMEOUT_MS = 5000;
@@ -120,8 +121,14 @@ async function insertErrorRow(safe: SafeErrorPayload): Promise<void> {
     getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY') ||
     getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
     getRuntimeEnv('SUPABASE_SERVICE_KEY');
-  const supabaseUrl =
-    getRuntimeEnv('SUPABASE_URL') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
+  // URL pela resolução única (getSupabaseUrl). É caminho de SERVICE ROLE:
+  // não exige anon key. Fail-open abaixo se não houver URL.
+  let supabaseUrl = '';
+  try {
+    supabaseUrl = getSupabaseUrl();
+  } catch {
+    supabaseUrl = '';
+  }
   if (!serviceKey || !supabaseUrl) return; // fail-open
 
   const row = {

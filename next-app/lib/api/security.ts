@@ -68,19 +68,98 @@ export function serviceErrorResponse(err: ServiceError): NextResponse {
 }
 
 /**
- * Resolve env-vars do Supabase. Throws ServiceError 503 se ausentes —
- * no Next preferimos fail-fast a fallback hardcoded.
+ * Resolve URL + anon key do Supabase SEMPRE DO MESMO PAR.
+ *
+ * INCIDENTE QUE ORIGINOU ISTO (2026-09-04): `getSupabaseUrl` e
+ * `getSupabaseAnonKey` resolviam de forma INDEPENDENTE, cada uma com a sua
+ * ordem. Em produção o painel do Cloudflare tinha `SUPABASE_URL` AUSENTE e um
+ * `SUPABASE_ANON_KEY` legado (de OUTRO projeto, herança do app vanilla),
+ * além do par `NEXT_PUBLIC_*` correto. O resultado foi um PAR CRUZADO: a URL
+ * caía no `NEXT_PUBLIC_SUPABASE_URL` (projeto certo) e a chave vinha do
+ * secret legado (projeto errado). O GoTrue recebia apikey de um projeto e
+ * token de outro e respondia 401 "Invalid API key" para QUALQUER token —
+ * que o `requireAuth` colapsava em `token_invalid`, derrubando toda a IA.
+ *
+ * A assimetria que confundiu o diagnóstico: o PostgREST seguia funcionando
+ * porque quem o chama é o CLIENTE, com a chave boa do bundle. Só a
+ * verificação do SERVIDOR usava a chave divergente.
+ *
+ * REGRA: um par só é aceito quando as DUAS metades vêm do mesmo prefixo.
+ * Meia-a-meia nunca — é exatamente o que produziu o incidente.
  */
-export function getSupabaseUrl(): string {
-  const url = getRuntimeEnv('SUPABASE_URL') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
-  if (!url) throw new ServiceError(ERR_UNAVAILABLE, 503);
-  return url.replace(/\/$/, '');
+export interface SupabaseEnvPair {
+  url: string;
+  anonKey: string;
+  /** De qual par veio — útil no diagnóstico, não muda comportamento. */
+  source: 'public' | 'server';
 }
 
+export function resolveSupabaseEnv(): SupabaseEnvPair {
+  const strip = (u: string) => u.replace(/\/$/, '');
+
+  // Par PÚBLICO primeiro: é o que o bundle do cliente usa pra emitir o token,
+  // então é o que o servidor precisa usar pra verificá-lo.
+  const pubUrl = getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const pubKey = getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  if (pubUrl && pubKey) return { url: strip(pubUrl), anonKey: pubKey, source: 'public' };
+
+  // Par SEM prefixo — aceito só INTEIRO.
+  const srvUrl = getRuntimeEnv('SUPABASE_URL');
+  const srvKey = getRuntimeEnv('SUPABASE_ANON_KEY');
+  if (srvUrl && srvKey) return { url: strip(srvUrl), anonKey: srvKey, source: 'server' };
+
+  throw new ServiceError(ERR_UNAVAILABLE, 503);
+}
+
+/** Ref do projeto a partir do host `<ref>.supabase.co`. */
+export function projectRefFromUrl(url: string): string | null {
+  const m = /^https?:\/\/([a-z0-9]+)\.supabase\./i.exec(url);
+  return m ? m[1] : null;
+}
+
+/**
+ * Ref do projeto a partir da anon key — ela é um JWT cujo payload traz `ref`.
+ * Null quando não der pra ler (formato inesperado): na dúvida, não acusa.
+ */
+export function projectRefFromAnonKey(key: string): string | null {
+  try {
+    const part = key.split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(pad)) as { ref?: unknown };
+    return typeof payload.ref === 'string' ? payload.ref : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Só a URL. NÃO exige anon key: os caminhos de SERVICE ROLE (audit_log,
+ * log-error, push-notify, REST com service key) legitimamente não têm chave
+ * anon nenhuma — cobrar o par deles seria quebrar quem nunca teve o problema.
+ *
+ * Ordem única (pública primeiro, igual ao resolvedor do par), então nenhum
+ * ponto do código volta a discordar dos outros. Quando existe par completo,
+ * devolve a URL DELE — assim url e chave nunca se separam onde importa.
+ */
+export function getSupabaseUrl(): string {
+  try {
+    return resolveSupabaseEnv().url;
+  } catch {
+    const url = getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL') || getRuntimeEnv('SUPABASE_URL');
+    if (!url) throw new ServiceError(ERR_UNAVAILABLE, 503);
+    return url.replace(/\/$/, '');
+  }
+}
+
+/**
+ * A anon key SÓ sai de um par completo — é o ponto do incidente. Uma chave
+ * solta, sem a URL do mesmo prefixo, é exatamente o que produziu o
+ * cruzamento; preferimos 503 a montar um par que o GoTrue vai recusar.
+ */
 export function getSupabaseAnonKey(): string {
-  const key = getRuntimeEnv('SUPABASE_ANON_KEY') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
-  if (!key) throw new ServiceError(ERR_UNAVAILABLE, 503);
-  return key;
+  return resolveSupabaseEnv().anonKey;
 }
 
 export function getServiceKey(): string | undefined {
@@ -158,12 +237,34 @@ export async function requireAuth(
   let supabaseUrl: string;
   let anonKey: string;
   try {
-    supabaseUrl = getSupabaseUrl();
-    anonKey = getSupabaseAnonKey();
+    // Par ÚNICO: url e chave sempre do mesmo prefixo (ver resolveSupabaseEnv).
+    const env = resolveSupabaseEnv();
+    supabaseUrl = env.url;
+    anonKey = env.anonKey;
   } catch {
     console.warn('requireAuth: SUPABASE_URL/ANON_KEY ausentes — fail-open');
     return { user: null, anon: true, warn: 'supabase_config_missing' };
   }
+
+  // Guarda de projeto: a anon key é um JWT com o `ref` do projeto, e a URL
+  // traz o mesmo ref no host. Divergiram = configuração cruzada, e o GoTrue
+  // recusaria QUALQUER token com um 401 genérico. Acusar aqui evita que o
+  // erro se disfarce de `token_invalid` — foi assim que o incidente de
+  // 2026-09-04 passou dias parecendo problema de sessão.
+  const refUrl = projectRefFromUrl(supabaseUrl);
+  const refKey = projectRefFromAnonKey(anonKey);
+  if (refUrl && refKey && refUrl !== refKey) {
+    console.warn(
+      `requireAuth: projeto divergente — url=${refUrl} anonKey=${refKey}`,
+    );
+    return {
+      user: null,
+      anon: true,
+      warn: 'env_project_mismatch',
+      detail: { url_ref: refUrl, key_ref: refKey },
+    };
+  }
+
   try {
     const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
@@ -448,9 +549,16 @@ export interface GateProAIOk {
 function loginRequiredResponse(auth: AuthResult): NextResponse {
   const reason = auth.warn || 'no_token';
   const d = auth.detail;
-  // O sufixo visivel carrega o essencial: o codigo do GoTrue e o host que
-  // verificou. E o que a pessoa consegue ler da tela e mandar de volta.
-  const extra = d ? ` ${d.code || d.gotrue} @ ${d.host}` : '';
+  // O sufixo visivel carrega o essencial pra quem le da tela e manda de volta.
+  // Renderizado como `chave=valor` generico: cada `warn` traz um detail de
+  // formato proprio (o GoTrue traz code/host; o env_project_mismatch traz os
+  // dois refs de projeto), e um formato fixo imprimiria "undefined" no outro.
+  const extra = d
+    ? ' ' +
+      Object.entries(d)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ')
+    : '';
   return jsonResponse(
     { error: `${ERR_LOGIN_REQUIRED} (${reason}${extra})`, reason, ...(d ? { detail: d } : {}) },
     401,

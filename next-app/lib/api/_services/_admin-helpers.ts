@@ -6,8 +6,7 @@
 // `security.ts` pra dar um ponto único de import nos services admin —
 // match com o padrão do vanilla, que mantinha tudo em `_admin.js`.
 
-import { ServiceError, getSupabaseUrl } from '../security';
-import { getRuntimeEnv } from '../env';
+import { ServiceError, resolveSupabaseEnv } from '../security';
 export { isAdminEmail, ensureAdminEmail, getServiceKey } from '../security';
 
 const AUTH_TIMEOUT_MS = 10000;
@@ -23,13 +22,9 @@ export async function verifyAdminToken(
   accessToken: string
 ): Promise<{ callerId: string; email: string }> {
   if (!accessToken) throw new ServiceError('sem token', 401);
-  const supaUrl = getSupabaseUrl();
-  const anonKey =
-    getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
-    getRuntimeEnv('SUPABASE_ANON_KEY') ||
-    getRuntimeEnv('SUPABASE_SERVICE_ROLE') ||
-    getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY') ||
-    '';
+  // Par ÚNICO: a chave TEM que ser a do mesmo projeto da url, senão o GoTrue
+  // responde 401 pra qualquer token (ver resolveSupabaseEnv).
+  const { url: supaUrl, anonKey } = resolveSupabaseEnv();
 
   let res: Response;
   try {
