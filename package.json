@@ -9,7 +9,11 @@
     "@capacitor/browser": "^6.0.5",
     "@capacitor/camera": "^6.1.2",
     "@capacitor/core": "^6.2.0",
-    "@capacitor/share": "^6.0.3"
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/keyboard": "^6.0.0",
+    "@capacitor/share": "^6.0.3",
+    "@capacitor/splash-screen": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0"
   },
   "devDependencies": {
     "@capacitor/android": "^6.2.0",

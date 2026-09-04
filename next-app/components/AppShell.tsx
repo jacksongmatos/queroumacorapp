@@ -19,6 +19,7 @@ import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
 import { NativePushRouter } from './NativePushRouter';
+import { NativeChrome } from './NativeChrome';
 import { AppTour } from './AppTour';
 import { PickerRecovery } from './PickerRecovery';
 import { BackGuard } from './BackGuard';
@@ -175,6 +176,8 @@ export function AppShell({
       style={{ height: '100dvh' }}
     >
       <RealtimeBindings />
+      {/* Casca: barra de status, teclado, splash, resume (no-op fora dela). */}
+      <NativeChrome />
       {/* Toque em push nativa → navega pro data.url (no-op fora da casca). */}
       <NativePushRouter />
       {/* App morto pelo Android enquanto a galeria estava aberta: devolve a

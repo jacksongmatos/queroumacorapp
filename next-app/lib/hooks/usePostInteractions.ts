@@ -40,6 +40,7 @@ import {
   type SavedPostRow,
   type SoftDeleteResult,
 } from '@/lib/services/postInteractions';
+import { hapticImpact } from '@/lib/native';
 
 // ─── useLike ───────────────────────────────────────────────────────────────
 
@@ -99,6 +100,8 @@ export function useLike(postId: string, initialData?: LikeSnapshot): UseLikeResu
       // Cancela queries in-flight pra evitar race com refetch.
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<LikeSnapshot>(key);
+      // Toque tátil leve no momento do gesto (no-op fora da casca nativa).
+      hapticImpact('light');
       // Flip otimista — se prev existir, usa pra calcular novo count.
       if (prev) {
         const nextLiked = !prev.liked;
@@ -333,6 +336,7 @@ export function useSavedPosts(userIdParam?: string): UseSavedPostsResult {
     mutationFn: (postId: string) => toggleSaveSvc(userId, postId),
     onMutate: async (postId: string) => {
       await qc.cancelQueries({ queryKey: key });
+      hapticImpact('light');
       const prev = qc.getQueryData<SavedPostRow[]>(key);
       if (prev) {
         const exists = prev.some((r) => r.post_id === postId);

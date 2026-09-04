@@ -11,6 +11,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount';
 import { useAuthGate } from '@/components/AuthGate';
+import { hapticSelection } from '@/lib/native';
 
 interface NavItem {
   href: string;
@@ -124,7 +125,10 @@ export function BottomNav() {
               // Visitante tocando numa aba de área logada → abre cadastro.
               if (item.requiresAuth && !requireAuth(item.gateAction)) {
                 e.preventDefault();
+                return;
               }
+              // Toque tátil leve ao trocar de aba (no-op fora da casca).
+              if (!active) hapticSelection();
             }}
             aria-label={
               showBadge ? `${item.label} (${unreadNotif} não lidas)` : item.label

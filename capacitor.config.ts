@@ -70,6 +70,25 @@ const config: CapacitorConfig = {
     FirebaseMessaging: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
+    // Splash nativa: a casca segura a tela até o site carregar; o código
+    // (lib/native/splash.ts, via NativeChrome) chama hide() com fade assim que
+    // o React pinta o shell. `launchAutoHide:false` deixa o hide na mão do app
+    // (senão a splash some antes do site aparecer e mostra a tela branca);
+    // `launchShowDuration` é só o teto de segurança caso o hide não rode.
+    SplashScreen: {
+      launchAutoHide: false,
+      launchShowDuration: 5000,
+      backgroundColor: '#1a1a2e',
+      androidSpinnerStyle: 'small',
+      showSpinner: false,
+    },
+    // Teclado: 'native' faz o SO redimensionar a WebView pra área acima do
+    // teclado — o layout 100dvh do app se ajusta sem pulo (ver
+    // lib/native/keyboard.ts). resizeOnFullScreen evita gap embaixo no Android.
+    Keyboard: {
+      resize: 'native',
+      resizeOnFullScreen: true,
+    },
   },
 };
 
