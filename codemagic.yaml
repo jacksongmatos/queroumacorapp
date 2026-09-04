@@ -26,7 +26,8 @@ workflows:
       android_signing:
         - queroumacor_keystore
       groups:
-        - firebase        # fornece GOOGLE_SERVICES_JSON (opcional)
+        - firebase             # fornece GOOGLE_SERVICES_JSON (opcional)
+        - google_credentials   # fornece GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
       node: 20
       java: 17
     cache:
@@ -80,3 +81,23 @@ workflows:
         notify:
           success: true
           failure: true
+
+      # Sobe o AAB direto pro Internal testing pela Google Play Developer API.
+      # Credencial: service account codemagic-play-publisher@queroumacor-245ef
+      # (Google Cloud), convidada no Play Console com permissao de Releases. O
+      # JSON dela vive so como variavel Secure no painel do Codemagic.
+      #
+      # DUAS TRAVAS, de proposito:
+      #   track: internal      -> producao nao acontece por acidente; teria que
+      #                           estar escrito aqui.
+      #   submit_as_draft: true-> o release chega como RASCUNHO no Play Console e
+      #                           espera uma decisao humana pra ir pros testers.
+      # Tirar `submit_as_draft` so depois que a esteira provar que funciona.
+      #
+      # Cada upload precisa de versionCode MAIOR que o anterior. O build.gradle
+      # le ANDROID_VERSION_CODE do ambiente (default 10201), entao pra reenviar
+      # basta definir essa variavel no painel — sem commit.
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
