@@ -14,6 +14,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 // No edge do Cloudflare a env-var só existe no request context — process.env
 // volta vazio. Ver lib/api/env.ts.
 import { getRuntimeEnv } from '@/lib/api/env';
+import { resolveSupabaseEnv } from '@/lib/api/security';
 
 export const runtime = 'edge';
 
@@ -25,14 +26,18 @@ const SUPABASE_TIMEOUT_MS = 2000;
 const BUILD_MARKER = 'brand-logos-2026-08-22';
 
 export async function GET(request: NextRequest) {
-  // Lia `getRuntimeEnv('SUPABASE_URL')` direto e por isso reportava
-  // `supabase:false` mesmo com o banco de pé: no edge a var não está em
-  // process.env, e o projeto define `NEXT_PUBLIC_SUPABASE_URL`, não
-  // `SUPABASE_URL`. Mesma resolução que o resto da API usa.
-  const supabaseUrl =
-    getRuntimeEnv('SUPABASE_URL') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
-  const anonKey =
-    getRuntimeEnv('SUPABASE_ANON_KEY') || getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  // Par ÚNICO via resolveSupabaseEnv: url e chave sempre do mesmo prefixo.
+  // Antes cada ponto do código rolava a própria ordem e eles discordavam —
+  // foi o que produziu o par cruzado do incidente de 2026-09-04.
+  let supabaseUrl = '';
+  let anonKey = '';
+  try {
+    const env = resolveSupabaseEnv();
+    supabaseUrl = env.url;
+    anonKey = env.anonKey;
+  } catch {
+    // sem par completo: `supabase:false` abaixo já reporta
+  }
   let supabaseLive = false;
   if (supabaseUrl) {
     try {

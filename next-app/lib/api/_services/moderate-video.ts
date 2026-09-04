@@ -2,7 +2,7 @@
 // `functions/api/_services/moderate-video.js`. Frame-by-frame video moderation
 // via Gemini (resumable file upload).
 
-import { ServiceError, getServiceKey, getSupabaseUrl } from '../security';
+import { ServiceError, getServiceKey, getSupabaseUrl, resolveSupabaseEnv } from '../security';
 import { getRuntimeEnv } from '../env';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -41,10 +41,20 @@ export interface ModerateVideoResult {
 export async function verifyOwnerToken(args: {
   accessToken: string;
 }): Promise<string> {
-  const supaUrl = getSupabaseUrl();
+  // Par ÚNICO: url e anon key do mesmo projeto (ver resolveSupabaseEnv). A
+  // service key segue como último recurso pros testes, mas nunca mistura
+  // chave de um projeto com url de outro.
   const serviceKey = getServiceKey();
-  // Em prod, anon key existe; service key também. Em testes, qualquer um cobre.
-  const anonKey = getRuntimeEnv('SUPABASE_ANON_KEY') || serviceKey || '';
+  let supaUrl = '';
+  let anonKey = '';
+  try {
+    const env = resolveSupabaseEnv();
+    supaUrl = env.url;
+    anonKey = env.anonKey;
+  } catch {
+    supaUrl = '';
+    anonKey = serviceKey || '';
+  }
   try {
     const u = await fetch(`${supaUrl}/auth/v1/user`, {
       headers: {

@@ -71,12 +71,10 @@ export function getMercadoPagoWebhookSecret(): string | undefined {
   return getRuntimeEnv('MP_WEBHOOK_SECRET');
 }
 
-/** Chave anônima do Supabase (pública, pode aparecer no client). */
-export function getSupabaseAnonKey(): string | undefined {
-  return getRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
-}
-
-/** URL do projeto Supabase. */
-export function getSupabaseUrl(): string | undefined {
-  return getRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL');
-}
+// NÃO recriar aqui `getSupabaseUrl`/`getSupabaseAnonKey`. Eles existiam neste
+// arquivo lendo SÓ as `NEXT_PUBLIC_*`, enquanto o `security.ts` tinha outra
+// ordem — dois resolvedores discordando entre si, que é exatamente a classe de
+// bug do incidente de 2026-09-04 (URL de um projeto + anon key de outro → o
+// GoTrue respondia "Invalid API key" pra QUALQUER token). A URL e a anon key
+// saem juntas de `resolveSupabaseEnv()` em `lib/api/security.ts`, sempre do
+// MESMO par. Aqui fica só a leitura crua de env (`getRuntimeEnv`).

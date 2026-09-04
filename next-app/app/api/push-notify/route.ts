@@ -22,8 +22,12 @@ import { checkRateLimit, jsonResponse, rateLimitResponse } from '@/lib/api/secur
 import { pushNotifySchema } from '@/lib/api/schemas/push-notify';
 // No edge do Cloudflare os secrets do painel NÃO estão em `process.env` —
 // só no request context. Ver lib/api/env.ts.
-import { getRuntimeEnv, getSupabaseUrl } from '@/lib/api/env';
-import { getServiceKey } from '@/lib/api/security';
+import { getRuntimeEnv } from '@/lib/api/env';
+// `getSupabaseUrl` vem de security.ts — o resolvedor ÚNICO. Este arquivo
+// importava a versão que existia em env.ts, que lia SÓ
+// `NEXT_PUBLIC_SUPABASE_URL` e por isso precisava do `|| SUPABASE_URL`
+// colado no call site (mais uma ordem própria, divergente das outras).
+import { getServiceKey, getSupabaseUrl } from '@/lib/api/security';
 import {
   sendFcmToDeviceTokens,
   verifyFcmCredentials,
@@ -156,7 +160,15 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // ─── 5) Supabase config (necessário pros dois canais) ────────────────────
-  const supabaseUrl = getSupabaseUrl() || getRuntimeEnv('SUPABASE_URL');
+  // `getSupabaseUrl()` lança 503 quando não há nenhuma URL configurada; aqui
+  // a ausência vira o `supabase_not_configured` abaixo, que é a resposta que
+  // esta rota já dava.
+  let supabaseUrl: string | null;
+  try {
+    supabaseUrl = getSupabaseUrl();
+  } catch {
+    supabaseUrl = null;
+  }
   const serviceKey = getServiceKey();
   if (!supabaseUrl || !serviceKey) {
     return jsonResponse({ ok: false, error: 'supabase_not_configured' }, 503);

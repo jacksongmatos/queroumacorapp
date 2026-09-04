@@ -13,8 +13,11 @@
 //   - DELETE limpa o cookie (chamado pelo AuthProvider em signOut).
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { enforceRateLimit } from '@/lib/api/security';
-import { getRuntimeEnv } from '../../../../lib/api/env';
+import {
+  enforceRateLimit,
+  resolveSupabaseEnv,
+  type SupabaseEnvPair,
+} from '@/lib/api/security';
 
 // Cloudflare Pages (next-on-pages) exige edge runtime explícito por rota.
 export const runtime = 'edge';
@@ -23,31 +26,26 @@ const SESSION_COOKIE = 'sb-session-token';
 const AUTH_TIMEOUT_MS = 10_000;
 const COOKIE_MAX_AGE = 60 * 60; // 1h
 
-function getSupabaseUrl(): string | null {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    getRuntimeEnv('SUPABASE_URL') ||
-    '';
-  return url ? url.replace(/\/$/, '') : null;
-}
-
-function getAnonKey(): string | null {
-  return (
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    getRuntimeEnv('SUPABASE_ANON_KEY') ||
-    null
-  );
+// Par ÚNICO de security.ts, resolvido de UMA vez. Este arquivo tinha a
+// PRÓPRIA ordem (e ainda misturava process.env com getRuntimeEnv), podendo
+// escolher uma chave de projeto diferente da url — a raiz do incidente de
+// 2026-09-04. Url e anonKey saem do MESMO objeto: nunca duas resoluções.
+function authEnv(): SupabaseEnvPair | null {
+  try {
+    return resolveSupabaseEnv();
+  } catch {
+    return null;
+  }
 }
 
 async function validateToken(token: string): Promise<boolean> {
-  const url = getSupabaseUrl();
-  const anon = getAnonKey();
-  if (!url || !anon) return false;
+  const env = authEnv();
+  if (!env) return false;
   try {
-    const res = await fetch(`${url}/auth/v1/user`, {
+    const res = await fetch(`${env.url}/auth/v1/user`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        apikey: anon,
+        apikey: env.anonKey,
       },
       cache: 'no-store',
       signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
