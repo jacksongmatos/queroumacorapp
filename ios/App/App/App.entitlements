@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- APNs. `production` porque TestFlight E App Store usam o ambiente de
+	     producao do APNs — o `development` so vale pra build de debug assinada
+	     com perfil de desenvolvimento, que nao e o caso desta CI (o workflow
+	     ios-ipa assina com distribution_type: app_store).
+
+	     A chave APNs do projeto (Key ID 2R6FW9F2F6) foi criada como
+	     "Sandbox & Production" / Team Scoped, e esta cadastrada nos dois slots
+	     do Firebase (Cloud Messaging -> Apple app configuration), entao o FCM
+	     entrega nos dois ambientes com a mesma chave.
+
+	     A capability Push Notifications precisa estar ligada no App ID
+	     br.com.queroumacor.app (Apple Developer -> Identifiers), senao o
+	     provisioning profile gerado pelo Codemagic nao carrega o direito e a
+	     assinatura falha com "entitlement not supported". -->
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>
