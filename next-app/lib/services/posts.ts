@@ -153,8 +153,18 @@ export async function uploadMedia(
     }),
   ]);
   if (uploadResult.error) {
+    // Falha de REDE do supabase-js chega aqui como o TypeError cru do fetch
+    // ("Failed to fetch" / "Load failed"), que na tela não diz nada a quem
+    // está publicando nem a quem vai depurar. Anexamos o tamanho e o passo:
+    // upload grande morrendo na rede móvel é a causa comum, e o número é o
+    // que separa "conexão ruim" de "arquivo grande demais".
+    const bruto = uploadResult.error.message || '';
+    const rede = /failed to fetch|load failed|network|networkerror/i.test(bruto);
+    const mb = (file.size / 1024 / 1024).toFixed(1);
     throw new NetworkError(
-      uploadResult.error.message || 'Falha ao subir mídia.',
+      rede
+        ? `Falha de rede ao enviar a mídia (${mb} MB). Verifique a conexão e tente de novo.`
+        : bruto || 'Falha ao subir mídia.',
       uploadResult.error,
     );
   }
