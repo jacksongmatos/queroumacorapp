@@ -43,6 +43,7 @@ import { fetchLogo, uploadLogo, saveLogo } from '@/lib/services/aiLogo';
 import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
 import { CameraCapture } from '@/components/CameraCapture';
+import { native } from '@/lib/native';
 import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
@@ -499,7 +500,23 @@ export function EditProfileForm() {
         <div className="flex-1">
           <label
             htmlFor="avatar-input"
-            onClick={() => {
+            onClick={(e) => {
+              // Picker NATIVO primeiro (avatar é só-imagem, então pickImages
+              // serve): evita o seletor da WebView e a seleção múltipla não é
+              // problema (limit 1). Só cai no <input> quando o nativo não está
+              // disponível. preventDefault impede o label de abrir o <input>
+              // quando vamos pelo caminho nativo.
+              if (native.camera.isPickerAvailable()) {
+                e.preventDefault();
+                void (async () => {
+                  const r = await native.camera.pickImages(1);
+                  if (r.status === 'ok' && r.files[0]) void processarAvatar(r.files[0]);
+                  // 'cancelled'/'unavailable'/'error' → não faz nada (a pessoa
+                  // toca de novo; unavailable só ocorre se o plugin sumir no
+                  // meio, caso raríssimo).
+                })();
+                return;
+              }
               // WebView do wrapper pode nao abrir a galeria — sem erro
               // nenhum. Ver lib/utils/filePickerWatch. Quando não abre, o
               // app oferece a câmera (que não passa pelo seletor) em vez
@@ -535,7 +552,18 @@ export function EditProfileForm() {
           {podeCamera ? (
             <button
               type="button"
-              onClick={() => setCamAberta(true)}
+              onClick={async () => {
+                if (avatarBusy) return;
+                // Câmera nativa primeiro (pede a permissão real, aparece nos
+                // ajustes do app). Fallback: CameraCapture web.
+                const r = await native.camera.takePhoto('CAMERA');
+                if (r.status === 'ok') {
+                  void processarAvatar(r.file);
+                  return;
+                }
+                if (r.status === 'cancelled') return;
+                setCamAberta(true);
+              }}
               disabled={avatarBusy}
               className="inline-block ml-2 px-4 py-2 bg-white border border-[color:var(--color-border)] rounded-xl text-sm font-semibold"
               style={{ opacity: avatarBusy ? 0.6 : 1 }}

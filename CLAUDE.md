@@ -69,6 +69,23 @@
     com fallback web (`navigator.vibrate` p/ haptics; no-op p/ o resto) — 12
     testes novos em `__tests__/native.test.ts`. **Só vale no aparelho com AAB
     novo** (plugin entra no bundle nativo). Doc: `docs/NATIVE_BRIDGE.md`.
+  - **Onda B de capacidades nativas (2026-09-04, PR #180)** — mídia robusta.
+    Câmera NATIVA (`@capacitor/camera` getPhoto source CAMERA) vira o caminho
+    PRINCIPAL do botão "tirar foto" em 3 telas (MediaUploader do publicar,
+    EditProfileForm, SignupStep2) — pede a permissão real (aparece nos ajustes
+    do app) e corrige EXIF/qualidade; `CameraCapture` (getUserMedia) fica de
+    fallback quando o plugin não existe. `pickImagesNative` (novo em
+    `lib/native/camera.ts`, plugin `pickImages`) = picker nativo de galeria,
+    fiado nos fluxos SÓ-IMAGEM (avatar do editar/signup) via `onClick` do label
+    com `preventDefault`+fallback pro `<input>`; **NÃO** no dropzone do composer
+    porque `pickImages` é só-imagem e o composer aceita vídeo (regressão). Novo
+    `lib/native/filesystem.ts` (`saveFileNative`+`blobToBase64`, plugin
+    `Filesystem`→Documents) plugado no `shareOrDownloadImage` como caminho
+    confiável de salvar imagem na WebView (antes do anchor que falha lá). PDF de
+    orçamento é print-to-PDF (sem blob), então filesystem não se aplica a ele.
+    `@capacitor/filesystem` novo na raiz; sem permissão nova no Manifest
+    (pickImages usa o Photo Picker do sistema; Filesystem grava app-scoped).
+    9 testes novos; suíte 1492/1492. Só vale no aparelho com AAB novo.
   - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
     existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
     galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto

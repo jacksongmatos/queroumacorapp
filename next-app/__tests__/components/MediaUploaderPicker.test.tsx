@@ -116,11 +116,14 @@ describe('MediaUploader — seletor de arquivos', () => {
     expect(screen.queryByText(/A galeria não abriu/)).toBeNull();
   });
 
-  it('no celular o atalho da câmera aparece ANTES de qualquer falha', () => {
+  it('no celular o atalho da câmera abre a captura (web quando não há nativa) sem passar pelo seletor', async () => {
     temBotaoCamera.valor = true;
     render(<MediaUploader onFiles={vi.fn()} />);
     fireEvent.click(screen.getByTestId('media-uploader-camera'));
-    expect(screen.getByTestId('camera-capture')).toBeTruthy();
+    // O clique agora tenta a câmera NATIVA (@capacitor/camera) primeiro; no
+    // teste não há casca, então retorna 'unavailable' e cai no CameraCapture
+    // web. Como isso passa por um await, esperamos o modal aparecer.
+    expect(await screen.findByTestId('camera-capture')).toBeTruthy();
     // Abrir a câmera não pode passar pelo seletor de arquivos.
     expect(watchFilePicker).not.toHaveBeenCalled();
   });

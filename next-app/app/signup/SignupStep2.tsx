@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { emailSchema, tagSchema, phoneSchema, phoneOptionalSchema, requiredField, birthDateSchema, calculateAge, MIN_AGE } from '@/lib/schemas';
 import { useTagAvailability } from '@/lib/hooks/useTagAvailability';
 import { CameraCapture } from '@/components/CameraCapture';
+import { native } from '@/lib/native';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import type { UserRole } from '@/lib/types';
 import { ehImagem } from '@/lib/utils/mediaType';
@@ -221,6 +222,16 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           </div>
           <label
             className="flex-1 text-center py-2.5 border-2 border-[color:var(--color-border)] text-[color:var(--color-ink)] rounded-xl font-bold text-sm cursor-pointer hover:bg-[color:var(--color-bg)] transition-colors"
+            onClick={(e) => {
+              // Picker nativo primeiro (só-imagem). Fallback: <input>.
+              if (native.camera.isPickerAvailable()) {
+                e.preventDefault();
+                void (async () => {
+                  const r = await native.camera.pickImages(1);
+                  if (r.status === 'ok' && r.files[0]) aceitarFoto(r.files[0]);
+                })();
+              }
+            }}
           >
             Escolher foto
             <input
@@ -233,7 +244,16 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           {podeCamera ? (
             <button
               type="button"
-              onClick={() => setCamAberta(true)}
+              onClick={async () => {
+                // Câmera nativa primeiro; fallback CameraCapture web.
+                const r = await native.camera.takePhoto('CAMERA');
+                if (r.status === 'ok') {
+                  aceitarFoto(r.file);
+                  return;
+                }
+                if (r.status === 'cancelled') return;
+                setCamAberta(true);
+              }}
               className="py-2.5 px-3 border-2 border-[color:var(--color-border)] rounded-xl font-bold text-sm"
               data-testid="signup-avatar-camera"
             >

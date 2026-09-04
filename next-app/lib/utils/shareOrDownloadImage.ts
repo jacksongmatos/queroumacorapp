@@ -32,6 +32,22 @@ export async function shareOrDownloadImage(
       }
     }
 
+    // Casca Capacitor: salva NATIVAMENTE na pasta Documents (Arquivos/Files),
+    // o caminho confiável em WebView (onde blob:/data: download falha). Só o
+    // app instalado com o plugin Filesystem entra aqui; navegador/PWA seguem
+    // pro anchor abaixo.
+    try {
+      const { native, blobToBase64 } = await import('@/lib/native');
+      if (native.fs.isAvailable()) {
+        const b64 = await blobToBase64(blob);
+        const r = await native.fs.saveFile(filename, b64);
+        if (r.status === 'ok') return 'downloaded';
+        // erro no save nativo → continua pro fallback anchor.
+      }
+    } catch {
+      // import/plugin indisponível → segue pro anchor.
+    }
+
     // WebView Android sem share de arquivo: blob: não chega no lado nativo
     // (Save As vazio que não salva). No app, o próprio dataUrl de origem já
     // carrega os bytes — anchor direto nele o wrapper decodifica e grava.
