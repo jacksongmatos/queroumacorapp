@@ -27,6 +27,7 @@ import { getSupabase } from '@/lib/supabase';
 import { markBrandLogoApplied, recordBrandLogo } from '@/lib/services/brandLogos';
 import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
 
+import { authHeaders } from './authHeaders';
 // Input do form do logo. `style` é opcional — o backend tolera ausência e
 // usa estilo padrão. `name` é o único required (vai virar o texto do logo).
 export interface GenerateLogoInput {
@@ -80,7 +81,7 @@ export async function generateLogos(
   try {
     res = await fetch('/api/generate-logo', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({
         name,
         slogan: (input.slogan || '').trim() || undefined,

@@ -13,6 +13,7 @@ import { showToast } from '@/lib/toast';
 import { parseBRL } from '@/lib/utils';
 import type { Job } from '@/lib/types';
 
+import { authHeaders } from '@/lib/services/authHeaders';
 interface ReceiptItem {
   description: string;
   qty: number;
@@ -57,7 +58,7 @@ export function LaunchCostSheet({
     try {
       const fd = new FormData();
       fd.append('image', file);
-      const res = await fetch('/api/receipt-ocr', { method: 'POST', body: fd });
+      const res = await fetch('/api/receipt-ocr', { method: 'POST', headers: await authHeaders(), body: fd });
       const text = await res.text();
       let data: ReceiptResult & { error?: string };
       try { data = JSON.parse(text); }
