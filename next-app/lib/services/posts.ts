@@ -34,7 +34,7 @@ import {
 import { getMediaType } from '@/lib/utils';
 import { ehImagem, mimeConfiavel, normalizarArquivo } from '@/lib/utils/mediaType';
 
-import { authHeaders } from './authHeaders';
+import { fetchGated } from './fetchGated';
 // Limites alinhados com o bucket `posts` no Supabase (CLAUDE.md confirma:
 // allowed_mime_types image/jpeg|png|webp|gif|heic|heif + video/mp4|quicktime|webm,
 // file_size_limit 50 MB).
@@ -382,7 +382,7 @@ export async function generateCaption(
 
   let res: Response;
   try {
-    res = await fetch('/api/caption', { method: 'POST', headers: await authHeaders(), body: fd });
+    res = await fetchGated('/api/caption', { method: 'POST', body: fd });
   } catch (e) {
     throw new NetworkError(
       e instanceof Error ? e.message : 'Falha ao chamar /api/caption',

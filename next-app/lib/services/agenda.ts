@@ -20,7 +20,7 @@ import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Job, JobInput, JobStatus } from '@/lib/types';
 import { ymdDeCampos } from '@/lib/utils';
 
-import { authHeaders } from './authHeaders';
+import { fetchGated } from './fetchGated';
 // Colunas que a agenda renderiza. Mesmo subset do vanilla (modules/agenda.js
 // linha 27) — sem `notes`/`material_cost`/`revenue` aqui porque a lista do
 // dia mostra esses campos só quando o usuário expande/edita; pra evitar
@@ -201,9 +201,9 @@ export async function optimizeDayOrder(
 
   let res: Response;
   try {
-    res = await fetch('/api/agenda-order', {
+    res = await fetchGated('/api/agenda-order', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
   } catch (e) {

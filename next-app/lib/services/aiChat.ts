@@ -20,7 +20,7 @@
 
 import { NetworkError, ValidationError } from '@/lib/errors';
 
-import { authHeaders } from './authHeaders';
+import { fetchGated } from './fetchGated';
 // ─── Knowledge base offline (fallback quando /api/chat-ai falha) ──────────
 // Espelha o `_aiKnowledge` de modules/ai-chat.js. Usado só quando o backend
 // não responde — a IA real cobre muito mais cenários. Manter aqui evita
@@ -171,9 +171,9 @@ export async function sendChatMessage(
 
   let res: Response | null = null;
   try {
-    res = await fetch(endpoint, {
+    res = await fetchGated(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, history }),
       signal,
     });
@@ -236,9 +236,9 @@ export async function suggestScope(
 
   let res: Response;
   try {
-    res = await fetch('/api/chat-ai', {
+    res = await fetchGated('/api/chat-ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: prompt, history: [] }),
       signal,
     });
@@ -285,7 +285,7 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
 
   let res: Response;
   try {
-    res = await fetch('/api/transcribe', { method: 'POST', headers: await authHeaders(), body: fd });
+    res = await fetchGated('/api/transcribe', { method: 'POST', body: fd });
   } catch (e) {
     throw new NetworkError('Falha de rede ao transcrever áudio', e);
   }
@@ -334,9 +334,9 @@ export async function textToSpeech(
 
   let res: Response;
   try {
-    res = await fetch(endpoint, {
+    res = await fetchGated(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal,
     });
@@ -394,9 +394,9 @@ export async function suggestPrice(
 
   let res: Response;
   try {
-    res = await fetch('/api/pricing-suggest', {
+    res = await fetchGated('/api/pricing-suggest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         service_type: serviceType || undefined,
         description: description || undefined,

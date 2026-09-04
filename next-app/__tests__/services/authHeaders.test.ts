@@ -9,8 +9,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const getSession = vi.fn();
+const refreshSession = vi.fn();
 vi.mock('../../lib/supabase', () => ({
-  getSupabase: () => ({ auth: { getSession } }),
+  getSupabase: () => ({ auth: { getSession, refreshSession } }),
 }));
 
 import { authHeaders } from '../../lib/services/authHeaders';
@@ -18,6 +19,7 @@ import { authHeaders } from '../../lib/services/authHeaders';
 describe('authHeaders', () => {
   beforeEach(() => {
     getSession.mockReset();
+    refreshSession.mockReset();
   });
 
   it('manda Bearer com o access_token da sessão', async () => {
@@ -69,6 +71,58 @@ describe('serviços de IA enviam o token', () => {
 
     const headers = fetchMock.mock.calls[0][1].headers;
     expect(headers.Authorization).toBe('Bearer tok-abc');
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── Renovação no 401 (sessão rotacionada) ────────────────────────────────
+// `token_invalid` observado em produção: o GoTrue recusa o token enquanto o
+// PostgREST ainda aceita. O remédio é renovar a sessão UMA vez e repetir.
+describe('fetchGated — renova a sessão no 401', () => {
+  beforeEach(() => {
+    getSession.mockReset();
+    refreshSession.mockReset();
+    getSession.mockResolvedValue({ data: { session: { access_token: 'velho' } } });
+  });
+
+  it('no 401 renova e REPETE a chamada', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 401, ok: false })
+      .mockResolvedValueOnce({ status: 200, ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    refreshSession.mockResolvedValue({ data: { session: { access_token: 'novo' } } });
+
+    const { fetchGated } = await import('../../lib/services/fetchGated');
+    const res = await fetchGated('/api/chat-ai', { method: 'POST' });
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.status).toBe(200);
+    vi.unstubAllGlobals();
+  });
+
+  it('se a renovação falhar, devolve o 401 original (sem laço)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 401, ok: false });
+    vi.stubGlobal('fetch', fetchMock);
+    refreshSession.mockResolvedValue({ data: { session: null } });
+
+    const { fetchGated } = await import('../../lib/services/fetchGated');
+    const res = await fetchGated('/api/chat-ai', { method: 'POST' });
+
+    expect(res.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('resposta OK não dispara renovação', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fetchGated } = await import('../../lib/services/fetchGated');
+    await fetchGated('/api/chat-ai', { method: 'POST' });
+
+    expect(refreshSession).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });

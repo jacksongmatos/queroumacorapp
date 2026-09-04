@@ -56,7 +56,7 @@ import {
 } from '@/lib/services/chat';
 import type { SoftDeleteResult } from '@/lib/services/postInteractions';
 
-import { authHeaders } from '@/lib/services/authHeaders';
+import { fetchGated } from '@/lib/services/fetchGated';
 // ─── useConversations ───────────────────────────────────────────────────
 
 export interface UseConversationsResult {
@@ -163,9 +163,9 @@ export function useSendMessage(
         const trimmed = (text || '').trim();
         if (!trimmed) throw new Error('Mensagem vazia');
         try {
-          const res = await fetch('/api/moderate', {
+          const res = await fetchGated('/api/moderate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: trimmed }),
           });
           // Endpoint pode estar 503 (sem GEMINI_API_KEY) — nesse caso

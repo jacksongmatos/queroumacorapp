@@ -15,7 +15,7 @@
 
 import { NetworkError, ValidationError } from '@/lib/errors';
 
-import { authHeaders } from './authHeaders';
+import { fetchGated } from './fetchGated';
 // Tipo INLINE — entrada do transcribeAudio. Mantemos só os fields que o
 // backend Whisper aceita; extensão futura (prompt, temperature) entraria
 // como opcional sem quebrar callers.
@@ -63,7 +63,7 @@ export async function transcribeAudio(
 
   let res: Response;
   try {
-    res = await fetch('/api/transcribe', { method: 'POST', headers: await authHeaders(), body: fd });
+    res = await fetchGated('/api/transcribe', { method: 'POST', body: fd });
   } catch (e) {
     throw new NetworkError('Falha de rede ao transcrever áudio', e);
   }
