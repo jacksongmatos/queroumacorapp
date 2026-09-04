@@ -56,6 +56,17 @@ export function StoryViewer({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Detecção de vídeo é por EXTENSÃO da URL (isVideoUrl) porque `media_type` é
+  // sempre 'story' — o campo marca que o post é um story, NÃO se a mídia é foto
+  // ou vídeo. Então story antigo cuja media_url não termina em extensão de
+  // vídeo conhecida (upload legado, id sem extensão, URL assinada) caía no
+  // <img> e não tinha como tocar. Este override deixa o viewer se autocorrigir
+  // UMA vez por story: se o <img> falha carregando o que é vídeo (ou o <video>
+  // falha no que é imagem), troca o elemento. `triedFlipRef` evita loop
+  // (ex.: imagem 404 viraria vídeo, falharia, voltaria pra imagem…).
+  const [kindOverride, setKindOverride] = useState<'video' | 'image' | null>(null);
+  const triedFlipRef = useRef(false);
+
   // Portal no <body>. O z-[400] sozinho JÁ deveria bastar (a BottomNav é
   // z-[300]), mas o viewer nasce dentro do <main> — basta um ancestral
   // ganhar `transform`/`filter`/`will-change` um dia pra ele virar o
@@ -141,6 +152,15 @@ export function StoryViewer({
     currentStory.media_type === 'video' ||
     isVideoUrl(currentStory.media_url)
   );
+  // O que efetivamente é renderizado: a detecção por extensão, salvo quando o
+  // próprio carregamento provou o contrário (kindOverride).
+  const showVideo = kindOverride ? kindOverride === 'video' : isVideo;
+
+  // Zera o override a cada story (o próximo pode ser do outro tipo).
+  useEffect(() => {
+    setKindOverride(null);
+    triedFlipRef.current = false;
+  }, [currentStory?.id]);
 
   // ─── Navegação ───────────────────────────────────────────────────────────
   // Definidas como useCallback porque entram em deps de useEffect (auto-advance,
@@ -193,7 +213,7 @@ export function StoryViewer({
 
   useEffect(() => {
     if (!currentStory) return;
-    if (isVideo) return; // vídeo controla via onTimeUpdate/onEnded
+    if (showVideo) return; // vídeo controla via onTimeUpdate/onEnded
     if (paused) return;
 
     startTsRef.current = Date.now();
@@ -213,7 +233,7 @@ export function StoryViewer({
         intervalRef.current = null;
       }
     };
-  }, [currentStory, isVideo, paused, goNext, storyIdx, groupIdx]);
+  }, [currentStory, showVideo, paused, goNext, storyIdx, groupIdx]);
 
   // ─── Body scroll lock ────────────────────────────────────────────────────
   useEffect(() => {
@@ -324,7 +344,7 @@ export function StoryViewer({
         {/* Som: só aparece em vídeo. O story nasce COM áudio; este botão
             existe pra silenciar (ou pra religar quando a política de
             autoplay do aparelho obrigou o mudo). */}
-        {isVideo ? (
+        {showVideo ? (
           <button
             type="button"
             onClick={() => setMudo((m) => !m)}
@@ -349,7 +369,7 @@ export function StoryViewer({
         <button
           type="button"
           onClick={onClose}
-          className={`${isVideo ? 'ml-1' : 'ml-auto'} flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white`}
+          className={`${showVideo ? 'ml-1' : 'ml-auto'} flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white`}
           style={{
             width: 40,
             height: 40,
@@ -366,7 +386,7 @@ export function StoryViewer({
 
       {/* Media */}
       <div className="w-full h-full flex items-center justify-center">
-        {isVideo ? (
+        {showVideo ? (
           <video
             ref={videoRef}
             key={currentStory.id}
@@ -382,6 +402,14 @@ export function StoryViewer({
             preload="auto"
             onTimeUpdate={onVideoTimeUpdate}
             onEnded={goNext}
+            // Detectado como vídeo mas o arquivo não é (ou o codec não abre):
+            // cai pra <img> uma vez. Sem isto, um story marcado errado ficaria
+            // num vídeo preto travado.
+            onError={() => {
+              if (triedFlipRef.current) return;
+              triedFlipRef.current = true;
+              setKindOverride('image');
+            }}
           />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
@@ -389,6 +417,14 @@ export function StoryViewer({
             src={currentStory.media_url ?? ''}
             alt=""
             className="max-w-full max-h-full object-contain"
+            // <img> apontando pra um VÍDEO não decodifica e dispara onError —
+            // é o caso do story de vídeo antigo cuja URL não tem extensão
+            // reconhecível. Troca pra <video> uma vez, e aí ele toca.
+            onError={() => {
+              if (triedFlipRef.current) return;
+              triedFlipRef.current = true;
+              setKindOverride('video');
+            }}
           />
         )}
       </div>
