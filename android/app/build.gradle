@@ -48,17 +48,17 @@ android {
     }
     buildTypes {
         release {
-            // R8 ligado (recomendação do Play "memory and performance"):
-            // encolhe/otimiza o código Java e remove recursos não usados. Num
-            // app Capacitor a camada Java é pequena, então o ganho é modesto —
-            // mas as keep-rules de proguard-rules.pro são OBRIGATÓRIAS: sem
-            // elas o R8 remove os plugins (registrados por reflexão) e o app
-            // abre e quebra. SMOKE-TEST no primeiro AAB com isto: abrir o app,
-            // logar (OAuth), tirar foto, compartilhar, receber push. Se algo
-            // quebrar, voltar minifyEnabled/shrinkResources pra false.
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // R8 DESLIGADO. Foi ligado no PR #179 (recomendação "memory and
+            // performance" do Play) e QUEBROU O BOOT no Internal Testing
+            // (2026-09-04): o app não passava da splash — o R8 removeu classe(s)
+            // que o Capacitor registra por reflexão, apesar das keep-rules, e a
+            // WebView nunca carregava. Num app WebView o ganho do R8 é modesto e
+            // não vale o risco. As keep-rules de proguard-rules.pro ficam pra o
+            // dia em que isto for reativado COM smoke-test de aparelho (nunca
+            // publicar R8 sem instalar e abrir antes).
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             if (keystorePropsFile.exists()) {
                 signingConfig signingConfigs.release
             }

@@ -70,14 +70,18 @@ const config: CapacitorConfig = {
     FirebaseMessaging: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
-    // Splash nativa: a casca segura a tela até o site carregar; o código
-    // (lib/native/splash.ts, via NativeChrome) chama hide() com fade assim que
-    // o React pinta o shell. `launchAutoHide:false` deixa o hide na mão do app
-    // (senão a splash some antes do site aparecer e mostra a tela branca);
-    // `launchShowDuration` é só o teto de segurança caso o hide não rode.
+    // Splash nativa. `launchAutoHide:TRUE` (mudado 2026-09-04): a splash SEMPRE
+    // some sozinha depois de `launchShowDuration`, mesmo que o site demore ou
+    // falhe a carregar. Antes era `false` (hide só na mão, via NativeChrome →
+    // lib/native/splash.ts) — mas aí, quando a WebView não carregava (foi o que
+    // o R8 quebrou no Internal Testing), a splash ficava CONGELADA pra sempre e
+    // o app "não passava do logo". O hide() manual do NativeChrome continua
+    // valendo: se o app pinta antes de 2,5s, a splash some antes; senão, o
+    // auto-hide garante que nunca trave. O leve flash até o site aparecer é
+    // aceitável perto de um app que não abre.
     SplashScreen: {
-      launchAutoHide: false,
-      launchShowDuration: 5000,
+      launchAutoHide: true,
+      launchShowDuration: 2500,
       backgroundColor: '#1a1a2e',
       androidSpinnerStyle: 'small',
       showSpinner: false,
