@@ -42,7 +42,11 @@ import { notFound } from 'next/navigation';
 // `process.env.NEXT_PUBLIC_*` ficam como fallback: o build do Next inlina
 // essas expressões, então seguem funcionando onde o contexto faltar.
 import { getRuntimeEnv } from '@/lib/api/env';
-import { resolveSupabaseEnv } from '@/lib/api/security';
+import {
+  getSupabaseUrl as supabaseUrlOnly,
+  resolveSupabaseEnv,
+  type SupabaseEnvPair,
+} from '@/lib/api/security';
 
 const SESSION_COOKIE = 'sb-session-token';
 const AUTH_TIMEOUT_MS = 10_000;
@@ -55,17 +59,23 @@ interface AdminGuardResult {
 // Delegam no par ÚNICO de security.ts — antes este arquivo tinha a PRÓPRIA
 // ordem, que discordava da do `security.ts`. Caminhos diferentes escolhiam
 // chaves diferentes, e só um deles funcionava.
-function getSupabaseUrl(): string | null {
+//
+// UMA resolução devolve url + anonKey juntas: quem fala com o GoTrue precisa
+// das duas do MESMO projeto, e pedir cada metade por sua conta é a forma
+// exata do bug de 2026-09-04.
+function authEnv(): SupabaseEnvPair | null {
   try {
-    return resolveSupabaseEnv().url;
+    return resolveSupabaseEnv();
   } catch {
     return null;
   }
 }
 
-function getAnonKey(): string | null {
+// Só a URL — caminho de SERVICE ROLE (`isPortalAdmin`), que não pareia com
+// anon key nenhuma e por isso pode usar o fallback só-URL do security.ts.
+function getServiceUrl(): string | null {
   try {
-    return resolveSupabaseEnv().anonKey;
+    return supabaseUrlOnly();
   } catch {
     return null;
   }
@@ -101,14 +111,13 @@ async function readAccessTokenFromCookies(): Promise<string | null> {
 async function getUserFromToken(
   token: string
 ): Promise<{ id: string; email: string } | null> {
-  const url = getSupabaseUrl();
-  const anon = getAnonKey();
-  if (!url || !anon) return null;
+  const env = authEnv();
+  if (!env) return null;
   try {
-    const res = await fetch(`${url}/auth/v1/user`, {
+    const res = await fetch(`${env.url}/auth/v1/user`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        apikey: anon,
+        apikey: env.anonKey,
       },
       cache: 'no-store',
       signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
@@ -143,7 +152,7 @@ function isAdminEmail(email: string): boolean {
  * /admin/*. Nunca reintroduzir `is_admin` em select de profiles.
  */
 async function isPortalAdmin(userId: string): Promise<boolean> {
-  const url = getSupabaseUrl();
+  const url = getServiceUrl();
   const svc = getServiceKey();
   if (!url || !svc) return false;
   try {

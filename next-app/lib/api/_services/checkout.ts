@@ -12,7 +12,7 @@
 //     do port Next).
 //   - Tipos TS estritos pra payload do MP.
 
-import { ServiceError, getSupabaseUrl, getSupabaseAnonKey } from '../security';
+import { ServiceError, resolveSupabaseEnv } from '../security';
 import { getRuntimeEnv } from '../env';
 
 const MP_TIMEOUT_MS = 15000;
@@ -103,11 +103,11 @@ export async function createProCheckout(args: {
 async function verifySupabaseToken(
   token: string
 ): Promise<{ id: string; email: string } | null> {
+  // Par ÚNICO — url e anonKey do MESMO objeto, nunca duas resoluções.
   let supaUrl: string;
   let anonKey: string;
   try {
-    supaUrl = getSupabaseUrl();
-    anonKey = getSupabaseAnonKey();
+    ({ url: supaUrl, anonKey } = resolveSupabaseEnv());
   } catch {
     return null;
   }

@@ -30,12 +30,11 @@ import {
   ServiceError,
   checkRateLimit,
   getServiceKey,
-  getSupabaseAnonKey,
-  getSupabaseUrl,
   getToken,
   jsonResponse,
   rateLimitResponse,
   requireAuth,
+  resolveSupabaseEnv,
   serviceErrorResponse,
 } from '@/lib/api/security';
 
@@ -71,8 +70,9 @@ export async function POST(request: NextRequest) {
     });
     if (!rl.allowed) return rateLimitResponse(rl);
 
-    const supabaseUrl = getSupabaseUrl().replace(/\/$/, '');
-    const anonKey = getSupabaseAnonKey();
+    // Par ÚNICO — a anon key e a URL têm que ser do mesmo projeto, senão o
+    // Storage recusa o degrau 2 (upload com o token do próprio usuário).
+    const { url: supabaseUrl, anonKey } = resolveSupabaseEnv();
     const serviceKey = getServiceKey();
 
     // Corpo = o PDF cru. Teto ANTES de ler quando o header existir; o

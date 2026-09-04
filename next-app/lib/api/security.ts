@@ -317,8 +317,10 @@ export async function requireAuthStrict(
   const token = getToken(request, body);
   if (!token) throw new ServiceError('login obrigatório', 401);
 
-  const supabaseUrl = getSupabaseUrl();
-  const anonKey = getSupabaseAnonKey();
+  // Par ÚNICO: url e anonKey do MESMO objeto. Duas resoluções independentes
+  // aqui seriam a forma exata do bug de 2026-09-04 — e este é o caminho
+  // crítico de autenticação, onde ela custou mais caro.
+  const { url: supabaseUrl, anonKey } = resolveSupabaseEnv();
 
   let res: Response;
   try {
