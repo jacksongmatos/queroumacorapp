@@ -33,6 +33,11 @@ const config: CapacitorConfig = {
   server: {
     // Canônico é o www (host do deep link / App Links, confirmado 2026-09-03).
     url: 'https://www.queroumacor.com.br',
+    // Pagina LOCAL exibida quando a carga de `url` falha (sem rede, DNS fora,
+    // site fora do ar). Sem isso o usuario ve a tela de erro crua do sistema —
+    // o app "nao abre" — que e o classico 4.2 Minimum Functionality na Apple.
+    // O arquivo e escrito no webDir pela build (ver codemagic.yaml).
+    errorPath: 'offline.html',
     cleartext: false,
     androidScheme: 'https',
     iosScheme: 'https',
