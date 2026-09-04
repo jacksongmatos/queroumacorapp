@@ -19,6 +19,13 @@ import {
   routeFromNotificationData,
   shareNative,
   NATIVE_OAUTH_REDIRECT,
+  hapticImpact,
+  hapticNotify,
+  hapticSelection,
+  applyStatusBar,
+  hideSplash,
+  initKeyboard,
+  onAppResume,
 } from '../lib/native';
 
 type CapacitorMock = {
@@ -151,5 +158,85 @@ describe('routeFromNotificationData (toque na push → rota)', () => {
     expect(routeFromNotificationData(undefined)).toBeNull();
     expect(routeFromNotificationData({})).toBeNull();
     expect(routeFromNotificationData({ url: 42 as unknown as string })).toBeNull();
+  });
+});
+
+describe('lib/native Onda A — chrome/haptics fora da casca (no-op, nunca throw)', () => {
+  it('haptics não lançam sem Capacitor', () => {
+    expect(() => hapticImpact('light')).not.toThrow();
+    expect(() => hapticNotify('success')).not.toThrow();
+    expect(() => hapticSelection()).not.toThrow();
+  });
+  it('statusBar/keyboard/splash são no-op silencioso', () => {
+    expect(() => applyStatusBar({ iconsLight: true })).not.toThrow();
+    expect(() => initKeyboard()).not.toThrow();
+    expect(() => hideSplash()).not.toThrow();
+  });
+  it('onAppResume devolve unsubscribe no-op fora da casca', () => {
+    const off = onAppResume(() => {});
+    expect(typeof off).toBe('function');
+    expect(() => off()).not.toThrow();
+  });
+});
+
+describe('lib/native Onda A — dentro da casca', () => {
+  it('haptics chamam o plugin Haptics', () => {
+    const calls: string[] = [];
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        Haptics: {
+          impact: async () => { calls.push('impact'); },
+          notification: async () => { calls.push('notification'); },
+          selectionChanged: async () => { calls.push('selection'); },
+        },
+      },
+    });
+    hapticImpact('medium');
+    hapticNotify('success');
+    hapticSelection();
+    expect(calls).toEqual(['impact', 'notification', 'selection']);
+  });
+
+  it('applyStatusBar usa o plugin StatusBar', () => {
+    let styled = false;
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        StatusBar: {
+          setStyle: async () => { styled = true; },
+          setBackgroundColor: async () => {},
+          setOverlaysWebView: async () => {},
+        },
+      },
+    });
+    applyStatusBar({ iconsLight: true });
+    expect(styled).toBe(true);
+  });
+
+  it('onAppResume registra listener no plugin App e a limpeza remove', async () => {
+    let removed = false;
+    let handler: ((d: unknown) => void) | undefined;
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        App: {
+          addListener: (_e: string, cb: (d: unknown) => void) => {
+            handler = cb;
+            return { remove() { removed = true; } };
+          },
+        },
+      },
+    });
+    let resumes = 0;
+    const off = onAppResume(() => { resumes += 1; });
+    handler?.({ isActive: true });
+    handler?.({ isActive: false }); // background — não conta
+    expect(resumes).toBe(1);
+    off();
+    expect(removed).toBe(true);
   });
 });

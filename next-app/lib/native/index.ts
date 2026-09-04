@@ -29,6 +29,11 @@ export {
   initNativePushTapRouting,
   routeFromNotificationData,
 } from './push';
+export { hapticImpact, hapticNotify, hapticSelection } from './haptics';
+export { applyStatusBar } from './statusBar';
+export { hideSplash } from './splash';
+export { initKeyboard } from './keyboard';
+export { onAppResume } from './appState';
 
 import { getNativePlatform, isNativePlatform } from './platform';
 import { isNativeOAuthAvailable, nativeSignInWithOAuth } from './auth';
@@ -39,6 +44,11 @@ import {
   registerNativePush,
   initNativePushTapRouting,
 } from './push';
+import { hapticImpact, hapticNotify, hapticSelection } from './haptics';
+import { applyStatusBar } from './statusBar';
+import { hideSplash } from './splash';
+import { initKeyboard } from './keyboard';
+import { onAppResume } from './appState';
 
 /** Fachada única — preferir `native.x()` nos call sites. */
 export const native = {
@@ -52,4 +62,13 @@ export const native = {
     register: registerNativePush,
     initTapRouting: initNativePushTapRouting,
   },
+  haptics: {
+    impact: hapticImpact,
+    notify: hapticNotify,
+    selection: hapticSelection,
+  },
+  statusBar: { apply: applyStatusBar },
+  splash: { hide: hideSplash },
+  keyboard: { init: initKeyboard },
+  onResume: onAppResume,
 };

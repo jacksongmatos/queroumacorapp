@@ -22,6 +22,7 @@ import {
   type CreatePostResult,
 } from '@/lib/services/posts';
 import { AuthenticationError, ValidationError } from '@/lib/errors';
+import { hapticNotify } from '@/lib/native';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
 export interface PublishPostInput {
@@ -106,6 +107,8 @@ export function usePublishPost(): UsePublishPostResult {
       reportFailure('publish-fail', err, { userId: user?.id, ctx: 'composer' });
     },
     onSuccess: () => {
+      // Vibração de conclusão (no-op fora da casca nativa).
+      hapticNotify('success');
       // Invalida feed (lista pública) + perfil do usuário (lista própria).
       // Sem `await`: invalidação é fire-and-forget, próximo render busca.
       qc.invalidateQueries({ queryKey: ['feed'] });

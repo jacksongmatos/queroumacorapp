@@ -56,6 +56,19 @@
     `docs/NATIVE_BRIDGE.md`. Deps dos plugins Capacitor já no package.json da
     raiz; `npx cap add android`/`cap sync` é na máquina de build (SDK nativo,
     não roda no remoto). Não pedir pra rodar de novo.
+  - **Onda A de capacidades nativas (2026-09-04, PR #178)** — "parar de
+    parecer site". 4 plugins novos na RAIZ (`@capacitor/{haptics,status-bar,
+    splash-screen,keyboard}`, acessados só via `window.Capacitor`, nunca
+    importados no bundle web) + wrappers em `lib/native/`
+    (`haptics`/`statusBar`/`splash`/`keyboard`/`appState`) + componente
+    `<NativeChrome>` montado no `AppShell` (inicializa StatusBar temática,
+    Keyboard `resize:native`, esconde a splash no 1º frame, reaplica StatusBar
+    no `resume`). Háptico fiado em: trocar aba (BottomNav), curtir e salvar
+    (`usePostInteractions` onMutate), publicar (`usePublishPost` onSuccess).
+    Config de Splash/Keyboard no `capacitor.config.ts`. Tudo feature-detected
+    com fallback web (`navigator.vibrate` p/ haptics; no-op p/ o resto) — 12
+    testes novos em `__tests__/native.test.ts`. **Só vale no aparelho com AAB
+    novo** (plugin entra no bundle nativo). Doc: `docs/NATIVE_BRIDGE.md`.
   - Câmera no fluxo de publicar: usa o sistema do `MediaUploader` já
     existente no main (`CameraCapture` + `useOfereceCamera` + recuperação de
     galeria) — NÃO o botão `native.camera` que a auditoria tinha proposto
