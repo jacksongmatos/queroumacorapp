@@ -130,6 +130,14 @@ export interface AuthResult {
   warn?: string;
   error?: string;
   status?: number;
+  /**
+   * Detalhe do 401 pra diagnostico. Tudo aqui e PUBLICO de proposito: o host
+   * do projeto Supabase ja esta hardcoded no bundle do cliente, e o
+   * `error_code` do GoTrue e o unico dado que separa "chave/projeto errados"
+   * (`bad_jwt`) de "sessao revogada" (`session_not_found`). Nenhuma chave
+   * entra aqui.
+   */
+  detail?: Record<string, string | number>;
 }
 
 /**
@@ -161,7 +169,31 @@ export async function requireAuth(
       headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
       signal: AbortSignal.timeout(AUTH_TIMEOUT_MS),
     });
-    if (!res.ok) return { user: null, anon: true, warn: 'token_invalid' };
+    if (!res.ok) {
+      // O status e o `error_code` do GoTrue sao o que separa as causas que
+      // sobraram: `bad_jwt` = token nao confere com a chave/projeto que ESTE
+      // servidor usa pra verificar; `session_not_found` = a sessao foi
+      // revogada. Sem isso, as duas viram o mesmo `token_invalid`.
+      let code = '';
+      try {
+        const j = (await res.json()) as { error_code?: string; msg?: string };
+        code = String(j?.error_code || j?.msg || '').slice(0, 60);
+      } catch {
+        // corpo nao-JSON: o status sozinho ja ajuda
+      }
+      return {
+        user: null,
+        anon: true,
+        warn: 'token_invalid',
+        detail: {
+          gotrue: res.status,
+          code,
+          // Host (publico) que ESTE servidor usou pra verificar. Comparar com
+          // o `iss` do token do cliente fecha o caso de projeto divergente.
+          host: supabaseUrl.replace(/^https?:\/\//, ''),
+        },
+      };
+    }
     const user = await res.json();
     if (!user?.id) return { user: null, anon: true, warn: 'invalid_user' };
     return { user: { id: user.id, email: user.email }, token };
@@ -415,8 +447,12 @@ export interface GateProAIOk {
  */
 function loginRequiredResponse(auth: AuthResult): NextResponse {
   const reason = auth.warn || 'no_token';
+  const d = auth.detail;
+  // O sufixo visivel carrega o essencial: o codigo do GoTrue e o host que
+  // verificou. E o que a pessoa consegue ler da tela e mandar de volta.
+  const extra = d ? ` ${d.code || d.gotrue} @ ${d.host}` : '';
   return jsonResponse(
-    { error: `${ERR_LOGIN_REQUIRED} (${reason})`, reason },
+    { error: `${ERR_LOGIN_REQUIRED} (${reason}${extra})`, reason, ...(d ? { detail: d } : {}) },
     401,
   );
 }
