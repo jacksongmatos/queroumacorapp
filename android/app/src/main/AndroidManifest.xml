@@ -76,4 +76,16 @@
          aparelhos que não têm uma. O app funciona sem câmera (a foto vira
          galeria/navegador), então a exigência não pode existir. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Microfone. Mesma regra da câmera: o chat de voz do Seu Zé (e Alice/Fê/
+         Senna) grava por getUserMedia({audio}) na WebView
+         (lib/hooks/useVoiceRecorder), e a WebView só concede AUDIO_CAPTURE se o
+         app declarar RECORD_AUDIO. Sem isto o microfone é negado sozinho — a
+         permissão nem chega a ser pedida — e a voz morre no app. iOS já tem o
+         NSMicrophoneUsageDescription no Info.plist. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- required="false" pelo mesmo motivo da câmera: declarar RECORD_AUDIO faz
+         o Play exigir hardware de microfone implicitamente e sumir com o app de
+         aparelhos sem um. Gravar voz é opcional (dá pra digitar), então não
+         pode virar exigência. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>
