@@ -245,6 +245,30 @@
     se o CLI falhar (nunca derruba a build). O AAB SEGUE saindo por e-mail +
     artifact também. Lado Play (não-código): a service account precisa de
     permissão de Releases no app + Google Play Android Developer API habilitada.
+  - **iOS AGORA SAI DO CODEMAGIC (Capacitor), não do GitHub Actions
+    (2026-09-04, verificado na `main`).** O `codemagic.yaml` ganhou o workflow
+    **`ios-ipa` ("iOS IPA (Capacitor)")** — `app_store_connect: codemagic`
+    (a mesma integração que o repo `queroumacor-ios` já usa), `ios_signing`
+    `distribution_type: app_store`, sobe no **TestFlight**. O **projeto Xcode
+    está VERSIONADO na `main`** (`ios/App/App.xcodeproj`, `.xcworkspace`,
+    `Podfile`, `App.xcscheme`, Assets com ícone 512 + splash 2732²) — gerado por
+    `npx cap add ios` e commitado; a build roda `npx cap sync ios` (NUNCA
+    `cap add ios` de novo — ele sobrescreveria os arquivos curados). **NÃO usar
+    o `.github/workflows/ios-build.yml`** (GitHub Actions): é o pipeline antigo,
+    superado, e ele roda `rm -rf ios && npx cap add ios` (a armadilha que apaga
+    os curados) — pendente de deleção. **Numeração iOS:** `CFBundleShortVersion
+    String` (versão, ex.: `1.2.0`) é à mão no `Info.plist`; **build number é
+    automático** (Codemagic pergunta o último à App Store +1) — o último do
+    WebIntoApp foi 9, então a 1ª build Capacitor sai como **10**. Segredos em
+    painel do Codemagic: `GOOGLE_SERVICE_INFO_PLIST`/`GOOGLE_SERVICES_JSON`
+    (grupo `firebase`), integração App Store Connect (`codemagic`). Identidade:
+    bundle `br.com.queroumacor.app`, Apple ID `6784256495` (mesma ficha do
+    WebIntoApp — um substitui o outro, não vira app novo). **Pendências iOS não
+    bloqueantes de TestFlight:** APNs `.p8` + capability Push + `App.entitlements`
+    (push nativo iPhone); antes da REVIEW: esconder compra do PRO no iOS, tirar
+    sessão do Supabase do `localStorage`, fallback offline. Doc
+    `docs/IOS_BUILD.md` está DESATUALIZADO (bundle/repo/fluxo Xcode manual
+    errados) — reescrever com esta realidade.
   - **R8 QUEBROU O BOOT — REVERTIDO (2026-09-04, PR #183).** O R8 ligado no
     #179 (`minifyEnabled`/`shrinkResources true`) fez o app **não passar da
     splash** no Internal Testing: apesar das keep-rules, removeu classe(s) que
