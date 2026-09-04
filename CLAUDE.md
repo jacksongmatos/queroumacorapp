@@ -1,5 +1,16 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **🚫 WEBINTOAPP ESTÁ MORTO — NÃO CITAR, NÃO CONSIDERAR (2026-09-04, decisão
+  do usuário).** As DUAS lojas saem do **Codemagic + Capacitor**, deste repo:
+  **Android AAB** pelo workflow `android-aab` (→ Internal Testing da Play) e
+  **iOS IPA** pelo `ios-ipa` (→ TestFlight). O wrapper WebIntoApp e o repo
+  `queroumacor-ios` estão **descontinuados**: não são plano B, não são
+  referência, não entram em comparação, explicação ou diagnóstico. Ao falar de
+  build, casca, permissão, push, deep link ou identidade do app, a resposta é
+  sempre Capacitor/Codemagic. As menções a WebIntoApp que sobraram mais abaixo
+  neste arquivo são **registro histórico** de incidentes já resolvidos — servem
+  pra entender o passado, nunca pra orientar o presente.
+
 - **P0 da auditoria de arquitetura FECHADOS no código (2026-09-03).** Ver
   `ARCHITECTURE_AUDIT_2026-08-26.md`. Status:
   - **C1 ✓** `gateProAI`/`gateProAIForm` agora retornam 401 pra anônimo/token
