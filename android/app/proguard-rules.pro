@@ -12,10 +12,31 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Preserva linha/arquivo pra stack trace de crash em produção (Play Console).
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# ─── Capacitor + plugins (R8 / minifyEnabled=true) ───────────────────────────
+# O Capacitor registra plugins por REFLEXÃO (nome da classe + anotação). Sem
+# estas regras o R8 renomeia/remove as classes e o app abre e quebra ("plugin
+# not implemented") — some justamente câmera, share, push, browser. Os AARs
+# oficiais trazem consumerProguard, mas mantemos explícito como rede de
+# segurança (custa alguns KB e evita AAB quebrado).
+-keep class com.getcapacitor.** { *; }
+-keep interface com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keep class * extends com.getcapacitor.Plugin { *; }
+-keepclassmembers class * {
+  @com.getcapacitor.annotation.PermissionCallback <methods>;
+  @com.getcapacitor.PluginMethod public <methods>;
+}
+# Plugins @capacitor-firebase/* (namespace io.capawesome) e Firebase.
+-keep class io.capawesome.capacitorjs.plugins.** { *; }
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+# JS bridge da WebView (métodos chamados de JS não podem ser removidos).
+-keepclassmembers class * {
+  @android.webkit.JavascriptInterface <methods>;
+}

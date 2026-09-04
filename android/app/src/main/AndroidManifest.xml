@@ -9,12 +9,21 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- Telas grandes (recomendação do Play contra o build 10100/WebIntoApp,
+             que travava orientação): o app roda em qualquer orientação e é
+             redimensionável. `resizeableActivity=true` é explícito (já é o
+             default em targetSdk 24+, mas o Play quer sem ambiguidade). NÃO há
+             `screenOrientation` nem `maxAspectRatio` — nada trava tablet/
+             foldable/ChromeOS. O `configChanges` abaixo já declara
+             orientation|screenSize|smallestScreenSize|screenLayout, então a
+             Activity se redimensiona sem recriar (sem tela branca ao girar). -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:resizeableActivity="true"
             android:exported="true">
 
             <intent-filter>
