@@ -1,316 +1,190 @@
-# iOS Build — QueroUmaCor (Capacitor wrapper)
+# iOS Build — QueroUmaCor
 
-Guia passo-a-passo para um dev iOS levar o PWA QueroUmaCor para o
-TestFlight e App Store Connect. Cobre **C2 (wrapper Capacitor)** e
-**C7 (Privacy Manifest)** do `RELEASE_AUDIT.md`.
+Como o app iOS e construido hoje. Ele sai **deste repo**, como casca Capacitor,
+pelo Codemagic. Nao precisa de Mac.
 
-> **Estado deste repo:** os arquivos versionados (`capacitor.config.ts`,
-> `ios/App/App/Info.plist`, `ios/App/App/PrivacyInfo.xcprivacy`,
-> `ios/App/App/AppDelegate.swift`,
-> `ios/App/App/Assets.xcassets/AppIcon.appiconset/Contents.json`) são o
-> **scaffold curado**. Eles devem ser copiados POR CIMA dos arquivos
-> que `npx cap add ios` gera, porque o boilerplate Capacitor não inclui
-> Privacy Manifest e usa Info.plist genérico.
+> **Historico:** ate 09/2026 o app da App Store vinha do repo privado
+> `queroumacor-ios` — um wrapper WebIntoApp, WebView pura, sem camera, push ou
+> OAuth nativo. A versao 1.2.0 substituiu aquele binario. O repo antigo esta
+> congelado como plano B; nao buildar de la.
 
 ---
 
-## 1. Pré-requisitos (uma vez)
+## 1. O essencial
 
-| Item | Como obter |
+| | |
 |---|---|
-| macOS 14+ | Hardware Apple ou VM macOS legal |
-| Xcode 15+ | Mac App Store (gratuito) |
-| CocoaPods | `sudo gem install cocoapods` |
-| Node.js 20+ | `nvm install 20` |
-| Conta Apple Developer ($99/ano) | https://developer.apple.com/programs/ |
-| Bundle ID registrado | Apple Developer → Certificates, Identifiers & Profiles → Identifiers → `+` → App IDs → Bundle ID `com.calicolors.queroumacor`. Habilitar **Push Notifications** capability. |
-| APNs Key (.p8) | Apple Developer → Keys → `+` → "Apple Push Notifications service (APNs)". Baixar o `.p8` UMA VEZ e guardar — não dá pra rebaixar. Anotar o Key ID e o Team ID. |
+| Bundle ID | `br.com.queroumacor.app` |
+| Apple ID do app | `6784256495` |
+| Team ID | `FBFCU5H5B5` |
+| Projeto Firebase | `queroumacor-245ef` (o MESMO do Android) |
+| Build | Codemagic, workflow **iOS IPA (Capacitor)** |
+| Destino | TestFlight (producao continua manual) |
+
+O app **nao embarca o site**. O `capacitor.config.ts` aponta `server.url` pra
+`https://www.queroumacor.com.br`, entao mudanca no Next.js chega ao app pelo
+deploy do Cloudflare Pages, **sem rebuild**. So rebuilde ao mexer em plugin
+nativo, permissao, icone, splash ou no proprio `capacitor.config.ts`.
 
 ---
 
-## 2. Setup do projeto (clone fresco)
+## 2. Como buildar
 
-```bash
-# 1. Clonar e instalar deps base
-git clone https://github.com/calicolors/queroumacorapp.git
-cd queroumacorapp
+Codemagic -> app `queroumacorapp` -> **Start new build** -> branch `main` ->
+workflow **iOS IPA (Capacitor)**.
 
-# 2. Instalar Capacitor + plugins necessários
-npm install \
-  @capacitor/core@^6 \
-  @capacitor/cli@^6 \
-  @capacitor/ios@^6 \
-  @capacitor/push-notifications@^6 \
-  @capacitor/status-bar@^6 \
-  @capacitor/splash-screen@^6 \
-  @capacitor/app@^6
+Sem `triggering` no yaml: so roda no botao. ~4 min com cache quente. Depois a
+Apple processa por 5-30 min ate a build aparecer no TestFlight.
 
-# 3. Gerar boilerplate do projeto iOS
-#    Lê capacitor.config.ts e cria ios/App/App.xcworkspace + Pods.
-npx cap add ios
-```
+O que o workflow faz, em ordem:
 
-> **Nota:** se for a primeira vez no host, o `cap add ios` roda `pod
-> install` automaticamente — pode demorar 5-10 minutos.
+1. `npm ci`
+2. escreve `ios/App/App/GoogleService-Info.plist` a partir da variavel
+   `GOOGLE_SERVICE_INFO_PLIST` (base64) — falha explicito se ela estiver vazia
+3. cria um `webDir` placeholder e roda `npx cap sync ios` (que roda `pod install`)
+4. `xcode-project use-profiles` (assinatura)
+5. `CFBundleVersion` = maior build do TestFlight + 1
+6. `xcode-project build-ipa` — em caso de falha, imprime as linhas `error:` do
+   log do xcodebuild direto no Codemagic
+7. sobe no TestFlight e manda e-mail
 
 ---
 
-## 3. Aplicar arquivos curados POR CIMA do boilerplate
+## 3. O que e versionado e o que e gerado
 
-O `cap add ios` sobrescreve com versões genéricas. Restaure os arquivos
-do repo:
-
-```bash
-# Estes ARQUIVOS já existem no git — restaurar caso o cap add os tenha
-# sobrescrito:
-git checkout HEAD -- \
-  ios/App/App/Info.plist \
-  ios/App/App/PrivacyInfo.xcprivacy \
-  ios/App/App/AppDelegate.swift \
-  ios/App/App/Assets.xcassets/AppIcon.appiconset/Contents.json
-```
-
----
-
-## 4. Gerar ícones e splash
-
-O `next-app/public/icon-512.png` já está versionado. Use o
-`@capacitor/assets` pra gerar todos os tamanhos esperados pela
-Apple:
-
-```bash
-npm install --save-dev @capacitor/assets
-
-# A partir da raiz do repo:
-npx @capacitor/assets generate \
-  --iconBackgroundColor='#1a1a2e' \
-  --iconBackgroundColorDark='#1a1a2e' \
-  --splashBackgroundColor='#1a1a2e' \
-  --splashBackgroundColorDark='#1a1a2e' \
-  --assetPath next-app/public
-```
-
-> O comando lê `next-app/public/icon-512.png` e popula
-> `ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png` nos 18 tamanhos
-> mapeados em `Contents.json`. Se você renomeou os arquivos, atualize o
-> `Contents.json` ou rode o comando com `--logoSourceImage`.
-
----
-
-## 5. Configurar Signing & Capabilities
-
-1. Abra o workspace:
-   ```bash
-   open ios/App/App.xcworkspace
-   ```
-2. No Xcode → selecione o target **App** → **Signing & Capabilities**.
-3. **Team:** selecione o Apple Developer Team da Cali Colors.
-4. **Bundle Identifier:** confirme que é `com.calicolors.queroumacor`.
-5. Clique **+ Capability** e adicione:
-   - **Push Notifications**
-   - **Background Modes** → habilite **Remote notifications**
-6. Configure o APNs no servidor de push (Supabase Edge Function ou
-   Cloudflare Worker — sprint C8 pendente). Variáveis necessárias:
-   - `APNS_TEAM_ID`
-   - `APNS_KEY_ID`
-   - `APNS_PRIVATE_KEY` (conteúdo do `.p8` em formato PEM)
-   - `APNS_BUNDLE_ID=com.calicolors.queroumacor`
-   - `APNS_PRODUCTION=true` (uma vez em TestFlight)
-
----
-
-## 6. Sincronizar mudanças do JS (cada vez que o JS muda)
-
-Como a app é PWA hosted, **não precisamos rebuildar nativo a cada
-mudança no Next** — o WebView carrega `https://queroumacor.com.br`
-direto. Mas se você mudar `capacitor.config.ts`, plugin nativo, ou
-qualquer arquivo em `ios/`:
-
-```bash
-npx cap sync ios
-```
-
-Isso reinstala Pods, atualiza configs, e regenera o
-`capacitor.config.json` que o nativo lê em runtime.
-
----
-
-## 7. Build local pra simulator
-
-No Xcode:
-
-1. Selecione um simulator no scheme picker (ex.: **iPhone 15 Pro**).
-2. **Cmd+R** — compila e roda.
-3. O WebView abre `https://queroumacor.com.br` (não `localhost`).
-
-Pra testar push notifications no simulator, use Xcode → Devices &
-Simulators → arraste um JSON de payload APNs pro device window.
-
----
-
-## 8. Archive & TestFlight
-
-1. Selecione **Any iOS Device (arm64)** no scheme picker (NÃO um
-   simulator).
-2. **Product → Archive**.
-3. Quando o Organizer abrir, clique **Distribute App** →
-   **App Store Connect** → **Upload**.
-4. Aguarde o processing (~10-30 min). O build aparece em
-   App Store Connect → TestFlight.
-5. Adicione testers internos (até 100 emails da equipe Cali Colors)
-   ou criar grupo de beta externo (review prévio Apple ~24h).
-
----
-
-## 9. Submissão App Store
-
-Metadata pronto pra colar (vide `RELEASE_AUDIT.md` seção 2):
+O projeto Xcode **esta no repo**. Foi gerado uma vez com `npx cap add ios` e
+commitado.
 
 ```
-Nome (≤30 chars):     QueroUmaCor: Pintores PRO
-Subtítulo (≤30):      Orçamento, IA e Agenda
-Categoria primária:   Business
-Categoria secundária: Productivity
-Faixa etária:         12+ (UGC moderado)
-Privacy Policy:       https://queroumacor.com.br/info/privacidade
-Support URL:          https://queroumacor.com.br/info/ajuda
-Marketing URL:        https://queroumacor.com.br
-Copyright:            © 2026 CALICOLORS TINTAS LTDA
-CNPJ controlador:     47.677.346/0001-92
+ios/App/
+├── Podfile                  versionado
+├── App.xcodeproj/           versionado (inclui xcshareddata/xcschemes/App.xcscheme)
+├── App.xcworkspace/         versionado
+└── App/
+    ├── Info.plist           versionado — CURADO, nao sobrescrever
+    ├── PrivacyInfo.xcprivacy versionado — CURADO
+    ├── AppDelegate.swift    versionado — CURADO (ver secao 6)
+    ├── Assets.xcassets/     versionado (icone 1024 + splash 2732)
+    ├── Base.lproj/          versionado (Main + LaunchScreen)
+    ├── GoogleService-Info.plist   NAO versionado — escrito pela build
+    ├── public/                    NAO versionado — gerado por `cap sync`
+    ├── capacitor.config.json      NAO versionado — gerado por `cap sync`
+    └── config.xml                 NAO versionado — gerado por `cap sync`
 ```
 
-Screenshots obrigatórias (App Store Connect → App Information):
+**Nao rode `npx cap add ios` de novo.** Ele recusa quando `ios/` existe, e se
+voce apagar a pasta pra forcar, perde os arquivos curados. Pra atualizar plugins
+use `npx cap sync ios`.
 
-| Device | Resolução | Mínimo |
-|---|---|---|
-| iPhone 6.7" (14/15/16 Pro Max) | 1290×2796 | 3 telas |
-| iPhone 5.5" (8 Plus) | 1242×2208 | 3 telas (legado) |
-| iPad Pro 12.9" | 2048×2732 | 3 telas |
-
-Use o simulator de cada device + **Cmd+S** pra capturar.
+Se um dia for MESMO necessario regenerar: compare cada arquivo curado com o
+template antes de sobrepor. O template fica em
+`node_modules/@capacitor/cli/assets/ios-pods-template.tar.gz`.
 
 ---
 
-## 10. StoreKit para PRO subscription (C1 — sprint separada)
+## 4. Configuracao fora do repo
 
-Pra integrar Apple IAP da subscription PRO (R$ 9,90/mês), seguir o
-documento **`docs/BILLING_STRATEGY.md`** (sendo escrito em paralelo).
-Esse guia AQUI cobre só wrapper + Privacy Manifest. StoreKit envolve:
+Nada de config sensivel vive aqui. Tudo em painel:
 
-- Criar produto `com.calicolors.queroumacor.pro.monthly` em App Store
-  Connect → Subscriptions
-- Subscription Group: "PRO QueroUmaCor"
-- Plugin `@capacitor-community/in-app-purchases` ou nativo
-  StoreKit 2 via custom Swift bridge
-- Servidor de validação de receipt (Supabase Edge Function)
-- Webhook `App Store Server Notifications V2` apontando pra
-  `/api/apple-iap-webhook`
-
-**Não submeta sem StoreKit — Apple rejeita certo se PRO continuar via
-Mercado Pago no wrapper iOS** (Guideline 3.1.1).
-
----
-
-## 11. Troubleshooting
-
-### "I have an iPad but no developer account"
-A conta Apple Developer ($99/ano) é **obrigatória** pra instalar build
-custom em device físico fora do simulator E pra submeter na App Store.
-Sem conta paga, só simulator funciona, e nada vai pra TestFlight.
-
-### "Push doesn't work in simulator"
-Simulator iOS 16+ suporta push notifications, mas usa o ambiente APNs
-**sandbox** (`api.sandbox.push.apple.com`). Garanta que o servidor de
-push detecta o ambiente certo:
-- Build de Debug → sandbox
-- Build de Release (TestFlight + App Store) → produção
-
-A flag `APNS_PRODUCTION` deve refletir isso. Se mandar payload sandbox
-pra ambiente prod (ou vice-versa), APNs retorna `BadDeviceToken` e o
-push some.
-
-### "App rejected for IAP" (Guideline 3.1.1)
-PRO subscription via Mercado Pago NO WRAPPER iOS é rejeição certa. Veja
-`docs/BILLING_STRATEGY.md`. A web (`queroumacor.com.br` no Safari) pode
-continuar com MP — só o wrapper nativo iOS precisa de StoreKit.
-
-### "App rejected: missing PrivacyInfo.xcprivacy"
-Confirme que `ios/App/App/PrivacyInfo.xcprivacy` está no target App
-no Xcode (Build Phases → Copy Bundle Resources). O `cap add ios` NÃO
-adiciona automaticamente — precisa arrastar pro Xcode na primeira vez,
-ou adicionar via `File → Add Files to "App"...`.
-
-### "WKWebView travado em tela branca"
-Provavelmente Cloudflare bloqueou o user-agent ou a HSTS preload pin
-não bate. Cheque o console Safari (Develop → Simulator → JSContext):
-- Se vier `net::ERR_BLOCKED_BY_CLIENT`, verifique CSP do site.
-- Se vier `App Bound Domain mismatch`, confirme que `WKAppBoundDomains`
-  no Info.plist inclui o domínio que o webview tentou abrir (deep
-  link externo conta).
-
-### "Pod install falhou: SDK version mismatch"
-```bash
-cd ios/App
-pod deintegrate
-pod install --repo-update
-```
-
-Se persistir, atualize Xcode CLI tools:
-```bash
-sudo xcode-select --install
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-```
-
-### "App Transport Security blocked"
-Algum recurso (imagem, API) está sendo carregado via HTTP. Confirme
-que tudo é HTTPS — não adicione exceções em `NSAppTransportSecurity`
-sem necessidade absoluta (Apple revisa).
-
----
-
-## 12. Checklist final pré-submissão
-
-- [ ] `Info.plist` com TODAS as usage descriptions populadas
-- [ ] `PrivacyInfo.xcprivacy` com data types corretos (revisar a cada
-      feature nova que coleta dado)
-- [ ] AppIcon: 18 PNGs gerados pelo `@capacitor/assets`
-- [ ] LaunchScreen.storyboard com background `#1a1a2e` (Capacitor
-      gera por padrão)
-- [ ] Push capability adicionada no target App
-- [ ] StoreKit configurado (subscription `pro.monthly` em ASC)
-- [ ] Receipt validation server live (`/api/apple-iap-webhook`)
-- [ ] Privacy Policy URL respondendo 200 em
-      `https://queroumacor.com.br/info/privacidade`
-- [ ] Support URL respondendo 200 em
-      `https://queroumacor.com.br/info/ajuda`
-- [ ] Screenshots 6.7" + 5.5" + iPad
-- [ ] Conta Apple Developer ativa ($99/ano em dia)
-- [ ] Build #1.0.0 (1) testado em TestFlight pelo menos 1 dispositivo
-      físico
-- [ ] Age gate validado: hard block para usuários <16 (sprint C5)
-- [ ] CSAM scanning ativo no upload (sprint C4)
-- [ ] Email verification enforçado (sprint C6)
-
----
-
-## 13. Estimativa de tempo até primeira build TestFlight
-
-Assumindo dev iOS experiente:
-
-| Tarefa | Tempo |
+| O que | Onde |
 |---|---|
-| Criar conta Apple Developer + esperar aprovação | 1-2 dias |
-| Setup Xcode + CocoaPods + clone | 1h |
-| `npx cap add ios` + ajustes de signing | 1h |
-| Aplicar arquivos curados deste repo | 30min |
-| Gerar ícones + splash | 30min |
-| Push capability + APNs key + servidor | 4h (excl. server) |
-| Primeira build Debug em simulator | 30min |
-| Primeira Archive + upload TestFlight | 1h |
-| Apple processing | 10-30min |
-| Testar em device físico via TestFlight | 1h |
-| **TOTAL excluindo StoreKit** | **~2 dias úteis** |
+| `GOOGLE_SERVICE_INFO_PLIST` (base64) | Codemagic -> Environment variables -> grupo `firebase`, Secure |
+| Assinatura + upload | Codemagic -> Integrations -> App Store Connect, integracao `codemagic` |
+| Provisioning profile | Codemagic -> Personal account settings -> Code signing identities |
+| Chave APNs (.p8) | Apple Developer -> Keys; subida no Firebase -> Cloud Messaging |
 
-Adicionar **+1 semana** se for incluir StoreKit (subscription PRO),
-**+1 semana** se for incluir CSAM scanning e age gate. Submissão App
-Store Review costuma levar 1-3 dias.
+Mesma convencao do `google-services.json` do Android: o arquivo nao entra no
+repo, a build materializa.
+
+---
+
+## 5. Versao e numero de build
+
+- **Versao** (`CFBundleShortVersionString`): escrita a mao no
+  `ios/App/App/Info.plist`. Suba antes de submeter uma versao nova pra loja.
+- **Build number** (`CFBundleVersion`): automatico, `ultimo do TestFlight + 1`.
+  Nunca repete, nem entre o app antigo e este — os dois vivem no mesmo Apple ID.
+
+---
+
+## 6. ARMADILHAS — leia antes de mexer
+
+### 6.1 Nao adicione metodos de `UISceneSession` ao AppDelegate
+
+Se o `AppDelegate` declarar `application(_:configurationForConnecting:options:)`,
+o UIKit adota o ciclo de vida de scenes e **abandona** o caminho legado que cria
+a janela a partir de `UIMainStoryboardFile`. Como o `Info.plist` nao tem
+`UIApplicationSceneManifest` e o projeto nao tem SceneDelegate, a scene sobe sem
+delegate e sem storyboard: **nenhuma janela e criada, nada e desenhado, e o app
+NAO crasha**. Tela preta permanente, sem log de crash.
+
+Foi o bug das builds 10 a 13 (04/09/2026). Sintoma exclusivo do iOS — no Android
+nao existe esse conceito, e a mesma build abria normalmente la.
+
+### 6.2 Provisioning profile guardado no Codemagic tem precedencia
+
+Enquanto existir um perfil em **Code signing identities -> iOS provisioning
+profiles** que case com o bundle ID, o passo "Set up code signing identities"
+instala ELE e a API da Apple **nem e consultada**.
+
+Consequencia: apagar, regerar ou criar um perfil novo no portal da Apple **nao
+muda nada** se o guardado continuar la. Pra trocar de verdade: apagar a entrada
+no Codemagic e reimportar com **Fetch profiles**.
+
+Como reconhecer: o erro do xcodebuild cita um perfil por nome. Se esse nome nao
+existe mais na Apple, o arquivo esta vindo do Codemagic.
+
+### 6.3 Ligar capability no App ID invalida os profiles
+
+Habilitar Push Notifications (ou qualquer capability) no App ID invalida
+imediatamente todos os provisioning profiles existentes. Regenere o perfil
+**antes** de rodar a build, ou ela quebra no archive com
+`doesn't include the aps-environment entitlement`.
+
+### 6.4 App-Bound Domains
+
+`limitsNavigationsToAppBoundDomains: true` + `WKAppBoundDomains` no `Info.plist`
+restringem a WebView aos dominios listados. O que fica de fora e bloqueado em
+SILENCIO e chega no JS como falha de rede generica. Se uma tela reclamar de
+"sem conexao" com a internet boa, o suspeito e um dominio faltando na lista.
+Limite da Apple: 10 dominios.
+
+Essa chave tambem **habilita service workers** na WKWebView — que no Android nao
+rodam na casca. Ou seja, o `sw.js` roda no app do iPhone e nao no do Android.
+
+### 6.5 Icone
+
+Layout single-icon do Capacitor 6: um unico `AppIcon-512@2x.png`, 1024x1024,
+**RGB sem canal alpha** e **sem cantos arredondados** (o iOS aplica a mascara).
+PNG com transparencia e recusado no upload; cantos arredondados embutidos deixam
+farelo nas quinas.
+
+---
+
+## 7. Quando a build falha
+
+O passo `Build IPA assinado` imprime as linhas `error:` do xcodebuild no proprio
+log do Codemagic. Comece por elas.
+
+| Erro | Causa provavel |
+|---|---|
+| `doesn't include the aps-environment entitlement` | perfil desatualizado — ver 6.2 e 6.3 |
+| `GOOGLE_SERVICE_INFO_PLIST vazio` | variavel nao cadastrada no grupo `firebase` |
+| `Failed to archive` sem mais nada | o passo perdeu o dump de erros; restaurar o bloco `if ! xcode-project build-ipa` |
+
+App preto no device, sem log de crash em Ajustes -> Privacidade -> Analise e
+Melhorias -> Dados de Analise: quase sempre inicializacao nativa, nao o site.
+Teste separando os dois — aponte a casca pra um bundle local; se nem ele pintar,
+o site esta fora da conversa.
+
+---
+
+## 8. Pendencias antes de submeter pra review
+
+- **Guideline 3.1.1**: a assinatura PRO nao pode ser vendida via Mercado Pago no
+  iOS. Ou StoreKit implementado, ou esconder a compra quando a plataforma for
+  iOS (`billing-platform.ts`). Ver `BILLING_STRATEGY.md`.
+- **Sessao do Supabase no `localStorage`**: o ITP do WKWebView apaga em ~7 dias
+  sem uso e desloga o usuario. Persistir via `@capacitor/preferences`.
+- **Fallback offline**: sem rede na abertura o app nao tem uma tela pra mostrar.
+  E o classico 4.2 Minimum Functionality.
