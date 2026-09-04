@@ -83,6 +83,18 @@
          permissão nem chega a ser pedida — e a voz morre no app. iOS já tem o
          NSMicrophoneUsageDescription no Info.plist. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- MODIFY_AUDIO_SETTINGS: NÃO é opcional, é o que fazia o microfone
+         falhar mesmo com a permissão concedida nos ajustes do app.
+         O BridgeWebChromeClient do Capacitor 6, ao receber o
+         `onPermissionRequest` de AUDIO_CAPTURE, pede DUAS permissões de uma
+         vez — MODIFY_AUDIO_SETTINGS **e** RECORD_AUDIO — e só chama
+         `request.grant()` se TODAS voltarem concedidas (o callback faz um AND
+         sobre o Map de resultados). Permissão não declarada no Manifest é
+         negada pelo sistema na hora, sem diálogo: a AND dava false, a WebView
+         recusava, e o getUserMedia rejeitava com NotAllowedError — enquanto a
+         tela de permissões do Android mostrava o microfone ativo.
+         É permissão NORMAL: não abre diálogo nenhum, só precisa existir. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- required="false" pelo mesmo motivo da câmera: declarar RECORD_AUDIO faz
          o Play exigir hardware de microfone implicitamente e sumir com o app de
          aparelhos sem um. Gravar voz é opcional (dá pra digitar), então não

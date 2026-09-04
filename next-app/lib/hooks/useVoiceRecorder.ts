@@ -61,6 +61,32 @@ function detectSupport(): boolean {
   return true;
 }
 
+/**
+ * Traduz a rejeição do getUserMedia. O `name` do DOMException é o que separa
+ * as causas — e no Android elas exigem ações DIFERENTES de quem está usando.
+ */
+export function mensagemDeMicrofone(e: unknown): string {
+  const nome = (e as { name?: string } | null)?.name || '';
+  switch (nome) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      // Inclui o caso em que a permissão do app ESTÁ concedida e mesmo assim
+      // a WebView recusou (falta de permissão declarada no Manifest, por
+      // exemplo). Por isso a frase não afirma que a permissão está negada.
+      return 'O microfone foi bloqueado. Se a permissão já está ativa nos ajustes do app, feche e abra o app de novo; se pedir permissão, toque em Permitir.';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'Nenhum microfone encontrado neste aparelho.';
+    case 'NotReadableError':
+    case 'AbortError':
+      return 'O microfone está ocupado por outro app. Feche o outro app e tente de novo.';
+    default:
+      return nome
+        ? `Não foi possível abrir o microfone (${nome}).`
+        : 'Não foi possível abrir o microfone.';
+  }
+}
+
 export function useVoiceRecorder(
   opts: UseVoiceRecorderOptions
 ): UseVoiceRecorderResult {
@@ -163,8 +189,12 @@ export function useVoiceRecorder(
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      const msg = 'Permissão de microfone negada';
+    } catch (e) {
+      // O catch mudo dizia SEMPRE "permissão negada" — inclusive quando a
+      // permissão do app está concedida nos ajustes e quem recusou foi a
+      // WebView, ou quando não há microfone, ou quando outro app segurava o
+      // hardware. Mensagem errada manda a pessoa procurar no lugar errado.
+      const msg = mensagemDeMicrofone(e);
       if (isMountedRef.current) setError(msg);
       onErrorRef.current?.(msg);
       return;

@@ -18,9 +18,12 @@ import {
   uploadMedia,
   createPost,
   readImageDimensions,
+  compressImage,
+  COMPRESS_THRESHOLD,
   type CreatePostMediaType,
   type CreatePostResult,
 } from '@/lib/services/posts';
+import { getMediaType } from '@/lib/utils';
 import { AuthenticationError, ValidationError } from '@/lib/errors';
 import { hapticNotify } from '@/lib/native';
 import { reportFailure } from '@/lib/utils/reportFailure';
@@ -63,16 +66,48 @@ export function usePublishPost(): UsePublishPostResult {
           'Selecione pelo menos uma foto ou vídeo para publicar.',
         );
       }
+      // COMPRESSÃO ANTES DO UPLOAD (2026-09-04). O "Gerar legenda" já
+      // comprimia acima de COMPRESS_THRESHOLD; PUBLICAR subia o arquivo CRU.
+      // Mesma foto, dois tratamentos, dependendo do botão — e desde a Onda B
+      // a câmera NATIVA (quality 90, resolução cheia) virou o caminho
+      // principal, então "cru" passou a significar 5-12 MB. O sintoma era
+      // gerar a legenda com sucesso (arquivo pequeno) e o "Postar" logo
+      // depois morrer com "Failed to fetch" (o upload grande caindo na rede
+      // móvel dentro da WebView).
+      //
+      // Falha ao comprimir NÃO impede publicar: HEIC que a WebView não
+      // decodifica pelo <img> rejeitaria aqui, e hoje esse arquivo sobe cru
+      // sem problema. Na dúvida, o original.
+      const paraSubir: File[] = [];
+      for (const f of input.files) {
+        if (input.mediaType === 'video' || getMediaType(f) === 'video') {
+          paraSubir.push(f);
+          continue;
+        }
+        if (f.size <= COMPRESS_THRESHOLD) {
+          paraSubir.push(f);
+          continue;
+        }
+        try {
+          paraSubir.push(await compressImage(f));
+        } catch {
+          paraSubir.push(f);
+        }
+      }
+
       // Upload sequencial (não paralelo) pra mostrar progresso previsível
       // e não saturar conexão móvel. Pra 1-5 arquivos pequenos a diferença
       // de latência é irrelevante.
       const urls: string[] = [];
       // W/H da primeira imagem (Wave 17): só captura pra image; vídeo
       // segue null e o frontend usa aspect-ratio CSS como hoje.
+      // Lidas do arquivo QUE VAI SUBIR, não do original — comprimir muda as
+      // dimensões, e gravar as do original reservaria o espaço errado no
+      // feed (o salto de layout que a Wave 17 existe pra matar).
       let firstWidth: number | null = null;
       let firstHeight: number | null = null;
-      if (input.files[0] && input.mediaType !== 'video') {
-        const dims = await readImageDimensions(input.files[0]);
+      if (paraSubir[0] && input.mediaType !== 'video') {
+        const dims = await readImageDimensions(paraSubir[0]);
         if (dims) {
           firstWidth = dims.width;
           firstHeight = dims.height;
@@ -82,8 +117,8 @@ export function usePublishPost(): UsePublishPostResult {
       // retorna o hash junto da URL; só persistimos o da primeira mídia
       // (paridade com mediaWidth/Height).
       let firstHash: string | null = null;
-      for (let i = 0; i < input.files.length; i++) {
-        const { url, mediaHash } = await uploadMedia(user.id, input.files[i]);
+      for (let i = 0; i < paraSubir.length; i++) {
+        const { url, mediaHash } = await uploadMedia(user.id, paraSubir[i]);
         urls.push(url);
         if (i === 0 && mediaHash) firstHash = mediaHash;
       }
