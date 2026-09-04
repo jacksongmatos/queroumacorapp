@@ -34,7 +34,12 @@ describe('gateProAI — FIX C1: anônimo nunca passa', () => {
     const r = res as Response;
     expect(r.status).toBe(401);
     const json = await r.json();
-    expect(json.error).toBe(ERR_LOGIN_REQUIRED);
+    // A mensagem passou a CARREGAR o motivo: `requireAuth` é fail-open por
+    // QUATRO causas distintas (no_token | supabase_config_missing |
+    // token_invalid | network_error) e todas viravam a mesma string, o que
+    // tornava o 401 indiagnosticável em produção.
+    expect(json.error).toContain(ERR_LOGIN_REQUIRED);
+    expect(json.reason).toBe('no_token');
   });
 
   it('token inválido → 401', async () => {
@@ -70,7 +75,9 @@ describe('gateProAIForm — FIX C1: mesmo contrato no multipart', () => {
     fd.set('file', new Blob(['x'], { type: 'image/png' }), 'x.png');
     const res = await gateProAIForm(req(), fd, { endpoint: 'caption' });
     expect((res as Response).status).toBe(401);
-    expect((await (res as Response).json()).error).toBe(ERR_LOGIN_REQUIRED);
+    const body = await (res as Response).json();
+    expect(body.error).toContain(ERR_LOGIN_REQUIRED);
+    expect(body.reason).toBe('no_token');
   });
 
   it('FormData com token válido passa', async () => {
