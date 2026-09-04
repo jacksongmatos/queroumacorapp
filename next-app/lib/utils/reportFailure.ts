@@ -28,7 +28,8 @@ export type FailureType =
   | 'camera-fail'
   | 'pdf-link-fail'
   | 'feed-extras-fail'
-  | 'render-error';
+  | 'render-error'
+  | 'video-fail';
 
 export function reportFailure(
   type: FailureType,

@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isVideoUrl } from '@/lib/utils';
 import { cfImg, cfImgSrcSet } from '@/lib/cfImg';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 export interface PostMediaProps {
   url: string;
@@ -126,6 +127,19 @@ export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onTo
           }}
           onPlay={() => setTocando(true)}
           onPause={() => setTocando(false)}
+          onError={(e) => {
+            // Vídeo que não carrega vira caixa preta com play morto — sem
+            // isto, a falha morre na tela (foi o que escondeu o bloqueio de
+            // media-src da CSP por semanas). Só reporta quando há erro real
+            // de mídia (v.error), não em pause/seek. Best-effort.
+            const v = e.currentTarget;
+            const err = v.error;
+            if (err) {
+              reportFailure('video-fail', new Error(`media error code ${err.code}`), {
+                ctx: url.slice(0, 200),
+              });
+            }
+          }}
           onClick={(e) => {
             const v = e.currentTarget;
             if (v.paused) {
