@@ -37,7 +37,7 @@ import {
 } from '@/lib/errors';
 import { crmNormName, crmMonthsSince } from '@/lib/utils';
 
-import { authHeaders } from './authHeaders';
+import { fetchGated } from './fetchGated';
 // Cliente derivado em memória a partir de jobs + quotes. Não vem de uma
 // tabela — é o agregado que a UI consome. `id` é estável (hash do key
 // usado em dedup), pro React conseguir usar como key sem precisar gerar
@@ -334,9 +334,9 @@ export async function generateDraftMessage(args: {
 
   let res: Response;
   try {
-    res = await fetch('/api/crm-draft', {
+    res = await fetchGated('/api/crm-draft', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
   } catch (e) {

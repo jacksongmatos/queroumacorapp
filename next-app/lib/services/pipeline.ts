@@ -24,7 +24,7 @@ import type { Quote, QuoteSnapshot, Job } from '@/lib/types';
 import type { Json } from '@/lib/database.types';
 import { ymdBrt } from '@/lib/utils';
 
-import { authHeaders } from './authHeaders';
+import { fetchGated } from './fetchGated';
 // QUOTE_STATUS — const tipada que define vocabulário + label/cor por status.
 // Mesmas chaves que modules/pipeline.js (linha 19), mesma ordem (ciclo de
 // vida do orçamento). UI lê daqui pra montar lanes do kanban e badges dos
@@ -382,9 +382,9 @@ export async function suggestPrice(
 ): Promise<SuggestPriceResult> {
   let res: Response;
   try {
-    res = await fetch('/api/pricing-suggest', {
+    res = await fetchGated('/api/pricing-suggest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         service_type: input.service_type || '',
         description: input.description || '',
