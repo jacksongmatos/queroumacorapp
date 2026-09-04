@@ -46,25 +46,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    // MARK: UISceneSession Lifecycle
-
-    func application(
-        _ application: UIApplication,
-        configurationForConnecting connectingSceneSession: UISceneSession,
-        options: UIScene.ConnectionOptions
-    ) -> UISceneConfiguration {
-        return UISceneConfiguration(
-            name: "Default Configuration",
-            sessionRole: connectingSceneSession.role
-        )
-    }
-
-    func application(
-        _ application: UIApplication,
-        didDiscardSceneSessions sceneSessions: Set<UISceneSession>
-    ) {
-        // Release scene-specific resources when sessions are discarded.
-    }
+    // NAO reintroduzir os metodos de UISceneSession aqui.
+    //
+    // Este AppDelegate declarava `application(_:configurationForConnecting:options:)`
+    // e `didDiscardSceneSessions`. Quando o AppDelegate declara suporte a scenes, o
+    // UIKit passa a usar o ciclo de vida de scenes e ignora o caminho legado que
+    // cria a janela a partir de `UIMainStoryboardFile`. Como o Info.plist nao tem
+    // `UIApplicationSceneManifest` e o projeto nao tem SceneDelegate, a scene subia
+    // sem delegate e sem storyboard: nenhuma janela era criada, nada era desenhado,
+    // e o app NAO crashava — tela preta permanente, sem log de crash.
+    //
+    // O template do Capacitor 6 nao tem esses metodos. O app carrega o
+    // CAPBridgeViewController pelo Main.storyboard via UIMainStoryboardFile, no
+    // ciclo de vida classico com `var window: UIWindow?`.
+    //
+    // Sintoma no iOS apenas: no Android nao existe esse conceito, por isso a mesma
+    // build do Capacitor abria normalmente no Android.
 
     // MARK: Deep links / Universal Links
 
