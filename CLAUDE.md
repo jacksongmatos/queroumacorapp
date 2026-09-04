@@ -229,6 +229,18 @@
     se o CLI falhar (nunca derruba a build). O AAB SEGUE saindo por e-mail +
     artifact também. Lado Play (não-código): a service account precisa de
     permissão de Releases no app + Google Play Android Developer API habilitada.
+  - **R8 QUEBROU O BOOT — REVERTIDO (2026-09-04, PR #183).** O R8 ligado no
+    #179 (`minifyEnabled`/`shrinkResources true`) fez o app **não passar da
+    splash** no Internal Testing: apesar das keep-rules, removeu classe(s) que
+    o Capacitor registra por reflexão e a WebView nunca carregou. Agravado pela
+    splash `launchAutoHide:false` da Onda A — quando a WebView não carrega, a
+    splash fica CONGELADA pra sempre (o `launchShowDuration` é ignorado com
+    autoHide false). Reversão: `minifyEnabled false`/`shrinkResources false`
+    (as keep-rules ficam pro dia de reativar COM smoke-test de aparelho) +
+    `SplashScreen.launchAutoHide:true` + `launchShowDuration:2500` (a splash
+    SEMPRE some, mesmo se o site demorar/falhar). **REGRA: nunca publicar R8
+    (nem mudança de boot da casca) sem instalar o AAB e ABRIR antes.** Num app
+    WebView o ganho do R8 é modesto e não vale o risco.
 
 - **Wave 56 (2026-08-30) — nome do cliente no orçamento — JÁ EXECUTADA
   no Supabase (2026-08-30). Não pedir pra rodar de novo.** O PDF dizia
