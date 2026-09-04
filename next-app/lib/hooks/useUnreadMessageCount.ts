@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
 import { getSupabase } from '@/lib/supabase';
@@ -18,6 +18,13 @@ const KEY_BASE = 'messages-unread-count' as const;
 export function useUnreadMessageCount(): number {
   const { user } = useAuth();
   const qc = useQueryClient();
+  // ID único por INSTÂNCIA do hook. O Supabase deduplica canais pelo nome:
+  // se dois componentes (ex.: TopNav + NativeBadge) usarem este hook com o
+  // MESMO nome de canal, o 2º `.on(...)` cai num canal já `subscribe()`-ado e
+  // estoura "cannot add postgres_changes callbacks after subscribe()", que
+  // sobe pro error boundary ("Algo deu errado"). Nome único = cada instância
+  // tem seu canal, e o hook fica reutilizável por N componentes.
+  const chanId = useId();
 
   const query = useQuery({
     queryKey: [KEY_BASE, user?.id],
@@ -35,7 +42,7 @@ export function useUnreadMessageCount(): number {
     const invalidate = () =>
       qc.invalidateQueries({ queryKey: [KEY_BASE, user.id] });
     const channel = sb
-      .channel(`msg-count:${user.id}`)
+      .channel(`msg-count:${user.id}:${chanId}`)
       .on(
         'postgres_changes',
         {
@@ -65,7 +72,7 @@ export function useUnreadMessageCount(): number {
     return () => {
       sb.removeChannel(channel);
     };
-  }, [user, qc]);
+  }, [user, qc, chanId]);
 
   return query.data ?? 0;
 }
