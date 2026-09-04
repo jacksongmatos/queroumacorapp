@@ -27,31 +27,49 @@ Tudo no [codemagic.io](https://codemagic.io) — **não** em secret do GitHub.
    - **Group**: `firebase` · marcar **Secure**
 
    Sem essa variável o AAB compila, mas o push FCM não registra token no aparelho.
+4. **Deploy na Play (auto-upload no Internal Testing)**: `Environment variables`:
+   - **Variable name**: `GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS`
+   - **Value**: o **JSON inteiro** da service account do Google Play
+   - **Group**: `google_credentials` · marcar **Secure**
+
+   Do lado da **Play Console / Google Cloud** (não dá pra ver do Codemagic):
+   - a **service account** precisa estar convidada no app com permissão de
+     **Releases → gerenciar faixas de teste** (só "ver informações" não basta —
+     o erro só aparece no fim da build);
+   - a **Google Play Android Developer API** precisa estar habilitada no projeto
+     do Google Cloud da mesma conta.
 
 ## 2. Disparar o build
 
 `App → Start new build → workflow "Android AAB (Capacitor)" → Start`.
 (Não roda a cada push de propósito — só na mão.)
 
-## 3. Receber o AAB
+## 3. O que acontece ao terminar
 
-Ao terminar (~5-10 min), o Codemagic **manda o `.aab` por e-mail** pra
-`jackson.guerra@gmail.com` (e ele fica nos artifacts da build). Suba na
-**Play Console → Internal Testing** (sempre a faixa de teste primeiro).
+Ao terminar (~5-10 min), o Codemagic:
+- **manda o `.aab` por e-mail** pra `jackson.guerra@gmail.com` (backup/notificação);
+- **sobe o AAB automático na faixa `internal`** (Internal Testing) da Play.
 
-> **Regra do Play:** cada upload precisa de `versionCode` MAIOR que o anterior.
-> Play atual = `10100`; repo = `10200`. Do 2º AAB em diante, suba o número em
-> `android/app/build.gradle` (`versionCode`/`versionName`) e commite.
+Aí é só instalar do Internal Testing no aparelho, validar, e **promover
+Internal → produção MANUALMENTE** na Play Console (a regra do projeto é nunca ir
+direto pra produção — o workflow NÃO publica em produção).
+
+> **versionCode agora é automático:** o workflow pega o **maior build number de
+> todas as faixas da Play + 1** (`google-play get-latest-build-number`). Como
+> cada build vira upload, o número não pode repetir — isso garante que nunca
+> repita, sem precisar editar `build.gradle` a cada build. Se o CLI falhar
+> (permissão/API), cai no fallback `ANDROID_VERSION_CODE` (env) ou `10202`.
 
 ## O que o workflow faz
 
-1. `npm ci` (Capacitor CLI + plugins) — Node 20, JDK 17.
-2. Placeholder de `webDir` + `npx cap sync android` → gera o
+1. **versionCode = maior da Play + 1** (auto, via `google-play get-latest-build-number`).
+2. `npm ci` (Capacitor CLI + plugins) — Node 20, JDK 17.
+3. Placeholder de `webDir` + `npx cap sync android` → gera o
    `capacitor.config.json` nos assets, que carrega `https://www.queroumacor.com.br`.
-3. Decodifica `GOOGLE_SERVICES_JSON` (se houver).
-4. Monta `android/key.properties` do keystore do painel.
-5. `./gradlew bundleRelease` → AAB **assinado**.
-6. Publica o `.aab` (e-mail + artifacts).
+4. Decodifica `GOOGLE_SERVICES_JSON` (se houver).
+5. Monta `android/key.properties` do keystore do painel.
+6. `./gradlew bundleRelease` → AAB **assinado**.
+7. Publica: **e-mail + artifacts + upload no Internal Testing da Play**.
 
 ## Validar o push ANTES de publicar
 
