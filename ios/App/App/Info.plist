@@ -93,8 +93,16 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>O QueroUmaCor salva na sua galeria as artes geradas pelo AR Grafite e os PDFs de orçamento.</string>
 
-	<key>NSUserTrackingUsageDescription</key>
-	<string>O QueroUmaCor não realiza rastreamento entre apps. Este aviso está aqui apenas para conformidade do sistema.</string>
+	<!-- NSUserTrackingUsageDescription foi REMOVIDA de proposito (04/09/2026).
+	     Ela nao e "conformidade do sistema": declarar essa chave diz a Apple que
+	     o app VAI pedir permissao de rastreamento via App Tracking Transparency.
+	     O QueroUmaCor nao chama ATT nem usa IDFA, e a unica dependencia de
+	     terceiro e o Sentry (monitoramento de erro do proprio app), que pela
+	     definicao da Apple nao e rastreamento.
+	     Com a chave presente, o App Store Connect RECUSA marcar "nao rastreamos"
+	     no App Privacy: "Your app contains NSUserTrackingUsageDescription...
+	     update your App Privacy response... or update your app binary".
+	     So volte a declarar esta chave se o app passar a chamar de fato o ATT. -->
 
 	<key>CFBundleURLTypes</key>
 	<array>
