@@ -51,7 +51,7 @@
 // status cru (o router do Next trata e faz hard-nav, que cai aqui de novo
 // como documento).
 
-const CACHE_VERSION = 'quc-v6';
+const CACHE_VERSION = 'quc-v7';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const IMG_CACHE = `${CACHE_VERSION}-img`;
