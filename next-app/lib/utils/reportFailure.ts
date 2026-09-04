@@ -27,7 +27,8 @@ export type FailureType =
   | 'consent-fail'
   | 'camera-fail'
   | 'pdf-link-fail'
-  | 'feed-extras-fail';
+  | 'feed-extras-fail'
+  | 'render-error';
 
 export function reportFailure(
   type: FailureType,
