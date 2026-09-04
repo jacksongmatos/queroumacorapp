@@ -26,6 +26,10 @@ import {
   hideSplash,
   initKeyboard,
   onAppResume,
+  isNativePickerAvailable,
+  pickImagesNative,
+  isNativeFilesystemAvailable,
+  saveFileNative,
 } from '../lib/native';
 
 type CapacitorMock = {
@@ -238,5 +242,67 @@ describe('lib/native Onda A — dentro da casca', () => {
     expect(resumes).toBe(1);
     off();
     expect(removed).toBe(true);
+  });
+});
+
+describe('lib/native Onda B — picker + filesystem fora da casca', () => {
+  it('picker/filesystem indisponíveis e helpers devolvem unavailable', async () => {
+    expect(isNativePickerAvailable()).toBe(false);
+    expect(isNativeFilesystemAvailable()).toBe(false);
+    await expect(pickImagesNative(5)).resolves.toEqual({ status: 'unavailable' });
+    await expect(saveFileNative('x.pdf', 'YQ==')).resolves.toEqual({ status: 'unavailable' });
+  });
+});
+
+describe('lib/native Onda B — dentro da casca', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('pickImagesNative baixa webPath e monta File[]', async () => {
+    globalThis.fetch = (async () =>
+      ({ blob: async () => new Blob(['xx'], { type: 'image/jpeg' }) })) as unknown as typeof fetch;
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        Camera: {
+          getPhoto: async () => ({}),
+          pickImages: async () => ({
+            photos: [{ webPath: 'cap://a', format: 'jpg' }, { webPath: 'cap://b', format: 'jpg' }],
+          }),
+        },
+      },
+    });
+    expect(isNativePickerAvailable()).toBe(true);
+    const r = await pickImagesNative(5);
+    expect(r.status).toBe('ok');
+    if (r.status === 'ok') {
+      expect(r.files).toHaveLength(2);
+      expect(r.files[0].type).toBe('image/jpeg');
+    }
+  });
+
+  it('pickImagesNative sem escolha → cancelled', async () => {
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: { Camera: { getPhoto: async () => ({}), pickImages: async () => ({ photos: [] }) } },
+    });
+    await expect(pickImagesNative()).resolves.toEqual({ status: 'cancelled' });
+  });
+
+  it('saveFileNative grava via plugin Filesystem e devolve uri', async () => {
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: {
+        Filesystem: { writeFile: async () => ({ uri: 'file:///Documents/x.pdf' }) },
+      },
+    });
+    expect(isNativeFilesystemAvailable()).toBe(true);
+    const r = await saveFileNative('x.pdf', 'YQ==');
+    expect(r).toEqual({ status: 'ok', uri: 'file:///Documents/x.pdf' });
   });
 });

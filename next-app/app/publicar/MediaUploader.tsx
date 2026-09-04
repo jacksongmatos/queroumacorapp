@@ -27,6 +27,7 @@ import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
 import { reportFailure } from '@/lib/utils/reportFailure';
+import { native } from '@/lib/native';
 
 export interface MediaUploaderProps {
   onFiles: (files: File[]) => void;
@@ -185,7 +186,21 @@ export function MediaUploader({
       {podeCamera ? (
         <button
           type="button"
-          onClick={() => setCamAberta(true)}
+          onClick={async () => {
+            if (disabled) return;
+            // Câmera NATIVA primeiro (@capacitor/camera): abre a câmera do
+            // sistema, pede a permissão de verdade (que aparece nos ajustes do
+            // app) e corrige orientação/qualidade. 'cancelled' = a pessoa
+            // desistiu no prompt nativo, não reabrimos nada. 'unavailable'/
+            // erro = fora da casca ou plugin ausente → CameraCapture web.
+            const r = await native.camera.takePhoto('CAMERA');
+            if (r.status === 'ok') {
+              onFiles([r.file]);
+              return;
+            }
+            if (r.status === 'cancelled') return;
+            setCamAberta(true);
+          }}
           disabled={disabled}
           className={[
             'w-full px-4 py-3 rounded-2xl text-sm font-semibold',

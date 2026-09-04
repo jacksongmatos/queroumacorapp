@@ -19,8 +19,13 @@ export {
   parseAuthCallbackUrl,
   NATIVE_OAUTH_REDIRECT,
 } from './auth';
-export { isNativeCameraAvailable, takePhotoNative } from './camera';
-export type { NativePhotoResult } from './camera';
+export {
+  isNativeCameraAvailable,
+  takePhotoNative,
+  isNativePickerAvailable,
+  pickImagesNative,
+} from './camera';
+export type { NativePhotoResult, NativePickResult } from './camera';
 export { shareNative } from './share';
 export type { SharePayload } from './share';
 export {
@@ -29,6 +34,12 @@ export {
   initNativePushTapRouting,
   routeFromNotificationData,
 } from './push';
+export {
+  isNativeFilesystemAvailable,
+  saveFileNative,
+  blobToBase64,
+} from './filesystem';
+export type { SaveFileResult } from './filesystem';
 export { hapticImpact, hapticNotify, hapticSelection } from './haptics';
 export { applyStatusBar } from './statusBar';
 export { hideSplash } from './splash';
@@ -37,13 +48,19 @@ export { onAppResume } from './appState';
 
 import { getNativePlatform, isNativePlatform } from './platform';
 import { isNativeOAuthAvailable, nativeSignInWithOAuth } from './auth';
-import { isNativeCameraAvailable, takePhotoNative } from './camera';
+import {
+  isNativeCameraAvailable,
+  takePhotoNative,
+  isNativePickerAvailable,
+  pickImagesNative,
+} from './camera';
 import { shareNative } from './share';
 import {
   isNativePushAvailable,
   registerNativePush,
   initNativePushTapRouting,
 } from './push';
+import { isNativeFilesystemAvailable, saveFileNative } from './filesystem';
 import { hapticImpact, hapticNotify, hapticSelection } from './haptics';
 import { applyStatusBar } from './statusBar';
 import { hideSplash } from './splash';
@@ -55,7 +72,12 @@ export const native = {
   isNative: isNativePlatform,
   platform: getNativePlatform,
   oauth: { isAvailable: isNativeOAuthAvailable, signIn: nativeSignInWithOAuth },
-  camera: { isAvailable: isNativeCameraAvailable, takePhoto: takePhotoNative },
+  camera: {
+    isAvailable: isNativeCameraAvailable,
+    takePhoto: takePhotoNative,
+    isPickerAvailable: isNativePickerAvailable,
+    pickImages: pickImagesNative,
+  },
   share: shareNative,
   push: {
     isAvailable: isNativePushAvailable,
@@ -67,6 +89,7 @@ export const native = {
     notify: hapticNotify,
     selection: hapticSelection,
   },
+  fs: { isAvailable: isNativeFilesystemAvailable, saveFile: saveFileNative },
   statusBar: { apply: applyStatusBar },
   splash: { hide: hideSplash },
   keyboard: { init: initKeyboard },
