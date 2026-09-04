@@ -53,4 +53,18 @@
          nunca consegue mostrar notificação; a concessão em runtime é pedida por
          registerNativePush → requestPermissions em lib/native/push.ts. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Câmera. O @capacitor/camera NÃO injeta esta permissão sozinho (a doc dele
+         manda declarar aqui), e sem ela dois caminhos morrem de uma vez: o
+         Camera.getPhoto() nativo E o getUserMedia do components/CameraCapture.tsx,
+         porque a WebView só concede VIDEO_CAPTURE se o app tiver a permissão. O
+         CameraCapture é justamente a saída de emergência de quando a galeria não
+         abre — sem isso o pintor fica sem nenhum caminho pra foto.
+         O AAB do WebIntoApp declarava CAMERA; o primeiro AAB Capacitor (10200)
+         não, e foi por isso que ele não foi testado em campo. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- required="false" é obrigatório aqui: declarar a permissão CAMERA faz o
+         Play EXIGIR implicitamente o hardware de câmera e sumir com o app dos
+         aparelhos que não têm uma. O app funciona sem câmera (a foto vira
+         galeria/navegador), então a exigência não pode existir. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

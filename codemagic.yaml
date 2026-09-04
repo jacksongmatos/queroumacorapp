@@ -31,8 +31,11 @@ workflows:
       java: 17
     cache:
       cache_paths:
-        - ~/.npm
-        - ~/.gradle/caches
+        # $HOME e não `~`: o til não é expandido aqui, e o cache virava no-op —
+        # na build #3 o "Restoring cache" durou <1s e o `npm ci` levou 7 dos 10
+        # minutos.
+        - $HOME/.npm
+        - $HOME/.gradle/caches
     scripts:
       - name: Install deps (Capacitor CLI + plugins)
         script: npm ci
