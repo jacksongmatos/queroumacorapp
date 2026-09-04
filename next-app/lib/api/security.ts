@@ -399,6 +399,29 @@ export interface GateProAIOk {
 }
 
 /**
+ * 401 de login com a CAUSA junto. `requireAuth` é fail-open e devolve
+ * `user: null` por QUATRO motivos diferentes — sem token, env do Supabase
+ * ausente no servidor, token recusado pelo GoTrue, ou timeout/erro de rede —
+ * e todos viravam a MESMA string 'Faça login'. Indistinguíveis na tela, o que
+ * já custou várias rodadas de adivinhação em produção (mesma lição do
+ * `descreverArquivo` registrada no CLAUDE.md: mensagem de erro tem que
+ * carregar a evidência).
+ *
+ * O motivo vai no corpo em `reason` E embutido no texto, porque as telas
+ * mostram `data.error` cru — assim todo chamador ganha o diagnóstico sem
+ * precisar de mudança no cliente. Os valores são coarse de propósito
+ * (`no_token` | `supabase_config_missing` | `token_invalid` |
+ * `network_error`): dizem onde olhar, sem vazar segredo nenhum.
+ */
+function loginRequiredResponse(auth: AuthResult): NextResponse {
+  const reason = auth.warn || 'no_token';
+  return jsonResponse(
+    { error: `${ERR_LOGIN_REQUIRED} (${reason})`, reason },
+    401,
+  );
+}
+
+/**
  * Bundle: requireAuth + requirePro + checkRateLimit. Retorna NextResponse de
  * erro se barrou, ou `{ userId, user, token }` se passou.
  * Espelha `gateProAI` do vanilla `_security.js`.
@@ -424,7 +447,7 @@ export async function gateProAI(
   // userId → skipped) e chegava na IA de graça. Anônimo agora é 401 aqui,
   // antes de qualquer custo. Vale também pro token inválido/expirado e pra
   // falha de rede no verify (fail-closed: auth não confirmada = negada).
-  if (!auth.user?.id) return jsonResponse({ error: ERR_LOGIN_REQUIRED }, 401);
+  if (!auth.user?.id) return loginRequiredResponse(auth);
   const userId = auth.user.id;
   if (needPro) {
     const proCheck = await requirePro(userId);
@@ -642,7 +665,7 @@ export async function gateProAIForm(
   const auth = await requireAuth(request, { accessToken });
   if (auth.error) return jsonResponse({ error: auth.error }, auth.status || 401);
   // FIX C1 — mesmo racional do gateProAI acima: anônimo nunca passa do gate.
-  if (!auth.user?.id) return jsonResponse({ error: ERR_LOGIN_REQUIRED }, 401);
+  if (!auth.user?.id) return loginRequiredResponse(auth);
   const userId = auth.user.id;
   if (needPro) {
     const proCheck = await requirePro(userId);
