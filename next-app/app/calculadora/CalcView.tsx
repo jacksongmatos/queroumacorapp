@@ -9,6 +9,7 @@ import { useMemo, useRef, useState } from 'react';
 import { canSeeProFeature } from '@/lib/policies';
 import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
 import { showToast } from '@/lib/toast';
+import { authHeaders } from '@/lib/services/authHeaders';
 import {
   DEFAULT_LINE,
   PAINT_LINES,
@@ -111,7 +112,7 @@ export function CalcView() {
     try {
       const fd = new FormData();
       fd.append('image', file);
-      const res = await fetch('/api/area-from-photo', { method: 'POST', body: fd });
+      const res = await fetch('/api/area-from-photo', { method: 'POST', headers: await authHeaders(), body: fd });
       const data = (await res.json()) as {
         area_m2?: number;
         justification?: string;

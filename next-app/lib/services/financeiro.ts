@@ -22,6 +22,7 @@ import { NetworkError, ValidationError } from '@/lib/errors';
 import type { Job } from '@/lib/types';
 import { ymdBrt } from '@/lib/utils';
 
+import { authHeaders } from './authHeaders';
 // Colunas que o dashboard renderiza. Mesmo subset do vanilla
 // (modules/financeiro.js linha 24) — sem `notes`/`address` que o financeiro
 // não usa, pra economizar payload.
@@ -304,7 +305,7 @@ export async function analyzeWithAI(
   try {
     res = await fetch('/api/fin-analysis', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(payload),
     });
   } catch (e) {

@@ -24,6 +24,7 @@ import { NetworkError, ValidationError } from '@/lib/errors';
 import { getSupabase } from '@/lib/supabase';
 import { ehImagem } from '@/lib/utils/mediaType';
 
+import { authHeaders } from './authHeaders';
 // ── Public types ────────────────────────────────────────────────────────────
 
 export type ArtStyle =
@@ -129,7 +130,7 @@ export async function generateArt(
   try {
     res = await fetch('/api/ig-art', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(payload),
     });
   } catch (e) {

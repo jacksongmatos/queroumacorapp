@@ -20,6 +20,7 @@
 
 import { NetworkError, ValidationError } from '@/lib/errors';
 
+import { authHeaders } from './authHeaders';
 // ─── Knowledge base offline (fallback quando /api/chat-ai falha) ──────────
 // Espelha o `_aiKnowledge` de modules/ai-chat.js. Usado só quando o backend
 // não responde — a IA real cobre muito mais cenários. Manter aqui evita
@@ -172,7 +173,7 @@ export async function sendChatMessage(
   try {
     res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ message: text, history }),
       signal,
     });
@@ -237,7 +238,7 @@ export async function suggestScope(
   try {
     res = await fetch('/api/chat-ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ message: prompt, history: [] }),
       signal,
     });
@@ -284,7 +285,7 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
 
   let res: Response;
   try {
-    res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+    res = await fetch('/api/transcribe', { method: 'POST', headers: await authHeaders(), body: fd });
   } catch (e) {
     throw new NetworkError('Falha de rede ao transcrever áudio', e);
   }
@@ -335,7 +336,7 @@ export async function textToSpeech(
   try {
     res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(body),
       signal,
     });
@@ -395,7 +396,7 @@ export async function suggestPrice(
   try {
     res = await fetch('/api/pricing-suggest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({
         service_type: serviceType || undefined,
         description: description || undefined,
