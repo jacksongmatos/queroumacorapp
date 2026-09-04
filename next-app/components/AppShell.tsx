@@ -20,6 +20,8 @@ import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
 import { NativePushRouter } from './NativePushRouter';
 import { NativeChrome } from './NativeChrome';
+import { NativeBadge } from './NativeBadge';
+import { OfflineBanner } from './OfflineBanner';
 import { AppTour } from './AppTour';
 import { PickerRecovery } from './PickerRecovery';
 import { BackGuard } from './BackGuard';
@@ -178,6 +180,9 @@ export function AppShell({
       <RealtimeBindings />
       {/* Casca: barra de status, teclado, splash, resume (no-op fora dela). */}
       <NativeChrome />
+      {/* Número no ícone do app = avisos + mensagens não lidas (no-op fora da
+          casca / sem plugin de badge). */}
+      <NativeBadge />
       {/* Toque em push nativa → navega pro data.url (no-op fora da casca). */}
       <NativePushRouter />
       {/* App morto pelo Android enquanto a galeria estava aberta: devolve a
@@ -189,6 +194,8 @@ export function AppShell({
           re-navegação depois que o Android mata o renderizador da WebView).
           Ver components/BackGuard.tsx. */}
       <BackGuard />
+      {/* Faixa "sem conexão" quando a rede cai. */}
+      <OfflineBanner />
       {!hideTopNav && <TopNav proStatus={proStatus} />}
       <main
         ref={scrollRef}

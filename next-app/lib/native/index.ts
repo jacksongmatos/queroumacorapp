@@ -45,6 +45,12 @@ export { applyStatusBar } from './statusBar';
 export { hideSplash } from './splash';
 export { initKeyboard } from './keyboard';
 export { onAppResume } from './appState';
+export { isOnlineNow, onNetworkChange } from './network';
+export { copyToClipboard } from './clipboard';
+export { openExternal } from './browser';
+export { getDeviceInfo } from './device';
+export type { NativeDeviceInfo } from './device';
+export { setAppBadge } from './badge';
 
 import { getNativePlatform, isNativePlatform } from './platform';
 import { isNativeOAuthAvailable, nativeSignInWithOAuth } from './auth';
@@ -66,6 +72,11 @@ import { applyStatusBar } from './statusBar';
 import { hideSplash } from './splash';
 import { initKeyboard } from './keyboard';
 import { onAppResume } from './appState';
+import { isOnlineNow, onNetworkChange } from './network';
+import { copyToClipboard } from './clipboard';
+import { openExternal } from './browser';
+import { getDeviceInfo } from './device';
+import { setAppBadge } from './badge';
 
 /** Fachada única — preferir `native.x()` nos call sites. */
 export const native = {
@@ -94,4 +105,9 @@ export const native = {
   splash: { hide: hideSplash },
   keyboard: { init: initKeyboard },
   onResume: onAppResume,
+  network: { isOnline: isOnlineNow, onChange: onNetworkChange },
+  clipboard: { copy: copyToClipboard },
+  openExternal,
+  device: { getInfo: getDeviceInfo },
+  badge: { set: setAppBadge },
 };
