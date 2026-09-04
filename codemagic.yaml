@@ -221,8 +221,18 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" ios/App/App/Info.plist
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" ios/App/App/Info.plist
 
+      # O `xcode-project build-ipa` so imprime "Failed to archive" quando o
+      # xcodebuild falha — a linha `error:` de verdade fica no log em
+      # /tmp/xcodebuild_logs, que vira artefato e ninguem le. Sem isso, cada
+      # falha de assinatura vira adivinhacao. Aqui a build se explica sozinha.
       - name: Build IPA assinado
-        script: xcode-project build-ipa --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" --scheme "$XCODE_SCHEME"
+        script: |
+          if ! xcode-project build-ipa --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" --scheme "$XCODE_SCHEME"; then
+            echo "================= ERROS DO XCODEBUILD ================="
+            grep -hE "error:|Provisioning profile|entitlement|[Cc]ode ?[Ss]ign|Signing for" /tmp/xcodebuild_logs/*.log 2>/dev/null | sort -u | tail -80
+            echo "=============== FIM DOS ERROS ==============="
+            exit 1
+          fi
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
