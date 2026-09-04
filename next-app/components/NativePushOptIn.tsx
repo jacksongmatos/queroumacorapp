@@ -24,7 +24,22 @@ export function NativePushOptIn() {
   // Detecção no effect: window.Capacitor só existe no client e o plugin
   // pode registrar depois do 1º paint.
   useEffect(() => {
-    setAvailable(native.push.isAvailable());
+    const ok = native.push.isAvailable();
+    setAvailable(ok);
+    if (!ok) return;
+    // Lê o estado REAL da permissão ao montar. Sem isto o `status` nascia
+    // sempre 'idle' e o card mostrava "Ativar" TODA vez que o app abria,
+    // mesmo já ativado — o usuário reativava a cada abertura. `checkPermissions`
+    // não abre prompt. Só marcamos 'on'/'denied'; 'prompt' fica 'idle'.
+    let alive = true;
+    void native.push.permission().then((p) => {
+      if (!alive) return;
+      if (p === 'granted') setStatus('on');
+      else if (p === 'denied') setStatus('denied');
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const activate = useCallback(async () => {

@@ -22,6 +22,9 @@ interface ActionEvent {
 }
 interface FirebaseMessagingPlugin {
   requestPermissions: () => Promise<{ receive: 'granted' | 'denied' | 'prompt' }>;
+  // checkPermissions NÃO abre prompt — só lê o estado atual. É o que o card
+  // de opt-in usa pra saber, ao montar, se já foi ativado antes.
+  checkPermissions: () => Promise<{ receive: 'granted' | 'denied' | 'prompt' }>;
   getToken: () => Promise<{ token: string }>;
   addListener: (
     event: 'notificationActionPerformed' | 'tokenReceived' | 'notificationReceived',
@@ -48,6 +51,25 @@ export function routeFromNotificationData(
 /** true quando o push nativo pode ser oferecido (casca + plugin presente). */
 export function isNativePushAvailable(): boolean {
   return isNativePlatform() && !!getPlugin<FirebaseMessagingPlugin>(PLUGIN);
+}
+
+/**
+ * Estado ATUAL da permissão de push, SEM abrir prompt. Usado pelo card de
+ * opt-in pra saber, ao MONTAR, se o push já foi ativado neste aparelho —
+ * senão ele mostraria "Ativar" toda vez que o app abre (o status vivia só
+ * em memória e nascia sempre desligado). Null fora da casca/sem plugin.
+ */
+export async function nativePushPermission(): Promise<
+  'granted' | 'denied' | 'prompt' | null
+> {
+  const fm = getPlugin<FirebaseMessagingPlugin>(PLUGIN);
+  if (!isNativePlatform() || !fm) return null;
+  try {
+    const perm = await fm.checkPermissions();
+    return perm?.receive ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

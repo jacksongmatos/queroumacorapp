@@ -31,6 +31,7 @@ export type { SharePayload } from './share';
 export {
   isNativePushAvailable,
   registerNativePush,
+  nativePushPermission,
   initNativePushTapRouting,
   routeFromNotificationData,
 } from './push';
@@ -64,6 +65,7 @@ import { shareNative } from './share';
 import {
   isNativePushAvailable,
   registerNativePush,
+  nativePushPermission,
   initNativePushTapRouting,
 } from './push';
 import { isNativeFilesystemAvailable, saveFileNative } from './filesystem';
@@ -93,6 +95,7 @@ export const native = {
   push: {
     isAvailable: isNativePushAvailable,
     register: registerNativePush,
+    permission: nativePushPermission,
     initTapRouting: initNativePushTapRouting,
   },
   haptics: {
