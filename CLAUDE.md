@@ -11,6 +11,88 @@
   neste arquivo são **registro histórico** de incidentes já resolvidos — servem
   pra entender o passado, nunca pra orientar o presente.
 
+- **PAR CRUZADO DE ENV DO SUPABASE — a causa do "Faça login" em TODA a IA
+  (2026-09-04, PR #202, FECHADO).** Usuário perfeitamente logado levava
+  `Faça login (token_invalid)` em toda rota de IA. Evidência do painel do CF
+  Pages (Production): `SUPABASE_URL` **não existe**; `SUPABASE_ANON_KEY` existe
+  como Secret, **de OUTRO projeto** (herança do app vanilla); o par
+  `NEXT_PUBLIC_*` existe e está certo. Como `getSupabaseUrl()` e
+  `getSupabaseAnonKey()` resolviam INDEPENDENTES, cada uma com a sua ordem, a
+  URL caía no NEXT_PUBLIC e a chave vinha do secret legado. O GoTrue recebia
+  apikey de um projeto e token de outro, respondia 401 "Invalid API key" pra
+  QUALQUER token, e o `requireAuth` colapsava todo `!res.ok` em
+  `token_invalid`.
+  - **A assimetria que custou dias:** o PostgREST seguia funcionando porque
+    quem o chama é o **cliente**, com a chave boa do bundle (ele valida só
+    assinatura e expiração). Só a verificação do **servidor** usava a chave
+    divergente. Isso derrubou 6 hipóteses de sessão/token que vieram antes —
+    **o token nunca foi o problema**.
+  - **REGRA: URL e anon key saem SEMPRE do mesmo par.** `resolveSupabaseEnv()`
+    em `lib/api/security.ts` é o resolvedor ÚNICO: tenta o par `NEXT_PUBLIC_*`
+    INTEIRO, cai pro par sem prefixo INTEIRO, **nunca meio a meio**.
+    `getSupabaseAnonKey()` exige par completo; `getSupabaseUrl()` mantém
+    fallback só-URL de propósito — os caminhos de SERVICE ROLE (audit,
+    log-error, push-notify) legitimamente não têm anon key.
+  - **REGRA: quem fala com o GoTrue pega as duas metades do MESMO objeto.**
+    `requireAuth`/`requireAuthStrict`/`verifySupabaseToken`/`validateToken`/
+    `getUserFromToken` fazem `const {url, anonKey} = resolveSupabaseEnv()`.
+    Duas resoluções independentes dentro do caminho de auth é a FORMA do bug.
+  - Guarda nova: o `ref` do JWT anon × o `<ref>` do host `<ref>.supabase.co`.
+    Divergindo, o gate devolve `env_project_mismatch` (não `token_invalid`) e
+    o texto do 401 carrega os dois refs.
+  - **SEIS resolvedores divergentes existiam** (`security.ts`, `health`,
+    `_admin-helpers`, `auth-server`, `set-session-cookie`, `moderate-video`,
+    mais um escondido em `lib/api/env.ts` que lia só as `NEXT_PUBLIC_*`).
+    Dois guards de arquitetura em `__tests__/lib/supabase-env-single-resolver
+    .test.ts` falham se qualquer arquivo de `lib/api`/`app/api` voltar a ler
+    essas envs cruas ou a pedir a anon key solta.
+  - **Nenhum secret do painel foi tocado** — o `SUPABASE_ANON_KEY` divergente
+    simplesmente deixou de ser lido. Não apagar: é inerte.
+
+- **MICROFONE NEGADO COM A PERMISSÃO ATIVA — faltava MODIFY_AUDIO_SETTINGS
+  (2026-09-04, PR #204).** O Seu Zé dizia "Permissão de microfone negada" com
+  o microfone CONCEDIDO na tela de permissões do Android. O
+  `BridgeWebChromeClient` do Capacitor 6, ao receber `onPermissionRequest` de
+  `AUDIO_CAPTURE`, pede **DUAS** permissões de uma vez —
+  `MODIFY_AUDIO_SETTINGS` **e** `RECORD_AUDIO` — e só chama `request.grant()`
+  se TODAS voltarem concedidas (o callback faz um AND sobre o Map de
+  resultados). Permissão não declarada no Manifest o sistema nega na hora,
+  **sem diálogo**: o AND dava false, a WebView recusava, e o `getUserMedia`
+  rejeitava com `NotAllowedError`.
+  - **REGRA: permissão que a WebView usa vem em PAR — conferir o que o
+    Capacitor pede, não o que parece óbvio.** Ler
+    `node_modules/@capacitor/android/.../BridgeWebChromeClient.java` antes de
+    concluir que o Manifest está completo. `MODIFY_AUDIO_SETTINGS` é NORMAL:
+    não abre diálogo, só precisa existir.
+  - O `catch {}` mudo virou `mensagemDeMicrofone(e)` (lê o `name` do
+    DOMException): bloqueio ≠ sem hardware ≠ ocupado por outro app. A frase de
+    bloqueio NÃO afirma mais que a permissão está negada — ela pode estar
+    concedida e quem recusou ser a WebView.
+  - Manifest tem 8 permissões e o teste `__tests__/microfone.test.ts` trava o
+    par. **Só vale com AAB novo.**
+
+- **"Failed to fetch" AO PUBLICAR — a foto subia CRUA (2026-09-04, PR #204).**
+  Gerar a legenda com IA funcionava e o "Postar" logo depois morria, na MESMA
+  foto. A assimetria era a pista: o "Gerar legenda" do Composer comprime acima
+  de `COMPRESS_THRESHOLD` (2 MB) antes de subir; o publicar mandava o arquivo
+  ORIGINAL. Desde a **Onda B** a câmera NATIVA (quality 90, resolução cheia) é
+  o caminho principal, então "cru" passou a significar 5-12 MB — e o upload
+  grande morre na rede móvel dentro da WebView, com o supabase-js devolvendo o
+  TypeError cru do fetch como mensagem final. Confirmado em produção.
+  - **REGRA: caminho novo que sobe mídia escolhida pela pessoa comprime acima
+    de `COMPRESS_THRESHOLD`** — e as dimensões da Wave 17 se leem do arquivo
+    QUE SUBIU (comprimir muda W/H; gravar as do original reserva o espaço
+    errado no feed). Vídeo não passa pelo compressor de imagem; falha ao
+    comprimir cai no original (HEIC que a WebView não decodifica rejeita ali,
+    e sobe cru sem problema — comprimir é otimização, não porta).
+  - `uploadMedia` não repassa mais "Failed to fetch": vira "Falha de rede ao
+    enviar a mídia (X MB)". O número separa conexão ruim de arquivo grande.
+  - **ARMADILHA DE TESTE (custou um falso verde):** `toEqual` em `File`
+    compara ESTRUTURA, e `File` não tem propriedade própria enumerável
+    (`name`/`size`/`type` moram no protótipo) — dois arquivos DIFERENTES
+    passam como iguais. O 1º teste passou com a correção revertida. **Comparar
+    File por IDENTIDADE (`toBe`), nunca `toEqual`/`toHaveBeenCalledWith`.**
+
 - **P0 da auditoria de arquitetura FECHADOS no código (2026-09-03).** Ver
   `ARCHITECTURE_AUDIT_2026-08-26.md`. Status:
   - **C1 ✓** `gateProAI`/`gateProAIForm` agora retornam 401 pra anônimo/token
