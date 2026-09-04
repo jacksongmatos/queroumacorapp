@@ -2,13 +2,25 @@
 //  AppDelegate.swift
 //  App
 //
-//  Capacitor 6 boilerplate for br.com.queroumacor.app with
-//  Apple Push Notification service (APNs) registration wired in.
+//  Capacitor 6 boilerplate for br.com.queroumacor.app com registro no
+//  Apple Push Notification service (APNs).
 //
-//  The Capacitor `@capacitor/push-notifications` plugin bridges the
-//  device token to JavaScript via the `registration` event so that
-//  next-app's PushSubscriber (sprint C8 — pending) can persist it to
-//  Supabase `push_tokens` for server-side dispatch.
+//  O plugin instalado e `@capacitor-firebase/messaging` (o mesmo do
+//  Android), NAO o `@capacitor/push-notifications` — o Firebase faz a
+//  ponte FCM -> APNs e devolve o token no evento `tokenReceived`. Os
+//  callbacks de APNs abaixo continuam necessarios: eles sao da Capacitor
+//  core (`capacitorDidRegisterForRemoteNotifications`), nao do plugin.
+//
+//  NAO chame `FirebaseApp.configure()` aqui: o proprio plugin ja faz
+//  isso quando e instanciado (`FirebaseMessaging.init`, com guarda
+//  `if FirebaseApp.app() == nil`). Importar FirebaseCore no target do app
+//  so criaria dependencia direta de um pod transitivo, sem ganho.
+//
+//  O que o Firebase EXIGE e o `GoogleService-Info.plist` dentro do
+//  bundle — sem ele o `configure()` do plugin derruba o app no boot. A
+//  build do Codemagic escreve esse arquivo a partir da variavel
+//  GOOGLE_SERVICE_INFO_PLIST (base64, grupo `firebase`); ele nao fica
+//  versionado, mesma convencao do `google-services.json` do Android.
 //
 
 import UIKit

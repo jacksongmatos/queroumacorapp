@@ -119,3 +119,122 @@ workflows:
         credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
         submit_as_draft: false
+
+  # ---------------------------------------------------------------------------
+  # iOS — gera e ASSINA o IPA do wrapper Capacitor e sobe no TestFlight.
+  #
+  # Substitui o app WebIntoApp (repo `queroumacor-ios`, WebView pura sem
+  # push/camera/OAuth nativo). Mesmo bundle ID `br.com.queroumacor.app` e mesma
+  # ficha da App Store (Apple ID 6784256495), entao a build sobe como versao
+  # nova do app que ja esta publicado, nao como app novo.
+  #
+  # Setup no painel do Codemagic (uma vez):
+  #   1. Teams/Personal Account -> Integrations -> App Store Connect: integracao
+  #      chamada `codemagic` (a mesma que o repo queroumacor-ios ja usa). Ela
+  #      cobre assinatura (perfis gerados na hora) E upload pro TestFlight.
+  #   2. Environment variables -> grupo `firebase` -> GOOGLE_SERVICE_INFO_PLIST
+  #      = `base64 -w0 GoogleService-Info.plist` (marcar Secure). Mesma
+  #      convencao do GOOGLE_SERVICES_JSON do Android: o arquivo nao fica no
+  #      repo, a build materializa.
+  #
+  # O projeto Xcode (ios/App/App.xcodeproj) esta VERSIONADO — foi gerado por
+  # `npx cap add ios` e commitado, com os arquivos curados (Info.plist,
+  # PrivacyInfo.xcprivacy, AppDelegate.swift) por cima do boilerplate. Nao rode
+  # `cap add ios` de novo: ele recusa quando ios/ existe e, se voce apagar a
+  # pasta pra forcar, perde as customizacoes. Pra atualizar plugins use
+  # `npx cap sync ios`, que e o que esta build faz.
+  #
+  # Disparo: manual pelo painel (sem bloco `triggering`).
+  # ---------------------------------------------------------------------------
+  ios-ipa:
+    name: iOS IPA (Capacitor)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: br.com.queroumacor.app
+      groups:
+        - firebase # fornece GOOGLE_SERVICE_INFO_PLIST
+      vars:
+        XCODE_WORKSPACE: ios/App/App.xcworkspace
+        XCODE_SCHEME: App
+        APP_STORE_APPLE_ID: 6784256495
+      node: 20
+      xcode: latest
+      cocoapods: default
+    cache:
+      cache_paths:
+        - $HOME/.npm
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - name: Install deps (Capacitor CLI + plugins)
+        script: npm ci
+
+      # Sem esse arquivo o app CRASHA no boot: o pod CapacitorFirebaseMessaging
+      # entra na build por causa do @capacitor-firebase/messaging no
+      # package.json, e o FirebaseApp.configure() do AppDelegate nao acha a
+      # config. Por isso falha explicito aqui em vez de gerar um IPA quebrado.
+      # `openssl base64 -d -A` e nao `base64 --decode`: a flag longa e do GNU e
+      # esta build roda em macOS.
+      - name: GoogleService-Info.plist a partir da variavel
+        script: |
+          if [ -z "$GOOGLE_SERVICE_INFO_PLIST" ]; then
+            echo "ERRO: GOOGLE_SERVICE_INFO_PLIST vazio. Cadastre no grupo 'firebase'."
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICE_INFO_PLIST" | openssl base64 -d -A > ios/App/App/GoogleService-Info.plist
+          plutil -lint ios/App/App/GoogleService-Info.plist
+          echo "GoogleService-Info.plist escrito e validado."
+
+      # webDir (next-app/.next/static) nao existe em checkout limpo e o app
+      # carrega tudo de server.url — um placeholder basta pro `cap sync` gerar o
+      # capacitor.config.json e o ios/App/App/public. O sync tambem roda o
+      # `pod install`, que precisa vir ANTES do use-profiles.
+      - name: Placeholder webDir + Capacitor sync (roda pod install)
+        script: |
+          mkdir -p next-app/.next/static
+          echo '<!doctype html><title>QueroUmaCor</title>' > next-app/.next/static/index.html
+          npx cap sync ios
+
+      - name: Assinatura — perfis do App Store Connect
+        script: xcode-project use-profiles
+
+      # CFBundleVersion = maior build do TestFlight + 1. Nunca repete, mesmo
+      # entre app antigo (WebIntoApp) e este: os dois vivem no mesmo Apple ID.
+      # Guardado: se o CLI falhar, cai no fallback pra nao derrubar a build.
+      - name: CFBundleVersion = ultimo do TestFlight + 1
+        script: |
+          set +e
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null)
+          RC=$?
+          set -e
+          if [ $RC -eq 0 ] && echo "$LATEST" | grep -qE '^[0-9]+$'; then
+            NEXT=$((LATEST + 1))
+            echo "Maior build no TestFlight: $LATEST -> esta build: $NEXT"
+          else
+            NEXT="${IOS_BUILD_NUMBER:-10}"
+            echo "get-latest-testflight-build-number indisponivel (rc=$RC) — fallback $NEXT"
+          fi
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" ios/App/App/Info.plist
+
+      - name: Build IPA assinado
+        script: xcode-project build-ipa --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - jackson.guerra@gmail.com
+        notify:
+          success: true
+          failure: true
+      # Sobe pro TestFlight. Promocao pra producao continua MANUAL no App Store
+      # Connect — mesma regra do Android (Internal Testing -> producao na mao).
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
