@@ -133,6 +133,13 @@ export const PROFILE_TOUR_STEPS: ReadonlyArray<TourStep> = [
     text: 'Monte um catálogo das suas obras pra quem quiser comprar ver tudo num lugar só.',
   },
   {
+    id: 'p-click-rua',
+    selector: '[data-tour="tile-click-rua"]',
+    emoji: '📖',
+    title: 'Click Rua',
+    text: 'A revista Click Rua, de graffiti do Brasil inteiro, pra ler aqui dentro. Toque numa edição e arraste pra virar a página.',
+  },
+  {
     id: 'p-avaliar',
     selector: '[data-tour="tile-avaliar"]',
     emoji: '⭐',

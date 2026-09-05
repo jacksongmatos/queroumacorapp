@@ -11,6 +11,34 @@
   neste arquivo são **registro histórico** de incidentes já resolvidos — servem
   pra entender o passado, nunca pra orientar o presente.
 
+- **REVISTA CLICK RUA — tile só pra GRAFITEIRO (2026-09-05).** Banca da
+  revista digital de graffiti dentro do app: tile **Click Rua** em
+  `ROLE_TILES` (`roles: ['grafiteiro']`, admin vê como em todos), abre uma
+  grade de edições; a #01 (setembro/2020, 8 páginas, B.Girl LU BSB) está
+  pronta e as outras 5 aparecem como "Em breve". Rota `/click-rua`.
+  - **As páginas são ARQUIVO ESTÁTICO, não banco** (`public/click-rua/edNN/
+    N.webp`): ninguém consulta, filtra ou edita página de revista, e edição
+    nova já vem com commit (o catálogo em `lib/clickRua.ts` muda junto).
+    Bucket no Supabase só acrescentaria upload manual e URL assinada pra
+    expirar. **Edição nova = converter PNG→WebP com sharp (qualidade 82: os
+    16 MB da #01 viraram 1,1 MB), gerar a capa reduzida e trocar `em_breve`
+    por `pronta` no catálogo.** `__tests__/clickRua.test.ts` confere no disco
+    que toda página anunciada existe — catálogo escrito à mão que promete 8
+    páginas e entrega 7 vira tela branca no celular de alguém.
+  - **O leitor é TELA CHEIA (portal no body, z-[400]), não continua no
+    bottom-sheet**: a página é quadrada e cheia de texto e, dentro do sheet,
+    nasceria com metade da largura útil. Mesmo tratamento do `StoryViewer`,
+    inclusive o truque do histórico pro botão VOLTAR do Android fechar.
+    Tem zoom (toque duplo 1x/2,5x + arrastar) porque página de entrevista a
+    1483px encolhida pra 390px é ilegível.
+  - **Gradiente novo `revista`** (laranja+preto da Click Rua) no
+    `BusinessCard`. **NÃO reaproveitar `graf`**: aquele valor dá o gradiente
+    certo e o ícone ERRADO — faz o card desenhar a foto da Fê no lugar do
+    emoji.
+  - **O logo em `public/click-rua/logo.webp` foi RECORTADO DA CAPA** da #01 —
+    o zip trazia só as 8 páginas. Se aparecer o arquivo original do logo, é
+    só trocar esse WebP; nada mais referencia o recorte.
+
 - **TABELA DE PREÇOS DA ABRAPP 2026 — tile novo + SQL PENDENTE (2026-09-05).**
   O PDF da ABRAPP ("Sugestão de Preços de Pintura 2026", 26 folhas) virou
   ferramenta no app: tile **Tabela de Preços** no `BusinessGrid`, ao lado da

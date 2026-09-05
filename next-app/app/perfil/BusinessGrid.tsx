@@ -73,6 +73,9 @@ const ShirtCustomizer = lazy(() =>
 const QualsSection = lazy(() =>
   import('@/app/perfil/formacao/QualsSection').then((m) => ({ default: m.QualsSection })),
 );
+const ClickRuaView = lazy(() =>
+  import('@/app/click-rua/ClickRuaView').then((m) => ({ default: m.ClickRuaView })),
+);
 const ArteVendaView = lazy(() =>
   import('@/app/arte-venda/ArteVendaView').then((m) => ({ default: m.ArteVendaView })),
 );
@@ -98,6 +101,7 @@ type SheetKey =
   | 'camisetas'
   | 'formacao'
   | 'arte-venda'
+  | 'click-rua'
   | 'grafites'
   | 'avaliar';
 
@@ -130,6 +134,7 @@ const SHEETS: Partial<Record<SheetKey, SheetConfig>> = {
   camisetas: { label: 'Camisetas', Component: ShirtCustomizer as ComponentType },
   formacao: { label: 'Formação', Component: QualsSection as ComponentType },
   'arte-venda': { label: 'Arte pra venda', Component: ArteVendaView as ComponentType },
+  'click-rua': { label: 'Revista Click Rua', Component: ClickRuaView as ComponentType },
 };
 
 interface Tile {
@@ -138,7 +143,7 @@ interface Tile {
   icon?: ReactNode;
   title: string;
   subtitle: string;
-  gradient?: 'pro' | 'art' | 'designer' | 'graf' | 'auto';
+  gradient?: 'pro' | 'art' | 'designer' | 'graf' | 'auto' | 'revista';
 }
 
 const TILES: readonly Tile[] = [
@@ -149,7 +154,7 @@ const TILES: readonly Tile[] = [
   { sheet: 'portfolio', emoji: '📸', title: 'Meu Portfolio', subtitle: 'Postar trabalhos' },
   { sheet: 'calculadora', emoji: '🧮', title: 'Calculadora', subtitle: 'Tinta e material' },
   // Só pintor (e admin) enxerga — filtrado em `visibleTiles` logo abaixo.
-  { sheet: 'tabela-precos', emoji: '📊', title: 'Tabela de Preços', subtitle: 'ABRAPP 2026' },
+  { sheet: 'tabela-precos', emoji: '📊', title: 'Tabela de Preços', subtitle: '' },
   { sheet: 'agenda', emoji: '📅', title: 'Agenda', subtitle: 'Meus projetos' },
   { sheet: 'crm', emoji: '🔁', title: 'Reativar clientes', subtitle: 'Follow-up · PRO' },
   { sheet: 'financeiro', emoji: '💰', title: 'Financeiro', subtitle: 'Lucro e comissão' },
@@ -168,7 +173,7 @@ const TILES: readonly Tile[] = [
 
 // Tiles condicionais ao role do user — só renderizam quando o role bate.
 // Mapeia: chave = nome do tile no SHEETS, value = lista de roles que veem.
-const ROLE_TILES: ReadonlyArray<{ sheet: SheetKey; emoji: string; title: string; subtitle: string; roles: string[]; gradient?: 'pro' | 'art' }> = [
+const ROLE_TILES: ReadonlyArray<{ sheet: SheetKey; emoji: string; title: string; subtitle: string; roles: string[]; gradient?: 'pro' | 'art' | 'revista' }> = [
   {
     sheet: 'grafites',
     emoji: '🎨',
@@ -184,6 +189,14 @@ const ROLE_TILES: ReadonlyArray<{ sheet: SheetKey; emoji: string; title: string;
     subtitle: 'Catálogo de obras',
     roles: ['grafiteiro'],
     gradient: 'art',
+  },
+  {
+    sheet: 'click-rua',
+    emoji: '📖',
+    title: 'Click Rua',
+    subtitle: 'Revista de graffiti',
+    roles: ['grafiteiro'],
+    gradient: 'revista',
   },
   {
     sheet: 'avaliar',
@@ -323,7 +336,12 @@ function BusinessCard({ tile, onOpen }: BusinessCardProps) {
           ? 'linear-gradient(135deg, #ff6b35, #e10600)'
           : tile.gradient === 'auto'
             ? 'linear-gradient(135deg, #e10600, #1a1a2e)'
-            : 'linear-gradient(135deg, #ff6b35, #8338ec)';
+            : tile.gradient === 'revista'
+              // Laranja + preto da Click Rua. Reaproveitar 'graf' aqui daria o
+              // gradiente certo e o ÍCONE ERRADO: aquele valor faz o card
+              // desenhar a foto da Fê no lugar do emoji, logo abaixo.
+              ? 'linear-gradient(135deg, #ff6b35, #1a1a2e)'
+              : 'linear-gradient(135deg, #ff6b35, #8338ec)';
 
   const textColor = isGradient ? '#fff' : 'var(--color-ink)';
   const subColor = isGradient ? 'rgba(255,255,255,.85)' : 'var(--color-muted)';
@@ -433,9 +451,13 @@ function BusinessCard({ tile, onOpen }: BusinessCardProps) {
       <div className="text-xs font-bold leading-tight" style={{ color: textColor }}>
         {tile.title}
       </div>
-      <div className="text-[10px] mt-0.5 leading-tight" style={{ color: subColor }}>
-        {tile.subtitle}
-      </div>
+      {/* Subtítulo é opcional: tile com `subtitle: ''` não renderiza a linha,
+          senão sobraria um espaço vazio empurrando o título pra cima. */}
+      {tile.subtitle ? (
+        <div className="text-[10px] mt-0.5 leading-tight" style={{ color: subColor }}>
+          {tile.subtitle}
+        </div>
+      ) : null}
     </button>
   );
 }
