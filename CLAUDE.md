@@ -1486,6 +1486,17 @@
     Dualhook (fail-closed sem ela) — payload sozinho não autentica.
     `WHATSAPP_WEBHOOK_VERIFY_TOKEN` = Verify Token gerado pelo Dualhook
     (já trocado no CF Pages + redeploy + GET verificado em 2026-09-05).
+    **`WHATSAPP_WEBHOOK_URL_SECRET` gerado em 2026-09-05** (`openssl rand
+    -hex 24`, 48 hex). O VALOR vive só no painel do CF Pages (marcado como
+    Secret) e colado no fim da URL cadastrada no Dualhook — **nunca neste
+    arquivo nem em lugar nenhum do repo**, mesma regra do keystore e do
+    access token da Meta.
+    - **É um PAR: os dois lados têm que ser idênticos.** Trocar o segredo no
+      CF Pages sem reeditar a URL no Dualhook (ou o contrário) derruba o
+      recebimento — o endpoint responde 401 `token inválido` e a mensagem
+      não chega. Pra rotacionar: gerar o novo, colar nos DOIS, redeploy.
+    - Perdeu o valor? Não dá pra recuperar de lugar nenhum: gera outro e
+      atualiza os dois lados. Não há nada que dependa do valor antigo.
     Envio pelo Dualhook (`api.dualhook.com` + `dh_live_…`) ainda NÃO está
     integrado — `sendWhatsAppMessage` segue em `graph.facebook.com`.
   - **O access token NÃO está no código** (IDs públicos são default; token
