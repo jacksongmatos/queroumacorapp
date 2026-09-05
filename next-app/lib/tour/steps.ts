@@ -184,6 +184,13 @@ export const PROFILE_TOUR_STEPS: ReadonlyArray<TourStep> = [
     text: 'Diga o tamanho da parede e ela calcula quantos litros de tinta você vai precisar.',
   },
   {
+    id: 'p-tabela-precos',
+    selector: '[data-tour="tile-tabela-precos"]',
+    emoji: '📊',
+    title: 'Tabela de Preços',
+    text: 'A tabela da ABRAPP com o preço sugerido de cada serviço de pintura. Diz o mínimo, o médio e o máximo pra você não cobrar menos do que vale.',
+  },
+  {
     id: 'p-agenda',
     selector: '[data-tour="tile-agenda"]',
     emoji: '📅',

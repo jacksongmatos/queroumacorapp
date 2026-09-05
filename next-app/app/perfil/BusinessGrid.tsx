@@ -22,6 +22,9 @@ const PontosView = lazy(() =>
 const CalcView = lazy(() =>
   import('@/app/calculadora/CalcView').then((m) => ({ default: m.CalcView })),
 );
+const TabelaPrecosView = lazy(() =>
+  import('@/app/tabela-precos/TabelaPrecosView').then((m) => ({ default: m.TabelaPrecosView })),
+);
 const ChecklistView = lazy(() =>
   import('@/app/checklist/ChecklistView').then((m) => ({ default: m.ChecklistView })),
 );
@@ -81,6 +84,7 @@ type SheetKey =
   | 'pontos'
   | 'portfolio'
   | 'calculadora'
+  | 'tabela-precos'
   | 'agenda'
   | 'crm'
   | 'checklist'
@@ -112,6 +116,7 @@ const SHEETS: Partial<Record<SheetKey, SheetConfig>> = {
   pontos: { label: 'Meus Pontos', Component: PontosView as ComponentType },
   portfolio: { label: 'Publicar', Component: Composer as ComponentType },
   calculadora: { label: 'Calculadora', Component: CalcView as ComponentType },
+  'tabela-precos': { label: 'Tabela de Preços', Component: TabelaPrecosView as ComponentType },
   agenda: { label: 'Agenda', Component: AgendaCalendar as ComponentType },
   crm: { label: 'Reativar Clientes', Component: CrmList as ComponentType },
   checklist: { label: 'Checklist de Obra', Component: ChecklistView as ComponentType },
@@ -143,6 +148,7 @@ const TILES: readonly Tile[] = [
   { sheet: 'pontos', emoji: '🎁', title: 'Meus Pontos', subtitle: 'Pra ganhar PRO' },
   { sheet: 'portfolio', emoji: '📸', title: 'Meu Portfolio', subtitle: 'Postar trabalhos' },
   { sheet: 'calculadora', emoji: '🧮', title: 'Calculadora', subtitle: 'Tinta e material' },
+  { sheet: 'tabela-precos', emoji: '📊', title: 'Tabela de Preços', subtitle: 'ABRAPP 2026' },
   { sheet: 'agenda', emoji: '📅', title: 'Agenda', subtitle: 'Meus projetos' },
   { sheet: 'crm', emoji: '🔁', title: 'Reativar clientes', subtitle: 'Follow-up · PRO' },
   { sheet: 'financeiro', emoji: '💰', title: 'Financeiro', subtitle: 'Lucro e comissão' },

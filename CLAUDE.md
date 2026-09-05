@@ -11,6 +11,39 @@
   neste arquivo são **registro histórico** de incidentes já resolvidos — servem
   pra entender o passado, nunca pra orientar o presente.
 
+- **TABELA DE PREÇOS DA ABRAPP 2026 — tile novo + SQL PENDENTE (2026-09-05).**
+  O PDF da ABRAPP ("Sugestão de Preços de Pintura 2026", 26 folhas) virou
+  ferramenta no app: tile **Tabela de Preços** no `BusinessGrid`, ao lado da
+  Calculadora (uma calcula material, a outra o preço da mão de obra), com
+  busca, filtro por categoria e por altura, faixas mín/média/máx e uma
+  calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
+  - **PENDENTE (única pendência acionável aberta): rodar as DUAS migrations**
+    `/migrations/2026-09-05-tabela-precos-abrapp.sql` (schema) e
+    `...-dados.sql` (328 itens). Sem elas o tile abre e diz que a tabela não
+    foi carregada — não quebra nada, só fica vazio.
+    **Conferir no banco antes de dizer que falta:**
+    `SELECT count(*) FROM public.price_table_items WHERE edicao='ABRAPP 2026';`
+    (esperado 328). Cada bloco do arquivo de dados é uma folha e é
+    **idempotente** (upsert por `(edicao, sheet_no, sort_order)`): repetir não
+    duplica, e corrigir um valor no arquivo e rodar de novo ATUALIZA a linha.
+  - **O PDF é IMAGEM PURA** (print-to-PDF do CorelDRAW, sem camada de texto):
+    os 328 itens foram transcritos à mão a partir de recortes em 300 dpi das
+    colunas de preço. Por isso existe
+    `__tests__/priceTableData.test.ts`, que lê o arquivo de migration e trava
+    estrutura, vocabulário de unidade e **mínimo ≤ média ≤ máximo** em toda
+    linha — erro de transcrição não quebra build, vira preço errado no
+    orçamento de um cliente.
+  - **Nada de dado embutido no bundle**: o banco é fonte única, então a loja
+    corrige um valor com UPDATE, sem deploy. O texto editorial (folhas 20-25:
+    as 13 variáveis, "tabela do jeitinho") é que fica em código
+    (`lib/priceTableGuide.ts`) — é editorial, não muda de ano em ano e
+    ninguém consulta em cima dele.
+  - **Fidelidade ao impresso é regra**: erro de digitação do PDF fica
+    ("Econônico", "chapisto", "Fléxivel"), linha zerada da folha 13 vira "sem
+    valor publicado" na tela em vez de "R$ 0,00", e as descrições cortadas da
+    folha 12/19 NÃO foram completadas por dedução. As colunas `grupo`/`tipo`
+    trazem os termos escritos certo, então a busca acha mesmo assim.
+
 - **A LISTA DE "SQL PENDENTE" DESTE ARQUIVO NÃO É EVIDÊNCIA (2026-09-05).**
   Conferido contra o banco: das quatro migrations marcadas como pendentes,
   **três já tinham sido rodadas** (Wave 41 `exports` + policies, Wave 53
