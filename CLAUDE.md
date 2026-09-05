@@ -61,12 +61,18 @@
   topo da tela, longe da Calculadora. Com
   busca, filtro por categoria e por altura, faixas mín/média/máx e uma
   calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
-  - **SQL JÁ EXECUTADO no Supabase (2026-09-05, informado pelo usuário) — as
-    duas migrations** (`/migrations/2026-09-05-tabela-precos-abrapp.sql`,
-    schema, e `...-dados.sql`, 328 itens). **Não pedir pra rodar de novo.**
-    Duas linhas novas em `/migrations/2026-09-05-conferencia-pendencias.sql`
-    conferem isso no banco (contagem 328 e `altura` preenchida em 213 linhas)
-    — conferir por lá antes de afirmar qualquer coisa, nos dois sentidos.
+  - **SQL PARCIALMENTE EXECUTADO (situação em 2026-09-05).** O schema rodou;
+    dos 19 blocos de dados, os das folhas 1-12 foram rodados e faltam 13-19.
+    **A anotação anterior dizia "todas executadas" e estava ERRADA** — foi
+    escrita a partir de um "rodei todas" no chat, sem conferir. Quem pegou foi
+    a consulta: `97 itens / 5 folhas` quando o esperado era 328/19.
+    **Regra reforçada: relato não é evidência, nem quando vem do usuário.**
+    Duas linhas em `/migrations/2026-09-05-conferencia-pendencias.sql`
+    conferem no banco (esperado: **328 itens** e **212** com `altura`) —
+    conferir por lá antes de afirmar qualquer coisa, nos dois sentidos.
+    O `212` já nasceu errado uma vez neste arquivo (escrevi 213 de cabeça, e
+    o número real, contado do arquivo de dados, é 212): **número de
+    conferência se conta do fonte, não se estima.**
     O `UPDATE` de `altura` é o último statement do arquivo e é o fácil de
     pular: sem ele nada quebra, o filtro de altura da tela só para de
     filtrar, **em silêncio**. Cada bloco do arquivo de dados é uma folha e é
