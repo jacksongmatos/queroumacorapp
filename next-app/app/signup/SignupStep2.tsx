@@ -6,7 +6,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { emailSchema, tagSchema, phoneSchema, phoneOptionalSchema, requiredField, birthDateSchema, calculateAge, MIN_AGE } from '@/lib/schemas';
+import {
+  emailSchema,
+  tagSchema,
+  phoneSchema,
+  phoneOptionalSchema,
+  personNameSchema,
+  birthDateSchema,
+  calculateAge,
+  MIN_AGE,
+  limparNome,
+  limparTag,
+  sugerirTagDeNome,
+  mascararDataBR,
+  dataBRParaISO,
+  isoParaDataBR,
+} from '@/lib/schemas';
 import { useTagAvailability } from '@/lib/hooks/useTagAvailability';
 import { CameraCapture } from '@/components/CameraCapture';
 import { native } from '@/lib/native';
@@ -45,14 +60,9 @@ const UFS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'TO', label: 'Tocantins' },
 ];
 
-// Limite superior do `max` no input: hoje - MIN_AGE anos. O navegador
-// não vai deixar selecionar data que tornaria o user menor de MIN_AGE
-// (UX); a validação Zod (`birthDateSchema`) é a defesa real.
-const maxBirthISO = (() => {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - MIN_AGE);
-  return d.toISOString().slice(0, 10);
-})();
+// (o antigo `maxBirthISO` existia pro atributo `max` do <input type="date">,
+// que saiu junto com o seletor nativo — a idade é checada por
+// `birthDateSchema` e, em tempo real, por `birthTooYoung` abaixo.)
 
 // Schema parametrizado pelo tipo de usuário: pro Cliente o WhatsApp é
 // OPCIONAL (Apple 5.1.1 — não exigir telefone quando não é estritamente
@@ -60,9 +70,7 @@ const maxBirthISO = (() => {
 // contato de orçamentos/leads).
 function makeSchema(phoneRequired: boolean) {
   return z.object({
-    name: requiredField('seu nome').refine((v) => !v.includes('@'), {
-      message: 'Não use o email como nome',
-    }),
+    name: personNameSchema,
     tag: tagSchema,
     email: emailSchema,
     phone: phoneRequired ? phoneSchema : phoneOptionalSchema,
@@ -105,6 +113,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<Step2Data>({
     resolver: zodResolver(schema),
@@ -131,6 +140,20 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
 
   const tagValue = watch('tag');
   const tagStatus = useTagAvailability(tagValue);
+  const nameValue = watch('name');
+
+  // Data de nascimento como TEXTO com máscara. O form guarda ISO
+  // (`birthDate`); este state guarda o que está escrito na tela. Ao voltar
+  // pro passo 2, repopula do ISO que já existe.
+  const [dataTexto, setDataTexto] = useState(() =>
+    isoParaDataBR(initial?.birthDate ?? ''),
+  );
+
+  // Sugestão de @ a partir do nome. Só aparece enquanto o campo está VAZIO —
+  // depois que a pessoa escreve algo, sugerir por cima seria roubar o que ela
+  // digitou. `tagTocada` marca que ela já mexeu.
+  const [tagTocada, setTagTocada] = useState(Boolean(initial?.tag));
+  const tagSugerida = tagTocada ? '' : sugerirTagDeNome(nameValue || '');
 
   // Validação de idade em tempo real (Apple 5.1.1 / Google Family): assim que
   // o usuário escolhe uma data, já avisamos se é menor de MIN_AGE — sem
@@ -184,9 +207,20 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           autoComplete="name"
           placeholder="Seu nome"
           {...register('name')}
+          // Filtra na digitação: número e símbolo não chegam a aparecer.
+          // Impedir na hora ensina mais que recusar no submit — e o schema
+          // (`personNameSchema`) segue valendo como defesa real.
+          onChange={(e) => {
+            const limpo = limparNome(e.target.value);
+            if (limpo !== e.target.value) e.target.value = limpo;
+            void register('name').onChange(e);
+          }}
           className={inputClass}
           aria-invalid={errors.name ? 'true' : 'false'}
         />
+        <p className="text-xs text-[color:var(--color-muted)] mt-1">
+          Só letras — sem números ou símbolos.
+        </p>
       </Field>
 
       {/* Foto de perfil — OPCIONAL (upload acontece em handleStep3 quando
@@ -286,13 +320,41 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           <input
             id="tag"
             type="text"
+            inputMode="text"
             autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="seunomedeusuario"
             {...register('tag')}
+            // Mesma ideia do nome: espaço, número, símbolo e acento não
+            // chegam a entrar. `limparTag` também derruba pra minúsculo, que
+            // é o formato que o banco guarda.
+            onChange={(e) => {
+              const limpo = limparTag(e.target.value);
+              if (limpo !== e.target.value) e.target.value = limpo;
+              setTagTocada(true);
+              void register('tag').onChange(e);
+            }}
             className={inputClass + ' pl-8'}
             aria-invalid={errors.tag ? 'true' : 'false'}
           />
         </div>
+        <p className="text-xs text-[color:var(--color-muted)] mt-1">
+          Só letras — sem espaço, número ou símbolo.
+        </p>
+        {tagSugerida && !tagValue && (
+          <button
+            type="button"
+            onClick={() => {
+              setTagTocada(true);
+              setValue('tag', tagSugerida, { shouldValidate: true });
+            }}
+            className="text-xs mt-1 font-semibold text-[color:var(--color-p1)] underline underline-offset-2"
+          >
+            Usar @{tagSugerida}
+          </button>
+        )}
         {!errors.tag && tagValue && (
           <p
             className={
@@ -309,7 +371,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
             {tagStatus === 'checking' && 'Verificando disponibilidade...'}
             {tagStatus === 'available' && `@${tagValue} está disponível!`}
             {tagStatus === 'taken' && `@${tagValue} já está em uso.`}
-            {tagStatus === 'invalid' && 'Use 3+ caracteres (letras, números, _).'}
+            {tagStatus === 'invalid' && 'Use 3 letras ou mais, sem número ou símbolo.'}
           </p>
         )}
       </Field>
@@ -349,16 +411,36 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
       </Field>
 
       <Field id="birthDate" label="Data de nascimento" error={errors.birthDate?.message}>
+        {/* TEXTO com máscara, não <input type="date"> (2026-09-05). O seletor
+            nativo do celular abre no ano atual e escolher o ano de nascimento
+            exige rolar décadas — quem nasceu em 1975 rola meio século pra
+            cadastrar. Digitando, são 8 toques.
+
+            O form guarda ISO em `birthDate` (é o que `birthDateSchema` e o
+            banco esperam); `dataTexto` é só o que aparece na tela. Enquanto a
+            data não estiver completa E válida, o ISO fica '' — e o schema
+            barra, em vez de deixar passar meia data. */}
         <input
           id="birthDate"
-          type="date"
+          type="text"
+          inputMode="numeric"
           autoComplete="bday"
-          max={maxBirthISO}
-          min="1920-01-01"
-          {...register('birthDate')}
+          placeholder="DD/MM/AAAA"
+          maxLength={10}
+          value={dataTexto}
+          onChange={(e) => {
+            const texto = mascararDataBR(e.target.value);
+            setDataTexto(texto);
+            setValue('birthDate', dataBRParaISO(texto), {
+              shouldValidate: texto.length === 10,
+            });
+          }}
           className={inputClass}
           aria-invalid={errors.birthDate ? 'true' : 'false'}
         />
+        {/* O campo real do form. `register` precisa existir pro RHF conhecer
+            `birthDate`; escondido porque quem a pessoa preenche é o de cima. */}
+        <input type="hidden" {...register('birthDate')} />
         {birthTooYoung ? (
           <p className="text-sm text-[color:var(--color-danger)] mt-1" role="alert">
             Você precisa ter {MIN_AGE} anos ou mais para usar o app.
