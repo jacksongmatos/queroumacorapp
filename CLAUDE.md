@@ -23,8 +23,9 @@
   - **Vale pra TODA pendência, não só SQL.** Na mesma varredura caíram mais
     três que estavam erradas: Image Resizing (ligado), APNs/`App.entitlements`
     (feitos) e "esconder a compra do PRO no iOS" (já não existe compra no
-    app). Sobraram REAIS: importar os leads da planilha e tirar a sessão do
-    Supabase do `localStorage`.
+    app). Sobrou UMA real: tirar a sessão do Supabase do `localStorage`
+    (antes da review da Apple). A importação dos leads da planilha está
+    ADIADA POR DECISÃO, não pendente.
   - **NÃO VERIFICÁVEIS deste ambiente** (a política de rede só libera
     GitHub/npm/Anthropic; o proxy recusa DNS-over-HTTPS e a produção, e não há
     ferramenta de branch protection no MCP): DMARC do `calicolors.com.br`,
@@ -1165,9 +1166,11 @@
   manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
   grava em lotes de 200 com `source='planilha'`.
   - **Importação de 986 leads do Google Maps (2026-08-29)** —
-    `/migrations/2026-08-29-import-leads-planilha.sql`, **PENDENTE de rodar —
-    CONFIRMADO no banco em 2026-09-05 (nenhum lead com `source='planilha'`).
-    É a ÚNICA migration realmente pendente.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    `/migrations/2026-08-29-import-leads-planilha.sql`, **NÃO RODADA —
+    confirmado no banco em 2026-09-05 (nenhum lead com `source='planilha'`).
+    ADIADA POR DECISÃO DO USUÁRIO (2026-09-05): "os leads serão depois". Não
+    é bug nem esquecimento — não cobrar.** O arquivo fica pronto no repo pra
+    quando ele quiser. Da planilha de 1000 do usuário (13 telefones repetidos + 1
     sem telefone ficaram fora). Categoria crua do Maps ("Architect",
     "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
     quando a categoria briga com ele; "Região" separada em cidade ×
