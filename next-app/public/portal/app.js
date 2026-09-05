@@ -9608,6 +9608,50 @@ const textoDeTemplate = m => {
   return m.template ? 'Template enviado: ' + m.template : null;
 };
 
+// ── Janela de 24h da Cloud API ──────────────────────────────────────────
+// A Meta so aceita TEXTO LIVRE pra quem mandou mensagem pro numero nas
+// ultimas 24h. Quem abre a janela e a mensagem do CLIENTE (direction 'in'),
+// nunca a nossa — e cada mensagem dele reinicia o relogio. Fora da janela,
+// so template aprovado (a API recusa texto com 131047).
+//
+// Isto e uma PREVISAO local, pra tela nao oferecer o que vai falhar. Quem
+// decide de verdade e a Meta: pode haver mensagem que o webhook nao gravou,
+// e o relogio dela e o dela. Por isso o erro 131047 continua tratado no
+// envio — a previsao melhora a UX, nao substitui a checagem.
+const JANELA_MS = 24 * 60 * 60 * 1000;
+const instanteDaMsg = m => {
+  const iso = m.wa_timestamp || m.created_at;
+  const t = iso ? new Date(iso).getTime() : NaN;
+  return Number.isFinite(t) ? t : 0;
+};
+
+// Devolve quando a janela FECHA (ms epoch), ou null se nunca houve mensagem
+// recebida — numero novo, o caso da abordagem.
+const fimDaJanela = msgs => {
+  let ultima = 0;
+  for (const m of msgs || []) {
+    if (m.direction !== 'in') continue;
+    const t = instanteDaMsg(m);
+    if (t > ultima) ultima = t;
+  }
+  return ultima ? ultima + JANELA_MS : null;
+};
+const janelaAberta = msgs => {
+  const fim = fimDaJanela(msgs);
+  return fim != null && fim > Date.now();
+};
+
+// "faltam 3h" / "faltam 12min" — o operador precisa saber que o relogio corre.
+const restanteDaJanela = msgs => {
+  const fim = fimDaJanela(msgs);
+  if (fim == null) return null;
+  const ms = fim - Date.now();
+  if (ms <= 0) return null;
+  const h = Math.floor(ms / 3600000);
+  if (h >= 1) return h + 'h';
+  return Math.max(1, Math.floor(ms / 60000)) + 'min';
+};
+
 // Previa na lista de conversas: audio mostra a transcricao em vez de
 // "[audio]" — da pra saber do que a conversa trata sem abrir.
 const previewMsg = m => {
@@ -10324,6 +10368,70 @@ const WhatsAppTab = () => {
     setSendStage('');
   };
 
+  // Envio de TEMPLATE — o unico caminho quando a janela de 24h esta fechada
+  // (numero novo, ou cliente que sumiu ha mais de um dia).
+  const enviarTemplate = async nome => {
+    if (!openWa || sending) return;
+    setSending(true);
+    setErr('');
+    try {
+      const {
+        data: {
+          session
+        }
+      } = await supa.auth.getSession();
+      if (!session) {
+        setErr('Sessao expirada — entre de novo.');
+        setSending(false);
+        return;
+      }
+      setSendStage('Enviando…');
+      const r = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          accessToken: session.access_token,
+          to: openWa,
+          type: 'template',
+          template: nome,
+          languageCode: TEMPLATE_IDIOMA
+        })
+      });
+      let raw = '';
+      try {
+        raw = await r.text();
+      } catch (_) {}
+      let res = {};
+      try {
+        res = JSON.parse(raw);
+      } catch (_) {}
+      if (!r.ok || !res.ok) {
+        const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+        setErr(res.error || 'Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')');
+      } else {
+        // Eco local: sem corpo, igual ao que o banco vai guardar — quem
+        // renderiza o texto e o `textoDeTemplate` pelo NOME do template.
+        setMsgs(prev => [{
+          id: 'local-' + Date.now(),
+          direction: 'out',
+          wa_id: openWa,
+          type: 'template',
+          body: null,
+          template: nome,
+          created_at: new Date().toISOString(),
+          wa_timestamp: null
+        }, ...prev]);
+        load();
+      }
+    } catch (_) {
+      setErr('Falha de rede ao enviar.');
+    }
+    setSending(false);
+    setSendStage('');
+  };
+
   // Mesma regra do servidor (normalizeWhatsAppTarget): numero brasileiro
   // local ganha o 55; numero que ja vem com DDI de outro pais passa direto.
   const novaConversa = () => {
@@ -10860,7 +10968,90 @@ const WhatsAppTab = () => {
       color: '#b3261e',
       fontSize: 12
     }
-  }, err) : null, /*#__PURE__*/React.createElement("div", {
+  }, err) : null, !janelaAberta(thread) ?
+  /*#__PURE__*/
+  /* Janela fechada: esconder o campo de texto e oferecer o
+     template. Mostrar um campo que so devolve erro 131047
+     ensina o operador a desconfiar da tela. */
+  React.createElement("div", {
+    style: {
+      padding: 14,
+      background: '#fff',
+      borderTop: '1px solid ' + C.border
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink,
+      marginBottom: 4
+    }
+  }, "\u23F3 Fora da janela de 24h \u2014 comece por um template"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      lineHeight: 1.5,
+      marginBottom: 10
+    }
+  }, thread.some(m => m.direction === 'in') ? 'Faz mais de 24h desde a última mensagem desta pessoa, então o WhatsApp não aceita texto livre.' : 'Esta pessoa nunca escreveu pra loja, então o WhatsApp não aceita texto livre.', ' ', "Assim que ela ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "responder"), ", o campo de escrever volta sozinho por 24h."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      padding: 12,
+      background: '#f7f4ef',
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 800,
+      color: C.ink,
+      marginBottom: 6
+    }
+  }, TEMPLATE_ABORDAGEM_TITULO), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.5,
+      color: C.ink,
+      whiteSpace: 'pre-wrap'
+    }
+  }, TEMPLATE_ABORDAGEM_TEXTO)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => enviarTemplate(TEMPLATE_ABORDAGEM),
+    disabled: sending,
+    style: {
+      background: C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 10,
+      padding: '9px 18px',
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: sending ? 'wait' : 'pointer',
+      opacity: sending ? .6 : 1
+    }
+  }, sending ? sendStage || 'Enviando…' : '📤 Enviar template'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, /*#__PURE__*/React.createElement("code", {
+    style: {
+      background: '#efeae1',
+      padding: '1px 5px',
+      borderRadius: 4
+    }
+  }, TEMPLATE_ABORDAGEM), " \xB7 ", TEMPLATE_IDIOMA, " \xB7 texto fixo, sem edi\xE7\xE3o"))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 8,
@@ -10915,14 +11106,14 @@ const WhatsAppTab = () => {
       cursor: sending ? 'wait' : 'pointer',
       opacity: sending || !text.trim() ? .6 : 1
     }
-  }, sending ? sendStage || 'Enviando…' : 'Enviar')), sending && sendStage === 'Acordando o servidor…' ? /*#__PURE__*/React.createElement("div", {
+  }, sending ? sendStage || 'Enviando…' : 'Enviar')), restanteDaJanela(thread) ? /*#__PURE__*/React.createElement("div", {
     style: {
-      padding: '4px 16px 10px',
+      padding: '0 16px 10px',
       background: '#fff',
       color: C.muted,
       fontSize: 11
     }
-  }, "O servidor do WhatsApp dorme apos 15min parado (plano free) \u2014 acordando ele antes de enviar, pode levar ate 1 minuto.") : null))));
+  }, "Janela de texto livre aberta \u2014 fecha em ", restanteDaJanela(thread), " se a pessoa n\xE3o escrever de novo.") : null)))));
 };
 const PAGES_DEF = [{
   id: 'dashboard',
