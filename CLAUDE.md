@@ -1568,7 +1568,12 @@
     - O log da recusa passou a nomear os DOIS lados (`resumirEnvelope`):
       recebido × esperado. IDs são públicos, e essa linha é a única pista
       que sobra quando a entrega some.
-  - **WEBHOOK RESPONDIA 500 — `waitUntil` chamado SOLTO (2026-09-05).** Em
+  - **WEBHOOK RESPONDIA 500 — `waitUntil` chamado SOLTO (2026-09-05).
+    CORRIGIDO E CONFIRMADO EM PRODUÇÃO pelo usuário no mesmo dia:** a
+    mensagem chega no portal. Isso fecha a corrente inteira do recebimento
+    (segredo de URL → envelope → parse → `persistWhatsAppMessage` →
+    `whatsapp_messages` → tela), que até então nunca tinha sido provada
+    ponta a ponta — o 500 mascarava tudo que vinha depois dele. Em
     produção o log mostrava a mensagem já reconhecida (`msg de ... preview=
     "oiii"`) e logo depois `TypeError: Illegal invocation: function called
     with incorrect \`this\` reference`. Causa: `runAfterResponse` fazia
