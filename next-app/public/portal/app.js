@@ -5510,6 +5510,26 @@ const montarAbordagem = (lead, produtos) => {
   return saudacao + abre + contexto + corpo;
 };
 
+// ── Template aprovado pela Meta (primeira mensagem) ─────────────────────
+// Numero que nunca escreveu pra loja NAO tem janela de 24h aberta: a Cloud
+// API recusa texto livre com o erro 131047 e a rota devolve 422. So template
+// aprovado passa. Por isso a abordagem sai como TEMPLATE por padrao — o
+// texto personalizado (montarAbordagem) so pode ser usado depois que a
+// pessoa responder, e quem abre a janela e a RESPOSTA dela, nao o nosso
+// envio.
+//
+// O nome tem que bater EXATAMENTE com o aprovado no Dualhook (Templates).
+// Se ele for renomeado la, o envio passa a falhar com erro de template
+// inexistente — e o erro aparece na faixa vermelha, nao em silencio.
+const TEMPLATE_ABORDAGEM = 'calicolors';
+const TEMPLATE_IDIOMA = 'pt_BR';
+
+// Copia do texto aprovado, SO pra mostrar na tela. O que sai de verdade e o
+// que esta cadastrado na Meta — este espelho existe pro operador saber o que
+// vai ser enviado antes de apertar o botao. Mudou la, mudar aqui.
+const TEMPLATE_ABORDAGEM_TITULO = 'O que a Calicolors pode fazer por você?';
+const TEMPLATE_ABORDAGEM_TEXTO = 'Oi, tudo bem? Somos a Calicolors Tintas, de Guarulhos.\n\n' + 'Estamos conversando com profissionais que trabalham com tintas, cores e ' + 'acabamentos para entender uma coisa: o que mais faz diferença no dia a ' + 'dia — preço, agilidade na entrega, disponibilidade de materiais ou ' + 'suporte para encontrar a solução certa?\n\n' + 'Dependendo da sua resposta, talvez a gente consiga ajudar.\n\n' + 'O que mais faria diferença para você hoje?';
+
 // Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
 // catalogo pelo segmento (marcaveis), deixa editar o texto e envia pelo
 // canal da loja.
@@ -5527,6 +5547,10 @@ const AbordagemModal = ({
   const [estagio, setEstagio] = useState('');
   const [erro, setErro] = useState('');
   const [editado, setEditado] = useState(false);
+  // 'template' = primeira mensagem, unica que a Meta deixa passar pra quem
+  // nunca escreveu. 'livre' = texto personalizado, so vale com a janela de
+  // 24h aberta (ou seja, depois que a pessoa respondeu).
+  const [modo, setModo] = useState('template');
   const pitch = pitchDoLead(lead);
   const alvo = normalizeLeadPhone(lead.phone);
   const linha = tipoDeLinha(lead.phone);
@@ -5563,7 +5587,7 @@ const AbordagemModal = ({
       setErro('Numero invalido neste lead.');
       return;
     }
-    if (!texto.trim()) {
+    if (modo === 'livre' && !texto.trim()) {
       setErro('A mensagem esta vazia.');
       return;
     }
@@ -5581,6 +5605,18 @@ const AbordagemModal = ({
         return;
       }
       setEstagio('Enviando…');
+      // No modo template o corpo NAO viaja: quem tem o texto e a Meta. Mandar
+      // `body` junto so encheria o historico com um texto que nao foi o
+      // enviado.
+      const carga = modo === 'template' ? {
+        to: alvo,
+        type: 'template',
+        template: TEMPLATE_ABORDAGEM,
+        languageCode: TEMPLATE_IDIOMA
+      } : {
+        to: alvo,
+        body: texto
+      };
       const r = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: {
@@ -5588,8 +5624,7 @@ const AbordagemModal = ({
         },
         body: JSON.stringify({
           accessToken: session.access_token,
-          to: alvo,
-          body: texto
+          ...carga
         })
       });
       let raw = '';
@@ -5694,10 +5729,93 @@ const AbordagemModal = ({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
+      display: 'flex',
+      gap: 8,
+      marginBottom: 12
+    }
+  }, [['template', '1ª mensagem (template aprovado)'], ['livre', 'Texto livre']].map(([v, rot]) => /*#__PURE__*/React.createElement("button", {
+    key: v,
+    onClick: () => {
+      setModo(v);
+      setErro('');
+    },
+    style: {
+      flex: 1,
+      padding: '9px 12px',
+      borderRadius: 10,
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: 'pointer',
+      border: '1.5px solid ' + (modo === v ? C.p1 : C.border),
+      background: modo === v ? C.p1 + '12' : '#fff',
+      color: modo === v ? C.p1 : C.muted
+    }
+  }, rot))), modo === 'template' ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      lineHeight: 1.5,
+      marginBottom: 10
+    }
+  }, "Quem nunca escreveu pra loja n\xE3o tem janela aberta \u2014 o WhatsApp s\xF3 aceita template aprovado como primeira mensagem. ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "O texto abaixo \xE9 fixo"), " e n\xE3o d\xE1 pra editar: quem guarda ele \xE9 a Meta. Assim que a pessoa ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "responder"), ", abrem 24h pra falar livremente \u2014 a\xED a aba WhatsApp (ou o \"Texto livre\" aqui) vale."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: '1.5px solid ' + C.border,
+      borderRadius: 12,
+      padding: 14,
+      background: '#f7f4ef'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 800,
+      color: C.ink,
+      marginBottom: 8
+    }
+  }, TEMPLATE_ABORDAGEM_TITULO), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      lineHeight: 1.55,
+      color: C.ink,
+      whiteSpace: 'pre-wrap'
+    }
+  }, TEMPLATE_ABORDAGEM_TEXTO)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
+      marginTop: 8
+    }
+  }, "Template ", /*#__PURE__*/React.createElement("code", {
+    style: {
+      background: '#efeae1',
+      padding: '1px 5px',
+      borderRadius: 4
+    }
+  }, TEMPLATE_ABORDAGEM), " \xB7 ", TEMPLATE_IDIOMA, " \xB7 categoria Marketing \u2014 a pessoa pode optar por n\xE3o receber marketing, e a\xED este envio n\xE3o chega. A sele\xE7\xE3o de produtos abaixo ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "n\xE3o entra"), " nesta mensagem (o template \xE9 fixo); ela serve pro texto livre, depois da resposta.")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      lineHeight: 1.5,
+      marginBottom: 12
+    }
+  }, "Texto livre s\xF3 sai se a pessoa escreveu pra loja nas \xFAltimas 24h. Em n\xFAmero novo isto falha \u2014 e a faixa vermelha vai dizer isso. Para o primeiro contato, use a aba do template."), /*#__PURE__*/React.createElement("div", {
+    style: {
       fontSize: 12,
       fontWeight: 700,
       color: C.ink,
-      marginBottom: 8
+      marginBottom: 8,
+      marginTop: modo === 'template' ? 18 : 0
     }
   }, "Citar algum produto? ", /*#__PURE__*/React.createElement("span", {
     style: {
@@ -5847,7 +5965,7 @@ const AbordagemModal = ({
       fontSize: 11,
       color: C.muted
     }
-  }, "Envia pelo n\xFAmero da loja \xB7 +55 11 92072-5935"), /*#__PURE__*/React.createElement("div", {
+  }, "Envia pelo n\xFAmero oficial da loja \xB7 Cloud API (Dualhook)"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 8
@@ -5877,7 +5995,7 @@ const AbordagemModal = ({
       cursor: enviando ? 'wait' : 'pointer',
       opacity: enviando || !alvo ? .6 : 1
     }
-  }, enviando ? estagio || 'Enviando…' : '📤 Enviar abordagem')))));
+  }, enviando ? estagio || 'Enviando…' : modo === 'template' ? '📤 Enviar 1ª mensagem' : '📤 Enviar texto livre')))));
 };
 // ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
 // Antes o header era uma lista de textos com "↕" decorativo. Cada coluna
@@ -9480,6 +9598,16 @@ const AJUDA_WHATSAPP = [{
 // texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
 // se o arquivo nao foi salvo, mostra o marcador de sempre, entao nada
 // quebra em mensagem antiga.
+// Mensagem de TEMPLATE nao viaja com corpo: quem guarda o texto e a Meta, e
+// o banco so tem o NOME do template. Sem isto a conversa mostrava um
+// "[template]" seco — o operador nao conseguia saber o que a loja mandou pro
+// cliente, logo na mensagem que abre o relacionamento. Pros templates que
+// conhecemos, mostramos o texto espelhado; pros outros, ao menos o nome.
+const textoDeTemplate = m => {
+  if (m.template === TEMPLATE_ABORDAGEM) return TEMPLATE_ABORDAGEM_TEXTO;
+  return m.template ? 'Template enviado: ' + m.template : null;
+};
+
 // Previa na lista de conversas: audio mostra a transcricao em vez de
 // "[audio]" — da pra saber do que a conversa trata sem abrir.
 const previewMsg = m => {
@@ -9489,6 +9617,10 @@ const previewMsg = m => {
   if (m.type === 'audio') return '🎤 Áudio';
   if (m.type === 'video') return '🎬 Vídeo';
   if (m.type === 'document') return '📎 ' + (m.body || 'Documento');
+  if (m.type === 'template' && !m.body) {
+    const t = textoDeTemplate(m);
+    if (t) return '📋 ' + t.split('\n')[0];
+  }
   return m.body || '[' + (m.type || 'msg') + ']';
 };
 const BolhaConteudo = ({
@@ -9499,6 +9631,23 @@ const BolhaConteudo = ({
   const legenda = (m.body || '').trim();
   const marcador = /^\[(áudio|imagem|vídeo|figurinha|documento|msg|mensagem)\]$/i.test(legenda);
   const [aberta, setAberta] = useState(false);
+  if (tipo === 'template' && !legenda) {
+    const t = textoDeTemplate(m);
+    if (t) return /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: 'block',
+        fontSize: 10,
+        opacity: .7,
+        marginBottom: 3,
+        textTransform: 'uppercase',
+        letterSpacing: .4
+      }
+    }, "Template aprovado"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        whiteSpace: 'pre-wrap'
+      }
+    }, t));
+  }
   if (tipo === 'text' || !m.media_url) {
     return /*#__PURE__*/React.createElement("span", null, legenda || '[' + tipo + ']');
   }

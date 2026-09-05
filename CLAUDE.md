@@ -1599,6 +1599,30 @@
     malformado → 403). **Mensagem endereçada a OUTRO número continua
     `rejeitar`**: ali não é "evento que não me interessa", é entrega no
     endereço errado, e engolir com 200 esconderia erro de configuração.
+  - **ABORDAGEM DE LEAD SAI COMO TEMPLATE (2026-09-05).** Número que nunca
+    escreveu pra loja não tem janela de 24h: a Cloud API recusa texto livre
+    (131047 → 422) e só template aprovado passa. E **quem abre a janela é a
+    RESPOSTA da pessoa**, não o nosso envio — enquanto ela não responder, só
+    dá pra mandar template. O `AbordagemModal` agora tem dois modos, com
+    **template como padrão** (`TEMPLATE_ABORDAGEM = 'calicolors'`, pt_BR,
+    categoria Marketing) e "Texto livre" pra quando a janela está aberta.
+    - **O template aprovado NÃO tem variáveis**, então o texto personalizado
+      do `montarAbordagem` (produtos por segmento) **não entra** na primeira
+      mensagem — a tela diz isso explicitamente, senão o operador marca
+      produto achando que muda algo. Pra personalizar a 1ª mensagem seria
+      preciso um template com `{{1}}`, que passa por nova aprovação.
+    - **Nome do template tem que bater com o do Dualhook.** Renomear lá
+      quebra o envio (o erro aparece na faixa vermelha, não em silêncio).
+      `TEMPLATE_ABORDAGEM_TEXTO` é só um ESPELHO pra tela — o texto de
+      verdade vive na Meta; mudou lá, mudar aqui.
+    - **Template não viaja com corpo**: o banco guarda só o NOME, e a
+      conversa mostrava `[template]` seco. `textoDeTemplate` renderiza o
+      texto espelhado na bolha e na prévia da lista.
+    - **`sendWhatsAppTemplate` usava `normalizeBrPhone`** — o #215 corrigiu
+      só o `sendWhatsAppText` e este passou batido. É o caminho da abordagem,
+      onde número estrangeiro aparece de verdade (a planilha tinha um).
+      Corrigido pra `normalizeWhatsAppTarget`, com teste que falha sem o fix.
+      A função **não tinha teste nenhum** até aqui.
   - **Aquecimento da Evolution REMOVIDO do portal (2026-09-05).** A tela de
     WhatsApp e a abordagem de lead cutucavam
     `https://evolution-api-8arv.onrender.com` antes de cada envio — ao

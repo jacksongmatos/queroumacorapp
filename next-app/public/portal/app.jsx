@@ -2629,6 +2629,33 @@ const montarAbordagem = (lead, produtos) => {
   return saudacao + abre + contexto + corpo;
 };
 
+// ── Template aprovado pela Meta (primeira mensagem) ─────────────────────
+// Numero que nunca escreveu pra loja NAO tem janela de 24h aberta: a Cloud
+// API recusa texto livre com o erro 131047 e a rota devolve 422. So template
+// aprovado passa. Por isso a abordagem sai como TEMPLATE por padrao — o
+// texto personalizado (montarAbordagem) so pode ser usado depois que a
+// pessoa responder, e quem abre a janela e a RESPOSTA dela, nao o nosso
+// envio.
+//
+// O nome tem que bater EXATAMENTE com o aprovado no Dualhook (Templates).
+// Se ele for renomeado la, o envio passa a falhar com erro de template
+// inexistente — e o erro aparece na faixa vermelha, nao em silencio.
+const TEMPLATE_ABORDAGEM = 'calicolors';
+const TEMPLATE_IDIOMA = 'pt_BR';
+
+// Copia do texto aprovado, SO pra mostrar na tela. O que sai de verdade e o
+// que esta cadastrado na Meta — este espelho existe pro operador saber o que
+// vai ser enviado antes de apertar o botao. Mudou la, mudar aqui.
+const TEMPLATE_ABORDAGEM_TITULO = 'O que a Calicolors pode fazer por você?';
+const TEMPLATE_ABORDAGEM_TEXTO =
+  'Oi, tudo bem? Somos a Calicolors Tintas, de Guarulhos.\n\n' +
+  'Estamos conversando com profissionais que trabalham com tintas, cores e ' +
+  'acabamentos para entender uma coisa: o que mais faz diferença no dia a ' +
+  'dia — preço, agilidade na entrega, disponibilidade de materiais ou ' +
+  'suporte para encontrar a solução certa?\n\n' +
+  'Dependendo da sua resposta, talvez a gente consiga ajudar.\n\n' +
+  'O que mais faria diferença para você hoje?';
+
 // Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
 // catalogo pelo segmento (marcaveis), deixa editar o texto e envia pelo
 // canal da loja.
@@ -2642,6 +2669,10 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
   const [estagio, setEstagio] = useState('');
   const [erro, setErro] = useState('');
   const [editado, setEditado] = useState(false);
+  // 'template' = primeira mensagem, unica que a Meta deixa passar pra quem
+  // nunca escreveu. 'livre' = texto personalizado, so vale com a janela de
+  // 24h aberta (ou seja, depois que a pessoa respondeu).
+  const [modo, setModo] = useState('template');
   const pitch = pitchDoLead(lead);
   const alvo = normalizeLeadPhone(lead.phone);
   const linha = tipoDeLinha(lead.phone);
@@ -2675,15 +2706,21 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
 
   const enviar = async () => {
     if(!alvo){ setErro('Numero invalido neste lead.'); return; }
-    if(!texto.trim()){ setErro('A mensagem esta vazia.'); return; }
+    if(modo === 'livre' && !texto.trim()){ setErro('A mensagem esta vazia.'); return; }
     setEnviando(true); setErro('');
     try {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErro('Sessao expirada — entre de novo.'); setEnviando(false); return; }
       setEstagio('Enviando…');
+      // No modo template o corpo NAO viaja: quem tem o texto e a Meta. Mandar
+      // `body` junto so encheria o historico com um texto que nao foi o
+      // enviado.
+      const carga = modo === 'template'
+        ? { to: alvo, type:'template', template: TEMPLATE_ABORDAGEM, languageCode: TEMPLATE_IDIOMA }
+        : { to: alvo, body: texto };
       const r = await fetch('/api/whatsapp/send', {
         method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ accessToken: session.access_token, to: alvo, body: texto })
+        body: JSON.stringify({ accessToken: session.access_token, ...carga })
       });
       let raw = ''; try { raw = await r.text(); } catch(_){}
       let res = {}; try { res = JSON.parse(raw); } catch(_){}
@@ -2726,7 +2763,48 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
 
         {/* Corpo rolavel */}
         <div style={{ padding:20, overflowY:'auto', flex:1 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:8 }}>
+          {/* Escolha do que sai. Template e o padrao porque e a UNICA coisa
+              que a Meta deixa passar pra quem nunca escreveu pra loja. */}
+          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+            {[['template','1ª mensagem (template aprovado)'],['livre','Texto livre']].map(([v, rot]) => (
+              <button key={v} onClick={()=>{ setModo(v); setErro(''); }}
+                style={{ flex:1, padding:'9px 12px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer',
+                  border:'1.5px solid '+(modo===v ? C.p1 : C.border),
+                  background: modo===v ? C.p1+'12' : '#fff', color: modo===v ? C.p1 : C.muted }}>
+                {rot}
+              </button>
+            ))}
+          </div>
+
+          {modo === 'template' ? (
+            <div>
+              <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:10 }}>
+                Quem nunca escreveu pra loja não tem janela aberta — o WhatsApp
+                só aceita template aprovado como primeira mensagem. <strong style={{ color:C.ink }}>O
+                texto abaixo é fixo</strong> e não dá pra editar: quem guarda ele é a Meta.
+                Assim que a pessoa <strong style={{ color:C.ink }}>responder</strong>, abrem 24h
+                pra falar livremente — aí a aba WhatsApp (ou o "Texto livre" aqui) vale.
+              </div>
+              <div style={{ border:'1.5px solid '+C.border, borderRadius:12, padding:14, background:'#f7f4ef' }}>
+                <div style={{ fontSize:13, fontWeight:800, color:C.ink, marginBottom:8 }}>{TEMPLATE_ABORDAGEM_TITULO}</div>
+                <div style={{ fontSize:13, lineHeight:1.55, color:C.ink, whiteSpace:'pre-wrap' }}>{TEMPLATE_ABORDAGEM_TEXTO}</div>
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:8 }}>
+                Template <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{TEMPLATE_ABORDAGEM}</code> · {TEMPLATE_IDIOMA} · categoria Marketing —
+                a pessoa pode optar por não receber marketing, e aí este envio não chega.
+                A seleção de produtos abaixo <strong style={{ color:C.ink }}>não entra</strong> nesta mensagem
+                (o template é fixo); ela serve pro texto livre, depois da resposta.
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:12 }}>
+              Texto livre só sai se a pessoa escreveu pra loja nas últimas 24h.
+              Em número novo isto falha — e a faixa vermelha vai dizer isso.
+              Para o primeiro contato, use a aba do template.
+            </div>
+          )}
+
+          <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:8, marginTop: modo==='template' ? 18 : 0 }}>
             Citar algum produto? <span style={{ fontWeight:400, color:C.muted }}>— opcional. A mensagem já diz o que a loja tem pra este segmento.</span>
           </div>
           <input value={busca} onChange={e=>setBusca(e.target.value)}
@@ -2772,12 +2850,14 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
 
         {/* Rodape */}
         <div style={{ padding:'14px 20px', borderTop:'1px solid '+C.border, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
-          <span style={{ fontSize:11, color:C.muted }}>Envia pelo número da loja · +55 11 92072-5935</span>
+          <span style={{ fontSize:11, color:C.muted }}>
+            Envia pelo número oficial da loja · Cloud API (Dualhook)
+          </span>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={onClose} style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'9px 16px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
             <button onClick={enviar} disabled={enviando || !alvo}
               style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 22px', fontSize:13, fontWeight:700, cursor: enviando?'wait':'pointer', opacity: enviando||!alvo ? .6 : 1 }}>
-              {enviando ? (estagio || 'Enviando…') : '📤 Enviar abordagem'}
+              {enviando ? (estagio || 'Enviando…') : (modo === 'template' ? '📤 Enviar 1ª mensagem' : '📤 Enviar texto livre')}
             </button>
           </div>
         </div>
@@ -4353,6 +4433,16 @@ const AJUDA_WHATSAPP = [
 // texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
 // se o arquivo nao foi salvo, mostra o marcador de sempre, entao nada
 // quebra em mensagem antiga.
+// Mensagem de TEMPLATE nao viaja com corpo: quem guarda o texto e a Meta, e
+// o banco so tem o NOME do template. Sem isto a conversa mostrava um
+// "[template]" seco — o operador nao conseguia saber o que a loja mandou pro
+// cliente, logo na mensagem que abre o relacionamento. Pros templates que
+// conhecemos, mostramos o texto espelhado; pros outros, ao menos o nome.
+const textoDeTemplate = (m) => {
+  if(m.template === TEMPLATE_ABORDAGEM) return TEMPLATE_ABORDAGEM_TEXTO;
+  return m.template ? 'Template enviado: ' + m.template : null;
+};
+
 // Previa na lista de conversas: audio mostra a transcricao em vez de
 // "[audio]" — da pra saber do que a conversa trata sem abrir.
 const previewMsg = (m) => {
@@ -4362,6 +4452,10 @@ const previewMsg = (m) => {
   if(m.type === 'audio') return '🎤 Áudio';
   if(m.type === 'video') return '🎬 Vídeo';
   if(m.type === 'document') return '📎 ' + (m.body || 'Documento');
+  if(m.type === 'template' && !m.body){
+    const t = textoDeTemplate(m);
+    if(t) return '📋 ' + t.split('\n')[0];
+  }
   return m.body || '[' + (m.type || 'msg') + ']';
 };
 
@@ -4371,6 +4465,17 @@ const BolhaConteudo = ({ m, url }) => {
   const marcador = /^\[(áudio|imagem|vídeo|figurinha|documento|msg|mensagem)\]$/i.test(legenda);
   const [aberta, setAberta] = useState(false);
 
+  if(tipo === 'template' && !legenda){
+    const t = textoDeTemplate(m);
+    if(t) return (
+      <span>
+        <span style={{ display:'block', fontSize:10, opacity:.7, marginBottom:3, textTransform:'uppercase', letterSpacing:.4 }}>
+          Template aprovado
+        </span>
+        <span style={{ whiteSpace:'pre-wrap' }}>{t}</span>
+      </span>
+    );
+  }
   if(tipo === 'text' || !m.media_url) {
     return <span>{legenda || '[' + tipo + ']'}</span>;
   }

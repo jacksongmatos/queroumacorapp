@@ -305,7 +305,14 @@ export async function sendWhatsAppTemplate(opts: {
   languageCode?: string;
   components?: TemplateComponent[];
 }): Promise<SendResult> {
-  const to = normalizeBrPhone(opts.to);
+  // MESMA regra do `sendWhatsAppText`: `normalizeWhatsAppTarget`, NUNCA
+  // `normalizeBrPhone`. O segundo cola '55' em qualquer coisa com 10-11
+  // dígitos — foi o que virou o contato dos EUA `16503154274` em
+  // `5516503154274` e causou o 502 de 2026-08-28. Aqui passou despercebido
+  // quando o texto foi corrigido (2026-09-05), e o caminho de template é
+  // justamente o da ABORDAGEM DE LEAD, onde número estrangeiro aparece de
+  // verdade — a planilha importada tinha um.
+  const to = normalizeWhatsAppTarget(opts.to);
   if (!to) throw new ServiceError('telefone de destino inválido', 400);
   return sendWhatsAppMessage(
     buildTemplatePayload(to, opts.template, opts.languageCode || 'pt_BR', opts.components)
