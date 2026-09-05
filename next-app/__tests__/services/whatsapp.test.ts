@@ -37,6 +37,7 @@ import {
   normalizeBrPhone,
   parseInboundMessages,
   persistWhatsAppMessage,
+  sendWhatsAppTemplate,
   sendWhatsAppText,
   verifyMetaSignature,
 } from '../../lib/api/_services/whatsapp';
@@ -324,6 +325,65 @@ describe('sendWhatsAppText', () => {
 });
 
 // ─── verifyMetaSignature ────────────────────────────────────────────────────
+
+// ─── sendWhatsAppTemplate ───────────────────────────────────────────────────
+//
+// É por aqui que sai a PRIMEIRA mensagem pra um lead — a única que a Meta
+// aceita fora da janela de 24h. Não tinha teste nenhum até 2026-09-05.
+
+describe('sendWhatsAppTemplate', () => {
+  it('manda pro Dualhook com nome e idioma do template', async () => {
+    const spy = stubFetchOnce(200, {
+      messages: [{ id: 'wamid.t1' }],
+      contacts: [{ wa_id: '5511988887777' }],
+    });
+    const r = await sendWhatsAppTemplate({
+      to: '11988887777',
+      template: 'calicolors',
+      languageCode: 'pt_BR',
+    });
+    expect(r.messageId).toBe('wamid.t1');
+
+    const [url, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      `${DUALHOOK_API_BASE}/${GRAPH_API_VERSION}/${DEFAULT_PHONE_NUMBER_ID}/messages`
+    );
+    const corpo = JSON.parse(String(init.body)) as {
+      type: string;
+      template: { name: string; language: { code: string } };
+    };
+    expect(corpo.type).toBe('template');
+    expect(corpo.template.name).toBe('calicolors');
+    expect(corpo.template.language.code).toBe('pt_BR');
+  });
+
+  // Regressão: usava `normalizeBrPhone`, que cola '55' em qualquer coisa com
+  // 10-11 dígitos. Foi o que causou o 502 de 2026-08-28 com o contato dos
+  // EUA — e o caminho de template é o da ABORDAGEM DE LEAD, onde número
+  // estrangeiro aparece de verdade (a planilha importada tinha um).
+  it('preserva número estrangeiro — não cola 55 na frente', async () => {
+    const spy = stubFetchOnce(200, {
+      messages: [{ id: 'wamid.t2' }],
+      contacts: [{ wa_id: '16503154274' }],
+    });
+    await sendWhatsAppTemplate({ to: '16503154274', template: 'calicolors' });
+
+    const [, init] = spy.mock.calls[0] as [string, RequestInit];
+    const corpo = JSON.parse(String(init.body)) as { to: string };
+    expect(corpo.to).toBe('16503154274');
+    expect(corpo.to).not.toBe('5516503154274');
+  });
+
+  it('idioma default é pt_BR', async () => {
+    const spy = stubFetchOnce(200, { messages: [{ id: 'x' }], contacts: [] });
+    await sendWhatsAppTemplate({ to: '11988887777', template: 'calicolors' });
+    const [, init] = spy.mock.calls[0] as [string, RequestInit];
+    const corpo = JSON.parse(String(init.body)) as {
+      template: { language: { code: string } };
+    };
+    expect(corpo.template.language.code).toBe('pt_BR');
+  });
+});
 
 describe('verifyMetaSignature', () => {
   const secret = 'app-secret-de-teste';
