@@ -392,10 +392,22 @@
     bloqueantes de TestFlight (revisado em 2026-09-05):** APNs `.p8`
     ✓ FEITO (Key ID `2R6FW9F2F6`, Sandbox & Production, nos dois slots do
     Firebase) e `App.entitlements` ✓ EXISTE com `aps-environment: production`,
-    referenciado no projeto Xcode — sobra só ligar a capability Push
-    Notifications no App ID `br.com.queroumacor.app` (Apple Developer →
-    Identifiers), cuja falta aparece na hora como erro de assinatura
-    ("entitlement not supported"). Antes da REVIEW: esconder compra do PRO no
+    referenciado no projeto Xcode — e a capability Push
+    Notifications no App ID `br.com.queroumacor.app` ✓ LIGADA E SALVA
+    (2026-09-05). **O lado Apple do push está COMPLETO.**
+    - **`Certificates (0)` nessa tela é o CERTO — não "consertar".** O botão
+      "Configure" ali abre "Apple Push Notification service SSL Certificates",
+      que é o caminho ANTIGO do APNs (um certificado por App ID, vence todo
+      ano, renovação manual). Nós usamos a Auth Key `.p8`, que não expira e é
+      team-scoped, então a contagem fica em 0 pra sempre. **NÃO criar
+      certificado ali**: viraria uma credencial paralela que ninguém usa e
+      que, ao vencer em 12 meses, faria alguém concluir que o push quebrou
+      quando não quebrou.
+    - **Build iOS que tenha COMEÇADO antes desse Save precisa rodar de novo:**
+      o provisioning profile é gerado durante a build, e o dela não carrega o
+      direito. Falha visível = `entitlement not supported` na assinatura;
+      falha TRAIÇOEIRA = a build passa e o app no TestFlight simplesmente
+      nunca recebe push. Antes da REVIEW: esconder compra do PRO no
     iOS ✓ JÁ SATISFEITO (`startProCheckout` existe em
     `lib/services/billing-platform.ts` mas **não tem call site de UI nenhum**;
     o `ProView` oferece o WhatsApp da loja — não há compra dentro do app pra
