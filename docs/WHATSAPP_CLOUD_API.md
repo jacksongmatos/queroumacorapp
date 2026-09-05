@@ -22,7 +22,7 @@ versioná-los. **O token de acesso NUNCA entra no repo.**
 
 | Env | Obrigatória | O que é |
 | --- | --- | --- |
-| `WHATSAPP_ACCESS_TOKEN` | Sim (pra enviar) | Token permanente do system user da Meta. **Secret.** |
+| `DUALHOOK_API_KEY` | Sim (pra enviar) | Outbound API key do Dualhook (`dh_live_…`). **Secret.** Substituiu o `WHATSAPP_ACCESS_TOKEN` em 2026-09-05: com o número em Coexistence gerenciado pelo app Meta do Dualhook, o token do NOSSO app não tem permissão nesse `phone_number_id`. |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Sim (pro webhook) | Com **Dualhook**: o Verify Token gerado no painel deles (conexão → Webhook Override). Sem Dualhook: string qualquer escolhida por nós, colada no painel da Meta ao cadastrar o webhook. |
 | `WHATSAPP_WEBHOOK_URL_SECRET` | Sim com Dualhook | String alta-entropia (`openssl rand -hex 24`) que vai na query da URL cadastrada no Dualhook: `…/api/whatsapp/webhook?token=<secret>`. Sem ela o modo `payload` responde 503 (fail-closed). **Secret.** |
 | `WHATSAPP_WEBHOOK_AUTH_MODE` | Não | `payload` (default) = modo Dualhook, valida WABA + phone_number_id do envelope. `hmac` = app Meta próprio, valida `X-Hub-Signature-256` com `META_APP_SECRET`. |
@@ -122,9 +122,23 @@ listagem.
 4. Setar `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_WABA_ID` com os IDs da
    conexão (Account Details no Dualhook). Sem isso o POST devolve 401
    "payload inesperado" porque os defaults são do número antigo.
-5. Envio de mensagens por essa conexão exige a Outbound API key do
-   Dualhook (`dh_live_…`, base `https://api.dualhook.com`) — ainda não
-   integrado no `whatsapp.ts` (que fala direto com `graph.facebook.com`).
+5. Envio: `DUALHOOK_API_KEY` (Outbound API key, `dh_live_…`) no CF Pages.
+   O service já fala com `https://api.dualhook.com` — ver abaixo.
+
+### Envio de mensagens (`sendWhatsAppMessage`)
+
+`POST https://api.dualhook.com/v25.0/<WHATSAPP_PHONE_NUMBER_ID>/messages`,
+com `Authorization: Bearer <DUALHOOK_API_KEY>`.
+
+O Dualhook **espelha o contrato da Cloud API**: mesmo path, mesmo corpo
+(`messaging_product`, `to`, `type`, `text`/`template`…) e mesma forma de
+resposta e de erro. Por isso os builders de payload não mudaram — trocaram
+só a base e o header de auth.
+
+Erros traduzidos: `131047` → 422 "fora da janela de 24h, use template";
+`190` **ou qualquer 401/403** → 502 "credencial do Dualhook inválida"
+(o 401 deles não carrega o `code` da Meta, e sem essa ramificação a
+mensagem mandaria olhar o painel errado).
 
 ### Cadastro do webhook no painel da Meta (legado — app próprio)
 

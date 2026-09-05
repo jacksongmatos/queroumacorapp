@@ -2,13 +2,18 @@
 //
 // A Cali Colors tem um número oficial na Cloud API (+55 11 95976-5031,
 // app "CaliColors Integracao API"). Este service encapsula o envio de
-// mensagens via `https://graph.facebook.com/<versão>/<PHONE_NUMBER_ID>/messages`
+// mensagens via `https://api.dualhook.com/<versão>/<PHONE_NUMBER_ID>/messages`
+// (o Dualhook espelha o contrato da Cloud API — mesmo path, mesmo corpo,
+// mesmo formato de resposta; muda a base e o Bearer)
 // com Bearer auth.
 //
 // Config (edge do Cloudflare — SEMPRE via `getRuntimeEnv`, nunca
 // `process.env` direto; ver lib/api/env.ts):
-//   - `WHATSAPP_ACCESS_TOKEN`   (secret) — token permanente do system user.
-//     NUNCA commitar; vive só no painel do CF Pages.
+//   - `DUALHOOK_API_KEY`         (secret) — Outbound API key do Dualhook
+//     (`dh_live_…`). NUNCA commitar; vive só no painel do CF Pages.
+//     Substituiu o `WHATSAPP_ACCESS_TOKEN` em 2026-09-05: com o número em
+//     Coexistence gerenciado pelo app Meta do Dualhook, o token do NOSSO app
+//     não tem permissão nesse phone_number_id. O envio passa por eles.
 //   - `WHATSAPP_PHONE_NUMBER_ID` — opcional; default abaixo (não é secret).
 //   - `WHATSAPP_WABA_ID`         — opcional; default abaixo (não é secret).
 //   - `WHATSAPP_WEBHOOK_AUTH_MODE` — `payload` (default) ou `hmac`. Ver
@@ -42,7 +47,12 @@
 import { getRuntimeEnv } from '../env';
 import { getServiceKey, getSupabaseUrl, ServiceError } from '../security';
 
-export const GRAPH_API_VERSION = 'v21.0';
+// O Dualhook espelha o contrato da Cloud API: mesmo path
+// `/<versão>/<PHONE_NUMBER_ID>/messages`, mesmo corpo, mesma forma de erro.
+// Só a base e o header de auth mudam — por isso os builders de payload não
+// precisaram de nenhuma alteração.
+export const DUALHOOK_API_BASE = 'https://api.dualhook.com';
+export const GRAPH_API_VERSION = 'v25.0';
 
 /**
  * IDs do WhatsApp Business da Cali Colors. NÃO são secrets (aparecem em URL
@@ -59,12 +69,12 @@ export interface WhatsAppConfig {
   phoneNumberId: string;
 }
 
-/** Lê a config de runtime. Throw 503 se o token não estiver no ambiente. */
+/** Lê a config de runtime. Throw 503 se a chave não estiver no ambiente. */
 export function getWhatsAppConfig(): WhatsAppConfig {
-  const token = getRuntimeEnv('WHATSAPP_ACCESS_TOKEN') || '';
+  const token = getRuntimeEnv('DUALHOOK_API_KEY') || '';
   if (!token) {
     throw new ServiceError(
-      'WhatsApp Cloud API não configurada (WHATSAPP_ACCESS_TOKEN ausente)',
+      'envio de WhatsApp não configurado (DUALHOOK_API_KEY ausente)',
       503
     );
   }
@@ -74,7 +84,7 @@ export function getWhatsAppConfig(): WhatsAppConfig {
 }
 
 export function isWhatsAppConfigured(): boolean {
-  return Boolean(getRuntimeEnv('WHATSAPP_ACCESS_TOKEN'));
+  return Boolean(getRuntimeEnv('DUALHOOK_API_KEY'));
 }
 
 /** WABA ID do runtime (env sobrescreve o default da Cali Colors). */
@@ -165,12 +175,12 @@ interface GraphMessagesResponse {
   error?: { message?: string; code?: number; error_subcode?: number };
 }
 
-/** POST no /messages do Graph. Payload já montado pelos builders acima. */
+/** POST no /messages do Dualhook. Payload já montado pelos builders acima. */
 export async function sendWhatsAppMessage(
   payload: Record<string, unknown>
 ): Promise<SendResult> {
   const { token, phoneNumberId } = getWhatsAppConfig();
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const url = `${DUALHOOK_API_BASE}/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
 
   let res: Response;
   try {
@@ -184,7 +194,7 @@ export async function sendWhatsAppMessage(
       signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
     });
   } catch {
-    throw new ServiceError('falha de rede ao chamar o WhatsApp Cloud API', 502);
+    throw new ServiceError('falha de rede ao chamar a API do Dualhook', 502);
   }
 
   let data: GraphMessagesResponse = {};
@@ -204,15 +214,17 @@ export async function sendWhatsAppMessage(
         422
       );
     }
-    // 190: token expirado/revogado.
-    if (code === 190) {
+    // 190: credencial expirada/revogada. Chega tanto do Dualhook quanto,
+    // repassado, da Meta — a ação agora é regenerar a Outbound API key no
+    // painel do Dualhook, não o token no painel da Meta.
+    if (code === 190 || res.status === 401 || res.status === 403) {
       throw new ServiceError(
-        'token do WhatsApp inválido ou expirado (regenerar no painel Meta)',
+        'credencial do Dualhook inválida ou expirada (regenerar a Outbound API key)',
         502
       );
     }
     const detail = (data.error?.message || `HTTP ${res.status}`).slice(0, 200);
-    throw new ServiceError(`WhatsApp Cloud API recusou o envio: ${detail}`, 502);
+    throw new ServiceError(`Dualhook recusou o envio: ${detail}`, 502);
   }
 
   return {

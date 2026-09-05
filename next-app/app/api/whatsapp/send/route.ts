@@ -83,7 +83,7 @@ async function handle(request: NextRequest): Promise<Response> {
     return jsonResponse(
       {
         error:
-          'Nenhum canal de WhatsApp configurado (EVOLUTION_API_URL/EVOLUTION_API_KEY ou WHATSAPP_ACCESS_TOKEN)',
+          'Nenhum canal de WhatsApp configurado (DUALHOOK_API_KEY ou EVOLUTION_API_URL/EVOLUTION_API_KEY)',
       },
       503
     );

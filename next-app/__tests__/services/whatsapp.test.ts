@@ -1,4 +1,9 @@
-// Tests do service lib/api/_services/whatsapp.ts (WhatsApp Cloud API).
+// Tests do service lib/api/_services/whatsapp.ts.
+//
+// O ENVIO passou pro Dualhook em 2026-09-05 (api.dualhook.com), porque o
+// número em Coexistence é gerenciado pelo app Meta DELES — o access token do
+// nosso app não tem permissão nesse phone_number_id. O contrato é o mesmo da
+// Cloud API (path, corpo, forma do erro): muda a base e o Bearer.
 //
 // Sem rede: `fetch` é stubado via vi.stubGlobal. Env entra por
 // `process.env` (fallback do getRuntimeEnv fora do edge — ver
@@ -19,6 +24,7 @@ import {
   buildTemplatePayload,
   buildTextPayload,
   DEFAULT_PHONE_NUMBER_ID,
+  DUALHOOK_API_BASE,
   GRAPH_API_VERSION,
   checkWebhookUrlSecret,
   getWebhookAuthMode,
@@ -36,12 +42,12 @@ import { ServiceError } from '../../lib/api/security';
 const FAKE_TOKEN = 'EAAtest-token';
 
 beforeEach(() => {
-  process.env.WHATSAPP_ACCESS_TOKEN = FAKE_TOKEN;
+  process.env.DUALHOOK_API_KEY = FAKE_TOKEN;
   delete process.env.WHATSAPP_PHONE_NUMBER_ID;
 });
 
 afterEach(() => {
-  delete process.env.WHATSAPP_ACCESS_TOKEN;
+  delete process.env.DUALHOOK_API_KEY;
   delete process.env.WHATSAPP_PHONE_NUMBER_ID;
   delete process.env.WHATSAPP_WEBHOOK_AUTH_MODE;
   vi.unstubAllGlobals();
@@ -112,8 +118,8 @@ describe('payload builders', () => {
 // ─── config ─────────────────────────────────────────────────────────────────
 
 describe('getWhatsAppConfig', () => {
-  it('throw ServiceError 503 sem WHATSAPP_ACCESS_TOKEN', () => {
-    delete process.env.WHATSAPP_ACCESS_TOKEN;
+  it('throw ServiceError 503 sem DUALHOOK_API_KEY', () => {
+    delete process.env.DUALHOOK_API_KEY;
     expect(isWhatsAppConfigured()).toBe(false);
     try {
       getWhatsAppConfig();
@@ -163,7 +169,7 @@ describe('sendWhatsAppText', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const [url, init] = spy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      `https://graph.facebook.com/${GRAPH_API_VERSION}/${DEFAULT_PHONE_NUMBER_ID}/messages`
+      `${DUALHOOK_API_BASE}/${GRAPH_API_VERSION}/${DEFAULT_PHONE_NUMBER_ID}/messages`
     );
     expect((init.headers as Record<string, string>).Authorization).toBe(
       `Bearer ${FAKE_TOKEN}`
@@ -189,8 +195,27 @@ describe('sendWhatsAppText', () => {
     ).rejects.toMatchObject({ status: 422 });
   });
 
-  it('erro 190 (token expirado) → 502 com dica de regenerar', async () => {
+  it('erro 190 (credencial expirada) → 502 com dica de regenerar', async () => {
     stubFetchOnce(401, { error: { message: 'Error validating access token', code: 190 } });
+    await expect(
+      sendWhatsAppText({ to: '11959765031', body: 'oi' })
+    ).rejects.toMatchObject({ status: 502 });
+  });
+
+  it('401/403 SEM code também vira erro de credencial', async () => {
+    // O Dualhook recusa a Outbound API key com um 401 próprio, que não
+    // carrega o `code: 190` da Meta. Sem esta ramificação a mensagem cairia
+    // no genérico "recusou o envio: HTTP 401" e mandaria quem depura olhar o
+    // painel da Meta — que não é mais onde a credencial vive.
+    stubFetchOnce(401, { error: { message: 'Invalid API key' } });
+    await expect(
+      sendWhatsAppText({ to: '11959765031', body: 'oi' })
+    ).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringContaining('Dualhook'),
+    });
+
+    stubFetchOnce(403, {});
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
     ).rejects.toMatchObject({ status: 502 });
