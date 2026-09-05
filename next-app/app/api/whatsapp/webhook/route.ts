@@ -39,6 +39,7 @@ import {
   isExpectedWebhookPayload,
   parseInboundMessages,
   persistWhatsAppMessage,
+  resumirEnvelope,
   type InboundWhatsAppMessage,
 } from '@/lib/api/_services/whatsapp';
 import { maybeAutoReply } from '@/lib/api/_services/whatsapp-ai-runner';
@@ -178,7 +179,14 @@ export async function POST(request: NextRequest) {
   // (2) O envelope tem que ser do NOSSO WABA + número.
   const expected = { wabaId: getWabaId(), phoneNumberId: getPhoneNumberId() };
   if (!isExpectedWebhookPayload(payload, expected)) {
-    console.warn('[whatsapp-webhook] payload rejeitado (WABA/phone_number_id não conferem)');
+    // Nomear os dois lados é o ponto: este 403 é INVISÍVEL pra quem usa o
+    // portal (a entrega some, nada aparece na tela), então esta linha é a
+    // única pista. Recebido × esperado responde na hora se o caso é env
+    // errada no Cloudflare ou webhook apontado pra outra conta.
+    console.warn(
+      `[whatsapp-webhook] payload rejeitado — recebido: ${resumirEnvelope(payload)} | ` +
+        `esperado: waba=${expected.wabaId} phone_number_id=${expected.phoneNumberId}`
+    );
     return NextResponse.json(
       { error: 'não autorizado', reason: 'payload_inesperado' },
       { status: 403 }

@@ -2666,11 +2666,6 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
 
   useEffect(() => { buscarProdutos(); }, []);
 
-  // Aquece o Evolution assim que a janela abre. O operador ainda vai marcar
-  // produto e reler o texto — o servidor sobe de graca nesse tempo, e o
-  // envio nao paga cold start dentro do edge (que morre esperando).
-  useEffect(() => { aquecerEvolution(); }, []);
-
   // Recompoe o texto sempre que a selecao muda — a menos que o operador
   // ja tenha editado na mao (nao sobrescrever o trabalho dele).
   const escolhidos = produtos.filter(p => sel[p.id]);
@@ -2686,7 +2681,6 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErro('Sessao expirada — entre de novo.'); setEnviando(false); return; }
       setEstagio('Enviando…');
-      await acordarEvolution(setEstagio); // vira "Acordando…" só com o servidor frio
       const r = await fetch('/api/whatsapp/send', {
         method:'POST', headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ accessToken: session.access_token, to: alvo, body: texto })
@@ -4263,12 +4257,18 @@ const AvaliacoesTab = () => {
   );
 };
 
-// ── WhatsApp (Evolution API, numero secundario +55 11 92072-5935) ──
+// ── WhatsApp (Cloud API da Meta via Dualhook, numero oficial da loja) ──
 // Estilo WhatsApp Web: coluna esquerda = uma conversa por numero (nome do
 // perfil do app quando o telefone casa, senao o nome do WhatsApp/numero);
 // direita = balões + campo de resposta. Le direto de whatsapp_messages
-// (RLS libera SELECT pra portal admin); envia pela rota /api/whatsapp/send
-// (que despacha pra Evolution). Poll de 15s, igual as demais telas.
+// (RLS libera SELECT pra portal admin); envia pela rota /api/whatsapp/send.
+// Poll de 15s, igual as demais telas.
+//
+// NAO existe mais aquecimento de servidor aqui. A Evolution API rodava no
+// Render e dormia, entao a aba cutucava ela antes de enviar; o Dualhook e
+// servico gerenciado, sempre de pe. O aquecimento virou uma chamada a um
+// host morto que so atrasava o envio e mostrava "Acordando o servidor…"
+// sem motivo.
 // Formata SO numero brasileiro no padrao (DD) 9xxxx-xxxx. Numero de outro
 // pais (ex.: EUA 16503154274) fica como +DDI... — antes o codigo tirava o
 // '55' de qualquer numero e exibia um DDD brasileiro que nao existe.
@@ -4295,48 +4295,13 @@ const waHora = (m) => {
     : dt.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
 };
 
-// ── Aquecimento do Evolution API (COMPARTILHADO) ────────────────────────
-// O edge do Cloudflare morre esperando um upstream lento — e quando morre,
-// quem chega na tela e a pagina "502 Bad gateway" do PROPRIO Cloudflare, sem
-// dizer nada. Por isso quem espera o servidor subir e o NAVEGADOR, que espera
-// a vontade: a aba cutuca o Evolution direto e so chama /api/whatsapp/send
-// quando ele ja respondeu.
-//
-// Estas funcoes viviam DENTRO da tela de WhatsApp, e por isso a abordagem de
-// lead (outra aba, outro componente) nunca aquecia nada: ela chamava a rota
-// de envio direto, com o servidor possivelmente frio, e pagava o cold start
-// dentro do edge — que e exatamente o que o edge nao aguenta. Foi o 502 de
-// 2026-08-31. Agora o estado e do modulo: aquecer numa tela vale pra outra.
-const EVO_BASE_URL = 'https://evolution-api-8arv.onrender.com';
-const EVO_WARM_TTL = 5 * 60 * 1000;   // ping recente = servidor comprovadamente de pe
-const EVO_WARM_EVERY = 5 * 60 * 1000; // cutucada periodica com a aba aberta
-
-let evoWarmAt = 0;      // quando a ultima request VOLTOU (falha nao conta)
-let evoWarming = null;  // ping em voo, pra nao empilhar
-
-const evoAquecido = () => Date.now() - evoWarmAt < EVO_WARM_TTL;
-
-const aquecerEvolution = () => {
-  if(evoWarming) return evoWarming;
-  const p = fetch(EVO_BASE_URL, { mode:'no-cors', cache:'no-store' })
-    .then(() => { evoWarmAt = Date.now(); })
-    .catch(() => {})
-    .then(() => { evoWarming = null; });
-  evoWarming = p;
-  return p;
-};
-
-// Antes de enviar: se o servidor ja respondeu ha pouco, segue direto. Senao
-// da 2,5s de silencio e, se ainda nao voltou, avisa a pessoa ("Acordando o
-// servidor…") e espera ate 60s — o navegador pode, o edge nao pode.
-const acordarEvolution = async (onStage) => {
-  if(evoAquecido()) return;
-  const ping = aquecerEvolution();
-  await Promise.race([ping, new Promise(r => setTimeout(r, 2500))]);
-  if(evoAquecido()) return;
-  if(onStage) onStage('Acordando o servidor…');
-  await Promise.race([ping, new Promise(r => setTimeout(r, 60000))]);
-};
+// A Evolution API foi aposentada em 2026-09-05 e o bloco de aquecimento que
+// vivia aqui saiu junto. Ele existia porque ela rodava no plano free do
+// Render, dormia depois de 15min e o cold start estourava dentro do edge do
+// Cloudflare (o 502 de 2026-08-31) — entao quem esperava o servidor subir
+// era o NAVEGADOR, que pode esperar a vontade. Com o Dualhook, servico
+// gerenciado, nao ha o que acordar: o que sobrava era uma chamada a um host
+// morto antes de cada envio, mostrando "Acordando o servidor…" a toa.
 
 // Balaozinho de ajuda: um "?" discreto que abre a explicacao ao passar o
 // mouse (e no clique, pra quem esta no celular/tablet). Existe porque o
@@ -4466,20 +4431,6 @@ const WhatsAppTab = () => {
   const [err, setErr] = useState('');
   const [busca, setBusca] = useState('');
   const endRef = React.useRef(null);
-
-  // PRE-AQUECIMENTO. Antes, quem pagava o cold start era o operador NA HORA
-  // do envio ("Acordando o servidor…", ate 1min). Agora a aba cutuca o
-  // servidor enquanto ele trabalha — ao abrir, a cada 5min, ao voltar pra
-  // aba e ao comecar a digitar — e o envio sai sem espera nenhuma.
-  // A mecanica mora no modulo (ver "Aquecimento do Evolution API"), porque a
-  // abordagem de lead precisa dela tambem.
-  useEffect(() => {
-    aquecerEvolution();
-    const t = setInterval(aquecerEvolution, EVO_WARM_EVERY);
-    const onVis = () => { if(document.visibilityState === 'visible' && !evoAquecido()) aquecerEvolution(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, []);
 
   const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
 
@@ -4850,7 +4801,6 @@ const WhatsAppTab = () => {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErr('Sessao expirada — entre de novo.'); setSending(false); return; }
       setSendStage('Enviando…');
-      await acordarEvolution(setSendStage); // vira "Acordando…" só se o Render estiver frio
       const r = await fetch('/api/whatsapp/send', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
@@ -5094,7 +5044,7 @@ const WhatsAppTab = () => {
               </div>
               {err ? <div style={{ padding:'8px 16px', background:'#fdecea', color:'#b3261e', fontSize:12 }}>{err}</div> : null}
               <div style={{ display:'flex', gap:8, padding:12, background:'#fff', borderTop:'1px solid '+C.border }}>
-                <input value={text} onChange={e=>{ setText(e.target.value); if(!evoAquecido()) aquecerEvolution(); }}
+                <input value={text} onChange={e=>setText(e.target.value)}
                   onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviar(); } }}
                   placeholder="Escreva uma mensagem…"
                   style={{ flex:1, padding:'10px 14px', borderRadius:12, border:'1.5px solid '+C.border, fontSize:14, outline:'none' }} />

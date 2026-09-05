@@ -1553,6 +1553,28 @@
     - Pra o follow-up voltar a sair: criar template no WhatsApp Manager,
       esperar aprovação e trocar `sendWhatsAppText` por
       `sendWhatsAppTemplate` nos dois textos (cobrança e reengajamento).
+  - **DEFAULTS DOS IDs APONTAVAM PRO REGISTRO ANTIGO (2026-09-05).** O
+    telefone é O MESMO de sempre; o que mudou ao entrar em Coexistence foi o
+    REGISTRO — a Meta emitiu `phone_number_id` e WABA novos pro mesmo
+    aparelho. Os defaults do código seguiam nos antigos (`109293361953640` /
+    `102067872689175`), então SEM as envs no painel: o envio ia pra um
+    número que não é nosso, e o webhook recusava **toda** entrega com 403.
+    - **O modo de falha do recebimento é SILÊNCIO**, não erro: o 403 vai pro
+      Dualhook, o portal simplesmente não mostra nada, e não há mensagem em
+      lugar nenhum dizendo por quê. Um default errado não falha — ele mente.
+    - Defaults agora são os da conexão Dualhook (`1220273824510260` /
+      `1320667299892030`), travados por teste. As envs seguem podendo
+      sobrescrever; a diferença é que o caminho SEM env passou a ser o certo.
+    - O log da recusa passou a nomear os DOIS lados (`resumirEnvelope`):
+      recebido × esperado. IDs são públicos, e essa linha é a única pista
+      que sobra quando a entrega some.
+  - **Aquecimento da Evolution REMOVIDO do portal (2026-09-05).** A tela de
+    WhatsApp e a abordagem de lead cutucavam
+    `https://evolution-api-8arv.onrender.com` antes de cada envio — ao
+    abrir, a cada 5min e A CADA TECLA digitada. Aquilo existia porque a
+    Evolution dormia no plano free do Render; o Dualhook é gerenciado, não
+    há o que acordar. O que sobrava era uma chamada a um host morto
+    atrasando o envio e exibindo "Acordando o servidor…" sem motivo.
   - **O access token NÃO está no código** (IDs públicos são default; token
     só via env). Se o token vazar/expirar (erro 190 do Graph): regenerar no
     painel Meta e trocar só a env + redeploy.

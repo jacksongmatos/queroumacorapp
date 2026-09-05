@@ -24,6 +24,7 @@ import {
   buildTemplatePayload,
   buildTextPayload,
   DEFAULT_PHONE_NUMBER_ID,
+  DEFAULT_WABA_ID,
   DUALHOOK_API_BASE,
   GRAPH_API_VERSION,
   checkWebhookUrlSecret,
@@ -141,6 +142,19 @@ describe('getWhatsAppConfig', () => {
   it('env WHATSAPP_PHONE_NUMBER_ID sobrescreve o default', () => {
     process.env.WHATSAPP_PHONE_NUMBER_ID = '999';
     expect(getWhatsAppConfig().phoneNumberId).toBe('999');
+  });
+
+  // Regressão 2026-09-05: os defaults apontavam pro registro ANTIGO do
+  // número (cadastro direto da Cali Colors), e não pro emitido pela Meta
+  // quando ele entrou em Coexistence via Dualhook. Sem as envs no painel, o
+  // envio ia pra um phone_number_id que não é nosso e — pior — o webhook
+  // recusava TODA entrega com 403, ou seja, silêncio total no portal.
+  // Default errado não falha: ele mente. Por isso ficam travados aqui.
+  it('os defaults são os IDs da conexão Dualhook, não os do registro antigo', () => {
+    expect(DEFAULT_PHONE_NUMBER_ID).toBe('1220273824510260');
+    expect(DEFAULT_WABA_ID).toBe('1320667299892030');
+    expect(DEFAULT_PHONE_NUMBER_ID).not.toBe('109293361953640');
+    expect(DEFAULT_WABA_ID).not.toBe('102067872689175');
   });
 });
 
