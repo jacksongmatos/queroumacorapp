@@ -5674,42 +5674,85 @@ const NovaConversaModal = ({
   const [erro, setErro] = useState('');
   const [contatos, setContatos] = useState([]);
   const [carregando, setCarregando] = useState(true);
+
+  // A BUSCA VAI AO BANCO, nao filtra uma lista pre-carregada.
+  //
+  // A 1a versao trazia 500 leads + 500 perfis e filtrava em memoria. Com
+  // 1072 leads isso nao era so "mostrar menos": quem estava fora dos
+  // primeiros 500 ficava INVISIVEL pra busca — digitar o nome dele nao
+  // achava nada, e a tela nao dava pista de que faltava gente. Lista
+  // truncada que se parece com lista completa e pior do que lista vazia.
+  //
+  // Agora: sem termo, traz as primeiras por nome (so pra ter o que
+  // navegar); com termo, consulta o banco com ilike em nome E telefone.
+  const [total, setTotal] = useState(null);
+  const buscarContatos = async termo => {
+    setCarregando(true);
+    const q = (termo || '').trim();
+    const digitos = q.replace(/\D/g, '');
+    // Telefone e guardado so com digitos; buscar "(11) 9" precisa virar
+    // "119" pra casar. Termo sem letra nenhuma = busca por numero.
+    const alvoLike = digitos.length >= 3 ? '*' + digitos + '*' : null;
+    const nomeLike = q.length >= 2 ? '*' + q + '*' : null;
+    const filtro = sel => {
+      let r = sel.not('phone', 'is', null);
+      if (nomeLike && alvoLike) r = r.or('name.ilike.' + nomeLike + ',phone.ilike.' + alvoLike);else if (nomeLike) r = r.ilike('name', nomeLike);else if (alvoLike) r = r.ilike('phone', alvoLike);
+      return r.order('name').limit(80);
+    };
+    const [ld, pf] = await Promise.all([filtro(supa.from('leads').select('id, name, phone, city, category')), filtro(supa.from('profiles').select('id, name, phone, city'))]);
+    const vistos = new Set();
+    const lista = [];
+    const push = (nome, phone, extra, origem) => {
+      const alvo = normalizeLeadPhone(phone);
+      if (!alvo) return;
+      const chave = alvo.slice(-8); // dedupe por final, igual ao resto do portal
+      if (vistos.has(chave)) return;
+      vistos.add(chave);
+      lista.push({
+        nome: nome || '',
+        alvo,
+        extra: extra || '',
+        origem
+      });
+    };
+    for (const p of pf.data || []) push(p.name, p.phone, p.city, 'app');
+    for (const l of ld.data || []) push(l.name, l.phone, l.city || l.category, 'lead');
+    lista.sort((a, b) => (a.nome || 'zzz').localeCompare(b.nome || 'zzz', 'pt-BR'));
+    setContatos(lista);
+    setCarregando(false);
+  };
+
+  // Quantos contatos existem no total — a tela precisa DIZER que esta
+  // mostrando um pedaco, senao a pessoa conclui que o resto nao existe.
   useEffect(() => {
     let vivo = true;
     (async () => {
-      // Duas fontes, uma lista. Leads sao a prospeccao; perfis sao quem usa
-      // o app e tem telefone.
-      const [ld, pf] = await Promise.all([supa.from('leads').select('id, name, phone, city, category').not('phone', 'is', null).limit(500), supa.from('profiles').select('id, name, phone, city').not('phone', 'is', null).limit(500)]);
-      if (!vivo) return;
-      const vistos = new Set();
-      const lista = [];
-      const push = (nome, phone, extra, origem) => {
-        const alvo = normalizeLeadPhone(phone);
-        if (!alvo) return;
-        const chave = alvo.slice(-8); // dedupe por final, igual ao resto do portal
-        if (vistos.has(chave)) return;
-        vistos.add(chave);
-        lista.push({
-          nome: nome || '',
-          alvo,
-          extra: extra || '',
-          origem
-        });
-      };
-      for (const p of pf.data || []) push(p.name, p.phone, p.city, 'app');
-      for (const l of ld.data || []) push(l.name, l.phone, l.city || l.category, 'lead');
-      lista.sort((a, b) => (a.nome || 'zzz').localeCompare(b.nome || 'zzz', 'pt-BR'));
-      setContatos(lista);
-      setCarregando(false);
-    })().catch(() => {
-      if (vivo) {
-        setCarregando(false);
-      }
-    });
+      const [ld, pf] = await Promise.all([supa.from('leads').select('id', {
+        count: 'exact',
+        head: true
+      }).not('phone', 'is', null), supa.from('profiles').select('id', {
+        count: 'exact',
+        head: true
+      }).not('phone', 'is', null)]);
+      if (vivo) setTotal((ld.count || 0) + (pf.count || 0));
+    })().catch(() => {});
     return () => {
       vivo = false;
     };
   }, []);
+
+  // Atraso pra nao consultar a cada tecla (mesmo padrao da tela de
+  // produtos, que tem 21 mil linhas).
+  useEffect(() => {
+    let vivo = true;
+    const t = setTimeout(() => {
+      if (vivo) buscarContatos(busca).catch(() => setCarregando(false));
+    }, 250);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [busca]);
 
   // Mesma regra do servidor (normalizeWhatsAppTarget): BR local ganha o 55;
   // numero que ja vem com DDI de outro pais passa direto.
@@ -5721,12 +5764,6 @@ const NovaConversaModal = ({
     if (d.length === 11 && d[2] === '9') return '55' + d;
     if (d.length >= 11 && d.length <= 15) return d;
     return null;
-  })();
-  const filtrados = (() => {
-    const q = busca.trim().toLowerCase();
-    if (!q) return contatos.slice(0, 60);
-    const soDigitos = q.replace(/\D/g, '');
-    return contatos.filter(c => c.nome.toLowerCase().includes(q) || soDigitos && c.alvo.includes(soDigitos)).slice(0, 60);
   })();
   const abrirNumeroNovo = async () => {
     if (!alvoDigitado) {
@@ -5899,9 +5936,19 @@ const NovaConversaModal = ({
       fontSize: 12,
       fontWeight: 700,
       color: C.ink,
-      marginBottom: 6
+      marginBottom: 6,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'baseline',
+      gap: 8
     }
-  }, "Contatos que a loja j\xE1 conhece"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("span", null, "Contatos que a loja j\xE1 conhece"), total != null ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      fontSize: 11,
+      color: C.muted
+    }
+  }, total.toLocaleString('pt-BR'), " no total") : null), /*#__PURE__*/React.createElement("input", {
     value: busca,
     onChange: e => setBusca(e.target.value),
     placeholder: "Buscar por nome ou n\xFAmero\u2026",
@@ -5912,15 +5959,21 @@ const NovaConversaModal = ({
       border: '1.5px solid ' + C.border,
       fontSize: 13,
       outline: 'none',
+      marginBottom: 6
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
       marginBottom: 10
     }
-  }), carregando ? /*#__PURE__*/React.createElement("div", {
+  }, busca.trim() ? contatos.length >= 80 ? 'Mostrando os 80 primeiros — refine a busca.' : contatos.length + ' encontrado(s).' : 'Mostrando os primeiros por ordem alfabética. Digite para buscar em todos.'), carregando ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: C.muted,
       padding: '8px 0'
     }
-  }, "Carregando contatos\u2026") : filtrados.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "Carregando contatos\u2026") : contatos.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: C.muted,
@@ -5932,7 +5985,7 @@ const NovaConversaModal = ({
       flexDirection: 'column',
       gap: 2
     }
-  }, filtrados.map(c => /*#__PURE__*/React.createElement("button", {
+  }, contatos.map(c => /*#__PURE__*/React.createElement("button", {
     key: c.alvo,
     onClick: () => {
       onAbrir(c.alvo);
