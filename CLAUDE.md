@@ -23,9 +23,18 @@
   - **Vale pra TODA pendência, não só SQL.** Na mesma varredura caíram mais
     três que estavam erradas: Image Resizing (ligado), APNs/`App.entitlements`
     (feitos) e "esconder a compra do PRO no iOS" (já não existe compra no
-    app). Sobrou UMA real: tirar a sessão do Supabase do `localStorage`
-    (antes da review da Apple). A importação dos leads da planilha está
-    ADIADA POR DECISÃO, não pendente.
+    app). Depois disso caiu mais uma, por leitura do código e não por
+    verificação externa: "tirar a sessão do Supabase do `localStorage`" era
+    pendência MAL FORMULADA — o `hybridAuthStorage` já resolveu o problema que
+    a motivou, e o supabase-js impede a única versão dela que melhoraria
+    segurança (cookie httpOnly). **Não sobrou nenhuma pendência acionável**: a
+    importação dos leads está ADIADA POR DECISÃO do usuário, e os três itens
+    não-verificáveis abaixo dependem dele.
+  - **PADRÃO A NOTAR:** de 9 pendências listadas, 7 estavam erradas — 6 já
+    feitas e 1 sem sentido. Lista de pendência envelhece pior que código, e
+    ninguém a revalida porque parece barato confiar nela. Custou repetir por
+    semanas que o degrau 2 do PDF estava quebrado e que faltava ligar o Image
+    Resizing, as duas coisas falsas.
   - **NÃO VERIFICÁVEIS deste ambiente** (a política de rede só libera
     GitHub/npm/Anthropic; o proxy recusa DNS-over-HTTPS e a produção, e não há
     ferramenta de branch protection no MCP): DMARC do `calicolors.com.br`,
@@ -390,9 +399,22 @@
     iOS ✓ JÁ SATISFEITO (`startProCheckout` existe em
     `lib/services/billing-platform.ts` mas **não tem call site de UI nenhum**;
     o `ProView` oferece o WhatsApp da loja — não há compra dentro do app pra
-    esconder); fallback offline ✓ FEITO (PR #201). **Continua pendente:** tirar
-    a sessão do Supabase do `localStorage` (o `hybridAuthStorage` grava lá e em
-    cookies fatiados, e o `supabase.ts` usa ele). Doc
+    esconder); fallback offline ✓ FEITO (PR #201). **"Tirar a sessão do Supabase do
+    `localStorage`" — FECHADO como NÃO SE APLICA (2026-09-05).** A pendência
+    vinha de auditoria antiga e não descreve mais uma ação útil:
+    - o problema que a motivou (perder a sessão quando o storage é limpo) foi
+      resolvido em 2026-08-28 pelo `hybridAuthStorage` — grava em localStorage
+      **E** em cookies fatiados, e na leitura vale quem sobreviveu;
+    - tirar do localStorage só melhoraria a segurança se a sessão fosse pra um
+      cookie **httpOnly** — e o supabase-js no client **precisa ler o token em
+      JavaScript**, então o cookie que sobra é legível por script: mesma
+      exposição a XSS, troca de seis por meia dúzia (o próprio cabeçalho de
+      `sessionStorageHybrid.ts` já registra isso);
+    - a Apple **não exige** nada disso.
+    **A ação real por trás dela**, se um dia for prioridade, é outra e muito
+    maior: sessão httpOnly com validação no servidor — reescrita do modelo de
+    auth do app, não ajuste pré-review. Não reabrir como se fosse tarefa
+    pequena de véspera de submissão. Doc
     `docs/IOS_BUILD.md` está DESATUALIZADO (bundle/repo/fluxo Xcode manual
     errados) — reescrever com esta realidade.
   - **R8 QUEBROU O BOOT — REVERTIDO (2026-09-04, PR #183).** O R8 ligado no
