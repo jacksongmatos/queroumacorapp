@@ -5631,6 +5631,32 @@ const avisoMarketingEUA = (waId, categoria) => {
   return 'A Meta não entrega templates de marketing para números dos EUA; ' + 'use um Utility ou texto livre na janela.';
 };
 
+// O `body` de uma mensagem de template guarda o REGISTRO
+// (`[template calicolors_nome] {{1}}=Bianca`), nao o texto que a pessoa
+// recebeu — quem tem o texto e a Meta. Sem esta funcao a bolha mostrava o
+// registro cru na tela, que e exatamente o que ela existia pra evitar.
+//
+// Aceita 1..N parametros: `{{1}}=Ana {{2}}=1042`. Com template de duas
+// variaveis, ler so a primeira esconderia metade do que foi enviado.
+const parseRegistroTemplate = body => {
+  const m = /^\[template ([a-z0-9_]+)\]\s*(.*)$/i.exec(String(body || '').trim());
+  if (!m) return null;
+  const params = {};
+  for (const g of String(m[2] || '').matchAll(/\{\{(\d+)\}\}=([^{]*)/g)) {
+    params[Number(g[1])] = String(g[2]).trim();
+  }
+  return {
+    template: m[1],
+    params,
+    param: params[1] || null
+  };
+};
+
+// O que gravamos no historico quando o que sai e template. A Meta guarda o
+// texto; nos guardamos NOME + PARAMETRO, pra conversa nao virar "[template]"
+// seco e pra dar pra auditar depois o que foi enviado a quem.
+const registroDeTemplate = escolha => escolha.nome ? '[template ' + escolha.template + '] {{1}}=' + escolha.nome : '[template ' + escolha.template + ']';
+
 // [teste:template-fim]
 
 // Texto pra MOSTRAR na tela (previa antes de enviar, e bolha depois).
@@ -5641,11 +5667,6 @@ const textoDoTemplate = (nomeTemplate, nomePessoa) => {
   if (!t || !t.texto) return null;
   return t.texto.replace(/\{\{1\}\}/g, primeiroNome(nomePessoa) || '');
 };
-
-// O que gravamos no historico quando o que sai e template. A Meta guarda o
-// texto; nos guardamos NOME + PARAMETRO, pra conversa nao virar "[template]"
-// seco e pra dar pra auditar depois o que foi enviado a quem.
-const registroDeTemplate = escolha => escolha.nome ? '[template ' + escolha.template + '] {{1}}=' + escolha.nome : '[template ' + escolha.template + ']';
 
 // Carrega a lista viva de templates uma vez por sessao do portal. Falha e
 // SILENCIOSA de proposito: a lista embutida cobre, e um alerta vermelho
@@ -10416,10 +10437,27 @@ const AJUDA_WHATSAPP = [{
 // "[template]" seco — o operador nao conseguia saber o que a loja mandou pro
 // cliente, logo na mensagem que abre o relacionamento. Pros templates que
 // conhecemos, mostramos o texto espelhado; pros outros, ao menos o nome.
+// Texto pra bolha: o espelho quando existe, com o parametro no lugar do
+// {{1}}. Sem espelho, um rotulo legivel — nunca o registro cru.
 const textoDeTemplate = m => {
-  const t = textoDoTemplate(m.template, m.template_nome || null);
-  if (t) return t;
-  return m.template ? 'Template enviado: ' + m.template : null;
+  const reg = parseRegistroTemplate(m.body);
+  const nomeTemplate = m.template || reg && reg.template || null;
+  if (!nomeTemplate) return null;
+  const params = reg && reg.params || {};
+  if (m.template_nome && !params[1]) params[1] = m.template_nome;
+
+  // Substitui TODAS as variaveis, nao so a primeira: com o template de
+  // orcamento ({{1}}=nome, {{2}}=numero) mostrar so a primeira deixaria um
+  // "{{2}}" cru na conversa.
+  const t = templatePorNome(nomeTemplate);
+  if (t && t.texto) {
+    return t.texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (bruto, n) => {
+      const v = params[Number(n)];
+      return v != null && v !== '' ? v : bruto;
+    });
+  }
+  const lista = Object.keys(params).sort((a, b) => a - b).map(k => params[k]).filter(Boolean);
+  return lista.length ? 'Template “' + nomeTemplate + '” · ' + lista.join(' · ') : 'Template “' + nomeTemplate + '”';
 };
 
 // ── Janela de 24h da Cloud API ──────────────────────────────────────────
@@ -10529,7 +10567,7 @@ const previewMsg = m => {
   if (m.type === 'audio') return '🎤 Áudio';
   if (m.type === 'video') return '🎬 Vídeo';
   if (m.type === 'document') return '📎 ' + (m.body || 'Documento');
-  if (m.type === 'template' && !m.body) {
+  if (m.type === 'template' || parseRegistroTemplate(m.body)) {
     const t = textoDeTemplate(m);
     if (t) return '📋 ' + t.split('\n')[0];
   }
@@ -10543,7 +10581,11 @@ const BolhaConteudo = ({
   const legenda = (m.body || '').trim();
   const marcador = /^\[(áudio|imagem|vídeo|figurinha|documento|msg|mensagem)\]$/i.test(legenda);
   const [aberta, setAberta] = useState(false);
-  if (tipo === 'template' && !legenda) {
+
+  // Antes era `!legenda`: quando o registro passou a ser gravado no `body`
+  // (pra o historico saber o que foi enviado), ele virou "legenda" e ganhou
+  // do espelho — a bolha voltou a mostrar "[template calicolors]".
+  if (tipo === 'template') {
     const t = textoDeTemplate(m);
     if (t) return /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
       style: {

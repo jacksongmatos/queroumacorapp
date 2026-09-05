@@ -142,6 +142,8 @@ let escolherNoPortal: (
   nome: string | null | undefined,
   preferido?: string
 ) => { template: string; nome: string | null; components?: unknown[] };
+let registroDeTemplate: (e: { template: string; nome: string | null }) => string;
+let parseRegistroTemplate: (b: string) => { template: string; param: string | null } | null;
 
 describe('escolha de template: portal e servidor concordam', () => {
   beforeAll(() => {
@@ -151,9 +153,16 @@ describe('escolha de template: portal e servidor concordam', () => {
     expect(inicio).toBeGreaterThan(-1);
     expect(fim).toBeGreaterThan(inicio);
     const fabrica = new Function(
-      `${src.slice(inicio, fim)}; return escolherTemplate;`
-    ) as () => typeof escolherNoPortal;
-    escolherNoPortal = fabrica();
+      `${src.slice(inicio, fim)}; return { escolherTemplate, registroDeTemplate, parseRegistroTemplate };`
+    ) as () => {
+      escolherTemplate: typeof escolherNoPortal;
+      registroDeTemplate: (e: { template: string; nome: string | null }) => string;
+      parseRegistroTemplate: (b: string) => { template: string; param: string | null } | null;
+    };
+    const mod = fabrica();
+    escolherNoPortal = mod.escolherTemplate;
+    registroDeTemplate = mod.registroDeTemplate;
+    parseRegistroTemplate = mod.parseRegistroTemplate;
   });
 
   const CASOS: Array<string | null | undefined> = [
@@ -317,5 +326,63 @@ describe('bloqueio de envio com variável vazia', () => {
 
   it('template sem variável nunca bloqueia', () => {
     expect(faltando([], {})).toEqual([]);
+  });
+});
+
+// ── Registro de template: gravar e ler tem que fechar ────────────────────
+// Mensagem de template não viaja com corpo — quem guarda o texto é a Meta.
+// O portal grava um REGISTRO no `body` (`[template x] {{1}}=Fulano`) pra o
+// histórico saber o que foi enviado a quem. Se a leitura não entender o que
+// a gravação escreve, a bolha mostra esse registro CRU na tela — que é
+// exatamente o que ele existia pra evitar. Aconteceu em 2026-09-05: o
+// `body` passou a ser preenchido e ganhou do espelho na renderização.
+
+describe('registro de template: ida e volta', () => {
+  // beforeAll próprio (ver o describe do aviso de marketing): um
+  // `beforeAll` de outro describe não vale aqui.
+  beforeAll(() => {
+    const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = src.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = src.indexOf('// [teste:template-fim]');
+    const fabrica = new Function(
+      `${src.slice(inicio, fim)}; return { escolherTemplate, registroDeTemplate, parseRegistroTemplate };`
+    ) as () => {
+      escolherTemplate: typeof escolherNoPortal;
+      registroDeTemplate: typeof registroDeTemplate;
+      parseRegistroTemplate: typeof parseRegistroTemplate;
+    };
+    const mod = fabrica();
+    escolherNoPortal = mod.escolherTemplate;
+    registroDeTemplate = mod.registroDeTemplate;
+    parseRegistroTemplate = mod.parseRegistroTemplate;
+  });
+
+  it('lê de volta o que grava, com nome', () => {
+    const escolha = escolherNoPortal('Bianca Aparecida');
+    const registro = registroDeTemplate(escolha);
+    const lido = parseRegistroTemplate(registro);
+    expect(lido).not.toBeNull();
+    expect(lido?.template).toBe(escolha.template);
+    expect(lido?.param).toBe('Bianca');
+  });
+
+  it('lê de volta o que grava, sem nome', () => {
+    const escolha = escolherNoPortal(null);
+    const lido = parseRegistroTemplate(registroDeTemplate(escolha));
+    expect(lido?.template).toBe(escolha.template);
+    expect(lido?.param).toBeNull();
+  });
+
+  it('mensagem de texto normal NÃO é confundida com registro', () => {
+    // Senão uma mensagem que por acaso começa com colchete viraria template.
+    expect(parseRegistroTemplate('Oi, tudo bem?')).toBeNull();
+    expect(parseRegistroTemplate('[imagem]')).toBeNull();
+    expect(parseRegistroTemplate('')).toBeNull();
+    expect(parseRegistroTemplate('[template]')).toBeNull();
+  });
+
+  it('aceita nome com acento no parâmetro', () => {
+    const lido = parseRegistroTemplate('[template calicolors_nome] {{1}}=Ângela');
+    expect(lido?.param).toBe('Ângela');
   });
 });
