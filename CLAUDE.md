@@ -1741,6 +1741,12 @@
     - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
       não tem espelho: a prévia diz que o texto vive no painel, em vez de
       inventar um diferente do que a pessoa recebe.
+  - **iOS: BUILDS FEITAS, EM REVIEW NA APPLE (2026-09-05, informado pelo
+    usuário).** Várias builds já subiram pelo workflow `ios-ipa` do
+    Codemagic; a espera agora é da Apple, não de código. **NÃO listar
+    "disparar build iOS" como pendência** — a recusa por
+    `NSUserTrackingUsageDescription` foi resolvida na `main` (#200/#203) e
+    já saiu em build.
   - **FOLLOW-UP ESTAVA PARADO — rota nova, SQL JÁ EXECUTADO (2026-09-05,
     confirmado pelo usuário: `app_settings.whatsapp_followup_url` já aponta
     pra `/api/whatsapp/followup?token=<segredo do webhook>`). Não pedir pra
