@@ -20,6 +20,18 @@
   rodar de novo — rodar `/migrations/2026-09-05-conferencia-pendencias.sql`**
   (só leitura, uma linha por item, `ok` true/false). Item novo marcado como
   pendente aqui = linha nova naquela consulta.
+  - **Vale pra TODA pendência, não só SQL.** Na mesma varredura caíram mais
+    três que estavam erradas: Image Resizing (ligado), APNs/`App.entitlements`
+    (feitos) e "esconder a compra do PRO no iOS" (já não existe compra no
+    app). Sobraram REAIS: importar os leads da planilha e tirar a sessão do
+    Supabase do `localStorage`.
+  - **NÃO VERIFICÁVEIS deste ambiente** (a política de rede só libera
+    GitHub/npm/Anthropic; o proxy recusa DNS-over-HTTPS e a produção, e não há
+    ferramenta de branch protection no MCP): DMARC do `calicolors.com.br`,
+    o opt-in do CSAM Scanning e se o job `validate` é check obrigatório. Não
+    afirmar nada sobre esses três sem o usuário conferir — o que já se sabe é
+    que a proteção da `main` EXISTE (push direto recusado com "protected
+    branch hook declined").
 
 - **PAR CRUZADO DE ENV DO SUPABASE — a causa do "Faça login" em TODA a IA
   (2026-09-04, PR #202, FECHADO).** Usuário perfeitamente logado levava
@@ -367,9 +379,19 @@
     (grupo `firebase`), integração App Store Connect (`codemagic`). Identidade:
     bundle `br.com.queroumacor.app`, Apple ID `6784256495` (mesma ficha do
     WebIntoApp — um substitui o outro, não vira app novo). **Pendências iOS não
-    bloqueantes de TestFlight:** APNs `.p8` + capability Push + `App.entitlements`
-    (push nativo iPhone); antes da REVIEW: esconder compra do PRO no iOS, tirar
-    sessão do Supabase do `localStorage`, fallback offline. Doc
+    bloqueantes de TestFlight (revisado em 2026-09-05):** APNs `.p8`
+    ✓ FEITO (Key ID `2R6FW9F2F6`, Sandbox & Production, nos dois slots do
+    Firebase) e `App.entitlements` ✓ EXISTE com `aps-environment: production`,
+    referenciado no projeto Xcode — sobra só ligar a capability Push
+    Notifications no App ID `br.com.queroumacor.app` (Apple Developer →
+    Identifiers), cuja falta aparece na hora como erro de assinatura
+    ("entitlement not supported"). Antes da REVIEW: esconder compra do PRO no
+    iOS ✓ JÁ SATISFEITO (`startProCheckout` existe em
+    `lib/services/billing-platform.ts` mas **não tem call site de UI nenhum**;
+    o `ProView` oferece o WhatsApp da loja — não há compra dentro do app pra
+    esconder); fallback offline ✓ FEITO (PR #201). **Continua pendente:** tirar
+    a sessão do Supabase do `localStorage` (o `hybridAuthStorage` grava lá e em
+    cookies fatiados, e o `supabase.ts` usa ele). Doc
     `docs/IOS_BUILD.md` está DESATUALIZADO (bundle/repo/fluxo Xcode manual
     errados) — reescrever com esta realidade.
   - **R8 QUEBROU O BOOT — REVERTIDO (2026-09-04, PR #183).** O R8 ligado no
@@ -2136,14 +2158,19 @@
   com `tracesSampleRate: 1.0`. Sentry → Performance → Web Vitals
   começa a popular ~24h depois do primeiro acesso. Não mexer no sample
   rate sem checar quota.
-- **B2 (Cloudflare Image Resizing) — código DEPLOYADO mas REQUER
-  toggle no painel CF pra valer.** Helper `next-app/lib/cfImg.ts`
-  reescreve URLs pra `/cdn-cgi/image/w=...,q=85,f=auto/<original-url>`.
-  Avatar e PostMedia usam srcset 1x/2x/3x. **Pra ganhar perf, ligar no
-  Cloudflare Dashboard:** Speed → Optimization → **Image Resizing ON**
-  + "Resize images from any origin" **ON** + Polish em **Lossy**.
-  Enquanto não liga, as `<img>` caem no `onError` e mostram placeholder
-  (sem regressão fatal, mas sem ganho). Anotar aqui quando user ligar.
+- **B2 (Cloudflare Image Resizing) — LIGADO E FUNCIONANDO, verificado em
+  2026-09-05.** Helper `next-app/lib/cfImg.ts` reescreve URLs pra
+  `/cdn-cgi/image/w=...,q=85,f=auto/<original-url>`; Avatar e PostMedia usam
+  srcset 1x/2x/3x. Ficou meses anotado como "requer toggle no painel" sem
+  ninguém conferir.
+  - **COMO CONFERIR (mede o EFEITO, não a configuração):** abrir
+    `https://queroumacor.com.br/cdn-cgi/image/w=64,f=auto/https://queroumacor
+    .com.br/icon-192.png`. Imagem pequena = ligado. 404 **comum** = desligado.
+  - **PEGADINHA que quase virou conclusão errada:** com uma origem inexistente
+    a resposta é `ERROR 9404: ... HTTP error 404`. Ler só o "404" diz
+    "desligado" — mas o prefixo `ERROR 9xxx` é emitido PELO Image Resizing,
+    ou seja, prova o contrário. Desligado devolve 404 seco, sem o código.
+    Usar uma origem que EXISTE (`/icon-192.png`) evita a ambiguidade.
 - **SQL Wave 17 (2026-06-09) — width/height em posts (CLS=0) — JÁ
   EXECUTADO no Supabase.** P4 do BACKLOG. Adiciona `posts.media_width`
   e `posts.media_height` (int, opcionais). `usePublishPost` captura
