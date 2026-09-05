@@ -1527,6 +1527,32 @@
     - O portal já exibe o `error` na faixa "Falha no envio" (lê `res.error`
       do JSON) — não precisou de mudança, e por isso o `app.js`/SRI ficou
       intocado.
+  - **IA E FOLLOW-UP RELIGADOS no Dualhook (2026-09-05).** Com a Evolution
+    aposentada, os três `sendEvolutionText` do `whatsapp-ai-runner.ts` e do
+    `whatsapp-followup.ts` apontavam pra um serviço morto, e o
+    `maybeAutoReply` só era chamado pelo webhook DELA — ou seja, a IA parou
+    de responder sem ninguém notar, porque a mensagem continuava chegando
+    no portal normalmente.
+    - `maybeAutoReply` agora é chamado pelo webhook da META, dentro do
+      `runAfterResponse` (a IA pode levar o tempo dela sem atrasar o 200).
+    - **REGRA: `sendWhatsAppText` usa `normalizeWhatsAppTarget`, NUNCA
+      `normalizeBrPhone`.** O segundo cola '55' em qualquer coisa com 10-11
+      dígitos — foi o que transformou o contato dos EUA `16503154274` em
+      `5516503154274` e causou o 502 de 2026-08-28. Com o Dualhook virando
+      canal único, o mesmo erro voltaria por este caminho. Tem teste.
+    - **JANELA DE 24h — o que a troca de canal custou.** O follow-up existe
+      pra falar com quem SUMIU, ou seja, quase sempre FORA da janela; a
+      Cloud API recusa texto livre aí (131047 → 422) e só template aprovado
+      passa. Não há template cadastrado no WhatsApp Manager, então esses
+      envios NÃO SAEM. O sweep trata isso como desfecho conhecido, não como
+      erro: conta em `SweepResult.foraDaJanela` (contador próprio) e marca
+      como tentado, senão martelaria o mesmo contato de hora em hora pra
+      sempre. **A resposta automática e a mensagem de ausência NÃO são
+      afetadas** — as duas reagem a uma mensagem que o cliente acabou de
+      mandar, então a janela está aberta por definição.
+    - Pra o follow-up voltar a sair: criar template no WhatsApp Manager,
+      esperar aprovação e trocar `sendWhatsAppText` por
+      `sendWhatsAppTemplate` nos dois textos (cobrança e reengajamento).
   - **O access token NÃO está no código** (IDs públicos são default; token
     só via env). Se o token vazar/expirar (erro 190 do Graph): regenerar no
     painel Meta e trocar só a env + redeploy.

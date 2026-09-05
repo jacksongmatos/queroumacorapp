@@ -30,6 +30,7 @@ import {
   getWebhookAuthMode,
   getWhatsAppConfig,
   isExpectedWebhookPayload,
+  isForaDaJanela24h,
   isWhatsAppConfigured,
   normalizeBrPhone,
   parseInboundMessages,
@@ -178,6 +179,28 @@ describe('sendWhatsAppText', () => {
       to: '5511959765031',
       type: 'text',
     });
+  });
+
+  it('número ESTRANGEIRO passa verbatim — não ganha 55 na frente', async () => {
+    // Regressão de 2026-08-28: `normalizeBrPhone` colava '55' em qualquer
+    // coisa com 10-11 dígitos, e o contato dos EUA 16503154274 virava
+    // 5516503154274 — inexistente. O Baileys pendurava tentando resolver o
+    // JID e o envio morria em 502. Com o Dualhook virando canal ÚNICO, o
+    // mesmo erro voltaria por aqui se o normalizador fosse o BR.
+    const spy = stubFetchOnce(200, {
+      messages: [{ id: 'wamid.x' }],
+      contacts: [{ wa_id: '16503154274' }],
+    });
+    await sendWhatsAppText({ to: '16503154274', body: 'hi' });
+    const [, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).to).toBe('16503154274');
+  });
+
+  it('celular BR local ainda ganha o 55', async () => {
+    const spy = stubFetchOnce(200, { messages: [{ id: 'w' }] });
+    await sendWhatsAppText({ to: '(11) 95976-5031', body: 'oi' });
+    const [, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).to).toBe('5511959765031');
   });
 
   it('telefone inválido → 400 sem tocar na rede', async () => {
@@ -510,5 +533,23 @@ describe('parseInboundMessages', () => {
     expect(parseInboundMessages(payload)).toEqual([]);
     expect(parseInboundMessages(null)).toEqual([]);
     expect(parseInboundMessages({})).toEqual([]);
+  });
+});
+
+// ─── isForaDaJanela24h ──────────────────────────────────────────────────────
+
+describe('isForaDaJanela24h', () => {
+  // Quem envia em LOTE (o follow-up) precisa separar "não dá pra enviar
+  // nunca, só com template" de "deu erro, tenta de novo". Sem isso a
+  // varredura martela o mesmo contato de hora em hora, pra sempre.
+  it('reconhece o 422 da janela de 24h', () => {
+    expect(isForaDaJanela24h(new ServiceError('fora da janela', 422))).toBe(true);
+  });
+
+  it('não confunde com outros erros', () => {
+    expect(isForaDaJanela24h(new ServiceError('credencial', 400))).toBe(false);
+    expect(isForaDaJanela24h(new ServiceError('upstream', 500))).toBe(false);
+    expect(isForaDaJanela24h(new Error('qualquer'))).toBe(false);
+    expect(isForaDaJanela24h(null)).toBe(false);
   });
 });
