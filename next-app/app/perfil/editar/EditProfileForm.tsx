@@ -44,7 +44,6 @@ import { phoneSchema, requiredField } from '@/lib/schemas';
 import { showToast } from '@/lib/toast';
 import { CameraCapture } from '@/components/CameraCapture';
 import { native } from '@/lib/native';
-import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
 import { descreverArquivo, normalizarArquivo, provadoNaoImagem } from '@/lib/utils/mediaType';
@@ -120,8 +119,6 @@ export function EditProfileForm() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const cancelarAvisoRef = useRef<(() => void) | null>(null);
-  // Galeria não abriu (app empacotado) / câmera aberta na mão.
-  const [galeriaBloqueada, setGaleriaBloqueada] = useState(false);
   const [reiniciouNaEscolha, setReiniciouNaEscolha] = useState(false);
   const [camAberta, setCamAberta] = useState(false);
   const podeCamera = useOfereceCamera();
@@ -137,7 +134,6 @@ export function EditProfileForm() {
   useEffect(() => {
     if (!consumirEscolhaPendente('perfil/editar')) return;
     setReiniciouNaEscolha(true);
-    setGaleriaBloqueada(true);
     reportFailure('picker-restart', new Error('app reiniciou com a galeria aberta'), {
       ctx: 'perfil/editar',
     });
@@ -517,24 +513,10 @@ export function EditProfileForm() {
                 })();
                 return;
               }
-              // WebView do wrapper pode nao abrir a galeria — sem erro
-              // nenhum. Ver lib/utils/filePickerWatch. Quando não abre, o
-              // app oferece a câmera (que não passa pelo seletor) em vez
-              // de um toast que some em 3s.
               cancelarAvisoRef.current?.();
               cancelarAvisoRef.current = armarSelecao({
                 rota: '/perfil/editar',
                 ctx: 'perfil/editar',
-                onNaoAbriu: () => {
-                  setReiniciouNaEscolha(false);
-                  setGaleriaBloqueada(true);
-                  reportFailure('picker-fail', new Error('galeria nao abriu'), {
-                    userId: user?.id,
-                    ctx: 'perfil/editar',
-                  });
-                },
-                // Abriu depois do relógio: retira o aviso falso.
-                onAbriuAtrasado: () => setGaleriaBloqueada(false),
               });
             }}
             className="inline-block px-4 py-2 bg-[color:var(--color-bg)] border border-[color:var(--color-border)] rounded-xl text-sm font-semibold cursor-pointer hover:bg-[color:var(--color-border)] transition-colors"
@@ -578,8 +560,7 @@ export function EditProfileForm() {
         </div>
       </div>
 
-      {/* Câmera: o caminho que NÃO depende do seletor de arquivos — no app
-          empacotado a galeria não abre (ver lib/utils/filePickerWatch). */}
+      {/* Câmera: caminho direto pra foto, sem passar pelo seletor. */}
       <CameraCapture
         open={camAberta}
         facing="user"
@@ -589,21 +570,30 @@ export function EditProfileForm() {
         ctx="perfil/editar"
         userId={user?.id}
       />
-      <GaleriaBloqueadaSheet
-        open={galeriaBloqueada}
-        onClose={() => setGaleriaBloqueada(false)}
-        onFoto={(f) => void processarAvatar(f)}
-        facing="user"
-        urlNoNavegador="https://queroumacor.com.br/perfil/editar"
-        titulo={reiniciouNaEscolha ? 'O app reiniciou no meio da escolha' : undefined}
-        descricao={
-          reiniciouNaEscolha
-            ? 'O Android fechou o app pra liberar memória enquanto a galeria estava aberta, e a foto se perdeu no caminho. Duas saídas:'
-            : undefined
-        }
-        ctx="perfil/editar"
-        userId={user?.id}
-      />
+      {/* O app MORREU com a galeria aberta (o Android mata o processo que
+          ficou atrás). É outro caso, e continua real: a foto se perdeu.
+          Aviso em linha, não modal — não há decisão a tomar, só escolher a
+          foto de novo. */}
+      {reiniciouNaEscolha && (
+        <div
+          className="mt-2 px-3 py-2 rounded-xl bg-[color:var(--color-p2-soft,#fff4e5)] text-xs text-[color:var(--color-ink)] flex items-start gap-2"
+          role="status"
+        >
+          <span aria-hidden="true">↻</span>
+          <span className="flex-1">
+            O app fechou enquanto a galeria estava aberta e a foto se perdeu.
+            É só escolher de novo.
+          </span>
+          <button
+            type="button"
+            onClick={() => setReiniciouNaEscolha(false)}
+            className="font-semibold text-[color:var(--color-muted)]"
+            aria-label="Dispensar aviso"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Logo do negócio — espelha profiles.business_logo_url, mesma fonte
           que /camisetas e arte-ig leem. Upload imediato (não espera submit

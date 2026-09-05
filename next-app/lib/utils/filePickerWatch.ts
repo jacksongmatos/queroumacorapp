@@ -1,4 +1,11 @@
-// filePickerWatch — descobre quando o seletor de arquivos NÃO abriu.
+// filePickerWatch — sobrou daqui a detecção de SAÍDA do app (`watchAppLeave`),
+// usada pelo `openInBrowser` pra saber se o intent realmente abriu o Chrome.
+//
+// O `watchFilePicker` — que tentava adivinhar "o seletor não abriu" por um
+// relógio — foi REMOVIDO em 2026-09-05. Ele existia pela WebView do wrapper
+// antigo, que não implementava `onShowFileChooser`; a casca Capacitor
+// implementa, e o seletor abre. O que restava era falso positivo: o aviso
+// aparecia por cima da galeria aberta, ensinando a ignorar aviso.
 //
 // Motivo (2026-08-29): no app empacotado (WebIntoApp), a WebView só abre a
 // galeria se o wrapper implementar `onShowFileChooser` e declarar as
@@ -73,24 +80,3 @@ export function watchAppLeave(
   document.addEventListener('visibilitychange', cancelar, { once: true });
   return cancelar;
 }
-
-/**
- * Chame no MESMO gesto que abre o seletor (o clique). Devolve uma função
- * pra cancelar manualmente, caso o chamador descubra por outro caminho
- * que deu certo (por exemplo, o `change` disparou).
- */
-export function watchFilePicker(
-  onNaoAbriu: () => void,
-  opts?: { timeoutMs?: number; userAgent?: string },
-): () => void {
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return () => {};
-  }
-  const ua = opts?.userAgent ?? navigator.userAgent ?? '';
-  if (!ehAndroid(ua)) return () => {};
-  return watchAppLeave(onNaoAbriu, { timeoutMs: opts?.timeoutMs });
-}
-
-// O texto do aviso saiu daqui em 2026-08-30: quando o seletor não abre, o
-// app não avisa mais por toast (some em 3s e não resolve nada) — abre o
-// `components/GaleriaBloqueadaSheet`, que oferece a câmera e o navegador.

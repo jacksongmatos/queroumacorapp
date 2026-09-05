@@ -32,7 +32,7 @@
 // Só arma no Android: em iOS/desktop o processo não morre nessa troca, e
 // marcar ali só criaria falso positivo.
 
-import { ehAndroid, watchFilePicker } from './filePickerWatch';
+import { ehAndroid } from './filePickerWatch';
 
 const CHAVE = 'quc_pick_pendente_v1';
 
@@ -146,39 +146,23 @@ export interface ArmarSelecaoOpts {
   rota: string;
   /** Identifica a tela dona da marca (ex.: 'publicar'). */
   ctx: string;
-  /** Chamado quando o seletor NÃO abriu (ver filePickerWatch). */
-  onNaoAbriu: () => void;
-  /**
-   * Chamado quando o seletor abriu DEPOIS de já termos avisado que não
-   * abriu — ou seja, o aviso foi falso positivo e a tela deve retirá-lo.
-   *
-   * Isso acontece de verdade (2026-09-01): o seletor do WebIntoApp é um
-   * diálogo DO PRÓPRIO app ("Files Chooser": Camera × Files), e diálogo
-   * não tira o foco da página. O relógio estoura enquanto a pessoa ainda
-   * está escolhendo entre as duas opções, e só quando ela toca em "Files"
-   * é que outra activity sobe e o `blur` finalmente chega.
-   */
-  onAbriuAtrasado?: () => void;
-  timeoutMs?: number;
   userAgent?: string;
 }
 
 /**
- * Substitui a chamada direta a `watchFilePicker` nas telas que abrem o
- * seletor. Cobre as DUAS falhas do app empacotado de uma vez:
+ * Arma a recuperação de "o app MORREU com o seletor aberto": grava uma marca
+ * que sobrevive à morte do processo, e o boot leva a pessoa de volta.
  *
- *   - o seletor não abre        → `onNaoAbriu` (comportamento de sempre);
- *   - o app morre com ele aberto → a marca sobrevive e o boot avisa.
+ * A detecção de "o seletor NÃO ABRIU" saiu daqui em 2026-09-05 — ver o
+ * cabeçalho de `filePickerWatch.ts`. Este arquivo cobre só a morte do
+ * processo, que é outro problema e continua real.
  *
- * Devolve a função de cancelar, que o chamador já invoca no `change` do
- * input (arquivo chegou) e antes de armar de novo.
+ * Devolve a função de cancelar, que o chamador invoca no `change` do input
+ * (arquivo chegou) e antes de armar de novo.
  */
 export function armarSelecao({
   rota,
   ctx,
-  onNaoAbriu,
-  onAbriuAtrasado,
-  timeoutMs,
   userAgent,
 }: ArmarSelecaoOpts): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -188,9 +172,6 @@ export function armarSelecao({
 
   let vivo = true;
   let saiu = false;
-  // "Já dissemos pra pessoa que não abriu?" — se dissemos e o app sair
-  // depois, era mentira nossa e precisa ser desdita.
-  let avisouQueNaoAbriu = false;
 
   const desarmar = () => {
     if (!vivo) return;
@@ -205,31 +186,12 @@ export function armarSelecao({
     desarmar();
   };
 
-  const cancelarWatch = watchFilePicker(
-    () => {
-      // Até onde dá pra saber, não abriu — então não há escolha pendente.
-      // Mas NÃO desarmamos os ouvintes: se o seletor aparecer depois,
-      // queremos poder voltar atrás em vez de deixar um aviso falso na
-      // tela (ver `onAbriuAtrasado`).
-      limparEscolhaPendente();
-      avisouQueNaoAbriu = true;
-      onNaoAbriu();
-    },
-    { timeoutMs, userAgent: ua },
-  );
-
-  // Fora do Android a troca de app não mata o processo — a marca só
-  // geraria aviso falso. O watch de "não abriu" continua valendo.
-  if (!ehAndroid(ua)) return cancelarWatch;
+  // Fora do Android a troca de app não mata o processo — a marca só geraria
+  // aviso falso.
+  if (!ehAndroid(ua)) return () => {};
 
   function aoSair() {
     saiu = true;
-    if (!avisouQueNaoAbriu) return;
-    // O seletor abriu, só demorou mais que o relógio: desfaz o aviso e
-    // volta a valer a recuperação — daqui pra frente o app pode morrer.
-    avisouQueNaoAbriu = false;
-    marcarEscolhaPendente(rota, ctx);
-    onAbriuAtrasado?.();
   }
 
   function aoVoltar() {
@@ -238,7 +200,6 @@ export function armarSelecao({
     if (!saiu) return;
     encerrar();
   }
-
   function aoTrocarVisibilidade() {
     if (document.hidden) aoSair();
     else aoVoltar();
@@ -251,8 +212,5 @@ export function armarSelecao({
   window.addEventListener('blur', aoSair);
   window.addEventListener('focus', aoVoltar);
 
-  return () => {
-    cancelarWatch();
-    encerrar();
-  };
+  return encerrar;
 }
