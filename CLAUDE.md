@@ -1741,6 +1741,44 @@
     - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
       não tem espelho: a prévia diz que o texto vive no painel, em vez de
       inventar um diferente do que a pessoa recebe.
+  - **FOLLOW-UP ESTAVA PARADO — rota nova, SQL JÁ EXECUTADO (2026-09-05,
+    confirmado pelo usuário: `app_settings.whatsapp_followup_url` já aponta
+    pra `/api/whatsapp/followup?token=<segredo do webhook>`). Não pedir pra
+    rodar de novo.** A rota antiga (`/api/whatsapp-evo/followup`) autentica
+    o cron com `EVOLUTION_WEBHOOK_TOKEN`, env **removida** do Cloudflare
+    quando a Evolution foi aposentada. Sem ela `expected` fica vazio, o
+    caminho do cron nunca autentica, a chamada cai na exigência de token de
+    admin — que o cron não tem — e volta **403 de hora em hora, sem ninguém
+    ver**. A varredura estava morta desde a remoção das envs.
+    - A rota nova aceita `WHATSAPP_WEBHOOK_URL_SECRET` (e ainda o token
+      antigo, como ponte). A antiga continua no ar **delegando** pra ela:
+      trocar código e configuração ao mesmo tempo deixaria a varredura sem
+      chamador no intervalo.
+    - `delivery_error_code`/`delivery_error_title` também rodaram nessa leva.
+  - **TEMPLATES VÊM DA META, não de lista escrita à mão (2026-09-05).**
+    `GET /api/whatsapp/templates` consulta o Dualhook
+    (`/{WABA}/message_templates`), filtra `APPROVED` e devolve nome,
+    categoria, idioma, corpo e as VARIÁVEIS; cache de 5min no isolate. O
+    portal cai na lista embutida se a consulta falhar. Lista à mão envelhece
+    igual lista de pendência — e se o nome mudar no painel, o envio quebra
+    com 132001 enquanto a tela mostra o nome velho.
+    - `<EnvioDeTemplate>` monta um campo por variável, prévia com os valores
+      já substituídos e botão travado enquanto faltar variável. A regra
+      "nunca mandar `{{1}}` vazio" virou "nenhuma variável vazia".
+    - **Aviso de MARKETING pra número dos EUA** (a Meta não entrega; volta
+      `failed` 131049). Não bloqueia — exige confirmação. Detectar por "11
+      dígitos começando com 1" NÃO basta: `11987654321` (celular de SP sem
+      DDI) tem a mesma forma; o desempate é a regra do NANP (código de área
+      dos EUA nunca começa com 0 nem 1).
+  - **ARMADILHA: `route.ts` do Next só aceita exports fechados
+    (2026-09-05).** Exportar um helper de um arquivo de rota quebra o build
+    com `"X is not a valid Route export field"` — e **nem `tsc` nem vitest
+    pegam**, só o `next build`. Derrubou o deploy do #227. Função pura de
+    rota vai pra `lib/api/_services/`. Vale também pra `runtime`: o Next
+    **não** reconhece o campo re-exportado de outro arquivo (avisa e usa o
+    default, tirando a rota do edge).
+    - **REGRA: rodar `next build` antes de subir mudança estrutural de
+      rota.** Suíte verde e tsc limpo não provam que o deploy vai passar.
   - **LISTA DE CONTATOS: busca NO BANCO + índice A-Z (2026-09-05).** A 1ª
     versão do modal trazia 500 leads + 500 perfis e filtrava em memória. Com
     **1072 leads**, quem estava fora dos primeiros 500 ficava INVISÍVEL pra
