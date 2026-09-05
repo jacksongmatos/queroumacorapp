@@ -54,7 +54,7 @@ function attachPhoto() {
 }
 
 function switchToStory() {
-  fireEvent.click(screen.getByText('Story'));
+  fireEvent.click(screen.getByText('24h'));
 }
 
 beforeEach(() => {
@@ -160,7 +160,7 @@ describe('Composer — legenda por IA', () => {
   it('volta a mostrar legenda e botão ao sair do story', () => {
     render(<Composer />);
     switchToStory();
-    fireEvent.click(screen.getByText('Post'));
+    fireEvent.click(screen.getByText('Publicação'));
     expect(screen.queryByLabelText('Gerar legenda com IA')).toBeTruthy();
     expect(screen.queryByPlaceholderText(/Conte um pouco/i)).toBeTruthy();
   });

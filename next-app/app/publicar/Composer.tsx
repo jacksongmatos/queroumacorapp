@@ -5,7 +5,8 @@
 // Estado local:
 //   - files: File[]            mídias selecionadas (pré-upload)
 //   - caption: string          texto do post
-//   - postType: 'post'|'story' aba "Post" vs "Story"
+//   - postType: 'post'|'story' — abas "Publicação" vs "24h" na tela
+//     (o valor interno segue 'story'; o rótulo mudou em 2026-09-05)
 //   - forSale, price, artType  campos de venda (só grafiteiro)
 //   - publishError local: pra erros de validação client-side (count > 5 etc.)
 //   - genCaption status: useState próprio (separado do mutation pra UX
@@ -335,8 +336,11 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Aba post/story — só visual; o tipo final é resolvido no submit
-          com base nos files também (vídeo → 'video', story → 'story'). */}
+      {/* Abas "Publicação" e "24h" (2026-09-05). Eram "Post" e "Story".
+          A diferença real entre as duas não é o formato — é que uma FICA no
+          perfil e a outra SOME. "Story" só é claro pra quem já usa Instagram;
+          "24h" diz a regra pra qualquer um. O valor interno segue 'story',
+          intocado: isto é rótulo, não modelo de dados. */}
       <div className="flex gap-2" role="tablist" aria-label="Tipo de publicação">
         <button
           type="button"
@@ -351,7 +355,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
               : 'bg-white border-[color:var(--color-border)]')
           }
         >
-          Post
+          Publicação
         </button>
         <button
           type="button"
@@ -366,7 +370,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
               : 'bg-white border-[color:var(--color-border)]')
           }
         >
-          Story
+          24h
         </button>
       </div>
 
