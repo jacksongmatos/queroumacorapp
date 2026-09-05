@@ -1511,6 +1511,22 @@
       recusa a API key com um 401 próprio, que não carrega o `code: 190`
       da Meta; sem essa ramificação a mensagem mandaria quem depura olhar
       o painel da Meta, que não é mais onde a credencial vive.
+    - **REGRA: falha de envio NUNCA responde 502 nem 504.** O Cloudflare
+      substitui o corpo dessas duas pela página de erro DELE, e a
+      explicação se perde — o operador vê "502 Bad gateway" e não sabe se
+      foi credencial, janela de 24h ou número errado. 4xx do Dualhook →
+      **400**; 5xx e falha de rede → **500**; os dois com
+      `{ error, upstreamStatus }` no corpo. O `deadlineResponse` da rota
+      (orçamento de 22s) também deixou de ser 504 pelo mesmo motivo.
+      131047 fica em 422 e config ausente em 503 — nenhum dos dois é
+      sequestrado pelo CF.
+    - Toda falha loga `dualhook_send_failed { status, body }` com o corpo
+      CRU. O corpo é lido como texto ANTES do parse: resposta não-JSON
+      (HTML de proxy, corpo vazio) é o caso que mais precisa ser visto, e
+      `res.json()` o engoliria.
+    - O portal já exibe o `error` na faixa "Falha no envio" (lê `res.error`
+      do JSON) — não precisou de mudança, e por isso o `app.js`/SRI ficou
+      intocado.
   - **O access token NÃO está no código** (IDs públicos são default; token
     só via env). Se o token vazar/expirar (erro 190 do Graph): regenerar no
     painel Meta e trocar só a env + redeploy.

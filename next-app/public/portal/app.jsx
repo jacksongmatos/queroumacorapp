@@ -4903,7 +4903,7 @@ const WhatsAppTab = () => {
   return (
     <div>
       <div style={{ marginBottom:10, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-        <span style={{ fontSize:11, color:C.muted }}>Canal: Evolution · +55 11 92072-5935</span>
+        <span style={{ fontSize:11, color:C.muted }}>Canal: Dualhook (Cloud API)</span>
         {/* Padrao global da IA: vale pra conversa que ainda nao tem chave
             propria. Serve de "desliga tudo" em caso de emergencia. */}
         <span style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:12 }}>
@@ -5044,7 +5044,7 @@ const WhatsAppTab = () => {
         <div style={{ flex:1, display:'flex', flexDirection:'column', background:C.cream }}>
           {!openWa ? (
             <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:C.muted, fontSize:14, padding:20, textAlign:'center' }}>
-              Selecione uma conversa ao lado — ou toque em + pra comecar uma nova.<br/>Canal: +55 11 92072-5935 (Evolution).
+              Selecione uma conversa ao lado — ou toque em + pra comecar uma nova.<br/>Canal: Dualhook (Cloud API).
             </div>
           ) : (
             <>

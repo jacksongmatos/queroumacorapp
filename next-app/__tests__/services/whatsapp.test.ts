@@ -195,11 +195,17 @@ describe('sendWhatsAppText', () => {
     ).rejects.toMatchObject({ status: 422 });
   });
 
-  it('erro 190 (credencial expirada) → 502 com dica de regenerar', async () => {
+  it('erro 190 (credencial expirada) → 400 com dica de regenerar', async () => {
+    // 400 porque o Dualhook devolveu 401 (4xx): a culpa é da nossa
+    // credencial. Antes era 502 — e o corpo sumia na página do Cloudflare.
     stubFetchOnce(401, { error: { message: 'Error validating access token', code: 190 } });
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 502 });
+    ).rejects.toMatchObject({
+      status: 400,
+      extra: { upstreamStatus: 401 },
+      message: expect.stringContaining('regenerar'),
+    });
   });
 
   it('401/403 SEM code também vira erro de credencial', async () => {
@@ -211,21 +217,71 @@ describe('sendWhatsAppText', () => {
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
     ).rejects.toMatchObject({
-      status: 502,
+      status: 400,
       message: expect.stringContaining('Dualhook'),
     });
 
     stubFetchOnce(403, {});
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 502 });
+    ).rejects.toMatchObject({ status: 400, extra: { upstreamStatus: 403 } });
   });
 
-  it('falha de rede → 502', async () => {
+  it('falha de rede → 500 (nunca 502)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 502 });
+    ).rejects.toMatchObject({ status: 500, extra: { upstreamStatus: 0 } });
+  });
+
+  // ── por que NUNCA 502/504 ────────────────────────────────────────────────
+  // O Cloudflare SUBSTITUI o corpo dessas duas pela página de erro dele. A
+  // mensagem que explica a falha — credencial, janela de 24h, número errado —
+  // nunca chegaria na tela: o operador via só "502 Bad gateway". Erro 4xx do
+  // Dualhook vira 400; o resto, 500. Os dois passam com o corpo intacto.
+
+  it('4xx do Dualhook → 400, com o upstreamStatus no corpo', async () => {
+    stubFetchOnce(422, { error: { message: 'Invalid recipient' } });
+    await expect(
+      sendWhatsAppText({ to: '11959765031', body: 'oi' })
+    ).rejects.toMatchObject({
+      status: 400,
+      extra: { upstreamStatus: 422 },
+      message: expect.stringContaining('Invalid recipient'),
+    });
+  });
+
+  it('5xx do Dualhook → 500, também com o status real no corpo', async () => {
+    stubFetchOnce(503, { error: { message: 'upstream indisponível' } });
+    await expect(
+      sendWhatsAppText({ to: '11959765031', body: 'oi' })
+    ).rejects.toMatchObject({ status: 500, extra: { upstreamStatus: 503 } });
+  });
+
+  it('nenhuma falha responde 502 ou 504', async () => {
+    // Trava a regra inteira de uma vez: qualquer status de falha que o
+    // Dualhook devolva, o nosso nunca pode ser um dos dois que o Cloudflare
+    // sequestra.
+    for (const status of [400, 401, 403, 404, 422, 429, 500, 502, 503, 504]) {
+      stubFetchOnce(status, { error: { message: 'x' } });
+      const err = await sendWhatsAppText({ to: '11959765031', body: 'oi' }).catch(
+        (e: ServiceError) => e,
+      );
+      expect([502, 504], `status ${status}`).not.toContain(
+        (err as ServiceError).status,
+      );
+    }
+  });
+
+  it('corpo NÃO-JSON (HTML de proxy) ainda vira erro legível', async () => {
+    // `res.json()` engoliria justamente o caso que mais precisa ser visto.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('<html>502</html>', { status: 502 })),
+    );
+    await expect(
+      sendWhatsAppText({ to: '11959765031', body: 'oi' })
+    ).rejects.toMatchObject({ status: 500, extra: { upstreamStatus: 502 } });
   });
 });
 
