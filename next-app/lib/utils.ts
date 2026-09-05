@@ -157,6 +157,30 @@ export function isVideoUrl(u: string | null | undefined): boolean {
   return /\.(mp4|webm|mov|m4v|ogg|ogv)(\?|#|$)/i.test(u || '');
 }
 
+/**
+ * A mídia deste post é vídeo? Olha os DOIS sinais, porque nenhum sozinho
+ * cobre a base:
+ *
+ * - `media_type` marca que o post é STORY, não se a mídia é foto ou vídeo
+ *   (ver `StoryViewer`) — então vídeo com `media_type` 'story' ou nulo
+ *   escaparia de um teste que só olhasse esse campo;
+ * - a extensão da URL falha em upload legado sem extensão conhecida.
+ *
+ * Existe porque a regra estava escrita em quatro lugares de três jeitos
+ * diferentes, e as duas grades que checavam só UM sinal renderizavam vídeo
+ * dentro de `<img>` — ícone de imagem quebrada no "Em alta" e na tela de
+ * hashtag (2026-09-05). Regra duplicada é regra que diverge.
+ */
+export function isVideoPost(
+  url: string | null | undefined,
+  mediaType?: string | null
+): url is string {
+  // O retorno é type predicate porque a função só devolve `true` com URL
+  // presente — assim quem chama usa `p.media_url` direto no <video>, sem
+  // repetir o guard de nulo (e sem `!` mentindo pro compilador).
+  return !!url && (isVideoUrl(url) || mediaType === 'video');
+}
+
 // Normaliza nome de cliente para dedup (lowercase + trim + colapsa espaços).
 // Usado no CRM pra agrupar leads/clientes com mesmo nome em formatações
 // diferentes ("João Silva", " joão silva ", "JOÃO SILVA").

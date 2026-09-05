@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getSupabase } from '@/lib/supabase';
 import { ListSkeleton } from '@/components/Skeletons';
 import { cfImg } from '@/lib/cfImg';
+import { isVideoPost } from '@/lib/utils';
 import Link from 'next/link';
 
 interface HashtagPost {
@@ -11,6 +12,7 @@ interface HashtagPost {
   user_id: string;
   caption: string | null;
   media_url: string | null;
+  media_type: string | null;
   media_width: number | null;
   media_height: number | null;
 }
@@ -23,7 +25,7 @@ async function fetchByHashtag(tag: string): Promise<HashtagPost[]> {
   const needle = '%#' + tag + '%';
   const { data, error } = await sb
     .from('posts')
-    .select('id, user_id, caption, media_url, media_width, media_height')
+    .select('id, user_id, caption, media_url, media_type, media_width, media_height')
     .ilike('caption', needle)
     .eq('status', 'approved')
     .is('deleted_at', null)
@@ -63,7 +65,18 @@ export function HashtagFeed({ tag }: { tag: string }) {
           href={`/post/${p.id}`}
           className="block aspect-square overflow-hidden bg-[color:var(--color-border)]"
         >
-          {p.media_url ? (
+          {/* Mesma correção do `TrendingGrid` (2026-09-05): vídeo em <img>
+              vira ícone de imagem quebrada. Olha extensão E `media_type`,
+              porque nenhum dos dois sozinho cobre todos os posts. */}
+          {isVideoPost(p.media_url, p.media_type) ? (
+            <video
+              src={p.media_url}
+              muted
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-cover"
+            />
+          ) : p.media_url ? (
             <img
               src={cfImg(p.media_url, { width: 200, fit: 'cover' })}
               alt={p.caption ?? ''}

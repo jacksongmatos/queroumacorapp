@@ -304,6 +304,45 @@ export function useSenna(): UseSennaResult {
     setSpeakingId(null);
   }, []);
 
+  // Corta a fala ao SAIR da tela. O elemento nasce de `new Audio()` e vive
+  // num ref — ele NAO esta no DOM, entao desmontar o componente nao para
+  // nada por conta propria: o BottomSheet fechava, o assistente sumia da
+  // tela e a voz continuava falando (relato de 2026-09-05). `stopSpeaking`
+  // ja existia, mas ninguem o chamava no unmount.
+  //
+  // `visibilitychange` cobre o app indo pro fundo (minimizar, trocar de
+  // app, apagar a tela): voz saindo do bolso incomoda igual, com o
+  // agravante de nao haver botao na tela pra mandar parar.
+  //
+  // A limpeza mexe so nos refs, sem setState — ela roda durante o unmount,
+  // quando nao ha mais componente pra atualizar.
+  useEffect(() => {
+    const pararAudio = () => {
+      const a = audioRef.current;
+      if (a) {
+        try {
+          a.pause();
+          a.src = ''; // aborta download em andamento, nao so a reproducao
+        } catch { /* ignore */ }
+      }
+      if (audioUrlRef.current) {
+        try { URL.revokeObjectURL(audioUrlRef.current); } catch { /* ignore */ }
+        audioUrlRef.current = null;
+      }
+      audioRef.current = null;
+    };
+    const aoEsconder = () => {
+      if (document.visibilityState !== 'hidden') return;
+      pararAudio();
+      setSpeakingId(null); // aqui o componente ainda esta montado
+    };
+    document.addEventListener('visibilitychange', aoEsconder);
+    return () => {
+      document.removeEventListener('visibilitychange', aoEsconder);
+      pararAudio();
+    };
+  }, []);
+
   const sendMutation = useMutation<
     { reply: string; userMsg: ThreadMessage; assistantMsg: ThreadMessage },
     Error,
