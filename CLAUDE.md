@@ -11,6 +11,16 @@
   neste arquivo são **registro histórico** de incidentes já resolvidos — servem
   pra entender o passado, nunca pra orientar o presente.
 
+- **A LISTA DE "SQL PENDENTE" DESTE ARQUIVO NÃO É EVIDÊNCIA (2026-09-05).**
+  Conferido contra o banco: das quatro migrations marcadas como pendentes,
+  **três já tinham sido rodadas** (Wave 41 `exports` + policies, Wave 53
+  `quotes.post_id`, Wave 49 mídia do WhatsApp) e uma entrada se contradizia
+  dentro de si mesma. A anotação é escrita à mão e envelhece; o banco não.
+  **REGRA: antes de dizer que um SQL falta — e antes de pedir pra alguém
+  rodar de novo — rodar `/migrations/2026-09-05-conferencia-pendencias.sql`**
+  (só leitura, uma linha por item, `ok` true/false). Item novo marcado como
+  pendente aqui = linha nova naquela consulta.
+
 - **PAR CRUZADO DE ENV DO SUPABASE — a causa do "Faça login" em TODA a IA
   (2026-09-04, PR #202, FECHADO).** Usuário perfeitamente logado levava
   `Faça login (token_invalid)` em toda rota de IA. Evidência do painel do CF
@@ -423,12 +433,15 @@
   valida é a policy do Storage (path amarrado ao `auth.uid()`; o `sub`
   decodificado do JWT NÃO é prova de identidade, só prefixo). Client tenta
   direto → rota; 401 na rota ganha UMA `refreshSession` com teto de 6s.
-  **SQL das policies do `exports` PENDENTE** (bloco da Wave 41; sem ele o
-  degrau 2 não funciona — o 1 sim). **Regra nova: fluxo do app que
+  **Wave 41 CONFERIDA NO BANCO em 2026-09-05: o bucket `exports` E as 3
+  policies EXISTEM.** A anotação anterior dizia "PENDENTE" e estava errada —
+  os dois degraus funcionam. Não pedir pra rodar. **Regra nova: fluxo do app que
   autentica em rota própria NÃO deve depender só do GoTrue `/auth/v1/user`
   — token session-stale é estado normal de WebView.**
 
-- **`quotes.post_id` NÃO EXISTIA — Wave 53 (2026-08-30), PENDENTE.**
+- **`quotes.post_id` — Wave 53 (2026-08-30). CONFERIDA NO BANCO em
+  2026-09-05: a coluna EXISTE. Não pedir pra rodar de novo.** (A anotação
+  ficou meses dizendo "PENDENTE" depois de já ter sido executada.)
   "Enviar orçamento" morria com `42703: column "post_id" of relation
   "quotes" does not exist`. A **Wave 42** recriou `create_quote_from_post`
   passando a GRAVAR `post_id` (antes a RPC recebia `p_post_id` e jogava
@@ -1089,7 +1102,8 @@
     aparecia ao lado do campo, fora da tela. Agora `onInvalid` mostra
     "Falta corrigir: …" e rola até o campo.
 
-- **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL PENDENTE.**
+- **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL JÁ EXECUTADO
+  (2026-08-29; o título dizia PENDENTE contradizendo o próprio corpo).**
   Foto, áudio, vídeo e documento chegavam como MARCADOR de texto
   (`[áudio]`, `[imagem]`): o evento do WhatsApp não traz o arquivo, só o
   aviso. Agora `whatsapp-media.ts` pega o base64 (do payload, se o
@@ -1129,8 +1143,9 @@
   manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
   grava em lotes de 200 com `source='planilha'`.
   - **Importação de 986 leads do Google Maps (2026-08-29)** —
-    `/migrations/2026-08-29-import-leads-planilha.sql`, **PENDENTE de
-    rodar.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    `/migrations/2026-08-29-import-leads-planilha.sql`, **PENDENTE de rodar —
+    CONFIRMADO no banco em 2026-09-05 (nenhum lead com `source='planilha'`).
+    É a ÚNICA migration realmente pendente.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
     sem telefone ficaram fora). Categoria crua do Maps ("Architect",
     "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
     quando a categoria briga com ele; "Região" separada em cidade ×
@@ -1815,9 +1830,13 @@
     VAPID JWT ES256 + aes128gcm AES-GCM em `/api/push-notify` (zero deps).
     Tabela `push_subscriptions` + RLS user-owned + trigger pg_net dispara
     push em insert de `notifications`. `<PushOptIn>` no ProfileFooter.
-    **SQL AINDA NÃO RODADO** — colar do agent result, habilitar `pg_net`,
-    rodar 2 ALTER DATABASE pra setar `app.push_notify_url` e
-    `app.push_internal_secret`. Falta gerar VAPID keys e setar 4 ENVs no
+    **SQL RODADO e a corrente PROVADA EM PRODUÇÃO (2026-09-05):** o push
+    nativo chegou no aparelho, o que exige `push_subscriptions`,
+    `push_device_tokens`, o trigger `trg_dispatch_push_notification`, o
+    `pg_net` e as chaves `push_notify_url`/`push_internal_secret` em
+    `app_settings` — tudo conferido `true` no banco. O que NÃO está provado
+    é o canal WEB push (VAPID): os dois canais são independentes, e o nativo
+    funcionar não diz nada sobre o do navegador. Falta gerar VAPID keys e setar 4 ENVs no
     CF Pages: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
     `VAPID_SUBJECT`, `PUSH_INTERNAL_SECRET`. Doc: `docs/PUSH_NOTIFICATIONS.md`.
     iOS: só funciona iOS 16.4+ em modo PWA "Adicionar à Tela de Início".
