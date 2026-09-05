@@ -10,7 +10,10 @@
 //          2. o envelope: `object` = whatsapp_business_account, `entry[].id`
 //             = WHATSAPP_WABA_ID e `metadata.phone_number_id` =
 //             WHATSAPP_PHONE_NUMBER_ID.
-//        Qualquer falha → 403.
+//        Envelope de outra conta → 403. Evento do NOSSO WABA que não é de
+//        mensagem (status de template, mudança de conta) → 200 e ignora: a
+//        Meta reenvia indefinidamente o que não recebeu 200, e "não me
+//        interessa" não é "não recebi".
 //
 // O `X-Hub-Signature-256` NÃO é mais validado no POST (2026-09-05). Com a
 // WABA inscrita no app Meta DO DUALHOOK, a assinatura é feita com o App
@@ -22,6 +25,15 @@
 // resposta (`runAfterResponse` → `ctx.waitUntil` do worker). A Meta espera
 // resposta rápida e desativa webhook que demora ou falha; gravar no banco
 // antes de responder colocava a latência do Supabase no caminho dela.
+//
+// REGRA que custou um 500 em produção (2026-09-05): nada no processamento
+// assíncrono pode derrubar a resposta. `runAfterResponse` chamava
+// `ctx.waitUntil` desamarrado do `ctx` e o runtime nativo lançava
+// `Illegal invocation` de forma SÍNCRONA, dentro do handler — a mensagem
+// aparecia no log e logo depois vinha 500. Hoje o keep-alive é chamado no
+// objeto dono e embrulhado em try/catch, e o teste da rota
+// (`__tests__/api/whatsapp-webhook.test.ts`) trava o 200 mesmo com o
+// `waitUntil` recusando e com o atendimento automático lançando.
 //
 // O POST reconhece, loga, persiste (console → Cloudflare logs; tabela
 // `whatsapp_messages`) e dispara o ATENDIMENTO AUTOMÁTICO. Este último elo
@@ -36,7 +48,7 @@ import {
   getPhoneNumberId,
   getWabaId,
   getWebhookAuthMode,
-  isExpectedWebhookPayload,
+  classifyWebhookPayload,
   parseInboundMessages,
   persistWhatsAppMessage,
   resumirEnvelope,
@@ -178,7 +190,17 @@ export async function POST(request: NextRequest) {
 
   // (2) O envelope tem que ser do NOSSO WABA + número.
   const expected = { wabaId: getWabaId(), phoneNumberId: getPhoneNumberId() };
-  if (!isExpectedWebhookPayload(payload, expected)) {
+  const veredito = classifyWebhookPayload(payload, expected);
+
+  // Evento que não é de mensagem (status de template, mudança de conta):
+  // 200 e segue a vida. 403 aqui fazia a Meta REENVIAR pra sempre um evento
+  // que nunca íamos processar — "não interessa" não é "não recebi".
+  if (veredito === 'ignorar') {
+    console.log(`[whatsapp-webhook] evento ignorado — ${resumirEnvelope(payload)}`);
+    return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+  }
+
+  if (veredito === 'rejeitar') {
     // Nomear os dois lados é o ponto: este 403 é INVISÍVEL pra quem usa o
     // portal (a entrega some, nada aparece na tela), então esta linha é a
     // única pista. Recebido × esperado responde na hora se o caso é env

@@ -56,10 +56,34 @@ export function runAfterResponse(work: Promise<unknown>): void {
       e instanceof Error ? e.message : e,
     );
   });
-  const waitUntil = readRequestContext()?.ctx?.waitUntil;
-  if (typeof waitUntil === 'function') {
-    waitUntil(seguro);
-    return;
+
+  // `waitUntil` PRECISA ser chamado no `ctx`, nunca solto.
+  //
+  // A versão anterior fazia `const waitUntil = ctx?.waitUntil` e chamava
+  // `waitUntil(seguro)`. Isso desamarra o método do objeto dono, e o
+  // ExecutionContext do workerd é nativo: sem o `this` certo ele lança
+  // `TypeError: Illegal invocation`. E lança de forma SÍNCRONA, dentro do
+  // handler — ou seja, o erro não ficava no trabalho de fundo, ele derrubava
+  // a resposta. Em produção o webhook do WhatsApp respondia 500 depois de já
+  // ter logado a mensagem recebida (2026-09-05).
+  //
+  // O teste antigo não pegava porque um `vi.fn()` num objeto literal é uma
+  // função JS comum, que não liga pro `this`. Só o objeto nativo reclama —
+  // por isso o teste agora verifica o `this` explicitamente.
+  const ctx = readRequestContext()?.ctx;
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    try {
+      ctx.waitUntil(seguro);
+      return;
+    } catch (e) {
+      // Nem o `waitUntil` falhando pode custar a resposta. Perder o
+      // keep-alive degrada (o trabalho pode ser cortado no fim da request);
+      // lançar aqui viraria 500 numa request que já estava correta.
+      console.error(
+        'runAfterResponse: waitUntil recusou o trabalho:',
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
   void seguro;
 }

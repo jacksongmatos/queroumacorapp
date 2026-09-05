@@ -30,6 +30,7 @@ import {
   checkWebhookUrlSecret,
   getWebhookAuthMode,
   getWhatsAppConfig,
+  classifyWebhookPayload,
   isExpectedWebhookPayload,
   isForaDaJanela24h,
   isWhatsAppConfigured,
@@ -451,9 +452,40 @@ describe('isExpectedWebhookPayload', () => {
     expect(isExpectedWebhookPayload(p, expected)).toBe(false);
   });
 
-  it('rejeita field ≠ messages, entry vazio, object errado e não-objeto', () => {
+  // 2026-09-05: evento que não é de mensagem deixou de ser 403. A Meta manda
+  // status de template e mudança de conta no MESMO webhook; 403 pra ela
+  // significa "não entreguei", então ela reenviava pra sempre um evento que
+  // nunca íamos processar.
+  it('evento que não é de mensagem → ignorar (não rejeitar)', () => {
+    const p = envelope();
+    (p.entry[0].changes[0] as { field: string }).field = 'message_template_status_update';
+    expect(classifyWebhookPayload(p, expected)).toBe('ignorar');
+  });
+
+  it('mensagem do nosso número → processar', () => {
+    expect(classifyWebhookPayload(envelope(), expected)).toBe('processar');
+  });
+
+  it('envelope de outra conta → rejeitar, mesmo sem ser de mensagem', () => {
+    const p = envelope();
+    p.entry[0].id = '999999999';
+    (p.entry[0].changes[0] as { field: string }).field = 'account_update';
+    expect(classifyWebhookPayload(p, expected)).toBe('rejeitar');
+  });
+
+  it('mensagem endereçada a OUTRO número segue rejeitada', () => {
+    // Aqui não é "evento que não me interessa" — é entrega no endereço
+    // errado. Engolir com 200 esconderia erro de configuração.
+    const p = envelope();
+    p.entry[0].changes[0].value.metadata.phone_number_id = '109293361953640';
+    expect(classifyWebhookPayload(p, expected)).toBe('rejeitar');
+  });
+
+  it('não processa field ≠ messages, entry vazio, object errado e não-objeto', () => {
     const p = envelope();
     (p.entry[0].changes[0] as { field: string }).field = 'account_update';
+    // false aqui = "não é mensagem pra processar"; o 403 quem decide é o
+    // veredito da rota, e pra este caso ele é 'ignorar'.
     expect(isExpectedWebhookPayload(p, expected)).toBe(false);
     expect(isExpectedWebhookPayload(envelope({ entry: [] }), expected)).toBe(false);
     expect(isExpectedWebhookPayload(envelope({ object: 'page' }), expected)).toBe(false);

@@ -474,28 +474,68 @@ export function checkWebhookUrlSecret(
  * não verificável). Não é autenticação criptográfica — é a validação que o
  * Dualhook recomenda; a URL do webhook deve continuar não-pública.
  */
+export type WebhookVeredito = 'processar' | 'ignorar' | 'rejeitar';
+
+/**
+ * Classifica o envelope em três desfechos — e a distinção entre os dois
+ * últimos é o ponto.
+ *
+ * A versão anterior devolvia só true/false, e o `false` virava 403. Só que
+ * a Meta manda no MESMO webhook eventos que não são mensagem
+ * (`message_template_status_update`, `account_update`, `phone_number_...`).
+ * Todos caíam em 403 — e 403 pra Meta significa "não entreguei", então ela
+ * REENVIA, indefinidamente, um evento que nunca teríamos processado.
+ * Fila de retry crescendo por um evento que só precisava de um "ok, ignorei".
+ *
+ * - `processar`: nosso WABA, `field='messages'`, nosso `phone_number_id`.
+ * - `ignorar`: nosso WABA, mas nenhum change de mensagem → 200 sem trabalho.
+ * - `rejeitar`: envelope de outra conta ou malformado → 403.
+ *
+ * Um change de MENSAGEM com `phone_number_id` de outro número continua
+ * sendo `rejeitar`: aí não é "evento que não me interessa", é entrega no
+ * endereço errado, e engolir isso com 200 esconderia exatamente o tipo de
+ * erro de configuração que custou o incidente dos defaults.
+ *
+ * Isto NÃO é autenticação — os IDs são públicos. Quem autentica é o segredo
+ * de URL; esta função é validação de forma.
+ */
+export function classifyWebhookPayload(
+  payload: unknown,
+  expected: { wabaId: string; phoneNumberId: string }
+): WebhookVeredito {
+  if (!payload || typeof payload !== 'object') return 'rejeitar';
+  const body = payload as { object?: unknown; entry?: unknown };
+  if (body.object !== 'whatsapp_business_account') return 'rejeitar';
+  if (!Array.isArray(body.entry) || body.entry.length === 0) return 'rejeitar';
+
+  let temMensagem = false;
+  for (const entry of body.entry as Array<Record<string, unknown>>) {
+    if (!entry || typeof entry !== 'object') return 'rejeitar';
+    if (String(entry.id ?? '') !== expected.wabaId) return 'rejeitar';
+    const changes = entry.changes;
+    if (!Array.isArray(changes) || changes.length === 0) return 'rejeitar';
+    for (const change of changes as Array<Record<string, unknown>>) {
+      if (!change || typeof change !== 'object') return 'rejeitar';
+      if (change.field !== 'messages') continue; // evento de outro tipo
+      const value = change.value as { metadata?: { phone_number_id?: unknown } } | undefined;
+      if (String(value?.metadata?.phone_number_id ?? '') !== expected.phoneNumberId) {
+        return 'rejeitar';
+      }
+      temMensagem = true;
+    }
+  }
+  return temMensagem ? 'processar' : 'ignorar';
+}
+
+/**
+ * Compatibilidade: só `processar` conta como "é o envelope que esperamos".
+ * A ROTA usa `classifyWebhookPayload` — precisa separar ignorar de rejeitar.
+ */
 export function isExpectedWebhookPayload(
   payload: unknown,
   expected: { wabaId: string; phoneNumberId: string }
 ): boolean {
-  if (!payload || typeof payload !== 'object') return false;
-  const body = payload as { object?: unknown; entry?: unknown };
-  if (body.object !== 'whatsapp_business_account') return false;
-  if (!Array.isArray(body.entry) || body.entry.length === 0) return false;
-  for (const entry of body.entry as Array<Record<string, unknown>>) {
-    if (!entry || typeof entry !== 'object') return false;
-    if (String(entry.id ?? '') !== expected.wabaId) return false;
-    const changes = entry.changes;
-    if (!Array.isArray(changes) || changes.length === 0) return false;
-    for (const change of changes as Array<Record<string, unknown>>) {
-      if (!change || change.field !== 'messages') return false;
-      const value = change.value as { metadata?: { phone_number_id?: unknown } } | undefined;
-      if (String(value?.metadata?.phone_number_id ?? '') !== expected.phoneNumberId) {
-        return false;
-      }
-    }
-  }
-  return true;
+  return classifyWebhookPayload(payload, expected) === 'processar';
 }
 
 // ─── Webhook: parse do payload de entrada ───────────────────────────────────
