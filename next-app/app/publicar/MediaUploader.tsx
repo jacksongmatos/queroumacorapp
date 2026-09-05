@@ -23,7 +23,6 @@
 
 import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { CameraCapture } from '@/components/CameraCapture';
-import { GaleriaBloqueadaSheet } from '@/components/GaleriaBloqueadaSheet';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import { armarSelecao, consumirEscolhaPendente } from '@/lib/utils/pickerRecovery';
 import { reportFailure } from '@/lib/utils/reportFailure';
@@ -50,7 +49,6 @@ export function MediaUploader({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const cancelarAviso = useRef<(() => void) | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [bloqueada, setBloqueada] = useState(false);
   const [reiniciou, setReiniciou] = useState(false);
   const [camAberta, setCamAberta] = useState(false);
 
@@ -67,7 +65,6 @@ export function MediaUploader({
   useEffect(() => {
     if (!consumirEscolhaPendente('publicar')) return;
     setReiniciou(true);
-    setBloqueada(true);
     reportFailure('picker-restart', new Error('app reiniciou com a galeria aberta'), {
       ctx: 'publicar',
     });
@@ -79,28 +76,11 @@ export function MediaUploader({
 
   function handleSelect() {
     if (disabled) return;
-    // No app empacotado a WebView pode simplesmente NÃO abrir a galeria —
-    // sem erro nenhum. Sem este aviso, o toque não faz nada e a pessoa
-    // acha que o app quebrou (ver lib/utils/filePickerWatch).
     cancelarAviso.current?.();
     // A legenda vai pro disco AGORA (o autosave normal só escreve a cada
     // 5s): daqui pra frente o processo pode morrer a qualquer momento.
     onAntesDeAbrir?.();
-    cancelarAviso.current = armarSelecao({
-      rota: '/publicar',
-      ctx: 'publicar',
-      onNaoAbriu: () => {
-        setReiniciou(false);
-        setBloqueada(true);
-        // Registra QUAL aparelho falhou. Um Android abre a galeria e outro
-        // não — sem o user agent de cada um, "por que só ele?" fica no
-        // palpite.
-        reportFailure('picker-fail', new Error('galeria nao abriu'), { ctx: 'publicar' });
-      },
-      // Abriu depois do relógio: tira o aviso da tela. Deixar "a galeria
-      // não abriu" por cima da galeria aberta ensina a ignorar o aviso.
-      onAbriuAtrasado: () => setBloqueada(false),
-    });
+    cancelarAviso.current = armarSelecao({ rota: '/publicar', ctx: 'publicar' });
     inputRef.current?.click();
   }
 
@@ -221,19 +201,31 @@ export function MediaUploader({
         ctx="publicar"
       />
 
-      <GaleriaBloqueadaSheet
-        open={bloqueada}
-        onClose={() => setBloqueada(false)}
-        onFoto={(f) => onFiles([f])}
-        urlNoNavegador="https://queroumacor.com.br/publicar"
-        titulo={reiniciou ? 'O app reiniciou no meio da escolha' : undefined}
-        descricao={
-          reiniciou
-            ? 'O Android fechou o app pra liberar memória enquanto a galeria estava aberta, e a foto se perdeu no caminho. Sua legenda foi salva. Duas saídas:'
-            : undefined
-        }
-        ctx="publicar"
-      />
+      {/* O app MORREU com a galeria aberta (o Android mata o processo que
+          ficou atrás pra liberar memória). É outro caso, e continua real:
+          a foto se perdeu, a legenda não. Aviso em linha, dispensável —
+          não é modal, porque aqui não há nada que a pessoa PRECISE decidir,
+          só escolher a foto de novo. */}
+      {reiniciou && (
+        <div
+          className="mt-2 px-3 py-2 rounded-xl bg-[color:var(--color-p2-soft,#fff4e5)] text-xs text-[color:var(--color-ink)] flex items-start gap-2"
+          role="status"
+        >
+          <span aria-hidden="true">↻</span>
+          <span className="flex-1">
+            O app fechou enquanto a galeria estava aberta e a foto se perdeu.
+            Sua legenda foi salva — é só escolher a foto de novo.
+          </span>
+          <button
+            type="button"
+            onClick={() => setReiniciou(false)}
+            className="font-semibold text-[color:var(--color-muted)]"
+            aria-label="Dispensar aviso"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

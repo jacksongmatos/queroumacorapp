@@ -87,7 +87,6 @@ describe('armarSelecao', () => {
     armarSelecao({
       rota: '/publicar',
       ctx: 'publicar',
-      onNaoAbriu: () => {},
       userAgent: UA_ANDROID,
     });
     expect(lerEscolhaPendente()).not.toBeNull();
@@ -97,23 +96,8 @@ describe('armarSelecao', () => {
     armarSelecao({
       rota: '/publicar',
       ctx: 'publicar',
-      onNaoAbriu: () => {},
       userAgent: UA_DESKTOP,
     });
-    expect(lerEscolhaPendente()).toBeNull();
-  });
-
-  it('limpa a marca quando o seletor nem abriu', () => {
-    const onNaoAbriu = vi.fn();
-    armarSelecao({
-      rota: '/publicar',
-      ctx: 'publicar',
-      onNaoAbriu,
-      userAgent: UA_ANDROID,
-    });
-    expect(lerEscolhaPendente()).not.toBeNull();
-    vi.advanceTimersByTime(9000); // estourou sem a página perder o foco
-    expect(onNaoAbriu).toHaveBeenCalledTimes(1);
     expect(lerEscolhaPendente()).toBeNull();
   });
 
@@ -121,7 +105,6 @@ describe('armarSelecao', () => {
     armarSelecao({
       rota: '/publicar',
       ctx: 'publicar',
-      onNaoAbriu: () => {},
       userAgent: UA_ANDROID,
     });
     esconder(true); // seletor abriu
@@ -134,7 +117,6 @@ describe('armarSelecao', () => {
     armarSelecao({
       rota: '/publicar',
       ctx: 'publicar',
-      onNaoAbriu: () => {},
       userAgent: UA_ANDROID,
     });
     esconder(true);
@@ -142,47 +124,11 @@ describe('armarSelecao', () => {
     expect(lerEscolhaPendente()).not.toBeNull();
   });
 
-  it('seletor que abre DEPOIS do relógio retira o aviso falso', () => {
-    const onNaoAbriu = vi.fn();
-    const onAbriuAtrasado = vi.fn();
-    armarSelecao({
-      rota: '/publicar',
-      ctx: 'publicar',
-      onNaoAbriu,
-      onAbriuAtrasado,
-      userAgent: UA_ANDROID,
-    });
-    // O "Files Chooser" do wrapper e um dialogo: nao tira o foco da pagina,
-    // entao o relogio estoura enquanto a pessoa ainda escolhe Camera x Files.
-    vi.advanceTimersByTime(9000);
-    expect(onNaoAbriu).toHaveBeenCalledTimes(1);
-    expect(lerEscolhaPendente()).toBeNull();
-
-    // Ela toca em "Files": AGORA outra activity sobe e o app sai.
-    esconder(true);
-    expect(onAbriuAtrasado).toHaveBeenCalledTimes(1);
-    // E a recuperacao volta a valer — daqui pra frente o app pode morrer.
-    expect(lerEscolhaPendente()).not.toBeNull();
-  });
-
-  it('sem aviso previo, sair do app nao dispara a retratacao', () => {
-    const onAbriuAtrasado = vi.fn();
-    armarSelecao({
-      rota: '/publicar',
-      ctx: 'publicar',
-      onNaoAbriu: () => {},
-      onAbriuAtrasado,
-      userAgent: UA_ANDROID,
-    });
-    esconder(true);
-    expect(onAbriuAtrasado).not.toHaveBeenCalled();
-  });
 
   it('cancelar (arquivo chegou no change) limpa a marca', () => {
     const cancelar = armarSelecao({
       rota: '/publicar',
       ctx: 'publicar',
-      onNaoAbriu: () => {},
       userAgent: UA_ANDROID,
     });
     esconder(true);
@@ -190,16 +136,4 @@ describe('armarSelecao', () => {
     expect(lerEscolhaPendente()).toBeNull();
   });
 
-  it('cancelar impede o aviso de "não abriu"', () => {
-    const onNaoAbriu = vi.fn();
-    const cancelar = armarSelecao({
-      rota: '/publicar',
-      ctx: 'publicar',
-      onNaoAbriu,
-      userAgent: UA_ANDROID,
-    });
-    cancelar();
-    vi.advanceTimersByTime(5000);
-    expect(onNaoAbriu).not.toHaveBeenCalled();
-  });
 });
