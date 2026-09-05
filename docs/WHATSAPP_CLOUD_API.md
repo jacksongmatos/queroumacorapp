@@ -27,8 +27,8 @@ versioná-los. **O token de acesso NUNCA entra no repo.**
 | `WHATSAPP_WEBHOOK_URL_SECRET` | Sim com Dualhook | String alta-entropia (`openssl rand -hex 24`) que vai na query da URL cadastrada no Dualhook: `…/api/whatsapp/webhook?token=<secret>`. Sem ela o modo `payload` responde 503 (fail-closed). **Secret.** |
 | `WHATSAPP_WEBHOOK_AUTH_MODE` | Não | `payload` (default) = modo Dualhook, valida WABA + phone_number_id do envelope. `hmac` = app Meta próprio, valida `X-Hub-Signature-256` com `META_APP_SECRET`. |
 | `META_APP_SECRET` | Só no modo `hmac` | App Secret do app "CaliColors Integracao API" (Meta → Configurações do app → Básico). **Secret.** Inútil com Dualhook (a assinatura é do app deles). |
-| `WHATSAPP_PHONE_NUMBER_ID` | Sim com Dualhook | Phone Number ID do número conectado. Default no código = número antigo (`109293361953640`); a conexão Dualhook (Coexistence) é **`1284183724779574`**. |
-| `WHATSAPP_WABA_ID` | Sim com Dualhook | WABA ID. Default no código = WABA antiga (`102067872689175`); a do Dualhook é **`865837919828100`**. |
+| `WHATSAPP_PHONE_NUMBER_ID` | Sim com Dualhook | Phone Number ID do número conectado. Default no código = número antigo (`109293361953640`); a conexão Dualhook (Coexistence) é **`1220273824510260`**. |
+| `WHATSAPP_WABA_ID` | Sim com Dualhook | WABA ID. Default no código = WABA antiga (`102067872689175`); a do Dualhook é **`1320667299892030`**. |
 
 Depois de setar as envs, **refazer o deploy** (envs só valem em build novo).
 
