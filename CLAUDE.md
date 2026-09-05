@@ -25,12 +25,24 @@
     por `pronta` no catálogo.** `__tests__/clickRua.test.ts` confere no disco
     que toda página anunciada existe — catálogo escrito à mão que promete 8
     páginas e entrega 7 vira tela branca no celular de alguém.
-  - **O leitor é TELA CHEIA (portal no body, z-[400]), não continua no
-    bottom-sheet**: a página é quadrada e cheia de texto e, dentro do sheet,
-    nasceria com metade da largura útil. Mesmo tratamento do `StoryViewer`,
-    inclusive o truque do histórico pro botão VOLTAR do Android fechar.
-    Tem zoom (toque duplo 1x/2,5x + arrastar) porque página de entrevista a
-    1483px encolhida pra 390px é ilegível.
+  - **O leitor é TELA CHEIA (portal no body), não continua no bottom-sheet**:
+    a página é quadrada e cheia de texto e, dentro do sheet, nasceria com
+    metade da largura útil. Truque do histórico do `StoryViewer` pro botão
+    VOLTAR do Android fechar. Tem zoom (toque duplo 1x/2,5x + arrastar)
+    porque página de entrevista a 1483px encolhida pra 390px é ilegível.
+    - **z-[1100], NÃO z-[400].** Copiei o z-index do `StoryViewer` e o leitor
+      abriu ATRÁS do sheet — o `BottomSheet` é **z-[1000]**, e este leitor é
+      aberto de dentro dele (o story não é). No desktop dava pra ver o leitor
+      no fundo; no celular o sheet cobre a tela toda e parecia que o toque
+      não fazia nada. **Overlay aberto de dentro de um sheet tem que passar
+      de 1000.**
+    - **A virada é uma FOLHA girando na lombada** (`transformOrigin: left`,
+      rotateY 0 → -180, `backfaceVisibility: hidden` pra sumir aos 90° e
+      revelar a de baixo), não scroll-snap horizontal. Acompanha o dedo e, ao
+      soltar, completa ou desiste conforme passou da metade. A conta vive em
+      `lib/clickRua.ts` (`anguloDaVirada`/`confirmaVirada`) e é testada —
+      inclusive a trava dos extremos, sem a qual arrastar demais faz a página
+      reaparecer girando ao contrário.
   - **Gradiente novo `revista`** (laranja+preto da Click Rua) no
     `BusinessCard`. **NÃO reaproveitar `graf`**: aquele valor dá o gradiente
     certo e o ícone ERRADO — faz o card desenhar a foto da Fê no lugar do
@@ -49,12 +61,23 @@
   topo da tela, longe da Calculadora. Com
   busca, filtro por categoria e por altura, faixas mín/média/máx e uma
   calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
-  - **SQL JÁ EXECUTADO no Supabase (2026-09-05, informado pelo usuário) — as
-    duas migrations** (`/migrations/2026-09-05-tabela-precos-abrapp.sql`,
-    schema, e `...-dados.sql`, 328 itens). **Não pedir pra rodar de novo.**
-    Duas linhas novas em `/migrations/2026-09-05-conferencia-pendencias.sql`
-    conferem isso no banco (contagem 328 e `altura` preenchida em 213 linhas)
-    — conferir por lá antes de afirmar qualquer coisa, nos dois sentidos.
+  - **SQL COMPLETO no Supabase (2026-09-05).** Schema + os 19 blocos de dados.
+    **Não pedir pra rodar de novo.** O que sustenta essa afirmação não é
+    "alguém disse que rodou": é a consulta de conferência devolvendo
+    **328 itens · 212 com `altura` · 19 folhas**, os três números que o
+    arquivo de dados prevê. Reconferir por
+    `/migrations/2026-09-05-conferencia-pendencias.sql` (2 linhas) antes de
+    afirmar qualquer coisa, nos dois sentidos.
+  - **DOIS ERROS MEUS NO CAMINHO, os dois pegos por essa consulta** — vale
+    mais que a feature em si:
+    1. Marquei "todas as migrations executadas" a partir de um "rodei todas"
+       no chat. A consulta devolveu `97 itens / 5 folhas`: só as folhas 1-5
+       tinham entrado. **Relato não é evidência, nem vindo do usuário.**
+    2. A própria linha de conferência exigia **213** linhas com altura —
+       número que estimei de cabeça. O real, contado do arquivo de dados
+       simulando o `UPDATE`, é **212**. Checagem com número errado reporta
+       `false` pra sempre e ensina a ignorar a checagem, que é pior do que
+       não ter checagem. **Número de conferência se conta do fonte.**
     O `UPDATE` de `altura` é o último statement do arquivo e é o fácil de
     pular: sem ele nada quebra, o filtro de altura da tela só para de
     filtrar, **em silêncio**. Cada bloco do arquivo de dados é uma folha e é

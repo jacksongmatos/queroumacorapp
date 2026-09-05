@@ -70,3 +70,41 @@ export function edicoesProntas(lista: readonly Edicao[] = EDICOES): EdicaoPronta
 export function rotuloEdicao(numero: number): string {
   return `Edição #${String(numero).padStart(2, '0')}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Matemática da virada de página (flipbook).
+//
+// A folha gira em torno da LOMBADA (borda esquerda), como página de revista
+// de verdade: 0° = deitada, -180° = virada por cima pra esquerda. O mesmo
+// intervalo serve pros dois sentidos — avançar vai de 0 a -180, voltar vem
+// de -180 a 0 —, o que deixa um único elemento animado dar conta dos dois.
+
+export const ANGULO_DEITADO = 0;
+export const ANGULO_VIRADO = -180;
+
+export type SentidoVirada = 'frente' | 'tras';
+
+/**
+ * Ângulo da folha a partir do quanto o dedo andou.
+ *
+ * `dx` é o deslocamento horizontal em px (negativo = arrastou pra esquerda) e
+ * `largura` a da tela. Arrastar a tela inteira vira a página inteira.
+ */
+export function anguloDaVirada(dx: number, largura: number, sentido: SentidoVirada): number {
+  if (!Number.isFinite(dx) || !Number.isFinite(largura) || largura <= 0) {
+    return sentido === 'frente' ? ANGULO_DEITADO : ANGULO_VIRADO;
+  }
+  const fracao = (dx / largura) * 180;
+  const bruto = sentido === 'frente' ? fracao : ANGULO_VIRADO + fracao;
+  // Trava nos extremos: sem isto, continuar arrastando passa de -180 e a
+  // folha volta a aparecer girando do outro lado.
+  return Math.min(ANGULO_DEITADO, Math.max(ANGULO_VIRADO, bruto));
+}
+
+/**
+ * Passou da metade? Aí a folha completa a virada ao soltar; senão volta.
+ * É o que faz o gesto curto ser desistência em vez de virar sem querer.
+ */
+export function confirmaVirada(angulo: number, sentido: SentidoVirada): boolean {
+  return sentido === 'frente' ? angulo <= -90 : angulo >= -90;
+}

@@ -7,6 +7,10 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  ANGULO_DEITADO,
+  ANGULO_VIRADO,
+  anguloDaVirada,
+  confirmaVirada,
   EDICOES,
   edicoesProntas,
   paginaUrl,
@@ -60,5 +64,47 @@ describe('arquivos das edições', () => {
 
   it('o logo usado no cabeçalho existe', () => {
     expect(existsSync(caminhoPublico('/click-rua/logo.webp'))).toBe(true);
+  });
+});
+
+describe('virada de página (flipbook)', () => {
+  const LARGURA = 390; // iPhone
+
+  it('avançar: a folha acompanha o dedo de 0° até -180°', () => {
+    expect(anguloDaVirada(0, LARGURA, 'frente')).toBe(ANGULO_DEITADO);
+    expect(anguloDaVirada(-LARGURA / 2, LARGURA, 'frente')).toBe(-90);
+    expect(anguloDaVirada(-LARGURA, LARGURA, 'frente')).toBe(ANGULO_VIRADO);
+  });
+
+  it('voltar: a folha vem de -180° de volta pra 0°', () => {
+    expect(anguloDaVirada(0, LARGURA, 'tras')).toBe(ANGULO_VIRADO);
+    expect(anguloDaVirada(LARGURA / 2, LARGURA, 'tras')).toBe(-90);
+    expect(anguloDaVirada(LARGURA, LARGURA, 'tras')).toBe(ANGULO_DEITADO);
+  });
+
+  it('trava nos extremos — arrastar demais não desvira a folha', () => {
+    // Sem o clamp, passar de -180 faria a página reaparecer girando ao
+    // contrário, que é o bug clássico desse gesto.
+    expect(anguloDaVirada(-LARGURA * 3, LARGURA, 'frente')).toBe(ANGULO_VIRADO);
+    expect(anguloDaVirada(LARGURA * 3, LARGURA, 'tras')).toBe(ANGULO_DEITADO);
+    expect(anguloDaVirada(LARGURA, LARGURA, 'frente')).toBe(ANGULO_DEITADO);
+  });
+
+  it('não quebra com largura zero (elemento ainda não medido)', () => {
+    expect(anguloDaVirada(-50, 0, 'frente')).toBe(ANGULO_DEITADO);
+    expect(anguloDaVirada(50, 0, 'tras')).toBe(ANGULO_VIRADO);
+    expect(anguloDaVirada(NaN, LARGURA, 'frente')).toBe(ANGULO_DEITADO);
+  });
+
+  it('só completa a virada depois da metade do caminho', () => {
+    expect(confirmaVirada(-100, 'frente')).toBe(true);
+    expect(confirmaVirada(-80, 'frente')).toBe(false);
+    expect(confirmaVirada(-80, 'tras')).toBe(true);
+    expect(confirmaVirada(-100, 'tras')).toBe(false);
+  });
+
+  it('exatamente na metade, o gesto vira (não fica no limbo)', () => {
+    expect(confirmaVirada(-90, 'frente')).toBe(true);
+    expect(confirmaVirada(-90, 'tras')).toBe(true);
   });
 });

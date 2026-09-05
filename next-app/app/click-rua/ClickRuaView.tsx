@@ -1,28 +1,40 @@
 // ClickRuaView — banca da revista Click Rua dentro do app: um card por
-// edição, e a edição pronta abre num leitor de tela cheia.
+// edição, e a edição pronta abre num leitor de tela cheia que vira a página
+// como revista de papel.
 //
-// Duas decisões que valem registro:
+// Três decisões que valem registro:
 //
-//  1. O LEITOR É TELA CHEIA, NÃO CONTINUA NO BOTTOM-SHEET. A página é
-//     quadrada e cheia de texto; dentro do sheet ela nasceria com metade da
-//     largura útil e ninguém leria. O leitor é portal no <body> com z-[400],
-//     mesmo tratamento do StoryViewer — e pela mesma razão: a BottomNav é
-//     z-[300] e cobriria o topo.
+//  1. O LEITOR FICA ACIMA DO BOTTOM-SHEET (z-[1100]). Ele é aberto de DENTRO
+//     do sheet, e o sheet é z-[1000] — com o z-[400] do StoryViewer o leitor
+//     abria atrás dele: no desktop dava pra ver o leitor no fundo, no celular
+//     o sheet cobria a tela inteira e parecia que nada acontecia.
 //
-//  2. TEM ZOOM PORQUE A REVISTA TEM LETRA MIÚDA. Página de entrevista com
-//     texto corrido a 1483px encolhida pra 390px de celular é ilegível.
-//     Toque duplo alterna 1x/2,5x e, com zoom, o dedo arrasta a página.
+//  2. A VIRADA É UMA FOLHA GIRANDO NA LOMBADA, não scroll horizontal. A folha
+//     acompanha o dedo (0° a -180° em torno da borda esquerda) e, ao soltar,
+//     completa ou desiste conforme passou da metade. A conta vive em
+//     `lib/clickRua.ts` e é testada — gesto é o tipo de código que quebra
+//     calado.
+//
+//  3. TEM ZOOM PORQUE A REVISTA TEM LETRA MIÚDA. Página de entrevista com
+//     texto corrido a 1483px encolhida pra 390px de celular é ilegível. Com
+//     zoom ligado o dedo passa a mover a página, não a virar — senão não
+//     daria pra ler o canto direito de nada.
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  ANGULO_DEITADO,
+  ANGULO_VIRADO,
+  anguloDaVirada,
   CLICK_RUA_TAG,
+  confirmaVirada,
   EDICOES,
   paginasDe,
   rotuloEdicao,
   type Edicao,
   type EdicaoPronta,
+  type SentidoVirada,
 } from '@/lib/clickRua';
 
 export function ClickRuaView() {
@@ -136,14 +148,34 @@ function CardEdicao({ edicao, onAbrir }: { edicao: Edicao; onAbrir: () => void }
 // ─────────────────────────────────────────────────────────────────────────
 
 const ZOOM = 2.5;
+/** Duração da virada quando ela é completada sozinha (ms). */
+const DURACAO_VIRADA = 420;
+
+interface Virada {
+  sentido: SentidoVirada;
+  angulo: number;
+  /** true enquanto a CSS transition está levando a folha até o fim. */
+  soltando: boolean;
+}
 
 function Leitor({ edicao, onFechar }: { edicao: EdicaoPronta; onFechar: () => void }) {
   const paginas = paginasDe(edicao);
+  const ultima = paginas.length - 1;
+
   const [montado, setMontado] = useState(false);
-  const [atual, setAtual] = useState(0);
-  const trilhoRef = useRef<HTMLDivElement | null>(null);
+  const [pagina, setPagina] = useState(0);
+  const [virada, setVirada] = useState<Virada | null>(null);
+  const [zoom, setZoom] = useState(false);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+
+  const palcoRef = useRef<HTMLDivElement | null>(null);
+  const gesto = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setMontado(true), []);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
 
   // Botão VOLTAR do Android fecha o leitor em vez de sair da tela. Mesmo
   // mecanismo do StoryViewer: empurra uma entrada no histórico ao abrir, o
@@ -168,46 +200,186 @@ function Leitor({ edicao, onFechar }: { edicao: EdicaoPronta; onFechar: () => vo
     };
   }, []);
 
+  /** Completa (ou desfaz) a virada com animação e ajusta a página. */
+  const finalizar = useCallback(
+    (sentido: SentidoVirada, confirma: boolean) => {
+      const alvo = sentido === 'frente'
+        ? (confirma ? ANGULO_VIRADO : ANGULO_DEITADO)
+        : (confirma ? ANGULO_DEITADO : ANGULO_VIRADO);
+      setVirada({ sentido, angulo: alvo, soltando: true });
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        if (confirma) setPagina((p) => (sentido === 'frente' ? p + 1 : p - 1));
+        setVirada(null);
+      }, DURACAO_VIRADA);
+    },
+    [],
+  );
+
+  /** Vira por toque nas laterais, teclado ou botão — sem arrastar. */
+  const virarPara = useCallback(
+    (sentido: SentidoVirada) => {
+      if (virada || zoom) return;
+      if (sentido === 'frente' && pagina >= ultima) return;
+      if (sentido === 'tras' && pagina <= 0) return;
+      finalizar(sentido, true);
+    },
+    [virada, zoom, pagina, ultima, finalizar],
+  );
+
   useEffect(() => {
     function aoTeclar(e: KeyboardEvent) {
       if (e.key === 'Escape') fecharRef.current();
+      if (e.key === 'ArrowRight') virarPara('frente');
+      if (e.key === 'ArrowLeft') virarPara('tras');
     }
     window.addEventListener('keydown', aoTeclar);
     return () => window.removeEventListener('keydown', aoTeclar);
-  }, []);
+  }, [virarPara]);
 
-  // Qual página está em cena — lido do scroll do trilho, que é quem manda
-  // (o snap é do navegador, não nosso).
-  const aoRolar = useCallback(() => {
-    const el = trilhoRef.current;
-    if (!el || el.clientWidth === 0) return;
-    const i = Math.round(el.scrollLeft / el.clientWidth);
-    setAtual((antes) => (antes === i ? antes : i));
-  }, []);
+  function aoTocarInicio(e: React.TouchEvent) {
+    if (e.touches.length !== 1 || (virada && virada.soltando)) return;
+    const t = e.touches[0]!;
+    gesto.current = { x: t.clientX, y: t.clientY, px: pan.x, py: pan.y };
+  }
+
+  function aoTocarMover(e: React.TouchEvent) {
+    const g = gesto.current;
+    if (!g || e.touches.length !== 1) return;
+    const t = e.touches[0]!;
+    const dx = t.clientX - g.x;
+
+    // Com zoom o dedo move a PÁGINA. Sem isto o gesto viraria a folha e não
+    // daria pra ler o canto direito de nada.
+    if (zoom) {
+      setPan({ x: g.px + dx, y: g.py + (t.clientY - g.y) });
+      return;
+    }
+
+    const largura = palcoRef.current?.clientWidth ?? 0;
+    if (largura === 0) return;
+
+    let sentido = virada?.sentido ?? null;
+    if (!sentido) {
+      if (Math.abs(dx) < 8) return; // ruído do toque
+      sentido = dx < 0 ? 'frente' : 'tras';
+      // Não há folha pra virar nas pontas: na última página arrastar pra
+      // esquerda não faz nada, na capa arrastar pra direita também não.
+      if (sentido === 'frente' && pagina >= ultima) return;
+      if (sentido === 'tras' && pagina <= 0) return;
+    }
+    setVirada({ sentido, angulo: anguloDaVirada(dx, largura, sentido), soltando: false });
+  }
+
+  function aoTocarFim() {
+    gesto.current = null;
+    if (!virada || virada.soltando) return;
+    finalizar(virada.sentido, confirmaVirada(virada.angulo, virada.sentido));
+  }
+
+  function alternarZoom() {
+    setZoom((z) => {
+      if (z) setPan({ x: 0, y: 0 });
+      return !z;
+    });
+  }
 
   if (!montado) return null;
 
+  // Quem está na folha que gira e quem aparece por baixo dela.
+  //  - avançando: a folha é a página atual saindo; por baixo, a próxima.
+  //  - voltando:  a folha é a anterior voltando; por baixo, a atual.
+  const idxFolha = virada ? (virada.sentido === 'frente' ? pagina : pagina - 1) : -1;
+  const idxFundo = virada ? (virada.sentido === 'frente' ? pagina + 1 : pagina) : pagina;
+  const sombra = virada ? Math.min(1, Math.abs(virada.angulo) / 180) : 0;
+
   const conteudo = (
     <div
-      className="fixed inset-0 z-[400] bg-black"
+      // z-[1100]: o BottomSheet é z-[1000] e este leitor é aberto de dentro
+      // dele. Com z-[400] (o do StoryViewer) o leitor abre ATRÁS do sheet.
+      className="fixed inset-0 z-[1100] bg-black"
       role="dialog"
       aria-modal="true"
       aria-label={`${rotuloEdicao(edicao.numero)} da Click Rua`}
     >
       <div
-        ref={trilhoRef}
-        onScroll={aoRolar}
-        className="flex h-full w-full"
+        ref={palcoRef}
+        className="absolute inset-0 flex items-center justify-center"
         style={{
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          scrollSnapType: 'x mandatory',
-          overscrollBehavior: 'contain',
+          perspective: 1800,
+          touchAction: 'none',
+          overflow: 'hidden',
         }}
+        onTouchStart={aoTocarInicio}
+        onTouchMove={aoTocarMover}
+        onTouchEnd={aoTocarFim}
+        onTouchCancel={aoTocarFim}
+        onDoubleClick={alternarZoom}
       >
-        {paginas.map((src, i) => (
-          <Pagina key={src} src={src} numero={i + 1} total={paginas.length} />
-        ))}
+        {/* Página de baixo — a que está sendo revelada (ou a atual, parada). */}
+        <Folha
+          src={paginas[idxFundo]}
+          numero={idxFundo + 1}
+          total={paginas.length}
+          zoom={zoom && !virada}
+          pan={pan}
+        />
+
+        {/* A folha que gira. Some ao passar dos 90° porque o verso está
+            escondido — é o que revela a página de baixo. */}
+        {virada && idxFolha >= 0 ? (
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            style={{
+              transformOrigin: 'left center',
+              transform: `rotateY(${virada.angulo}deg)`,
+              transition: virada.soltando ? `transform ${DURACAO_VIRADA}ms ease-in-out` : 'none',
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+              willChange: 'transform',
+            }}
+          >
+            <Folha
+              src={paginas[idxFolha]}
+              numero={idxFolha + 1}
+              total={paginas.length}
+              zoom={false}
+              pan={{ x: 0, y: 0 }}
+            />
+            {/* Sombra que escurece a folha conforme ela levanta — é o que
+                dá volume ao movimento em vez de parecer um slide. */}
+            <div
+              className="absolute inset-0"
+              style={{
+                pointerEvents: 'none',
+                background: 'linear-gradient(90deg, rgba(0,0,0,.45), rgba(0,0,0,0) 55%)',
+                opacity: sombra,
+              }}
+            />
+          </div>
+        ) : null}
+
+        {/* Zonas de toque pra virar sem arrastar (e pra quem usa mouse). */}
+        {!zoom ? (
+          <>
+            <button
+              type="button"
+              aria-label="Página anterior"
+              onClick={() => virarPara('tras')}
+              disabled={pagina <= 0}
+              className="absolute top-0 bottom-0 left-0"
+              style={{ width: '22%', background: 'transparent', border: 'none', cursor: 'pointer' }}
+            />
+            <button
+              type="button"
+              aria-label="Próxima página"
+              onClick={() => virarPara('frente')}
+              disabled={pagina >= ultima}
+              className="absolute top-0 bottom-0 right-0"
+              style={{ width: '22%', background: 'transparent', border: 'none', cursor: 'pointer' }}
+            />
+          </>
+        ) : null}
       </div>
 
       <div
@@ -223,7 +395,7 @@ function Leitor({ edicao, onFechar }: { edicao: EdicaoPronta; onFechar: () => vo
             color: '#fff',
           }}
         >
-          {atual + 1} / {paginas.length}
+          {pagina + 1} / {paginas.length}
         </span>
         <button
           type="button"
@@ -251,9 +423,12 @@ function Leitor({ edicao, onFechar }: { edicao: EdicaoPronta; onFechar: () => vo
           bottom: 'calc(10px + env(safe-area-inset-bottom))',
           fontSize: 11,
           color: 'rgba(255,255,255,.6)',
+          pointerEvents: 'none',
         }}
       >
-        Arraste para virar a página · toque duas vezes para aproximar
+        {zoom
+          ? 'Arraste para mover · toque duas vezes para afastar'
+          : 'Arraste para virar a página · toque duas vezes para aproximar'}
       </p>
     </div>
   );
@@ -261,70 +436,36 @@ function Leitor({ edicao, onFechar }: { edicao: EdicaoPronta; onFechar: () => vo
   return createPortal(conteudo, document.body);
 }
 
-function Pagina({ src, numero, total }: { src: string; numero: number; total: number }) {
-  const [zoom, setZoom] = useState(false);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const arrasto = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
-
-  function aoTocarInicio(e: React.TouchEvent) {
-    if (!zoom || e.touches.length !== 1) return;
-    const t = e.touches[0]!;
-    arrasto.current = { x: t.clientX, y: t.clientY, px: pos.x, py: pos.y };
-  }
-
-  function aoTocarMover(e: React.TouchEvent) {
-    const a = arrasto.current;
-    if (!zoom || !a || e.touches.length !== 1) return;
-    const t = e.touches[0]!;
-    // Com zoom o dedo move a PÁGINA; sem isto o gesto viraria troca de
-    // página e não daria pra ler o canto direito de nada.
-    e.stopPropagation();
-    setPos({ x: a.px + (t.clientX - a.x), y: a.py + (t.clientY - a.y) });
-  }
-
-  function aoTocarFim() {
-    arrasto.current = null;
-  }
-
-  function alternarZoom() {
-    setZoom((z) => {
-      if (z) setPos({ x: 0, y: 0 });
-      return !z;
-    });
-  }
-
+function Folha({
+  src,
+  numero,
+  total,
+  zoom,
+  pan,
+}: {
+  src: string | undefined;
+  numero: number;
+  total: number;
+  zoom: boolean;
+  pan: { x: number; y: number };
+}) {
+  if (!src) return null;
   return (
-    <div
-      className="flex items-center justify-center shrink-0"
-      style={{
-        width: '100%',
-        height: '100%',
-        scrollSnapAlign: 'center',
-        scrollSnapStop: 'always',
-        // Com zoom, o trilho não pode roubar o gesto de arrastar a página.
-        touchAction: zoom ? 'none' : 'pan-x',
-        overflow: 'hidden',
-      }}
-      onTouchStart={aoTocarInicio}
-      onTouchMove={aoTocarMover}
-      onTouchEnd={aoTocarFim}
-      onDoubleClick={alternarZoom}
-    >
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={`Página ${numero} de ${total}`}
         width={1483}
         height={1483}
-        loading={numero <= 2 ? 'eager' : 'lazy'}
         draggable={false}
         style={{
           width: '100%',
           height: 'auto',
           maxHeight: '100%',
           objectFit: 'contain',
-          transform: `translate(${pos.x}px, ${pos.y}px) scale(${zoom ? ZOOM : 1})`,
-          transition: arrasto.current ? 'none' : 'transform .18s ease-out',
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom ? ZOOM : 1})`,
+          transition: 'transform .18s ease-out',
           userSelect: 'none',
         }}
       />
