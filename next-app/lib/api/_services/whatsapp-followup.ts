@@ -28,8 +28,10 @@ import { getServiceKey, getSupabaseUrl } from '../security';
 import { isBusinessHour, parseHoursSetting } from './whatsapp-ai';
 // Envio pelo canal ÚNICO (Dualhook/Cloud API) desde 2026-09-05.
 import {
+  escolherTemplate,
   isForaDaJanela24h,
   persistWhatsAppMessage,
+  sendWhatsAppTemplate,
   sendWhatsAppText,
 } from './whatsapp';
 
@@ -364,23 +366,60 @@ export async function runFollowupSweep(opts?: {
         // que ninguém lê. O Baileys não tinha esse limite; a troca de canal
         // trouxe.
         let sent: { messageId: string };
+        let tipo: 'text' | 'template' = 'text';
+        let templateUsado: string | null = null;
+        let corpoRegistrado: string | null = body;
         try {
           sent = await sendWhatsAppText({ to: a.waId, body });
         } catch (e) {
-          if (isForaDaJanela24h(e)) {
+          if (!isForaDaJanela24h(e)) throw e;
+          // Fechada: cai pro template aprovado. Quem decide se dá pra usar
+          // o de variável é `escolherTemplate` — sem nome utilizável ele
+          // devolve o fixo, pra nunca mandar "{{1}}" vazio.
+          //
+          // Deixamos o texto livre TENTAR primeiro em vez de calcular a
+          // janela aqui: quem tem o relógio é a Meta, e uma previsão nossa
+          // baseada no que o webhook gravou pode divergir (mensagem que não
+          // chegou ao banco, relógio diferente). O 131047 é a resposta
+          // autoritativa — usá-la como gatilho custa uma chamada e nunca
+          // erra pro lado de mandar o que não entrega.
+          const escolha = escolherTemplate(nome);
+          try {
+            sent = await sendWhatsAppTemplate({
+              to: a.waId,
+              template: escolha.template,
+              languageCode: 'pt_BR',
+              components: escolha.components,
+            });
+          } catch (e2) {
+            // Nem o template saiu (template removido do painel, cota de
+            // marketing, número inválido). Conta à parte e marca como
+            // tentado — repetir de hora em hora daria o mesmo resultado.
             res.foraDaJanela++;
+            res.erros.push(
+              `${a.kind} ${a.waId}: template ${escolha.template} recusado: ` +
+                (e2 instanceof Error ? e2.message : String(e2)),
+            );
             await marcarFollowup(a.waId, a.kind, now);
             continue;
           }
-          throw e;
+          tipo = 'template';
+          templateUsado = escolha.template;
+          // Guarda o que a pessoa REALMENTE recebeu, não o texto livre que
+          // não saiu — senão o histórico do portal mente sobre o que foi
+          // enviado.
+          corpoRegistrado = escolha.nome
+            ? `[template ${escolha.template}] {{1}}=${escolha.nome}`
+            : `[template ${escolha.template}]`;
         }
         await persistWhatsAppMessage({
           origin: 'ia',
           direction: 'out',
           waId: a.waId,
           messageId: sent.messageId,
-          type: 'text',
-          body,
+          type: tipo,
+          body: corpoRegistrado,
+          template: templateUsado ?? undefined,
         });
         if (a.kind === 'cobranca') {
           await fetch(rest(`portal_alerts?id=eq.${encodeURIComponent(a.alertId)}`), {

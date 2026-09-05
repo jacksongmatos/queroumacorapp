@@ -14,6 +14,10 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  escolherTemplate as escolherNoServidor,
+  TEMPLATE_SEM_NOME,
+} from '@/lib/api/_services/whatsapp';
 
 interface MsgFake {
   direction: 'in' | 'out';
@@ -119,5 +123,69 @@ describe('janela de 24h (portal)', () => {
     expect(restanteDaJanela([entrada(23.5)])).toBe('30min');
     expect(restanteDaJanela([entrada(25)])).toBeNull();
     expect(restanteDaJanela([])).toBeNull();
+  });
+});
+
+// ── A regra do template tem que ser a MESMA nos dois lados ───────────────
+// O portal decide o que mandar quando o operador clica; o servidor decide
+// sozinho no follow-up automático. Se as duas divergirem, um dos caminhos
+// acaba mandando `{{1}}` vazio — e o cliente recebe "Oi ,".
+
+let escolherNoPortal: (
+  nome: string | null | undefined,
+  preferido?: string
+) => { template: string; nome: string | null; components?: unknown[] };
+
+describe('escolha de template: portal e servidor concordam', () => {
+  beforeAll(() => {
+    const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = src.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = src.indexOf('// Texto pra MOSTRAR na tela');
+    expect(inicio).toBeGreaterThan(-1);
+    expect(fim).toBeGreaterThan(inicio);
+    const fabrica = new Function(
+      `${src.slice(inicio, fim)}; return escolherTemplate;`
+    ) as () => typeof escolherNoPortal;
+    escolherNoPortal = fabrica();
+  });
+
+  const CASOS: Array<string | null | undefined> = [
+    'Beatris Porsebon',
+    'João da Silva',
+    'Ângela',
+    '',
+    '   ',
+    null,
+    undefined,
+    '11987654321',
+    '(11) 98765-4321',
+    'J Silva',
+  ];
+
+  it('escolhem o mesmo template pros mesmos nomes', () => {
+    for (const nome of CASOS) {
+      expect(
+        { caso: nome, template: escolherNoPortal(nome).template },
+        `divergiu em ${JSON.stringify(nome)}`
+      ).toEqual({ caso: nome, template: escolherNoServidor(nome).template });
+    }
+  });
+
+  it('extraem o mesmo primeiro nome', () => {
+    for (const nome of CASOS) {
+      expect(escolherNoPortal(nome).nome).toBe(escolherNoServidor(nome).nome);
+    }
+  });
+
+  // O erro que a regra existe pra impedir, verificado dos dois lados.
+  it('nenhum dos dois manda {{1}} vazio', () => {
+    for (const nome of ['', '   ', null, undefined, '11987654321']) {
+      const p = escolherNoPortal(nome);
+      const sv = escolherNoServidor(nome);
+      expect(p.template).toBe(TEMPLATE_SEM_NOME);
+      expect(sv.template).toBe(TEMPLATE_SEM_NOME);
+      expect(p.components).toBeUndefined();
+      expect(sv.components).toBeUndefined();
+    }
   });
 });

@@ -1628,6 +1628,35 @@
       onde número estrangeiro aparece de verdade (a planilha tinha um).
       Corrigido pra `normalizeWhatsAppTarget`, com teste que falha sem o fix.
       A função **não tinha teste nenhum** até aqui.
+  - **TEMPLATE COM NOME + MODAL DE CONTATOS (2026-09-05).** Dois templates
+    aprovados (Marketing, pt_BR): `calicolors` (fixo) e `calicolors_nome`
+    (`{{1}}` = primeiro nome, **padrão**). Env
+    `WHATSAPP_TEMPLATE_ABORDAGEM` sobrescreve o de variável.
+    - **REGRA: nunca mandar `{{1}}` vazio.** Faria a Meta entregar "Oi ,"
+      ou recusar. `escolherTemplate(nome)` decide: nome utilizável → o de
+      variável; senão → o fixo. `primeiroNome` recusa vazio, **telefone no
+      lugar do nome** (a base importada tem lead assim) e inicial solta.
+    - **A MESMA regra existe nos DOIS lados** — `lib/api/_services/
+      whatsapp.ts` (follow-up automático) e no portal. Um teste roda os dois
+      contra a mesma lista de casos e falha se divergirem; sem ele, um dos
+      caminhos acabaria mandando nome vazio.
+    - **Follow-up:** tenta texto livre e, no 131047, cai pro template. O
+      gatilho é a resposta da Meta, não uma previsão nossa — quem tem o
+      relógio da janela é ela, e o banco pode não ter registrado alguma
+      mensagem. Grava `type='template'` + nome + parâmetro no histórico.
+    - **132001** (template inexistente/não aprovado) vira 422 com texto
+      acionável, apontando pro painel do Dualhook — o detalhe da Meta é
+      genérico e manda procurar no lugar errado.
+    - **`prompt()` do Chrome saiu do "+ Nova conversa".** Virou modal do
+      portal com busca nos contatos que a loja já conhece (leads + perfis
+      com telefone), validação do número à vista e campo de nome. **Contato
+      novo é salvo em `leads`** (`source='portal'`) de propósito: tabela
+      nova exigiria SQL e criaria duas listas de contato pra manter em
+      sincronia. Os `prompt()` das abas de Pessoas continuam lá — outro
+      fluxo, não foi tocado.
+    - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
+      não tem espelho: a prévia diz que o texto vive no painel, em vez de
+      inventar um diferente do que a pessoa recebe.
   - **Aquecimento da Evolution REMOVIDO do portal (2026-09-05).** A tela de
     WhatsApp e a abordagem de lead cutucavam
     `https://evolution-api-8arv.onrender.com` antes de cada envio — ao
