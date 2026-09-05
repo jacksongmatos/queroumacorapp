@@ -133,6 +133,13 @@ export const PROFILE_TOUR_STEPS: ReadonlyArray<TourStep> = [
     text: 'Monte um catálogo das suas obras pra quem quiser comprar ver tudo num lugar só.',
   },
   {
+    id: 'p-click-rua',
+    selector: '[data-tour="tile-click-rua"]',
+    emoji: '📖',
+    title: 'Click Rua',
+    text: 'A revista Click Rua, de graffiti do Brasil inteiro, pra ler aqui dentro. Toque numa edição e arraste pra virar a página.',
+  },
+  {
     id: 'p-avaliar',
     selector: '[data-tour="tile-avaliar"]',
     emoji: '⭐',
@@ -182,6 +189,13 @@ export const PROFILE_TOUR_STEPS: ReadonlyArray<TourStep> = [
     emoji: '🧮',
     title: 'Calculadora',
     text: 'Diga o tamanho da parede e ela calcula quantos litros de tinta você vai precisar.',
+  },
+  {
+    id: 'p-tabela-precos',
+    selector: '[data-tour="tile-tabela-precos"]',
+    emoji: '📊',
+    title: 'Tabela de Preços',
+    text: 'A tabela da ABRAPP com o preço sugerido de cada serviço de pintura. Diz o mínimo, o médio e o máximo pra você não cobrar menos do que vale.',
   },
   {
     id: 'p-agenda',

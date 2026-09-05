@@ -11,6 +11,73 @@
   neste arquivo são **registro histórico** de incidentes já resolvidos — servem
   pra entender o passado, nunca pra orientar o presente.
 
+- **REVISTA CLICK RUA — tile só pra GRAFITEIRO (2026-09-05).** Banca da
+  revista digital de graffiti dentro do app: tile **Click Rua** em
+  `ROLE_TILES` (`roles: ['grafiteiro']`, admin vê como em todos), abre uma
+  grade de edições; a #01 (setembro/2020, 8 páginas, B.Girl LU BSB) está
+  pronta e as outras 5 aparecem como "Em breve". Rota `/click-rua`.
+  - **As páginas são ARQUIVO ESTÁTICO, não banco** (`public/click-rua/edNN/
+    N.webp`): ninguém consulta, filtra ou edita página de revista, e edição
+    nova já vem com commit (o catálogo em `lib/clickRua.ts` muda junto).
+    Bucket no Supabase só acrescentaria upload manual e URL assinada pra
+    expirar. **Edição nova = converter PNG→WebP com sharp (qualidade 82: os
+    16 MB da #01 viraram 1,1 MB), gerar a capa reduzida e trocar `em_breve`
+    por `pronta` no catálogo.** `__tests__/clickRua.test.ts` confere no disco
+    que toda página anunciada existe — catálogo escrito à mão que promete 8
+    páginas e entrega 7 vira tela branca no celular de alguém.
+  - **O leitor é TELA CHEIA (portal no body, z-[400]), não continua no
+    bottom-sheet**: a página é quadrada e cheia de texto e, dentro do sheet,
+    nasceria com metade da largura útil. Mesmo tratamento do `StoryViewer`,
+    inclusive o truque do histórico pro botão VOLTAR do Android fechar.
+    Tem zoom (toque duplo 1x/2,5x + arrastar) porque página de entrevista a
+    1483px encolhida pra 390px é ilegível.
+  - **Gradiente novo `revista`** (laranja+preto da Click Rua) no
+    `BusinessCard`. **NÃO reaproveitar `graf`**: aquele valor dá o gradiente
+    certo e o ícone ERRADO — faz o card desenhar a foto da Fê no lugar do
+    emoji.
+  - **O logo em `public/click-rua/logo.webp` foi RECORTADO DA CAPA** da #01 —
+    o zip trazia só as 8 páginas. Se aparecer o arquivo original do logo, é
+    só trocar esse WebP; nada mais referencia o recorte.
+
+- **TABELA DE PREÇOS DA ABRAPP 2026 — tile novo + SQL PENDENTE (2026-09-05).**
+  O PDF da ABRAPP ("Sugestão de Preços de Pintura 2026", 26 folhas) virou
+  ferramenta no app: tile **Tabela de Preços** no `BusinessGrid`, ao lado da
+  Calculadora (uma calcula material, a outra o preço da mão de obra), **visível
+  só pra `role='pintor'`** (e admin) — a tabela é de mão de obra de PINTURA.
+  O gate fica no filtro `visibleTiles`, junto com o das personas de IA, e NÃO
+  em `ROLE_TILES`: aquele array renderiza antes de tudo e jogaria o tile pro
+  topo da tela, longe da Calculadora. Com
+  busca, filtro por categoria e por altura, faixas mín/média/máx e uma
+  calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
+  - **SQL JÁ EXECUTADO no Supabase (2026-09-05, informado pelo usuário) — as
+    duas migrations** (`/migrations/2026-09-05-tabela-precos-abrapp.sql`,
+    schema, e `...-dados.sql`, 328 itens). **Não pedir pra rodar de novo.**
+    Duas linhas novas em `/migrations/2026-09-05-conferencia-pendencias.sql`
+    conferem isso no banco (contagem 328 e `altura` preenchida em 213 linhas)
+    — conferir por lá antes de afirmar qualquer coisa, nos dois sentidos.
+    O `UPDATE` de `altura` é o último statement do arquivo e é o fácil de
+    pular: sem ele nada quebra, o filtro de altura da tela só para de
+    filtrar, **em silêncio**. Cada bloco do arquivo de dados é uma folha e é
+    **idempotente** (upsert por `(edicao, sheet_no, sort_order)`): repetir não
+    duplica, e corrigir um valor no arquivo e rodar de novo ATUALIZA a linha.
+  - **O PDF é IMAGEM PURA** (print-to-PDF do CorelDRAW, sem camada de texto):
+    os 328 itens foram transcritos à mão a partir de recortes em 300 dpi das
+    colunas de preço. Por isso existe
+    `__tests__/priceTableData.test.ts`, que lê o arquivo de migration e trava
+    estrutura, vocabulário de unidade e **mínimo ≤ média ≤ máximo** em toda
+    linha — erro de transcrição não quebra build, vira preço errado no
+    orçamento de um cliente.
+  - **Nada de dado embutido no bundle**: o banco é fonte única, então a loja
+    corrige um valor com UPDATE, sem deploy. O texto editorial (folhas 20-25:
+    as 13 variáveis, "tabela do jeitinho") é que fica em código
+    (`lib/priceTableGuide.ts`) — é editorial, não muda de ano em ano e
+    ninguém consulta em cima dele.
+  - **Fidelidade ao impresso é regra**: erro de digitação do PDF fica
+    ("Econônico", "chapisto", "Fléxivel"), linha zerada da folha 13 vira "sem
+    valor publicado" na tela em vez de "R$ 0,00", e as descrições cortadas da
+    folha 12/19 NÃO foram completadas por dedução. As colunas `grupo`/`tipo`
+    trazem os termos escritos certo, então a busca acha mesmo assim.
+
 - **A LISTA DE "SQL PENDENTE" DESTE ARQUIVO NÃO É EVIDÊNCIA (2026-09-05).**
   Conferido contra o banco: das quatro migrations marcadas como pendentes,
   **três já tinham sido rodadas** (Wave 41 `exports` + policies, Wave 53
