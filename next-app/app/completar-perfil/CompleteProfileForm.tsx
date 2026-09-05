@@ -13,18 +13,19 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { checkTagAvailability } from '@/lib/services/signup';
-import { tagSchema, calculateAge, MIN_AGE } from '@/lib/schemas';
+import {
+  tagSchema,
+  calculateAge,
+  MIN_AGE,
+  limparNome,
+  limparTag,
+  sugerirTagDeNome,
+  mascararDataBR,
+  dataBRParaISO,
+} from '@/lib/schemas';
 import type { UserRole } from '@/lib/types';
 // Mesma regra usada pelo guard do AppShell — uma definição só de "completo".
 import { isProfileComplete } from '@/lib/profileCompletion';
-
-// Limite superior do date picker: hoje − MIN_AGE anos (UX; a validação real é
-// no submit via calculateAge).
-const MAX_BIRTH_ISO = (() => {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - MIN_AGE);
-  return d.toISOString().slice(0, 10);
-})();
 
 interface RoleOption {
   value: UserRole;
@@ -51,6 +52,10 @@ export function CompleteProfileForm() {
   const [city, setCity] = useState('');
   const [uf, setUf] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  // Texto na tela (DD/MM/AAAA); `birthDate` segue guardando ISO.
+  const [dataTexto, setDataTexto] = useState('');
+  // Sugestão de @ só enquanto a pessoa não mexeu no campo.
+  const [tagTocada, setTagTocada] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkingTag, setCheckingTag] = useState(false);
 
@@ -212,10 +217,15 @@ export function CompleteProfileForm() {
           id="cp-name"
           type="text"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          // Só letras: número e símbolo não chegam a aparecer. Mesma regra do
+          // cadastro por email (personNameSchema).
+          onChange={(e) => setName(limparNome(e.target.value))}
           placeholder="Seu nome"
           className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
         />
+        <p className="text-xs text-[color:var(--color-muted)] mt-1">
+          Só letras — sem números ou símbolos.
+        </p>
       </div>
 
       {/* @tag */}
@@ -231,16 +241,32 @@ export function CompleteProfileForm() {
             id="cp-tag"
             type="text"
             value={tag}
-            onChange={(e) => setTag(e.target.value.replace(/^@+/, '').toLowerCase())}
-            placeholder="seu_nome"
+            onChange={(e) => {
+              setTagTocada(true);
+              setTag(limparTag(e.target.value));
+            }}
+            placeholder="seunomedeusuario"
             autoCapitalize="none"
             autoCorrect="off"
             className="w-full pl-8 pr-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
           />
         </div>
         <p className="text-xs text-[color:var(--color-muted)] mt-1">
-          Letras minúsculas, números e _ (3 a 24 caracteres). Não pode ser alterado depois.
+          Só letras — sem espaço, número ou símbolo (3 a 24). Não pode ser
+          alterado depois.
         </p>
+        {!tagTocada && !tag && sugerirTagDeNome(name) && (
+          <button
+            type="button"
+            onClick={() => {
+              setTagTocada(true);
+              setTag(sugerirTagDeNome(name));
+            }}
+            className="text-xs mt-1 font-semibold text-[color:var(--color-p1)] underline underline-offset-2"
+          >
+            Usar @{sugerirTagDeNome(name)}
+          </button>
+        )}
       </div>
 
       {/* Data de nascimento (obrigatória — age gate 18+, igual ao cadastro
@@ -249,13 +275,22 @@ export function CompleteProfileForm() {
         <label htmlFor="cp-birth" className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]">
           Data de nascimento
         </label>
+        {/* TEXTO com máscara, não seletor nativo: escolher o ano de
+            nascimento rolando décadas é o que travava o cadastro no celular.
+            `birthDate` continua em ISO — data incompleta ou inexistente
+            (31/02) vira '', e o gate de idade barra. */}
         <input
           id="cp-birth"
-          type="date"
-          value={birthDate}
-          max={MAX_BIRTH_ISO}
-          min="1920-01-01"
-          onChange={(e) => setBirthDate(e.target.value)}
+          type="text"
+          inputMode="numeric"
+          placeholder="DD/MM/AAAA"
+          maxLength={10}
+          value={dataTexto}
+          onChange={(e) => {
+            const texto = mascararDataBR(e.target.value);
+            setDataTexto(texto);
+            setBirthDate(dataBRParaISO(texto));
+          }}
           className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
         />
         <p className="text-xs text-[color:var(--color-muted)] mt-1">

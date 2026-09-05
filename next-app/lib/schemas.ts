@@ -209,26 +209,65 @@ export const cnpjSchema = z
 // tag === handle. a-z 0-9 _, 3..24 chars. Normaliza pra lowercase.
 // No CLAUDE.md: profiles.tag e profiles.username são sinônimos sincronizados
 // (trigger BEFORE INSERT/UPDATE no Supabase).
+// SÓ LETRAS (2026-09-05, decisão do usuário): sem espaço, sem número, sem
+// símbolo. Antes aceitava `[a-z0-9_]`.
+//
+// Só afeta quem ESTÁ ESCOLHENDO uma tag agora — `tagSchema` é usado apenas
+// no cadastro e no /completar-perfil. Tag já gravada não é revalidada em
+// lugar nenhum (o /perfil/editar mostra a tag como readonly), então nenhum
+// usuário antigo com número ou `_` na tag é afetado. O portal admin
+// (`_services/admin-users.setTag`) segue aceitando `[a-z0-9_]` DE PROPÓSITO:
+// é o caminho que conserta tag legada, e precisa poder reescrever o que já
+// existe.
+export const TAG_MIN = 3;
+export const TAG_MAX = 24;
+
 export const tagSchema = z
   .string({ invalid_type_error: 'Tag inválida' })
   .trim()
   .min(1, 'Informe o @')
   .transform((v) => v.toLowerCase())
   .superRefine((v, ctx) => {
-    if (v.length < 3 || v.length > 24) {
+    if (v.length < TAG_MIN || v.length > TAG_MAX) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'O @ deve ter entre 3 e 24 caracteres',
+        message: `O @ deve ter entre ${TAG_MIN} e ${TAG_MAX} letras`,
       });
       return;
     }
-    if (!/^[a-z0-9_]+$/.test(v)) {
+    if (!/^[a-z]+$/.test(v)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Use só letras minúsculas, números e _',
+        message: 'Use só letras — sem espaço, número ou símbolo',
       });
     }
   });
+
+/** Tira acento sem depender de tabela: NFD separa a letra do diacrítico. */
+function semAcento(v: string): string {
+  return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Deixa no texto SÓ o que pode virar tag: letras minúsculas, sem acento.
+ * Usado no `onChange` do campo pra a pessoa não conseguir digitar o que a
+ * validação vai recusar depois — recusar no submit ensina menos que impedir
+ * na hora.
+ */
+export function limparTag(bruto: string): string {
+  return semAcento(bruto).toLowerCase().replace(/[^a-z]/g, '').slice(0, TAG_MAX);
+}
+
+/**
+ * Sugere uma @tag a partir do nome. "José da Silva Ávila" → "josedasilva".
+ * Devolve '' quando o nome não rende o mínimo de letras — sugestão curta
+ * demais seria recusada pelo próprio schema, e oferecer algo inválido é pior
+ * que não oferecer nada.
+ */
+export function sugerirTagDeNome(nome: string): string {
+  const t = limparTag(nome || '');
+  return t.length >= TAG_MIN ? t : '';
+}
 
 export const urlSchema = z
   .string({ invalid_type_error: 'URL inválida' })
@@ -308,6 +347,69 @@ export function calculateAge(birthISO: string): number {
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
   return age;
+}
+
+// ─── nome de pessoa ─────────────────────────────────────────────────────────
+//
+// SÓ LETRAS (2026-09-05, decisão do usuário): sem número, sem símbolo.
+//
+// "Letras" aqui é `\p{L}` (Unicode), NÃO `[a-zA-Z]` — nome brasileiro tem
+// acento e ç, e um filtro ASCII recusaria "Conceição" e "Ávila". Espaço,
+// hífen e apóstrofo passam porque são parte de nome real ("Maria José",
+// "Jean-Pierre", "D'Ávila"); o que sai é dígito, @, #, emoji e afins.
+const RE_NOME = /^\p{L}[\p{L}\s'’-]*$/u;
+
+/** Tira do texto o que não pode aparecer num nome. Usado no onChange. */
+export function limparNome(bruto: string): string {
+  return (bruto || '').replace(/[^\p{L}\s'’-]/gu, '');
+}
+
+export const personNameSchema = requiredField('seu nome')
+  .refine((v) => !v.includes('@'), { message: 'Não use o email como nome' })
+  .refine((v) => RE_NOME.test(v), {
+    message: 'Use só letras — sem números ou símbolos',
+  });
+
+// ─── data de nascimento digitável ───────────────────────────────────────────
+//
+// O campo era `<input type="date">`: no celular abre o seletor nativo, e
+// escolher o ANO exige rolar décadas — quem nasceu em 1975 rola meio século.
+// Agora é texto com máscara `DD/MM/AAAA`, digitável direto.
+
+/** Formata enquanto digita: só dígitos, barras entram sozinhas. */
+export function mascararDataBR(bruto: string): string {
+  const d = (bruto || '').replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+}
+
+/**
+ * "DD/MM/AAAA" → "AAAA-MM-DD". Devolve '' se ainda não está completa ou se a
+ * data não existe (31/02, mês 13). A checagem de volta pelo `Date` é o que
+ * pega dia inexistente: o JS transborda 31/02 pra 03/03 em silêncio.
+ */
+export function dataBRParaISO(br: string): string {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((br || '').trim());
+  if (!m) return '';
+  const [, dd, mm, aaaa] = m;
+  const iso = `${aaaa}-${mm}-${dd}`;
+  const d = new Date(`${iso}T00:00:00`);
+  if (isNaN(d.getTime())) return '';
+  if (
+    d.getFullYear() !== Number(aaaa) ||
+    d.getMonth() + 1 !== Number(mm) ||
+    d.getDate() !== Number(dd)
+  ) {
+    return '';
+  }
+  return iso;
+}
+
+/** "AAAA-MM-DD" → "DD/MM/AAAA". Pra repopular o campo ao voltar um passo. */
+export function isoParaDataBR(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso || '').trim());
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
 // Schema pra data de nascimento obrigatória com gate >= MIN_AGE.
