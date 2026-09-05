@@ -1,60 +1,18 @@
-// app/api/whatsapp-evo/followup/route.ts — dispara a VARREDURA DE
-// FOLLOW-UP (ver lib/api/_services/whatsapp-followup.ts).
+// app/api/whatsapp-evo/followup/route.ts — ALIAS da rota atual.
 //
-// Dois chamadores, duas autenticações:
+// A varredura de follow-up mudou de endereço pra `/api/whatsapp/followup`:
+// o prefixo `whatsapp-evo` é do tempo da Evolution API, aposentada em
+// 2026-09-05. Este arquivo fica no ar delegando pra lá porque
+// `app_settings.whatsapp_followup_url` (lido pelo pg_cron) ainda pode estar
+// apontando pra este caminho — apagar a rota antes de trocar a configuração
+// deixaria o follow-up sem chamador nenhum.
 //
-//   1. pg_cron do Supabase, de hora em hora, via pg_net:
-//        POST /api/whatsapp-evo/followup?token=<EVOLUTION_WEBHOOK_TOKEN>
-//      Mesmo segredo do webhook (a Evolution também não assina nada) —
-//      um env a menos pra configurar no Cloudflare.
-//
-//   2. O portal, no botão "🔁 Follow-up agora", com o token do admin no
-//      corpo. Aceita `dryRun` pra ver o que ACONTECERIA sem enviar nada.
-//
-// Sempre 200 pro cron (o resultado vem no corpo): erro aqui não pode
-// virar retry em cascata no banco.
+// Pode ser removido depois que o SQL de `/migrations/
+// 2026-09-05-followup-url.sql` tiver rodado e a varredura estiver saindo
+// pelo endereço novo.
 
-import { type NextRequest } from 'next/server';
-import { getRuntimeEnv } from '@/lib/api/env';
-import {
-  getToken,
-  isAdminEmail,
-  jsonResponse,
-  readBody,
-  ServiceError,
-  serviceErrorResponse,
-} from '@/lib/api/security';
-import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
-import { runFollowupSweep } from '@/lib/api/_services/whatsapp-followup';
-
+// `runtime` PRECISA ser declarado literalmente: o Next nao reconhece o
+// campo quando ele e re-exportado de outro arquivo (o build avisa e usa o
+// default), e esta rota tem que rodar no edge como a nova.
 export const runtime = 'edge';
-
-export async function POST(request: NextRequest) {
-  let body: { accessToken?: unknown; dryRun?: unknown } = {};
-  try {
-    body = ((await readBody(request, { maxBytes: 8 * 1024 })) || {}) as typeof body;
-  } catch {
-    body = {}; // cron manda corpo vazio
-  }
-
-  // Caminho 1: segredo na URL (cron do banco).
-  const expected = getRuntimeEnv('EVOLUTION_WEBHOOK_TOKEN') || '';
-  const provided = request.nextUrl.searchParams.get('token') || '';
-  const viaToken = Boolean(expected) && provided === expected;
-
-  if (!viaToken) {
-    // Caminho 2: admin do portal.
-    try {
-      const token = getToken(request, body);
-      const { callerId, email } = await verifyAdminToken(token);
-      if (!callerId) throw new ServiceError('token inválido', 401);
-      if (!isAdminEmail(email)) throw new ServiceError('não autorizado (email não admin)', 403);
-    } catch (e) {
-      if (e instanceof ServiceError) return serviceErrorResponse(e);
-      return jsonResponse({ error: 'não autorizado' }, 401);
-    }
-  }
-
-  const result = await runFollowupSweep({ dryRun: body?.dryRun === true });
-  return jsonResponse(result);
-}
+export { POST } from '@/app/api/whatsapp/followup/route';

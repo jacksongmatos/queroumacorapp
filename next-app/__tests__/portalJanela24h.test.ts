@@ -136,6 +136,8 @@ describe('janela de 24h (portal)', () => {
 // sozinho no follow-up automático. Se as duas divergirem, um dos caminhos
 // acaba mandando `{{1}}` vazio — e o cliente recebe "Oi ,".
 
+let avisoMarketingEUA: (waId: string, cat: string) => string | null;
+let ehNumeroEUA: (waId: string) => boolean;
 let escolherNoPortal: (
   nome: string | null | undefined,
   preferido?: string
@@ -244,6 +246,89 @@ describe('marcadores de extração do portal', () => {
   });
 });
 
+// ── Marketing para número dos EUA ────────────────────────────────────────
+// A Meta NÃO entrega template de categoria Marketing para número dos EUA: o
+// envio é aceito e o status volta `failed` (131049). Foi o que aconteceu com
+// 5 disparos em 2026-09-05 — o portal registrou tudo certo e o cliente nunca
+// recebeu. Sem o aviso, o operador repete achando que foi falha de rede.
+
+describe('aviso de marketing para número dos EUA', () => {
+  // beforeAll PRÓPRIO: um `beforeAll` dentro de outro describe não vale
+  // aqui. Esqueci disso na 1ª versão e os cinco testes falharam com
+  // "ehNumeroEUA is not defined" — o que, ao menos, falha alto.
+  beforeAll(() => {
+    const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = src.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = src.indexOf('// [teste:template-fim]');
+    const fabrica = new Function(
+      `${src.slice(inicio, fim)}; return { avisoMarketingEUA, ehNumeroEUA };`
+    ) as () => {
+      avisoMarketingEUA: typeof avisoMarketingEUA;
+      ehNumeroEUA: typeof ehNumeroEUA;
+    };
+    ({ avisoMarketingEUA, ehNumeroEUA } = fabrica());
+  });
+
+  it('reconhece número dos EUA (DDI 1, 11 dígitos)', () => {
+    expect(ehNumeroEUA('16502701234')).toBe(true);
+    expect(ehNumeroEUA('+1 (650) 270-1234')).toBe(true);
+  });
+
+  it('número brasileiro não é confundido', () => {
+    // 5511987654321 tem 13 dígitos e começa com 55.
+    expect(ehNumeroEUA('5511987654321')).toBe(false);
+    expect(ehNumeroEUA('551139876543')).toBe(false);
+    // 11 dígitos mas começando com 5 (celular BR sem DDI) também não.
+    expect(ehNumeroEUA('11987654321')).toBe(false);
+  });
+
+  it('avisa em Marketing + EUA', () => {
+    const a = avisoMarketingEUA('16502701234', 'MARKETING');
+    expect(a).toContain('marketing');
+    expect(a).toContain('Utility');
+  });
+
+  it('não avisa em Utility, nem em número brasileiro', () => {
+    expect(avisoMarketingEUA('16502701234', 'UTILITY')).toBeNull();
+    expect(avisoMarketingEUA('5511987654321', 'MARKETING')).toBeNull();
+    expect(avisoMarketingEUA('', 'MARKETING')).toBeNull();
+  });
+
+  it('categoria em minúscula também conta', () => {
+    expect(avisoMarketingEUA('16502701234', 'marketing')).not.toBeNull();
+  });
+});
+
+// ── Envio bloqueado com variável vazia ───────────────────────────────────
+// A regra "nunca mandar {{1}} vazio" agora vale pra QUALQUER variável: um
+// template Utility com {{2}} = nº do orçamento não pode sair com o número
+// em branco. A trava é a mesma no componente (botão desabilitado) e aqui
+// se descreve o predicado que ele usa.
+
+describe('bloqueio de envio com variável vazia', () => {
+  // Espelha `faltando` do <EnvioDeTemplate>.
+  const faltando = (vars: number[], valores: Record<number, string>) =>
+    vars.filter((i) => !String(valores[i] || '').trim());
+
+  it('todas preenchidas → libera', () => {
+    expect(faltando([1, 2], { 1: 'Bianca', 2: '1042' })).toEqual([]);
+  });
+
+  it('qualquer uma vazia → bloqueia, e diz qual', () => {
+    expect(faltando([1, 2], { 1: 'Bianca', 2: '' })).toEqual([2]);
+    expect(faltando([1, 2], { 1: '', 2: '1042' })).toEqual([1]);
+    expect(faltando([1, 2], {})).toEqual([1, 2]);
+  });
+
+  it('só espaço não conta como preenchida', () => {
+    expect(faltando([1], { 1: '   ' })).toEqual([1]);
+  });
+
+  it('template sem variável nunca bloqueia', () => {
+    expect(faltando([], {})).toEqual([]);
+  });
+});
+
 // ── Registro de template: gravar e ler tem que fechar ────────────────────
 // Mensagem de template não viaja com corpo — quem guarda o texto é a Meta.
 // O portal grava um REGISTRO no `body` (`[template x] {{1}}=Fulano`) pra o
@@ -253,6 +338,25 @@ describe('marcadores de extração do portal', () => {
 // `body` passou a ser preenchido e ganhou do espelho na renderização.
 
 describe('registro de template: ida e volta', () => {
+  // beforeAll próprio (ver o describe do aviso de marketing): um
+  // `beforeAll` de outro describe não vale aqui.
+  beforeAll(() => {
+    const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = src.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = src.indexOf('// [teste:template-fim]');
+    const fabrica = new Function(
+      `${src.slice(inicio, fim)}; return { escolherTemplate, registroDeTemplate, parseRegistroTemplate };`
+    ) as () => {
+      escolherTemplate: typeof escolherNoPortal;
+      registroDeTemplate: typeof registroDeTemplate;
+      parseRegistroTemplate: typeof parseRegistroTemplate;
+    };
+    const mod = fabrica();
+    escolherNoPortal = mod.escolherTemplate;
+    registroDeTemplate = mod.registroDeTemplate;
+    parseRegistroTemplate = mod.parseRegistroTemplate;
+  });
+
   it('lê de volta o que grava, com nome', () => {
     const escolha = escolherNoPortal('Bianca Aparecida');
     const registro = registroDeTemplate(escolha);
