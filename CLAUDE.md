@@ -25,12 +25,24 @@
     por `pronta` no catálogo.** `__tests__/clickRua.test.ts` confere no disco
     que toda página anunciada existe — catálogo escrito à mão que promete 8
     páginas e entrega 7 vira tela branca no celular de alguém.
-  - **O leitor é TELA CHEIA (portal no body, z-[400]), não continua no
-    bottom-sheet**: a página é quadrada e cheia de texto e, dentro do sheet,
-    nasceria com metade da largura útil. Mesmo tratamento do `StoryViewer`,
-    inclusive o truque do histórico pro botão VOLTAR do Android fechar.
-    Tem zoom (toque duplo 1x/2,5x + arrastar) porque página de entrevista a
-    1483px encolhida pra 390px é ilegível.
+  - **O leitor é TELA CHEIA (portal no body), não continua no bottom-sheet**:
+    a página é quadrada e cheia de texto e, dentro do sheet, nasceria com
+    metade da largura útil. Truque do histórico do `StoryViewer` pro botão
+    VOLTAR do Android fechar. Tem zoom (toque duplo 1x/2,5x + arrastar)
+    porque página de entrevista a 1483px encolhida pra 390px é ilegível.
+    - **z-[1100], NÃO z-[400].** Copiei o z-index do `StoryViewer` e o leitor
+      abriu ATRÁS do sheet — o `BottomSheet` é **z-[1000]**, e este leitor é
+      aberto de dentro dele (o story não é). No desktop dava pra ver o leitor
+      no fundo; no celular o sheet cobre a tela toda e parecia que o toque
+      não fazia nada. **Overlay aberto de dentro de um sheet tem que passar
+      de 1000.**
+    - **A virada é uma FOLHA girando na lombada** (`transformOrigin: left`,
+      rotateY 0 → -180, `backfaceVisibility: hidden` pra sumir aos 90° e
+      revelar a de baixo), não scroll-snap horizontal. Acompanha o dedo e, ao
+      soltar, completa ou desiste conforme passou da metade. A conta vive em
+      `lib/clickRua.ts` (`anguloDaVirada`/`confirmaVirada`) e é testada —
+      inclusive a trava dos extremos, sem a qual arrastar demais faz a página
+      reaparecer girando ao contrário.
   - **Gradiente novo `revista`** (laranja+preto da Click Rua) no
     `BusinessCard`. **NÃO reaproveitar `graf`**: aquele valor dá o gradiente
     certo e o ícone ERRADO — faz o card desenhar a foto da Fê no lugar do
