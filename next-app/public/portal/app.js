@@ -6011,6 +6011,11 @@ const AbordagemModal = ({
   // nunca escreveu. 'livre' = texto personalizado, so vale com a janela de
   // 24h aberta (ou seja, depois que a pessoa respondeu).
   const [modo, setModo] = useState('template');
+  // Template escolhido no dropdown. `escolherTemplate` ainda decide por
+  // cima: se o lead nao tem nome utilizavel, o de variavel nao serve e cai
+  // no fixo — a escolha do operador nao pode mandar "Oi ,".
+  const [templateEscolhido, setTemplateEscolhido] = useState(TEMPLATE_COM_NOME);
+  const templateEfetivo = escolherTemplate(lead.name, templateEscolhido).template;
   const pitch = pitchDoLead(lead);
   const alvo = normalizeLeadPhone(lead.phone);
   const linha = tipoDeLinha(lead.phone);
@@ -6068,7 +6073,7 @@ const AbordagemModal = ({
       // No modo template o corpo NAO viaja: quem tem o texto e a Meta. Mandar
       // `body` junto so encheria o historico com um texto que nao foi o
       // enviado.
-      const escolha = escolherTemplate(lead.name);
+      const escolha = escolherTemplate(lead.name, templateEscolhido);
       const carga = modo === 'template' ? {
         to: alvo,
         type: 'template',
@@ -6231,8 +6236,45 @@ const AbordagemModal = ({
     style: {
       color: C.ink
     }
-  }, "responder"), ", abrem 24h pra falar livremente \u2014 a\xED a aba WhatsApp (ou o \"Texto livre\" aqui) vale."), /*#__PURE__*/React.createElement(PreviaTemplate, {
-    nomeTemplate: escolherTemplate(lead.name).template,
+  }, "responder"), ", abrem 24h pra falar livremente \u2014 a\xED a aba WhatsApp (ou o \"Texto livre\" aqui) vale."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 10,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: "lead-template",
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink
+    }
+  }, "Template:"), /*#__PURE__*/React.createElement("select", {
+    id: "lead-template",
+    value: templateEfetivo,
+    onChange: e => setTemplateEscolhido(e.target.value),
+    style: {
+      flex: '1 1 240px',
+      padding: '8px 10px',
+      borderRadius: 10,
+      fontSize: 13,
+      border: '1.5px solid ' + C.border,
+      background: '#fff',
+      color: C.ink,
+      outline: 'none',
+      cursor: 'pointer'
+    }
+  }, TEMPLATES_APROVADOS.map(t => {
+    const falta = t.precisaNome && !primeiroNome(lead.name);
+    return /*#__PURE__*/React.createElement("option", {
+      key: t.nome,
+      value: t.nome,
+      disabled: falta
+    }, t.rotulo, falta ? ' — este lead não tem nome' : '', " (", t.nome, ")");
+  }))), /*#__PURE__*/React.createElement(PreviaTemplate, {
+    nomeTemplate: templateEfetivo,
     nomePessoa: lead.name
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -6246,7 +6288,7 @@ const AbordagemModal = ({
       padding: '1px 5px',
       borderRadius: 4
     }
-  }, escolherTemplate(lead.name).template), " \xB7 ", TEMPLATE_IDIOMA, " \xB7 categoria Marketing \u2014", primeiroNome(lead.name) ? ' a mensagem chama a pessoa de "' + primeiroNome(lead.name) + '". ' : ' este lead não tem nome utilizável, então vai o template sem nome (nunca mandamos "Oi ," com a variável vazia). ', "a pessoa pode optar por n\xE3o receber marketing, e a\xED este envio n\xE3o chega. A sele\xE7\xE3o de produtos abaixo ", /*#__PURE__*/React.createElement("strong", {
+  }, templateEfetivo), " \xB7 ", TEMPLATE_IDIOMA, " \xB7 categoria Marketing \u2014", primeiroNome(lead.name) ? ' a mensagem chama a pessoa de "' + primeiroNome(lead.name) + '". ' : ' este lead não tem nome utilizável, então vai o template sem nome (nunca mandamos "Oi ," com a variável vazia). ', "a pessoa pode optar por n\xE3o receber marketing, e a\xED este envio n\xE3o chega. A sele\xE7\xE3o de produtos abaixo ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.ink
     }
@@ -11553,33 +11595,41 @@ const WhatsAppTab = () => {
   }, "responder"), ", o campo de escrever volta sozinho por 24h."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
+      alignItems: 'center',
       gap: 8,
       marginBottom: 10,
       flexWrap: 'wrap'
     }
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: "wa-template",
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink
+    }
+  }, "Template:"), /*#__PURE__*/React.createElement("select", {
+    id: "wa-template",
+    value: templateEfetivo,
+    onChange: e => setTemplateEscolhido(e.target.value),
+    style: {
+      flex: '1 1 240px',
+      padding: '8px 10px',
+      borderRadius: 10,
+      fontSize: 13,
+      border: '1.5px solid ' + C.border,
+      background: '#fff',
+      color: C.ink,
+      outline: 'none',
+      cursor: 'pointer'
+    }
   }, TEMPLATES_APROVADOS.map(t => {
     const falta = t.precisaNome && !primeiroNome(nomeDoContatoAberto);
-    const sel = templateEscolhido === t.nome;
-    return /*#__PURE__*/React.createElement("button", {
+    return /*#__PURE__*/React.createElement("option", {
       key: t.nome,
-      onClick: () => {
-        if (!falta) setTemplateEscolhido(t.nome);
-      },
-      disabled: falta,
-      title: falta ? 'Este contato não tem nome salvo — use o template sem nome, ou salve o nome no contato.' : t.nome,
-      style: {
-        padding: '8px 12px',
-        borderRadius: 10,
-        fontSize: 12,
-        fontWeight: 700,
-        cursor: falta ? 'not-allowed' : 'pointer',
-        opacity: falta ? .45 : 1,
-        border: '1.5px solid ' + (sel ? C.p1 : C.border),
-        background: sel ? C.p1 + '12' : '#fff',
-        color: sel ? C.p1 : C.muted
-      }
-    }, t.rotulo);
-  })), /*#__PURE__*/React.createElement("div", {
+      value: t.nome,
+      disabled: falta
+    }, t.rotulo, falta ? ' — precisa do nome do contato' : '', " (", t.nome, ")");
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 10
     }
