@@ -26,8 +26,12 @@
 
 import { getServiceKey, getSupabaseUrl } from '../security';
 import { isBusinessHour, parseHoursSetting } from './whatsapp-ai';
-import { sendEvolutionText } from './whatsapp-evo';
-import { persistWhatsAppMessage } from './whatsapp';
+// Envio pelo canal ÚNICO (Dualhook/Cloud API) desde 2026-09-05.
+import {
+  isForaDaJanela24h,
+  persistWhatsAppMessage,
+  sendWhatsAppText,
+} from './whatsapp';
 
 const DB_TIMEOUT_MS = 8000;
 
@@ -246,6 +250,13 @@ export interface SweepResult {
   alertas: number;
   cobrancas: number;
   reengajamentos: number;
+  /**
+   * Quantos NÃO saíram por estarem fora da janela de 24h da Meta. Contador
+   * próprio, separado de `erros`, porque não é falha nossa nem transitória:
+   * é o limite da Cloud API, e só some com template aprovado. Somar isso em
+   * `erros` esconderia a causa num balde que ninguém lê.
+   */
+  foraDaJanela: number;
   erros: string[];
 }
 
@@ -265,6 +276,7 @@ export async function runFollowupSweep(opts?: {
     alertas: 0,
     cobrancas: 0,
     reengajamentos: 0,
+    foraDaJanela: 0,
     erros: [],
   };
   try {
@@ -340,7 +352,28 @@ export async function runFollowupSweep(opts?: {
         const snap = snaps.get(a.waId);
         const nome = (await nomeDoContato(a.waId)) || snap?.nome || null;
         const body = a.kind === 'cobranca' ? textoCobranca(nome) : textoReengajamento(nome);
-        const sent = await sendEvolutionText({ to: a.waId, body });
+
+        // JANELA DE 24h (2026-09-05): este arquivo existe pra falar com quem
+        // SUMIU — ou seja, quase sempre FORA da janela. A Cloud API recusa
+        // texto livre aí (131047 → 422); só template aprovado passa, e não
+        // há nenhum cadastrado no WhatsApp Manager. Isso NÃO é erro
+        // transitório: tentar de novo na próxima varredura dá o mesmo
+        // resultado. Marcamos como tentado pra não martelar o mesmo contato
+        // de hora em hora, e contamos à parte pra a tela poder dizer POR QUE
+        // o follow-up não está saindo — em vez de somar num balde de "erros"
+        // que ninguém lê. O Baileys não tinha esse limite; a troca de canal
+        // trouxe.
+        let sent: { messageId: string };
+        try {
+          sent = await sendWhatsAppText({ to: a.waId, body });
+        } catch (e) {
+          if (isForaDaJanela24h(e)) {
+            res.foraDaJanela++;
+            await marcarFollowup(a.waId, a.kind, now);
+            continue;
+          }
+          throw e;
+        }
         await persistWhatsAppMessage({
           origin: 'ia',
           direction: 'out',

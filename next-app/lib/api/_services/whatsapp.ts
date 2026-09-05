@@ -45,6 +45,7 @@
 // traduzimos pra mensagem acionável.
 
 import { getRuntimeEnv } from '../env';
+import { normalizeWhatsAppTarget } from './whatsapp-evo';
 import { getServiceKey, getSupabaseUrl, ServiceError } from '../security';
 
 // O Dualhook espelha o contrato da Cloud API: mesmo path
@@ -264,9 +265,25 @@ export async function sendWhatsAppText(opts: {
   to: string;
   body: string;
 }): Promise<SendResult> {
-  const to = normalizeBrPhone(opts.to);
+  // `normalizeWhatsAppTarget`, NÃO `normalizeBrPhone` (2026-09-05). O
+  // segundo cola '55' em qualquer coisa com 10-11 dígitos: o contato dos
+  // EUA `16503154274` virava `5516503154274`, inexistente. Foi exatamente
+  // isso que causou o 502 de 2026-08-28 no caminho da Evolution, e com o
+  // Dualhook virando canal ÚNICO o mesmo erro voltaria por aqui.
+  const to = normalizeWhatsAppTarget(opts.to);
   if (!to) throw new ServiceError('telefone de destino inválido', 400);
   return sendWhatsAppMessage(buildTextPayload(to, opts.body));
+}
+
+/**
+ * `true` quando a falha é "fora da janela de 24h" da Meta (131047 → 422).
+ * Quem envia em LOTE precisa distinguir isso de erro de verdade: não
+ * adianta tentar de novo na próxima varredura, só um template aprovado
+ * resolve. Sem essa distinção o follow-up martela o mesmo contato de hora
+ * em hora, pra sempre.
+ */
+export function isForaDaJanela24h(e: unknown): boolean {
+  return e instanceof ServiceError && e.status === 422;
 }
 
 export async function sendWhatsAppTemplate(opts: {

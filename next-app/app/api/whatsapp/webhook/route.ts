@@ -23,8 +23,11 @@
 // resposta rápida e desativa webhook que demora ou falha; gravar no banco
 // antes de responder colocava a latência do Supabase no caminho dela.
 //
-// O POST reconhece, loga e persiste (console → Cloudflare logs; tabela
-// `whatsapp_messages`). Responder automático é etapa futura.
+// O POST reconhece, loga, persiste (console → Cloudflare logs; tabela
+// `whatsapp_messages`) e dispara o ATENDIMENTO AUTOMÁTICO. Este último elo
+// faltava: o `maybeAutoReply` só era chamado pelo webhook da Evolution, que
+// foi aposentada — a IA parou de responder sem ninguém notar, porque a
+// mensagem continuava chegando no portal normalmente.
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { getRuntimeEnv, runAfterResponse } from '@/lib/api/env';
@@ -38,6 +41,7 @@ import {
   persistWhatsAppMessage,
   type InboundWhatsAppMessage,
 } from '@/lib/api/_services/whatsapp';
+import { maybeAutoReply } from '@/lib/api/_services/whatsapp-ai-runner';
 
 export const runtime = 'edge';
 
@@ -106,6 +110,30 @@ async function processarEntrada(messages: InboundWhatsAppMessage[]): Promise<voi
   );
   if (persisted.some((ok) => !ok)) {
     console.warn('[whatsapp-webhook] falha ao persistir parte das mensagens (best-effort)');
+  }
+
+  // Atendimento automático. SÓ pra mensagem de texto recebida — nunca pra
+  // 'out', senão a IA responderia a si mesma em loop. O runner é best-effort
+  // e decide sozinho se age (horário, opt-out, teto diário, chave da
+  // conversa); aqui só registramos o que ele decidiu.
+  //
+  // Roda DEPOIS da resposta (este `processarEntrada` inteiro está no
+  // waitUntil), então a IA pode levar o tempo dela sem atrasar o 200 que a
+  // Meta espera.
+  for (const msg of messages) {
+    const texto = (msg.text || '').trim();
+    if (!texto) continue;
+    try {
+      const r = await maybeAutoReply({ waId: msg.from, text: texto });
+      console.log(`[whatsapp-webhook] ia ${msg.from}: ${r.acted ? '✓' : '·'} ${r.why}`);
+    } catch (e) {
+      // maybeAutoReply promete não lançar; se lançar mesmo assim, não pode
+      // derrubar o trabalho de fundo das outras mensagens.
+      console.error(
+        '[whatsapp-webhook] runner da IA falhou:',
+        e instanceof Error ? e.message : e
+      );
+    }
   }
 }
 

@@ -27,8 +27,11 @@ import {
   type ConversationTurn,
   type LeadContext,
 } from './whatsapp-ai';
-import { sendEvolutionText } from './whatsapp-evo';
-import { persistWhatsAppMessage } from './whatsapp';
+// Envio pelo canal ÚNICO (Dualhook/Cloud API) desde 2026-09-05 — a Evolution
+// foi aposentada. Aqui a janela de 24h da Meta NÃO é problema: tudo neste
+// arquivo é reação a uma mensagem que o cliente ACABOU de mandar, então a
+// janela está aberta por definição.
+import { persistWhatsAppMessage, sendWhatsAppText } from './whatsapp';
 
 const DB_TIMEOUT_MS = 8000;
 
@@ -253,7 +256,7 @@ async function enviarAusencia(opts: {
     janela: parseHoursSetting(opts.cfg.hours),
     custom: opts.cfg.away_text,
   });
-  const sent = await sendEvolutionText({ to: opts.waId, body });
+  const sent = await sendWhatsAppText({ to: opts.waId, body });
   await persistWhatsAppMessage({
     origin: 'ia',
     direction: 'out',
@@ -402,8 +405,8 @@ async function decidirEAgir(opts: {
     });
     if (!result.reply) return { acted: false, why: 'IA não produziu resposta' };
 
-    // Envia (a Evolution está acordada — ela acabou de nos chamar).
-    const sent = await sendEvolutionText({ to: opts.waId, body: result.reply });
+    // Envia. A janela de 24h está aberta: o cliente acabou de escrever.
+    const sent = await sendWhatsAppText({ to: opts.waId, body: result.reply });
     await persistWhatsAppMessage({
       origin: 'ia',
       direction: 'out',
