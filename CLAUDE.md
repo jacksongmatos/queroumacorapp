@@ -1516,7 +1516,7 @@
       explicação se perde — o operador vê "502 Bad gateway" e não sabe se
       foi credencial, janela de 24h ou número errado. 4xx do Dualhook →
       **400**; 5xx e falha de rede → **500**; os dois com
-      `{ error, dualhookStatus }` no corpo. O `deadlineResponse` da rota
+      `{ error, upstreamStatus }` no corpo. O `deadlineResponse` da rota
       (orçamento de 22s) também deixou de ser 504 pelo mesmo motivo.
       131047 fica em 422 e config ausente em 503 — nenhum dos dois é
       sequestrado pelo CF.

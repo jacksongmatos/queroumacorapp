@@ -10269,7 +10269,7 @@ const WhatsAppTab = () => {
       fontSize: 11,
       color: C.muted
     }
-  }, "Canal: Evolution \xB7 +55 11 92072-5935"), /*#__PURE__*/React.createElement("span", {
+  }, "Canal: Dualhook (Cloud API)"), /*#__PURE__*/React.createElement("span", {
     style: {
       marginLeft: 'auto',
       display: 'flex',
@@ -10648,7 +10648,7 @@ const WhatsAppTab = () => {
       padding: 20,
       textAlign: 'center'
     }
-  }, "Selecione uma conversa ao lado \u2014 ou toque em + pra comecar uma nova.", /*#__PURE__*/React.createElement("br", null), "Canal: +55 11 92072-5935 (Evolution).") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "Selecione uma conversa ao lado \u2014 ou toque em + pra comecar uma nova.", /*#__PURE__*/React.createElement("br", null), "Canal: Dualhook (Cloud API).") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '12px 16px',
       background: '#fff',

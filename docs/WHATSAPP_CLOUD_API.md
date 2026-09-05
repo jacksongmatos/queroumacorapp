@@ -142,8 +142,8 @@ janela de 24h ou número errado. Mapeamento:
 
 | Situação | HTTP nosso | Corpo |
 | --- | --- | --- |
-| 4xx do Dualhook (credencial, número inválido…) | **400** | `{ error, dualhookStatus }` |
-| 5xx do Dualhook, ou falha de rede | **500** | idem (`dualhookStatus: 0` na rede) |
+| 4xx do Dualhook (credencial, número inválido…) | **400** | `{ error, upstreamStatus }` |
+| 5xx do Dualhook, ou falha de rede | **500** | idem (`upstreamStatus: 0` na rede) |
 | `131047` (fora da janela de 24h) | **422** | mensagem acionável |
 | Sem `DUALHOOK_API_KEY` | **503** | config ausente |
 

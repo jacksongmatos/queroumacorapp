@@ -26,17 +26,15 @@ import {
 import { verifyAdminToken } from '@/lib/api/_services/_admin-helpers';
 import {
   isWhatsAppConfigured,
-  normalizeBrPhone,
   persistWhatsAppMessage,
   sendWhatsAppTemplate,
   sendWhatsAppText,
   type TemplateComponent,
 } from '@/lib/api/_services/whatsapp';
-import {
-  isEvolutionConfigured,
-  normalizeWhatsAppTarget,
-  sendEvolutionText,
-} from '@/lib/api/_services/whatsapp-evo';
+// A Evolution API foi APOSENTADA (2026-09-05) e as secrets EVOLUTION_* saíram
+// do CF Pages. Só o normalizador de telefone sobrevive aqui: ele é o único que
+// trata DDI estrangeiro corretamente (ver o comentário no fallback do wa_id).
+import { normalizeWhatsAppTarget } from '@/lib/api/_services/whatsapp-evo';
 import { whatsappSendSchema } from '@/lib/api/schemas/whatsapp-send';
 import { logAuditEvent } from '@/lib/api/audit';
 
@@ -84,15 +82,12 @@ export async function POST(request: NextRequest) {
 }
 
 async function handle(request: NextRequest): Promise<Response> {
-  // Canal preferido pra TEXTO: Evolution API (número secundário, sem janela
-  // de 24h) enquanto a Cloud API da Meta não autentica (2026-08-28).
-  // Templates seguem exclusivos da Meta. Basta UM dos dois configurado.
-  if (!isWhatsAppConfigured() && !isEvolutionConfigured()) {
+  // CANAL ÚNICO desde 2026-09-05: Dualhook (Cloud API). A Evolution API foi
+  // aposentada e suas secrets saíram do CF Pages — enquanto o despacho ainda
+  // caía nela, todo envio de texto ia pra um servidor morto e voltava 502.
+  if (!isWhatsAppConfigured()) {
     return jsonResponse(
-      {
-        error:
-          'Nenhum canal de WhatsApp configurado (DUALHOOK_API_KEY ou EVOLUTION_API_URL/EVOLUTION_API_KEY)',
-      },
+      { error: 'Envio de WhatsApp não configurado (DUALHOOK_API_KEY ausente)' },
       503
     );
   }
@@ -101,7 +96,25 @@ async function handle(request: NextRequest): Promise<Response> {
   try {
     body = (await readBody(request, { maxBytes: 256 * 1024 })) as Record<string, unknown>;
   } catch (e) {
-    if (e instanceof ServiceError) return serviceErrorResponse(e);
+    // REDE DE SEGURANÇA: nada sai desta rota como 502 ou 504. O Cloudflare
+    // substitui o corpo dessas duas pela página de erro DELE, e o motivo real
+    // — credencial, janela de 24h, número inválido — nunca chega na tela; o
+    // operador vê "502 Bad gateway" e fica sem saber o que fazer. O service
+    // já mapeia os casos que conhece; isto cobre qualquer ServiceError que
+    // venha de outra camada (auth, rate limit, futuro) com esses status.
+    if (e instanceof ServiceError) {
+      if (e.status === 502 || e.status === 504) {
+        console.error('whatsapp_send_upstream_failed', {
+          status: e.status,
+          message: e.message,
+        });
+        return jsonResponse(
+          { error: e.message, upstreamStatus: e.status, ...(e.extra || {}) },
+          500
+        );
+      }
+      return serviceErrorResponse(e);
+    }
     return jsonResponse({ error: 'JSON inválido' }, 400);
   }
 
@@ -127,30 +140,17 @@ async function handle(request: NextRequest): Promise<Response> {
     }
     const input = parsed.data;
 
-    let result: { messageId: string; waId: string };
-    let channel: 'evolution' | 'meta';
-    if (input.type === 'template') {
-      // Template é recurso da Meta — não existe na Evolution.
-      if (!isWhatsAppConfigured()) {
-        throw new ServiceError(
-          'templates exigem a Cloud API da Meta, que ainda não está configurada — envie como texto',
-          503
-        );
-      }
-      channel = 'meta';
-      result = await sendWhatsAppTemplate({
-        to: input.to,
-        template: input.template as string,
-        languageCode: input.languageCode,
-        components: input.components as TemplateComponent[] | undefined,
-      });
-    } else if (isEvolutionConfigured()) {
-      channel = 'evolution';
-      result = await sendEvolutionText({ to: input.to, body: input.body as string });
-    } else {
-      channel = 'meta';
-      result = await sendWhatsAppText({ to: input.to, body: input.body as string });
-    }
+    // Sem despacho: texto e template vão pelo MESMO canal (Dualhook).
+    const channel = 'meta' as const;
+    const result: { messageId: string; waId: string } =
+      input.type === 'template'
+        ? await sendWhatsAppTemplate({
+            to: input.to,
+            template: input.template as string,
+            languageCode: input.languageCode,
+            components: input.components as TemplateComponent[] | undefined,
+          })
+        : await sendWhatsAppText({ to: input.to, body: input.body as string });
 
     // SQL Wave 38: histórico da conversa em `whatsapp_messages` + trilha no
     // audit_log. Os dois são best-effort — a mensagem JÁ SAIU, escrituração
@@ -166,12 +166,10 @@ async function handle(request: NextRequest): Promise<Response> {
         // Fallback do wa_id respeita DDI estrangeiro (ver
         // normalizeWhatsAppTarget) — com normalizeBrPhone, resposta pra
         // número dos EUA era gravada na conversa errada.
-        waId:
-          result.waId ||
-          (channel === 'evolution'
-            ? normalizeWhatsAppTarget(input.to)
-            : normalizeBrPhone(input.to)) ||
-          input.to,
+        // `normalizeWhatsAppTarget` e não `normalizeBrPhone`: só ele respeita
+        // DDI estrangeiro. Com o normalizador BR, resposta pra número dos EUA
+        // era gravada na conversa errada.
+        waId: result.waId || normalizeWhatsAppTarget(input.to) || input.to,
         messageId: result.messageId,
         type: input.type,
         body: input.body,
@@ -208,7 +206,25 @@ async function handle(request: NextRequest): Promise<Response> {
       channel,
     });
   } catch (e) {
-    if (e instanceof ServiceError) return serviceErrorResponse(e);
+    // REDE DE SEGURANÇA: nada sai desta rota como 502 ou 504. O Cloudflare
+    // substitui o corpo dessas duas pela página de erro DELE, e o motivo real
+    // — credencial, janela de 24h, número inválido — nunca chega na tela; o
+    // operador vê "502 Bad gateway" e fica sem saber o que fazer. O service
+    // já mapeia os casos que conhece; isto cobre qualquer ServiceError que
+    // venha de outra camada (auth, rate limit, futuro) com esses status.
+    if (e instanceof ServiceError) {
+      if (e.status === 502 || e.status === 504) {
+        console.error('whatsapp_send_upstream_failed', {
+          status: e.status,
+          message: e.message,
+        });
+        return jsonResponse(
+          { error: e.message, upstreamStatus: e.status, ...(e.extra || {}) },
+          500
+        );
+      }
+      return serviceErrorResponse(e);
+    }
     console.error('whatsapp-send erro inesperado:', e instanceof Error ? e.message : e);
     return jsonResponse({ error: 'erro interno' }, 500);
   }

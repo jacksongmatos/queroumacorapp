@@ -198,7 +198,7 @@ export async function sendWhatsAppMessage(
     // troca o corpo do 502 pela página dele e a explicação some.
     console.error('dualhook_send_failed', { status: 0, body: 'network' });
     throw new ServiceError('falha de rede ao chamar a API do Dualhook', 500, {
-      dualhookStatus: 0,
+      upstreamStatus: 0,
     });
   }
 
@@ -220,12 +220,12 @@ export async function sendWhatsAppMessage(
     // perde no caminho — quem está no portal vê "502 Bad gateway" e não
     // sabe se foi credencial, janela de 24h ou número errado. Erro 4xx do
     // Dualhook vira 400 (a culpa é da nossa requisição), o resto vira 500.
-    // O `dualhookStatus` viaja no corpo (ServiceError.extra) pra tela poder
+    // O `upstreamStatus` viaja no corpo (ServiceError.extra) pra tela poder
     // mostrar o número real.
     console.error('dualhook_send_failed', { status: res.status, body: rawText });
 
-    const dualhookStatus = res.status;
-    const extra = { dualhookStatus };
+    const upstreamStatus = res.status;
+    const extra = { upstreamStatus };
     const httpStatus = res.status >= 400 && res.status < 500 ? 400 : 500;
     const code = data.error?.code;
 

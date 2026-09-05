@@ -203,7 +203,7 @@ describe('sendWhatsAppText', () => {
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
     ).rejects.toMatchObject({
       status: 400,
-      extra: { dualhookStatus: 401 },
+      extra: { upstreamStatus: 401 },
       message: expect.stringContaining('regenerar'),
     });
   });
@@ -224,14 +224,14 @@ describe('sendWhatsAppText', () => {
     stubFetchOnce(403, {});
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 400, extra: { dualhookStatus: 403 } });
+    ).rejects.toMatchObject({ status: 400, extra: { upstreamStatus: 403 } });
   });
 
   it('falha de rede → 500 (nunca 502)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 500, extra: { dualhookStatus: 0 } });
+    ).rejects.toMatchObject({ status: 500, extra: { upstreamStatus: 0 } });
   });
 
   // ── por que NUNCA 502/504 ────────────────────────────────────────────────
@@ -240,13 +240,13 @@ describe('sendWhatsAppText', () => {
   // nunca chegaria na tela: o operador via só "502 Bad gateway". Erro 4xx do
   // Dualhook vira 400; o resto, 500. Os dois passam com o corpo intacto.
 
-  it('4xx do Dualhook → 400, com o dualhookStatus no corpo', async () => {
+  it('4xx do Dualhook → 400, com o upstreamStatus no corpo', async () => {
     stubFetchOnce(422, { error: { message: 'Invalid recipient' } });
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
     ).rejects.toMatchObject({
       status: 400,
-      extra: { dualhookStatus: 422 },
+      extra: { upstreamStatus: 422 },
       message: expect.stringContaining('Invalid recipient'),
     });
   });
@@ -255,7 +255,7 @@ describe('sendWhatsAppText', () => {
     stubFetchOnce(503, { error: { message: 'upstream indisponível' } });
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 500, extra: { dualhookStatus: 503 } });
+    ).rejects.toMatchObject({ status: 500, extra: { upstreamStatus: 503 } });
   });
 
   it('nenhuma falha responde 502 ou 504', async () => {
@@ -281,7 +281,7 @@ describe('sendWhatsAppText', () => {
     );
     await expect(
       sendWhatsAppText({ to: '11959765031', body: 'oi' })
-    ).rejects.toMatchObject({ status: 500, extra: { dualhookStatus: 502 } });
+    ).rejects.toMatchObject({ status: 500, extra: { upstreamStatus: 502 } });
   });
 });
 
