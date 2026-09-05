@@ -1,0 +1,55 @@
+-- NÃO É MIGRATION — é CONFERÊNCIA. Só lê, não altera nada. Rodar quantas
+-- vezes quiser.
+--
+-- Motivo: a lista de "SQL pendente" do CLAUDE.md é anotação escrita à mão, e
+-- em 2026-09-05 ela estava errada em pelo menos dois pontos (a Wave 49 dizia
+-- PENDENTE no título e JÁ EXECUTADA no próprio corpo; a Wave 30 dizia "não
+-- rodado" sobre coisa que o push nativo chegando no aparelho provou estar no
+-- ar). Anotação não é evidência. Isto é.
+--
+-- Cada linha devolve `ok` = true/false. false = aquele SQL realmente falta.
+
+SELECT 'quotes.post_id (Wave 53)' AS item,
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='quotes'
+                  AND column_name='post_id') AS ok
+UNION ALL SELECT 'bucket exports existe (Wave 41)',
+       EXISTS (SELECT 1 FROM storage.buckets WHERE id='exports')
+UNION ALL SELECT 'policies do exports — as 3 (Wave 41)',
+       (SELECT count(*) FROM pg_policies
+         WHERE schemaname='storage' AND tablename='objects'
+           AND policyname LIKE 'exports %') = 3
+UNION ALL SELECT 'leads importados da planilha',
+       EXISTS (SELECT 1 FROM public.leads WHERE source='planilha')
+UNION ALL SELECT 'leads.city (Wave da importação)',
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='leads'
+                  AND column_name='city')
+UNION ALL SELECT 'posts.media_urls — carrossel (Wave 57)',
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='posts'
+                  AND column_name='media_urls')
+UNION ALL SELECT 'app_settings.push_notify_url preenchida',
+       EXISTS (SELECT 1 FROM public.app_settings
+                WHERE key='push_notify_url' AND COALESCE(value,'') <> '')
+UNION ALL SELECT 'app_settings.push_internal_secret preenchida',
+       EXISTS (SELECT 1 FROM public.app_settings
+                WHERE key='push_internal_secret' AND COALESCE(value,'') <> '')
+UNION ALL SELECT 'tabela push_subscriptions (web push)',
+       EXISTS (SELECT 1 FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='push_subscriptions')
+UNION ALL SELECT 'tabela push_device_tokens (push nativo)',
+       EXISTS (SELECT 1 FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='push_device_tokens')
+UNION ALL SELECT 'trigger trg_dispatch_push_notification',
+       EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_dispatch_push_notification')
+UNION ALL SELECT 'notify_on_message SEM agrupamento de rajada',
+       EXISTS (SELECT 1 FROM pg_proc
+                WHERE proname='notify_on_message' AND prosrc NOT LIKE '%v_recentes%')
+UNION ALL SELECT 'is_portal_admin usa to_jsonb (C3/A-D1)',
+       EXISTS (SELECT 1 FROM pg_proc
+                WHERE proname='is_portal_admin' AND prosrc LIKE '%to_jsonb%')
+UNION ALL SELECT 'admin_delete_user com p_force_admin (Wave 44)',
+       EXISTS (SELECT 1 FROM pg_proc WHERE proname='admin_delete_user'
+                 AND pg_get_function_identity_arguments(oid) LIKE '%boolean%')
+ORDER BY 1;

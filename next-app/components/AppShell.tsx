@@ -20,6 +20,7 @@ import { BottomNav } from './BottomNav';
 import { RealtimeBindings } from './RealtimeBindings';
 import { NativePushRouter } from './NativePushRouter';
 import { NativeChrome } from './NativeChrome';
+import { NativePushBridge } from './NativePushBridge';
 import { NativeBadge } from './NativeBadge';
 import { OfflineBanner } from './OfflineBanner';
 import { AppTour } from './AppTour';
@@ -180,6 +181,7 @@ export function AppShell({
       <RealtimeBindings />
       {/* Casca: barra de status, teclado, splash, resume (no-op fora dela). */}
       <NativeChrome />
+      <NativePushBridge />
       {/* Número no ícone do app = avisos + mensagens não lidas (no-op fora da
           casca / sem plugin de badge). */}
       <NativeBadge />

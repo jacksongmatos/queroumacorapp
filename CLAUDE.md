@@ -11,6 +11,120 @@
   neste arquivo são **registro histórico** de incidentes já resolvidos — servem
   pra entender o passado, nunca pra orientar o presente.
 
+- **A LISTA DE "SQL PENDENTE" DESTE ARQUIVO NÃO É EVIDÊNCIA (2026-09-05).**
+  Conferido contra o banco: das quatro migrations marcadas como pendentes,
+  **três já tinham sido rodadas** (Wave 41 `exports` + policies, Wave 53
+  `quotes.post_id`, Wave 49 mídia do WhatsApp) e uma entrada se contradizia
+  dentro de si mesma. A anotação é escrita à mão e envelhece; o banco não.
+  **REGRA: antes de dizer que um SQL falta — e antes de pedir pra alguém
+  rodar de novo — rodar `/migrations/2026-09-05-conferencia-pendencias.sql`**
+  (só leitura, uma linha por item, `ok` true/false). Item novo marcado como
+  pendente aqui = linha nova naquela consulta.
+  - **Vale pra TODA pendência, não só SQL.** Na mesma varredura caíram mais
+    três que estavam erradas: Image Resizing (ligado), APNs/`App.entitlements`
+    (feitos) e "esconder a compra do PRO no iOS" (já não existe compra no
+    app). Depois disso caiu mais uma, por leitura do código e não por
+    verificação externa: "tirar a sessão do Supabase do `localStorage`" era
+    pendência MAL FORMULADA — o `hybridAuthStorage` já resolveu o problema que
+    a motivou, e o supabase-js impede a única versão dela que melhoraria
+    segurança (cookie httpOnly). **Não sobrou nenhuma pendência acionável**: a
+    importação dos leads está ADIADA POR DECISÃO do usuário, e os três itens
+    não-verificáveis abaixo dependem dele.
+  - **PADRÃO A NOTAR:** de 9 pendências listadas, 7 estavam erradas — 6 já
+    feitas e 1 sem sentido. Lista de pendência envelhece pior que código, e
+    ninguém a revalida porque parece barato confiar nela. Custou repetir por
+    semanas que o degrau 2 do PDF estava quebrado e que faltava ligar o Image
+    Resizing, as duas coisas falsas.
+  - **NÃO VERIFICÁVEIS deste ambiente** (a política de rede só libera
+    GitHub/npm/Anthropic; o proxy recusa DNS-over-HTTPS e a produção, e não há
+    ferramenta de branch protection no MCP): DMARC do `calicolors.com.br`,
+    o opt-in do CSAM Scanning e se o job `validate` é check obrigatório. Não
+    afirmar nada sobre esses três sem o usuário conferir — o que já se sabe é
+    que a proteção da `main` EXISTE (push direto recusado com "protected
+    branch hook declined").
+
+- **PAR CRUZADO DE ENV DO SUPABASE — a causa do "Faça login" em TODA a IA
+  (2026-09-04, PR #202, FECHADO).** Usuário perfeitamente logado levava
+  `Faça login (token_invalid)` em toda rota de IA. Evidência do painel do CF
+  Pages (Production): `SUPABASE_URL` **não existe**; `SUPABASE_ANON_KEY` existe
+  como Secret, **de OUTRO projeto** (herança do app vanilla); o par
+  `NEXT_PUBLIC_*` existe e está certo. Como `getSupabaseUrl()` e
+  `getSupabaseAnonKey()` resolviam INDEPENDENTES, cada uma com a sua ordem, a
+  URL caía no NEXT_PUBLIC e a chave vinha do secret legado. O GoTrue recebia
+  apikey de um projeto e token de outro, respondia 401 "Invalid API key" pra
+  QUALQUER token, e o `requireAuth` colapsava todo `!res.ok` em
+  `token_invalid`.
+  - **A assimetria que custou dias:** o PostgREST seguia funcionando porque
+    quem o chama é o **cliente**, com a chave boa do bundle (ele valida só
+    assinatura e expiração). Só a verificação do **servidor** usava a chave
+    divergente. Isso derrubou 6 hipóteses de sessão/token que vieram antes —
+    **o token nunca foi o problema**.
+  - **REGRA: URL e anon key saem SEMPRE do mesmo par.** `resolveSupabaseEnv()`
+    em `lib/api/security.ts` é o resolvedor ÚNICO: tenta o par `NEXT_PUBLIC_*`
+    INTEIRO, cai pro par sem prefixo INTEIRO, **nunca meio a meio**.
+    `getSupabaseAnonKey()` exige par completo; `getSupabaseUrl()` mantém
+    fallback só-URL de propósito — os caminhos de SERVICE ROLE (audit,
+    log-error, push-notify) legitimamente não têm anon key.
+  - **REGRA: quem fala com o GoTrue pega as duas metades do MESMO objeto.**
+    `requireAuth`/`requireAuthStrict`/`verifySupabaseToken`/`validateToken`/
+    `getUserFromToken` fazem `const {url, anonKey} = resolveSupabaseEnv()`.
+    Duas resoluções independentes dentro do caminho de auth é a FORMA do bug.
+  - Guarda nova: o `ref` do JWT anon × o `<ref>` do host `<ref>.supabase.co`.
+    Divergindo, o gate devolve `env_project_mismatch` (não `token_invalid`) e
+    o texto do 401 carrega os dois refs.
+  - **SEIS resolvedores divergentes existiam** (`security.ts`, `health`,
+    `_admin-helpers`, `auth-server`, `set-session-cookie`, `moderate-video`,
+    mais um escondido em `lib/api/env.ts` que lia só as `NEXT_PUBLIC_*`).
+    Dois guards de arquitetura em `__tests__/lib/supabase-env-single-resolver
+    .test.ts` falham se qualquer arquivo de `lib/api`/`app/api` voltar a ler
+    essas envs cruas ou a pedir a anon key solta.
+  - **Nenhum secret do painel foi tocado** — o `SUPABASE_ANON_KEY` divergente
+    simplesmente deixou de ser lido. Não apagar: é inerte.
+
+- **MICROFONE NEGADO COM A PERMISSÃO ATIVA — faltava MODIFY_AUDIO_SETTINGS
+  (2026-09-04, PR #204).** O Seu Zé dizia "Permissão de microfone negada" com
+  o microfone CONCEDIDO na tela de permissões do Android. O
+  `BridgeWebChromeClient` do Capacitor 6, ao receber `onPermissionRequest` de
+  `AUDIO_CAPTURE`, pede **DUAS** permissões de uma vez —
+  `MODIFY_AUDIO_SETTINGS` **e** `RECORD_AUDIO` — e só chama `request.grant()`
+  se TODAS voltarem concedidas (o callback faz um AND sobre o Map de
+  resultados). Permissão não declarada no Manifest o sistema nega na hora,
+  **sem diálogo**: o AND dava false, a WebView recusava, e o `getUserMedia`
+  rejeitava com `NotAllowedError`.
+  - **REGRA: permissão que a WebView usa vem em PAR — conferir o que o
+    Capacitor pede, não o que parece óbvio.** Ler
+    `node_modules/@capacitor/android/.../BridgeWebChromeClient.java` antes de
+    concluir que o Manifest está completo. `MODIFY_AUDIO_SETTINGS` é NORMAL:
+    não abre diálogo, só precisa existir.
+  - O `catch {}` mudo virou `mensagemDeMicrofone(e)` (lê o `name` do
+    DOMException): bloqueio ≠ sem hardware ≠ ocupado por outro app. A frase de
+    bloqueio NÃO afirma mais que a permissão está negada — ela pode estar
+    concedida e quem recusou ser a WebView.
+  - Manifest tem 8 permissões e o teste `__tests__/microfone.test.ts` trava o
+    par. **Só vale com AAB novo.**
+
+- **"Failed to fetch" AO PUBLICAR — a foto subia CRUA (2026-09-04, PR #204).**
+  Gerar a legenda com IA funcionava e o "Postar" logo depois morria, na MESMA
+  foto. A assimetria era a pista: o "Gerar legenda" do Composer comprime acima
+  de `COMPRESS_THRESHOLD` (2 MB) antes de subir; o publicar mandava o arquivo
+  ORIGINAL. Desde a **Onda B** a câmera NATIVA (quality 90, resolução cheia) é
+  o caminho principal, então "cru" passou a significar 5-12 MB — e o upload
+  grande morre na rede móvel dentro da WebView, com o supabase-js devolvendo o
+  TypeError cru do fetch como mensagem final. Confirmado em produção.
+  - **REGRA: caminho novo que sobe mídia escolhida pela pessoa comprime acima
+    de `COMPRESS_THRESHOLD`** — e as dimensões da Wave 17 se leem do arquivo
+    QUE SUBIU (comprimir muda W/H; gravar as do original reserva o espaço
+    errado no feed). Vídeo não passa pelo compressor de imagem; falha ao
+    comprimir cai no original (HEIC que a WebView não decodifica rejeita ali,
+    e sobe cru sem problema — comprimir é otimização, não porta).
+  - `uploadMedia` não repassa mais "Failed to fetch": vira "Falha de rede ao
+    enviar a mídia (X MB)". O número separa conexão ruim de arquivo grande.
+  - **ARMADILHA DE TESTE (custou um falso verde):** `toEqual` em `File`
+    compara ESTRUTURA, e `File` não tem propriedade própria enumerável
+    (`name`/`size`/`type` moram no protótipo) — dois arquivos DIFERENTES
+    passam como iguais. O 1º teste passou com a correção revertida. **Comparar
+    File por IDENTIDADE (`toBe`), nunca `toEqual`/`toHaveBeenCalledWith`.**
+
 - **P0 da auditoria de arquitetura FECHADOS no código (2026-09-03).** Ver
   `ARCHITECTURE_AUDIT_2026-08-26.md`. Status:
   - **C1 ✓** `gateProAI`/`gateProAIForm` agora retornam 401 pra anônimo/token
@@ -275,9 +389,32 @@
     (grupo `firebase`), integração App Store Connect (`codemagic`). Identidade:
     bundle `br.com.queroumacor.app`, Apple ID `6784256495` (mesma ficha do
     WebIntoApp — um substitui o outro, não vira app novo). **Pendências iOS não
-    bloqueantes de TestFlight:** APNs `.p8` + capability Push + `App.entitlements`
-    (push nativo iPhone); antes da REVIEW: esconder compra do PRO no iOS, tirar
-    sessão do Supabase do `localStorage`, fallback offline. Doc
+    bloqueantes de TestFlight (revisado em 2026-09-05):** APNs `.p8`
+    ✓ FEITO (Key ID `2R6FW9F2F6`, Sandbox & Production, nos dois slots do
+    Firebase) e `App.entitlements` ✓ EXISTE com `aps-environment: production`,
+    referenciado no projeto Xcode — sobra só ligar a capability Push
+    Notifications no App ID `br.com.queroumacor.app` (Apple Developer →
+    Identifiers), cuja falta aparece na hora como erro de assinatura
+    ("entitlement not supported"). Antes da REVIEW: esconder compra do PRO no
+    iOS ✓ JÁ SATISFEITO (`startProCheckout` existe em
+    `lib/services/billing-platform.ts` mas **não tem call site de UI nenhum**;
+    o `ProView` oferece o WhatsApp da loja — não há compra dentro do app pra
+    esconder); fallback offline ✓ FEITO (PR #201). **"Tirar a sessão do Supabase do
+    `localStorage`" — FECHADO como NÃO SE APLICA (2026-09-05).** A pendência
+    vinha de auditoria antiga e não descreve mais uma ação útil:
+    - o problema que a motivou (perder a sessão quando o storage é limpo) foi
+      resolvido em 2026-08-28 pelo `hybridAuthStorage` — grava em localStorage
+      **E** em cookies fatiados, e na leitura vale quem sobreviveu;
+    - tirar do localStorage só melhoraria a segurança se a sessão fosse pra um
+      cookie **httpOnly** — e o supabase-js no client **precisa ler o token em
+      JavaScript**, então o cookie que sobra é legível por script: mesma
+      exposição a XSS, troca de seis por meia dúzia (o próprio cabeçalho de
+      `sessionStorageHybrid.ts` já registra isso);
+    - a Apple **não exige** nada disso.
+    **A ação real por trás dela**, se um dia for prioridade, é outra e muito
+    maior: sessão httpOnly com validação no servidor — reescrita do modelo de
+    auth do app, não ajuste pré-review. Não reabrir como se fosse tarefa
+    pequena de véspera de submissão. Doc
     `docs/IOS_BUILD.md` está DESATUALIZADO (bundle/repo/fluxo Xcode manual
     errados) — reescrever com esta realidade.
   - **R8 QUEBROU O BOOT — REVERTIDO (2026-09-04, PR #183).** O R8 ligado no
@@ -341,12 +478,15 @@
   valida é a policy do Storage (path amarrado ao `auth.uid()`; o `sub`
   decodificado do JWT NÃO é prova de identidade, só prefixo). Client tenta
   direto → rota; 401 na rota ganha UMA `refreshSession` com teto de 6s.
-  **SQL das policies do `exports` PENDENTE** (bloco da Wave 41; sem ele o
-  degrau 2 não funciona — o 1 sim). **Regra nova: fluxo do app que
+  **Wave 41 CONFERIDA NO BANCO em 2026-09-05: o bucket `exports` E as 3
+  policies EXISTEM.** A anotação anterior dizia "PENDENTE" e estava errada —
+  os dois degraus funcionam. Não pedir pra rodar. **Regra nova: fluxo do app que
   autentica em rota própria NÃO deve depender só do GoTrue `/auth/v1/user`
   — token session-stale é estado normal de WebView.**
 
-- **`quotes.post_id` NÃO EXISTIA — Wave 53 (2026-08-30), PENDENTE.**
+- **`quotes.post_id` — Wave 53 (2026-08-30). CONFERIDA NO BANCO em
+  2026-09-05: a coluna EXISTE. Não pedir pra rodar de novo.** (A anotação
+  ficou meses dizendo "PENDENTE" depois de já ter sido executada.)
   "Enviar orçamento" morria com `42703: column "post_id" of relation
   "quotes" does not exist`. A **Wave 42** recriou `create_quote_from_post`
   passando a GRAVAR `post_id` (antes a RPC recebia `p_post_id` e jogava
@@ -1007,7 +1147,8 @@
     aparecia ao lado do campo, fora da tela. Agora `onInvalid` mostra
     "Falta corrigir: …" e rola até o campo.
 
-- **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL PENDENTE.**
+- **MÍDIA do WhatsApp no portal (2026-08-29, Wave 49) — SQL JÁ EXECUTADO
+  (2026-08-29; o título dizia PENDENTE contradizendo o próprio corpo).**
   Foto, áudio, vídeo e documento chegavam como MARCADOR de texto
   (`[áudio]`, `[imagem]`): o evento do WhatsApp não traz o arquivo, só o
   aviso. Agora `whatsapp-media.ts` pega o base64 (do payload, se o
@@ -1047,8 +1188,11 @@
   manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
   grava em lotes de 200 com `source='planilha'`.
   - **Importação de 986 leads do Google Maps (2026-08-29)** —
-    `/migrations/2026-08-29-import-leads-planilha.sql`, **PENDENTE de
-    rodar.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    `/migrations/2026-08-29-import-leads-planilha.sql`, **NÃO RODADA —
+    confirmado no banco em 2026-09-05 (nenhum lead com `source='planilha'`).
+    ADIADA POR DECISÃO DO USUÁRIO (2026-09-05): "os leads serão depois". Não
+    é bug nem esquecimento — não cobrar.** O arquivo fica pronto no repo pra
+    quando ele quiser. Da planilha de 1000 do usuário (13 telefones repetidos + 1
     sem telefone ficaram fora). Categoria crua do Maps ("Architect",
     "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
     quando a categoria briga com ele; "Região" separada em cidade ×
@@ -1733,9 +1877,13 @@
     VAPID JWT ES256 + aes128gcm AES-GCM em `/api/push-notify` (zero deps).
     Tabela `push_subscriptions` + RLS user-owned + trigger pg_net dispara
     push em insert de `notifications`. `<PushOptIn>` no ProfileFooter.
-    **SQL AINDA NÃO RODADO** — colar do agent result, habilitar `pg_net`,
-    rodar 2 ALTER DATABASE pra setar `app.push_notify_url` e
-    `app.push_internal_secret`. Falta gerar VAPID keys e setar 4 ENVs no
+    **SQL RODADO e a corrente PROVADA EM PRODUÇÃO (2026-09-05):** o push
+    nativo chegou no aparelho, o que exige `push_subscriptions`,
+    `push_device_tokens`, o trigger `trg_dispatch_push_notification`, o
+    `pg_net` e as chaves `push_notify_url`/`push_internal_secret` em
+    `app_settings` — tudo conferido `true` no banco. O que NÃO está provado
+    é o canal WEB push (VAPID): os dois canais são independentes, e o nativo
+    funcionar não diz nada sobre o do navegador. Falta gerar VAPID keys e setar 4 ENVs no
     CF Pages: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
     `VAPID_SUBJECT`, `PUSH_INTERNAL_SECRET`. Doc: `docs/PUSH_NOTIFICATIONS.md`.
     iOS: só funciona iOS 16.4+ em modo PWA "Adicionar à Tela de Início".
@@ -2035,14 +2183,19 @@
   com `tracesSampleRate: 1.0`. Sentry → Performance → Web Vitals
   começa a popular ~24h depois do primeiro acesso. Não mexer no sample
   rate sem checar quota.
-- **B2 (Cloudflare Image Resizing) — código DEPLOYADO mas REQUER
-  toggle no painel CF pra valer.** Helper `next-app/lib/cfImg.ts`
-  reescreve URLs pra `/cdn-cgi/image/w=...,q=85,f=auto/<original-url>`.
-  Avatar e PostMedia usam srcset 1x/2x/3x. **Pra ganhar perf, ligar no
-  Cloudflare Dashboard:** Speed → Optimization → **Image Resizing ON**
-  + "Resize images from any origin" **ON** + Polish em **Lossy**.
-  Enquanto não liga, as `<img>` caem no `onError` e mostram placeholder
-  (sem regressão fatal, mas sem ganho). Anotar aqui quando user ligar.
+- **B2 (Cloudflare Image Resizing) — LIGADO E FUNCIONANDO, verificado em
+  2026-09-05.** Helper `next-app/lib/cfImg.ts` reescreve URLs pra
+  `/cdn-cgi/image/w=...,q=85,f=auto/<original-url>`; Avatar e PostMedia usam
+  srcset 1x/2x/3x. Ficou meses anotado como "requer toggle no painel" sem
+  ninguém conferir.
+  - **COMO CONFERIR (mede o EFEITO, não a configuração):** abrir
+    `https://queroumacor.com.br/cdn-cgi/image/w=64,f=auto/https://queroumacor
+    .com.br/icon-192.png`. Imagem pequena = ligado. 404 **comum** = desligado.
+  - **PEGADINHA que quase virou conclusão errada:** com uma origem inexistente
+    a resposta é `ERROR 9404: ... HTTP error 404`. Ler só o "404" diz
+    "desligado" — mas o prefixo `ERROR 9xxx` é emitido PELO Image Resizing,
+    ou seja, prova o contrário. Desligado devolve 404 seco, sem o código.
+    Usar uma origem que EXISTE (`/icon-192.png`) evita a ambiguidade.
 - **SQL Wave 17 (2026-06-09) — width/height em posts (CLS=0) — JÁ
   EXECUTADO no Supabase.** P4 do BACKLOG. Adiciona `posts.media_width`
   e `posts.media_height` (int, opcionais). `usePublishPost` captura

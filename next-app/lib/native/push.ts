@@ -94,6 +94,40 @@ export async function registerNativePush(): Promise<string | null> {
 }
 
 /**
+ * Escuta a ROTAÇÃO do token FCM. O token não é eterno: muda ao limpar os
+ * dados do app, ao reinstalar, e quando o próprio Firebase decide renovar.
+ * Sem este listener a linha em `push_device_tokens` vira lixo apontando pra
+ * um device que não existe mais — o envio "funciona" (200 do FCM) e a
+ * notificação não chega em lugar nenhum. Retorna cleanup; no-op fora da casca.
+ */
+export function onNativePushTokenRefresh(
+  onToken: (token: string) => void,
+): () => void {
+  const fm = getPlugin<FirebaseMessagingPlugin>(PLUGIN);
+  if (!isNativePlatform() || !fm) return () => {};
+  let handle: ListenerHandle | undefined;
+  Promise.resolve(
+    fm.addListener('tokenReceived', (ev) => {
+      const t = (ev as { token?: string }).token;
+      if (typeof t === 'string' && t) onToken(t);
+    }),
+  )
+    .then((h) => {
+      handle = h;
+    })
+    .catch(() => {
+      /* plugin recusou o listener — o token só é atualizado no próximo boot */
+    });
+  return () => {
+    try {
+      void handle?.remove();
+    } catch {
+      /* já removido */
+    }
+  };
+}
+
+/**
  * Registra o handler de TOQUE na notificação: ao tocar numa push (app aberto
  * ou fechado), navega pro `data.url` que o servidor mandou. Sem isto, o toque
  * abre o app SEMPRE na tela inicial. `onNavigate` é injetado por um componente
