@@ -1568,6 +1568,37 @@
     - O log da recusa passou a nomear os DOIS lados (`resumirEnvelope`):
       recebido × esperado. IDs são públicos, e essa linha é a única pista
       que sobra quando a entrega some.
+  - **WEBHOOK RESPONDIA 500 — `waitUntil` chamado SOLTO (2026-09-05).** Em
+    produção o log mostrava a mensagem já reconhecida (`msg de ... preview=
+    "oiii"`) e logo depois `TypeError: Illegal invocation: function called
+    with incorrect \`this\` reference`. Causa: `runAfterResponse` fazia
+    `const waitUntil = ctx?.waitUntil` e chamava `waitUntil(seguro)`. O
+    ExecutionContext do workerd é NATIVO: sem o `this` certo ele lança — e
+    lança de forma **SÍNCRONA, dentro do handler**, então o erro não ficava
+    contido no trabalho de fundo, ele derrubava a resposta.
+    - **REGRA: método de API nativa se chama NO OBJETO DONO.** Vale pra
+      `ctx.waitUntil`, `crypto.subtle.*`, `fetch`, `TextEncoder` — extrair
+      pra variável ou passar como callback solto quebra no edge. Varri o
+      repo: não há outro caso.
+    - **O teste antigo não pegava e isso é a lição de método.** Um `vi.fn()`
+      dentro de objeto literal é função JS comum, que não liga pro `this`;
+      só um objeto que EXIGE o `this` reproduz. Os testes agora usam isso.
+    - **Faltava teste NO NÍVEL DA ROTA** — o unitário do helper não cobria
+      "a Meta recebe 200 aconteça o que acontecer".
+      `__tests__/api/whatsapp-webhook.test.ts` trava o 200 com o `waitUntil`
+      recusando e com o atendimento automático lançando. Confirmado que os
+      dois falham com o código antigo.
+  - **Evento que NÃO é de mensagem agora responde 200, não 403
+    (2026-09-05).** A Meta manda `message_template_status_update`,
+    `account_update` e afins no MESMO webhook. Todos caíam em 403 — e 403
+    pra ela significa "não entreguei", então ela **reenviava
+    indefinidamente** um evento que nunca íamos processar.
+    `classifyWebhookPayload` devolve três desfechos: `processar` (nosso
+    WABA + `field='messages'` + nosso número), `ignorar` (nosso WABA, sem
+    change de mensagem → 200 sem trabalho) e `rejeitar` (outra conta ou
+    malformado → 403). **Mensagem endereçada a OUTRO número continua
+    `rejeitar`**: ali não é "evento que não me interessa", é entrega no
+    endereço errado, e engolir com 200 esconderia erro de configuração.
   - **Aquecimento da Evolution REMOVIDO do portal (2026-09-05).** A tela de
     WhatsApp e a abordagem de lead cutucavam
     `https://evolution-api-8arv.onrender.com` antes de cada envio — ao

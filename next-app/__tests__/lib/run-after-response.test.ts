@@ -58,6 +58,57 @@ describe('runAfterResponse', () => {
     expect(erro).toHaveBeenCalled();
   });
 
+  // Regressão 2026-09-05 (produção respondeu 500). `waitUntil` era extraído
+  // do ctx e chamado solto — o ExecutionContext do workerd é nativo e lança
+  // `TypeError: Illegal invocation` sem o `this` certo, de forma SÍNCRONA,
+  // dentro do handler. O teste antigo passava porque `vi.fn()` num objeto
+  // literal é função JS comum e não liga pro `this`; só um objeto que EXIGE
+  // o `this` reproduz o caso.
+  it('chama waitUntil com o ctx como `this` (nativo exige)', async () => {
+    const recebidos: Array<Promise<unknown>> = [];
+    const ctx = {
+      marcaDeIdentidade: true,
+      waitUntil(this: unknown, p: Promise<unknown>) {
+        // É isto que o runtime nativo faz: reclama de `this` errado.
+        if (this !== ctx) {
+          throw new TypeError(
+            'Illegal invocation: function called with incorrect `this` reference',
+          );
+        }
+        recebidos.push(p);
+      },
+    };
+    (globalThis as Record<symbol, unknown>)[CF] = { env: {}, ctx };
+
+    let terminou = false;
+    expect(() =>
+      runAfterResponse(Promise.resolve().then(() => { terminou = true; })),
+    ).not.toThrow();
+
+    expect(recebidos).toHaveLength(1);
+    await recebidos[0];
+    expect(terminou).toBe(true);
+  });
+
+  it('waitUntil que lança NÃO derruba o handler — o trabalho segue', async () => {
+    // Mesmo que o runtime recuse o keep-alive, a resposta já estava certa:
+    // lançar aqui viraria 500 numa request correta. Degrada, não quebra.
+    const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+    comContexto(() => {
+      throw new TypeError('Illegal invocation');
+    });
+
+    let terminou = false;
+    expect(() =>
+      runAfterResponse(Promise.resolve().then(() => { terminou = true; })),
+    ).not.toThrow();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(terminou).toBe(true);
+    expect(erro).toHaveBeenCalled();
+  });
+
   it('contexto sem ctx.waitUntil não quebra', () => {
     // next-on-pages nem sempre publica o ctx (build, preview de rota
     // estática). Cair pro caminho de rodar direto é o certo.
