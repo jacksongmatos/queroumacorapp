@@ -21,13 +21,15 @@
   topo da tela, longe da Calculadora. Com
   busca, filtro por categoria e por altura, faixas mín/média/máx e uma
   calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
-  - **PENDENTE (única pendência acionável aberta): rodar as DUAS migrations**
-    `/migrations/2026-09-05-tabela-precos-abrapp.sql` (schema) e
-    `...-dados.sql` (328 itens). Sem elas o tile abre e diz que a tabela não
-    foi carregada — não quebra nada, só fica vazio.
-    **Conferir no banco antes de dizer que falta:**
-    `SELECT count(*) FROM public.price_table_items WHERE edicao='ABRAPP 2026';`
-    (esperado 328). Cada bloco do arquivo de dados é uma folha e é
+  - **SQL JÁ EXECUTADO no Supabase (2026-09-05, informado pelo usuário) — as
+    duas migrations** (`/migrations/2026-09-05-tabela-precos-abrapp.sql`,
+    schema, e `...-dados.sql`, 328 itens). **Não pedir pra rodar de novo.**
+    Duas linhas novas em `/migrations/2026-09-05-conferencia-pendencias.sql`
+    conferem isso no banco (contagem 328 e `altura` preenchida em 213 linhas)
+    — conferir por lá antes de afirmar qualquer coisa, nos dois sentidos.
+    O `UPDATE` de `altura` é o último statement do arquivo e é o fácil de
+    pular: sem ele nada quebra, o filtro de altura da tela só para de
+    filtrar, **em silêncio**. Cada bloco do arquivo de dados é uma folha e é
     **idempotente** (upsert por `(edicao, sheet_no, sort_order)`): repetir não
     duplica, e corrigir um valor no arquivo e rodar de novo ATUALIZA a linha.
   - **O PDF é IMAGEM PURA** (print-to-PDF do CorelDRAW, sem camada de texto):

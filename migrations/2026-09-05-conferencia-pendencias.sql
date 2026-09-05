@@ -49,6 +49,17 @@ UNION ALL SELECT 'notify_on_message SEM agrupamento de rajada',
 UNION ALL SELECT 'is_portal_admin usa to_jsonb (C3/A-D1)',
        EXISTS (SELECT 1 FROM pg_proc
                 WHERE proname='is_portal_admin' AND prosrc LIKE '%to_jsonb%')
+UNION ALL SELECT 'tabela ABRAPP — os 328 itens',
+       (SELECT count(*) FROM public.price_table_items
+         WHERE edicao='ABRAPP 2026') = 328
+UNION ALL SELECT 'tabela ABRAPP — coluna altura preenchida',
+       -- O UPDATE que normaliza `altura` é o ÚLTIMO statement do arquivo de
+       -- dados e é o mais fácil de esquecer. Sem ele nada quebra: o filtro de
+       -- altura da tela simplesmente para de filtrar, em silêncio. 213 das 328
+       -- linhas têm eixo de altura no impresso; o número exato pega também o
+       -- UPDATE que rodou pela metade.
+       (SELECT count(*) FROM public.price_table_items
+         WHERE edicao='ABRAPP 2026' AND altura IS NOT NULL) = 213
 UNION ALL SELECT 'admin_delete_user com p_force_admin (Wave 44)',
        EXISTS (SELECT 1 FROM pg_proc WHERE proname='admin_delete_user'
                  AND pg_get_function_identity_arguments(oid) LIKE '%boolean%')
