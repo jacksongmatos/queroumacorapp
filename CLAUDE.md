@@ -1497,8 +1497,20 @@
       não chega. Pra rotacionar: gerar o novo, colar nos DOIS, redeploy.
     - Perdeu o valor? Não dá pra recuperar de lugar nenhum: gera outro e
       atualiza os dois lados. Não há nada que dependa do valor antigo.
-    Envio pelo Dualhook (`api.dualhook.com` + `dh_live_…`) ainda NÃO está
-    integrado — `sendWhatsAppMessage` segue em `graph.facebook.com`.
+    **ENVIO TAMBÉM PELO DUALHOOK desde 2026-09-05.**
+    `sendWhatsAppMessage` faz `POST https://api.dualhook.com/v25.0/
+    <phone_number_id>/messages` com `Authorization: Bearer
+    DUALHOOK_API_KEY` (env nova, Secret). O `WHATSAPP_ACCESS_TOKEN` e o
+    `graph.facebook.com` SAÍRAM do caminho de envio: o número em
+    Coexistence é gerenciado pelo app Meta DELES, e o token do nosso app
+    não tem permissão nesse `phone_number_id`.
+    - O Dualhook **espelha o contrato da Cloud API** — mesmo path, mesmo
+      corpo, mesma forma de erro —, então os builders de payload
+      (`buildTextPayload`/`buildTemplatePayload`) não mudaram.
+    - **401/403 SEM `code` também vira erro de credencial.** O Dualhook
+      recusa a API key com um 401 próprio, que não carrega o `code: 190`
+      da Meta; sem essa ramificação a mensagem mandaria quem depura olhar
+      o painel da Meta, que não é mais onde a credencial vive.
   - **O access token NÃO está no código** (IDs públicos são default; token
     só via env). Se o token vazar/expirar (erro 190 do Graph): regenerar no
     painel Meta e trocar só a env + redeploy.
