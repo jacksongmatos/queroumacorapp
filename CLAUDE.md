@@ -14,7 +14,11 @@
 - **TABELA DE PREÇOS DA ABRAPP 2026 — tile novo + SQL PENDENTE (2026-09-05).**
   O PDF da ABRAPP ("Sugestão de Preços de Pintura 2026", 26 folhas) virou
   ferramenta no app: tile **Tabela de Preços** no `BusinessGrid`, ao lado da
-  Calculadora (uma calcula material, a outra o preço da mão de obra), com
+  Calculadora (uma calcula material, a outra o preço da mão de obra), **visível
+  só pra `role='pintor'`** (e admin) — a tabela é de mão de obra de PINTURA.
+  O gate fica no filtro `visibleTiles`, junto com o das personas de IA, e NÃO
+  em `ROLE_TILES`: aquele array renderiza antes de tudo e jogaria o tile pro
+  topo da tela, longe da Calculadora. Com
   busca, filtro por categoria e por altura, faixas mín/média/máx e uma
   calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
   - **PENDENTE (única pendência acionável aberta): rodar as DUAS migrations**

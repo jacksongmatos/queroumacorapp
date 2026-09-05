@@ -148,6 +148,7 @@ const TILES: readonly Tile[] = [
   { sheet: 'pontos', emoji: '🎁', title: 'Meus Pontos', subtitle: 'Pra ganhar PRO' },
   { sheet: 'portfolio', emoji: '📸', title: 'Meu Portfolio', subtitle: 'Postar trabalhos' },
   { sheet: 'calculadora', emoji: '🧮', title: 'Calculadora', subtitle: 'Tinta e material' },
+  // Só pintor (e admin) enxerga — filtrado em `visibleTiles` logo abaixo.
   { sheet: 'tabela-precos', emoji: '📊', title: 'Tabela de Preços', subtitle: 'ABRAPP 2026' },
   { sheet: 'agenda', emoji: '📅', title: 'Agenda', subtitle: 'Meus projetos' },
   { sheet: 'crm', emoji: '🔁', title: 'Reativar clientes', subtitle: 'Follow-up · PRO' },
@@ -234,6 +235,11 @@ export function BusinessGrid() {
   //  - Alice → cliente
   //  - Admin → vê todos os 4 pra testar
   const visibleTiles = TILES.filter((t) => {
+    // Tabela de Preços é referência de mão de obra de PINTURA (ABRAPP), então
+    // só faz sentido pra pintor. Fica em TILES, e não em ROLE_TILES, pra não
+    // mudar de lugar no grid: ROLE_TILES renderiza antes de tudo, e o tile
+    // pularia da vizinhança da Calculadora pro topo da tela.
+    if (t.sheet === 'tabela-precos') return showAdmin || userRole === 'pintor';
     if (t.sheet === 'seu-ze') {
       // M6 fix: condição era `!userRole && userRole !== 'cliente'` que é
       // tautológica (se !userRole, segunda parte é sempre true). Intenção
