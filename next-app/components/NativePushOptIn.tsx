@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { native } from '@/lib/native';
-import { registerDeviceToken } from '@/lib/services/pushTokens';
+import { ensureDeviceToken, registerDeviceToken } from '@/lib/services/pushTokens';
 
 type Status = 'idle' | 'working' | 'on' | 'denied' | 'error';
 
@@ -31,16 +31,25 @@ export function NativePushOptIn() {
     // sempre 'idle' e o card mostrava "Ativar" TODA vez que o app abria,
     // mesmo já ativado — o usuário reativava a cada abertura. `checkPermissions`
     // não abre prompt. Só marcamos 'on'/'denied'; 'prompt' fica 'idle'.
+    //
+    // E o "on" tem que ser VERDADE: ler a permissão escondia o botão
+    // "Ativar", que era o único lugar que gravava o token — o card dizia
+    // "Ativadas neste aparelho" com `push_device_tokens` vazio, e o push ia
+    // pra ninguém. `ensureDeviceToken` grava sem abrir prompt (só com a
+    // permissão já concedida). O <NativePushBridge> no AppShell faz o mesmo
+    // pra quem nunca chega neste rodapé; aqui é o que sustenta o rótulo.
     let alive = true;
     void native.push.permission().then((p) => {
       if (!alive) return;
-      if (p === 'granted') setStatus('on');
-      else if (p === 'denied') setStatus('denied');
+      if (p === 'granted') {
+        setStatus('on');
+        if (user?.id) void ensureDeviceToken(user.id);
+      } else if (p === 'denied') setStatus('denied');
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [user?.id]);
 
   const activate = useCallback(async () => {
     if (!user?.id || status === 'working') return;
