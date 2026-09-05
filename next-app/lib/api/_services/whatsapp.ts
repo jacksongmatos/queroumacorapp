@@ -527,6 +527,8 @@ export async function persistStatusEntrega(
           delivery_status: st.status,
           delivery_status_at: quando || new Date().toISOString(),
           delivery_error: st.erro,
+          delivery_error_code: st.erroCodigo,
+          delivery_error_title: st.erroTitulo,
         }),
         signal: AbortSignal.timeout(PERSIST_TIMEOUT_MS),
       }
@@ -747,8 +749,12 @@ export interface AtualizacaoDeStatus {
   /** Epoch em segundos, como a Meta manda. */
   timestamp: string;
   recipientId: string;
-  /** Só em `failed`: por que não entregou. */
+  /** Só em `failed`: por que não entregou (código · título · detalhe). */
   erro: string | null;
+  /** Código da Meta, separado pra dar pra filtrar/agrupar falha por causa. */
+  erroCodigo: number | null;
+  /** Título curto da Meta, sem o detalhe. */
+  erroTitulo: string | null;
 }
 
 // A ordem importa: a Meta pode entregar os eventos fora de ordem (e reenviar
@@ -801,6 +807,8 @@ export function parseStatusUpdates(payload: unknown): AtualizacaoDeStatus[] {
         // a tela só diria "falhou" e a pessoa ficaria adivinhando entre
         // número sem WhatsApp, opt-out de marketing e limite da Meta.
         let erro: string | null = null;
+        let erroCodigo: number | null = null;
+        let erroTitulo: string | null = null;
         const errs = st.errors;
         if (Array.isArray(errs) && errs.length > 0) {
           const e = errs[0] as {
@@ -809,9 +817,12 @@ export function parseStatusUpdates(payload: unknown): AtualizacaoDeStatus[] {
             message?: unknown;
             error_data?: { details?: unknown };
           };
+          const n = Number(e.code);
+          erroCodigo = Number.isFinite(n) ? n : null;
+          erroTitulo = String(e.title || e.message || '').slice(0, 200) || null;
           const partes = [
-            e.code != null ? `${e.code}` : '',
-            String(e.title || e.message || ''),
+            erroCodigo != null ? `${erroCodigo}` : '',
+            erroTitulo || '',
             String(e.error_data?.details || ''),
           ].filter(Boolean);
           erro = partes.join(' · ').slice(0, 300) || 'falha sem detalhe';
@@ -822,6 +833,8 @@ export function parseStatusUpdates(payload: unknown): AtualizacaoDeStatus[] {
           timestamp: typeof st.timestamp === 'string' ? st.timestamp : '',
           recipientId: typeof st.recipient_id === 'string' ? st.recipient_id : '',
           erro,
+          erroCodigo,
+          erroTitulo,
         });
       }
     }

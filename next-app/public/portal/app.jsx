@@ -2680,7 +2680,21 @@ const TEMPLATES_APROVADOS = [
 
 const TEMPLATE_SEM_NOME = 'calicolors';
 const TEMPLATE_COM_NOME = 'calicolors_nome';
-const templatePorNome = (n) => TEMPLATES_APROVADOS.find(t => t.nome === n) || null;
+
+// Lista VIVA, carregada de /api/whatsapp/templates (que consulta a Meta via
+// Dualhook). A lista embutida acima fica de fallback: se a consulta falhar
+// — endpoint nao espelhado, chave sem permissao, rede — a tela continua
+// funcionando com os dois templates que sabemos existir, em vez de ficar
+// sem nenhum. Recurso novo nao pode derrubar o que ja funciona.
+//
+// Lista de template escrita a mao envelhece igual lista de pendencia:
+// alguem aprova um no painel, ninguem mexe no codigo, e a tela segue
+// oferecendo dois. Pior: se o nome mudar la, o envio quebra com 132001 e a
+// tela continua exibindo o nome velho como se estivesse certo.
+let _templatesVivos = null;
+
+const templatesDisponiveis = () => _templatesVivos || TEMPLATES_APROVADOS;
+const templatePorNome = (n) => templatesDisponiveis().find(t => t.nome === n) || null;
 
 // Primeiro nome utilizavel pro {{1}}, ou null. Espelha `primeiroNome` do
 // servidor: recusa vazio, recusa telefone no lugar do nome (a base
@@ -2709,6 +2723,35 @@ const escolherTemplate = (nomeBruto, preferido) => {
   };
 };
 
+// Numero dos EUA? (DDI 1, 11 digitos: 1 + area + numero)
+// A Meta NAO entrega template de categoria MARKETING pra numero dos EUA —
+// o envio e ACEITO e o status volta `failed` (131049). Foi o caso de 5
+// disparos em 2026-09-05 que "sumiram": o portal registrou tudo certo e o
+// cliente nunca recebeu. Sem este aviso, o operador repete o disparo
+// achando que foi falha de rede.
+//
+// "11 digitos comecando com 1" NAO basta: `11987654321` (celular de SP sem
+// DDI) tem exatamente essa forma. O desempate e a regra do NANP — codigo de
+// area dos EUA/Canada NUNCA comeca com 0 nem com 1. Entao o digito seguinte
+// ao '1' resolve: `1`+`650`... e EUA; `1`+`198`... nao existe, e o 11 de SP.
+//
+// Na pratica o `wa_id` do banco ja vem normalizado com DDI (BR = 55...),
+// mas a funcao tambem recebe numero digitado na tela, onde a forma sem DDI
+// aparece.
+const ehNumeroEUA = (waId) => {
+  const d = String(waId || '').replace(/\D/g, '');
+  if(d.length !== 11 || d[0] !== '1') return false;
+  return d[1] >= '2' && d[1] <= '9';
+};
+
+// Marketing pra numero dos EUA = nao vai chegar. Devolve o aviso ou null.
+const avisoMarketingEUA = (waId, categoria) => {
+  if(!ehNumeroEUA(waId)) return null;
+  if(String(categoria || '').toUpperCase() !== 'MARKETING') return null;
+  return 'A Meta não entrega templates de marketing para números dos EUA; ' +
+    'use um Utility ou texto livre na janela.';
+};
+
 // [teste:template-fim]
 
 // Texto pra MOSTRAR na tela (previa antes de enviar, e bolha depois).
@@ -2728,32 +2771,183 @@ const registroDeTemplate = (escolha) =>
     ? '[template ' + escolha.template + '] {{1}}=' + escolha.nome
     : '[template ' + escolha.template + ']';
 
-// Previa do que vai ser enviado. Quando nao ha espelho do texto, diz onde
-// ele vive em vez de inventar — mostrar texto diferente do que a pessoa vai
-// receber e pior do que nao mostrar.
-const PreviaTemplate = ({ nomeTemplate, nomePessoa }) => {
-  const t = templatePorNome(nomeTemplate);
-  const corpo = textoDoTemplate(nomeTemplate, nomePessoa);
+// Carrega a lista viva de templates uma vez por sessao do portal. Falha e
+// SILENCIOSA de proposito: a lista embutida cobre, e um alerta vermelho
+// sobre "nao consegui listar templates" assustaria sem dar o que fazer. O
+// motivo real vai pro console e pro log do Cloudflare.
+let _templatesPromise = null;
+const carregarTemplates = async () => {
+  if(_templatesPromise) return _templatesPromise;
+  _templatesPromise = (async () => {
+    try {
+      const { data: { session } } = await supa.auth.getSession();
+      if(!session) return null;
+      const r = await fetch('/api/whatsapp/templates', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ accessToken: session.access_token })
+      });
+      const res = await r.json().catch(() => ({}));
+      if(!r.ok || !res.ok || !Array.isArray(res.templates)) {
+        console.warn('[templates] usando a lista embutida:', res.error || ('HTTP ' + r.status));
+        return null;
+      }
+      // Normaliza pro formato que a tela usa. `texto` vem da Meta, entao
+      // aqui o espelho deixa de ser copia manual — e o que a pessoa recebe.
+      _templatesVivos = res.templates.map(t => ({
+        nome: t.nome,
+        rotulo: t.nome,
+        categoria: t.categoria,
+        idioma: t.idioma,
+        titulo: t.cabecalho || null,
+        texto: t.corpo || null,
+        variaveis: Array.isArray(t.variaveis) ? t.variaveis : [],
+        precisaNome: Array.isArray(t.variaveis) && t.variaveis.length > 0,
+      }));
+      return _templatesVivos;
+    } catch(e) {
+      console.warn('[templates] usando a lista embutida:', e && e.message);
+      return null;
+    }
+  })();
+  return _templatesPromise;
+};
+
+// ── Envio de template, com um campo por variavel ────────────────────────
+// Usado na tela de WhatsApp e na abordagem de lead — a mesma decisao nos
+// dois lugares, pra um nao divergir do outro.
+//
+// Regra que nao pode ser burlada pela tela: variavel VAZIA nao envia. Um
+// {{1}} vazio faz a Meta entregar "Oi ," ou recusar; o botao fica
+// desabilitado com o motivo a vista, em vez de deixar mandar e falhar.
+const EnvioDeTemplate = ({ waId, nomeContato, enviando, estagio, onEnviar }) => {
+  const [lista, setLista] = useState(templatesDisponiveis());
+  const [escolhido, setEscolhido] = useState(TEMPLATE_COM_NOME);
+  const [valores, setValores] = useState({});
+
+  useEffect(() => {
+    let vivo = true;
+    carregarTemplates().then(t => { if(vivo && t) setLista(t); });
+    return () => { vivo = false; };
+  }, []);
+
+  const tpl = lista.find(t => t.nome === escolhido) || lista[0] || null;
+  const vars = (tpl && tpl.variaveis) || (tpl && tpl.precisaNome ? [{ indice:1, exemplo:null }] : []);
+
+  // {{1}} ja vem com o primeiro nome do contato — e o caso mais comum, e
+  // digitar de novo o que a tela ja sabe e trabalho a toa.
+  useEffect(() => {
+    if(!tpl) return;
+    setValores(v => {
+      const novo = { ...v };
+      for(const va of vars){
+        if(novo[va.indice] == null){
+          novo[va.indice] = va.indice === 1 ? (primeiroNome(nomeContato) || '') : '';
+        }
+      }
+      return novo;
+    });
+  }, [escolhido, nomeContato]);
+
+  const faltando = vars.filter(v => !String(valores[v.indice] || '').trim());
+  const aviso = tpl ? avisoMarketingEUA(waId, tpl.categoria) : null;
+
+  // Previa com os valores JA substituidos: o operador le exatamente o que
+  // vai sair, nao um molde com {{1}}.
+  const previa = (() => {
+    if(!tpl || !tpl.texto) return null;
+    return tpl.texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => String(valores[Number(n)] || '{{' + n + '}}'));
+  })();
+
+  const enviar = () => {
+    if(!tpl || faltando.length) return;
+    const params = vars
+      .sort((a,b) => a.indice - b.indice)
+      .map(v => String(valores[v.indice]).trim());
+    onEnviar({
+      template: tpl.nome,
+      idioma: tpl.idioma || TEMPLATE_IDIOMA,
+      components: params.length
+        ? [{ type:'body', parameters: params.map(text => ({ type:'text', text })) }]
+        : undefined,
+      registro: params.length
+        ? '[template ' + tpl.nome + '] {{1}}=' + params[0]
+        : '[template ' + tpl.nome + ']',
+    });
+  };
+
   return (
-    <div style={{ border:'1.5px solid '+C.border, borderRadius:12, padding:14, background:'#f7f4ef' }}>
-      {t && t.titulo ? (
-        <div style={{ fontSize:13, fontWeight:800, color:C.ink, marginBottom:8 }}>{t.titulo}</div>
-      ) : null}
-      {corpo ? (
-        <div style={{ fontSize:13, lineHeight:1.55, color:C.ink, whiteSpace:'pre-wrap' }}>{corpo}</div>
-      ) : (
-        <div style={{ fontSize:12, lineHeight:1.5, color:C.muted }}>
-          O texto deste template está cadastrado na Meta (painel do Dualhook →
-          Templates → <strong style={{ color:C.ink }}>{nomeTemplate}</strong>) e é
-          ele que a pessoa recebe.
-          {primeiroNome(nomePessoa)
-            ? <> A variável <code>{'{{1}}'}</code> vai com <strong style={{ color:C.ink }}>{primeiroNome(nomePessoa)}</strong>.</>
-            : null}
+    <div>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
+        <label style={{ fontSize:12, fontWeight:700, color:C.ink }}>Template:</label>
+        <select value={tpl ? tpl.nome : ''} onChange={e=>{ setEscolhido(e.target.value); setValores({}); }}
+          style={{ flex:'1 1 260px', padding:'8px 10px', borderRadius:10, fontSize:13,
+            border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
+          {lista.map(t => (
+            <option key={t.nome} value={t.nome}>
+              {t.nome}{t.categoria ? ' · ' + String(t.categoria).toLowerCase() : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {aviso ? (
+        <div style={{ marginBottom:10, padding:'9px 12px', background:'#fff4e5', border:'1px solid #f0c98a',
+          borderRadius:10, fontSize:12, color:'#8a5300', lineHeight:1.5 }}>
+          ⚠️ {aviso}
         </div>
-      )}
+      ) : null}
+
+      {vars.length ? (
+        <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:10 }}>
+          {vars.map(v => (
+            <div key={v.indice} style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:C.muted, minWidth:38 }}>
+                {'{{' + v.indice + '}}'}
+              </span>
+              <input value={valores[v.indice] || ''}
+                onChange={e=>setValores(x => ({ ...x, [v.indice]: e.target.value }))}
+                placeholder={v.exemplo || ('valor da variável ' + v.indice)}
+                style={{ flex:1, padding:'8px 10px', borderRadius:10, fontSize:13, outline:'none',
+                  border:'1.5px solid '+(String(valores[v.indice]||'').trim() ? C.border : '#e0a0a0') }} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div style={{ border:'1.5px solid '+C.border, borderRadius:12, padding:14, background:'#f7f4ef', marginBottom:10 }}>
+        {tpl && tpl.titulo ? (
+          <div style={{ fontSize:13, fontWeight:800, color:C.ink, marginBottom:8 }}>{tpl.titulo}</div>
+        ) : null}
+        {previa ? (
+          <div style={{ fontSize:13, lineHeight:1.55, color:C.ink, whiteSpace:'pre-wrap' }}>{previa}</div>
+        ) : (
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.5 }}>
+            O texto deste template está cadastrado na Meta (painel do Dualhook →
+            Templates → <strong style={{ color:C.ink }}>{tpl ? tpl.nome : '—'}</strong>) e é ele
+            que a pessoa recebe.
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+        <button onClick={enviar} disabled={enviando || !tpl || faltando.length > 0}
+          title={faltando.length ? 'Preencha todas as variáveis do template.' : ''}
+          style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 18px',
+            fontSize:13, fontWeight:700,
+            cursor: (enviando || faltando.length) ? 'not-allowed' : 'pointer',
+            opacity: (enviando || faltando.length) ? .5 : 1 }}>
+          {enviando ? (estagio || 'Enviando…') : '📤 Enviar template'}
+        </button>
+        <span style={{ fontSize:11, color:C.muted }}>
+          {tpl ? <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{tpl.nome}</code> : null}
+          {tpl && tpl.idioma ? ' · ' + tpl.idioma : ''}
+          {faltando.length ? ' · preencha ' + faltando.map(v => '{{'+v.indice+'}}').join(', ') : ''}
+        </span>
+      </div>
     </div>
   );
 };
+
 
 // ── Nova conversa: modal do portal, no lugar do prompt() do navegador ───
 // O `prompt()` e uma caixa do CHROME: aparece fora do desenho do portal,
@@ -3026,8 +3220,6 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
   // Template escolhido no dropdown. `escolherTemplate` ainda decide por
   // cima: se o lead nao tem nome utilizavel, o de variavel nao serve e cai
   // no fixo — a escolha do operador nao pode mandar "Oi ,".
-  const [templateEscolhido, setTemplateEscolhido] = useState(TEMPLATE_COM_NOME);
-  const templateEfetivo = escolherTemplate(lead.name, templateEscolhido).template;
   const pitch = pitchDoLead(lead);
   const alvo = normalizeLeadPhone(lead.phone);
   const linha = tipoDeLinha(lead.phone);
@@ -3059,25 +3251,23 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
     if(!editado) setTexto(montarAbordagem(lead, escolhidos));
   }, [produtos, sel, editado]);
 
-  const enviar = async () => {
+  // Envio comum: texto livre e template compartilham tudo menos a carga.
+  // `pacote` vindo do <EnvioDeTemplate> => template; ausente => texto livre.
+  const enviarPara = async (pacote) => {
     if(!alvo){ setErro('Numero invalido neste lead.'); return; }
-    if(modo === 'livre' && !texto.trim()){ setErro('A mensagem esta vazia.'); return; }
+    if(!pacote && !texto.trim()){ setErro('A mensagem esta vazia.'); return; }
     setEnviando(true); setErro('');
     try {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErro('Sessao expirada — entre de novo.'); setEnviando(false); return; }
       setEstagio('Enviando…');
-      // No modo template o corpo NAO viaja: quem tem o texto e a Meta. Mandar
-      // `body` junto so encheria o historico com um texto que nao foi o
-      // enviado.
-      const escolha = escolherTemplate(lead.name, templateEscolhido);
-      const carga = modo === 'template'
-        ? { to: alvo, type:'template', template: escolha.template, languageCode: TEMPLATE_IDIOMA,
-            components: escolha.components,
-            // `body` aqui NAO e o que a Meta envia (o texto dela vive la);
-            // e o registro pro historico do portal, pra conversa nao virar
-            // um "[template]" seco. Ver persistWhatsAppMessage na rota.
-            body: registroDeTemplate(escolha) }
+      // No template o `body` NAO e o que a Meta envia (o texto dela vive
+      // la): e o registro pro historico do portal, pra conversa nao virar um
+      // "[template]" seco. Ver persistWhatsAppMessage na rota.
+      const carga = pacote
+        ? { to: alvo, type:'template', template: pacote.template,
+            languageCode: pacote.idioma, components: pacote.components,
+            body: pacote.registro }
         : { to: alvo, body: texto };
       const r = await fetch('/api/whatsapp/send', {
         method:'POST', headers:{ 'Content-Type':'application/json' },
@@ -3146,32 +3336,13 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
                 Assim que a pessoa <strong style={{ color:C.ink }}>responder</strong>, abrem 24h
                 pra falar livremente — aí a aba WhatsApp (ou o "Texto livre" aqui) vale.
               </div>
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-                <label htmlFor="lead-template" style={{ fontSize:12, fontWeight:700, color:C.ink }}>Template:</label>
-                <select id="lead-template" value={templateEfetivo}
-                  onChange={e=>setTemplateEscolhido(e.target.value)}
-                  style={{ flex:'1 1 240px', padding:'8px 10px', borderRadius:10, fontSize:13,
-                    border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
-                  {TEMPLATES_APROVADOS.map(t => {
-                    const falta = t.precisaNome && !primeiroNome(lead.name);
-                    return (
-                      <option key={t.nome} value={t.nome} disabled={falta}>
-                        {t.rotulo}{falta ? ' — este lead não tem nome' : ''} ({t.nome})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              <PreviaTemplate nomeTemplate={templateEfetivo} nomePessoa={lead.name} />
-              <div style={{ fontSize:11, color:C.muted, marginTop:8 }}>
-                Template <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{templateEfetivo}</code> · {TEMPLATE_IDIOMA} · categoria Marketing —
-                {primeiroNome(lead.name)
-                  ? ' a mensagem chama a pessoa de "' + primeiroNome(lead.name) + '". '
-                  : ' este lead não tem nome utilizável, então vai o template sem nome (nunca mandamos "Oi ," com a variável vazia). '}
-                a pessoa pode optar por não receber marketing, e aí este envio não chega.
-                A seleção de produtos abaixo <strong style={{ color:C.ink }}>não entra</strong> nesta mensagem
-                (o template é fixo); ela serve pro texto livre, depois da resposta.
-              </div>
+              <EnvioDeTemplate
+                waId={alvo}
+                nomeContato={lead.name}
+                enviando={enviando}
+                estagio={estagio}
+                onEnviar={enviarPara}
+              />
             </div>
           ) : (
             <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:12 }}>
@@ -3232,10 +3403,16 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
           </span>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={onClose} style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'9px 16px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
-            <button onClick={enviar} disabled={enviando || !alvo}
-              style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 22px', fontSize:13, fontWeight:700, cursor: enviando?'wait':'pointer', opacity: enviando||!alvo ? .6 : 1 }}>
-              {enviando ? (estagio || 'Enviando…') : (modo === 'template' ? '📤 Enviar 1ª mensagem' : '📤 Enviar texto livre')}
-            </button>
+            {/* No modo template quem envia e o botao do <EnvioDeTemplate>,
+                que so libera com as variaveis preenchidas. Dois botoes de
+                enviar na mesma tela, um deles ignorando as variaveis, seria
+                convite pra mandar "Oi ,". */}
+            {modo === 'livre' ? (
+              <button onClick={()=>enviarPara(null)} disabled={enviando || !alvo}
+                style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 22px', fontSize:13, fontWeight:700, cursor: enviando?'wait':'pointer', opacity: enviando||!alvo ? .6 : 1 }}>
+                {enviando ? (estagio || 'Enviando…') : '📤 Enviar texto livre'}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -5381,7 +5558,6 @@ const WhatsAppTab = () => {
   const thread = aberta ? [...aberta.msgs].sort((a,b) => new Date(a.created_at) - new Date(b.created_at)) : [];
 
   const [sendStage, setSendStage] = useState('');
-  const [templateEscolhido, setTemplateEscolhido] = useState(TEMPLATE_COM_NOME);
 
   // Nome de quem esta do outro lado, pro {{1}}. Ordem: perfil do app > lead
   // > pushName do WhatsApp — a mesma que a lista de conversas ja usa.
@@ -5389,8 +5565,6 @@ const WhatsAppTab = () => {
     ? (leadByPhone[openWa.slice(-8)]?.name || (aberta ? nomeDe(aberta) : null))
     : null;
 
-  // Sem nome utilizavel, o template de variavel nao serve: cai no fixo.
-  const templateEfetivo = escolherTemplate(nomeDoContatoAberto, templateEscolhido).template;
 
   const enviar = async () => {
     const body = text.trim();
@@ -5429,21 +5603,20 @@ const WhatsAppTab = () => {
 
   // Envio de TEMPLATE — o unico caminho quando a janela de 24h esta fechada
   // (numero novo, ou cliente que sumiu ha mais de um dia).
-  const enviarTemplate = async (nomeTemplate) => {
-    if(!openWa || sending) return;
+  // Recebe o pacote ja montado pelo <EnvioDeTemplate>: nome, idioma,
+  // components (uma entrada por variavel) e o registro pro historico.
+  const enviarTemplate = async (pacote) => {
+    if(!openWa || sending || !pacote) return;
     setSending(true); setErr('');
     try {
       const { data: { session } } = await supa.auth.getSession();
       if(!session){ setErr('Sessao expirada — entre de novo.'); setSending(false); return; }
       setSendStage('Enviando…');
-      // A escolha respeita a mesma regra do servidor: sem nome utilizavel,
-      // cai no template fixo em vez de mandar {{1}} vazio.
-      const escolha = escolherTemplate(nomeDoContatoAberto, nomeTemplate);
       const r = await fetch('/api/whatsapp/send', {
         method:'POST', headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ accessToken: session.access_token, to: openWa,
-          type:'template', template: escolha.template, languageCode: TEMPLATE_IDIOMA,
-          components: escolha.components, body: registroDeTemplate(escolha) })
+          type:'template', template: pacote.template, languageCode: pacote.idioma,
+          components: pacote.components, body: pacote.registro })
       });
       let raw = ''; try { raw = await r.text(); } catch(_){}
       let res = {}; try { res = JSON.parse(raw); } catch(_){}
@@ -5455,8 +5628,7 @@ const WhatsAppTab = () => {
         // renderiza o texto e o `textoDeTemplate` pelo NOME do template.
         setMsgs(prev => [{
           id: 'local-' + Date.now(), direction:'out', wa_id: openWa,
-          type:'template', body:null, template: escolha.template,
-          template_nome: escolha.nome,
+          type:'template', body: pacote.registro, template: pacote.template,
           created_at: new Date().toISOString(), wa_timestamp: null
         }, ...prev]);
         load();
@@ -5704,46 +5876,13 @@ const WhatsAppTab = () => {
                       : 'Esta pessoa nunca escreveu pra loja, então o WhatsApp não aceita texto livre.'}
                     {' '}Assim que ela <strong style={{ color:C.ink }}>responder</strong>, o campo de escrever volta sozinho por 24h.
                   </div>
-                  {/* Dropdown dos templates aprovados. Era uma fileira de
-                      botoes; virou <select> porque a lista cresce a cada
-                      template novo aprovado, e ai a fileira quebra linha e
-                      empurra a previa pra fora da tela.
-                      A opcao que exige nome fica DESABILITADA (nao some)
-                      quando o contato nao tem nome salvo: sumir esconderia
-                      que ela existe; desabilitada com o motivo ao lado
-                      ensina o que fazer (salvar o nome do contato). */}
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-                    <label htmlFor="wa-template" style={{ fontSize:12, fontWeight:700, color:C.ink }}>Template:</label>
-                    <select id="wa-template" value={templateEfetivo}
-                      onChange={e=>setTemplateEscolhido(e.target.value)}
-                      style={{ flex:'1 1 240px', padding:'8px 10px', borderRadius:10, fontSize:13,
-                        border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
-                      {TEMPLATES_APROVADOS.map(t => {
-                        const falta = t.precisaNome && !primeiroNome(nomeDoContatoAberto);
-                        return (
-                          <option key={t.nome} value={t.nome} disabled={falta}>
-                            {t.rotulo}{falta ? ' — precisa do nome do contato' : ''} ({t.nome})
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                  <div style={{ marginBottom:10 }}>
-                    <PreviaTemplate nomeTemplate={templateEfetivo} nomePessoa={nomeDoContatoAberto} />
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                    <button onClick={()=>enviarTemplate(templateEfetivo)} disabled={sending}
-                      style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 18px',
-                        fontSize:13, fontWeight:700, cursor: sending?'wait':'pointer', opacity: sending?.6:1 }}>
-                      {sending ? (sendStage || 'Enviando…') : '📤 Enviar template'}
-                    </button>
-                    <span style={{ fontSize:11, color:C.muted }}>
-                      <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{templateEfetivo}</code> · {TEMPLATE_IDIOMA} · categoria Marketing
-                      {primeiroNome(nomeDoContatoAberto) && templatePorNome(templateEfetivo)?.precisaNome
-                        ? ' · chama a pessoa de "' + primeiroNome(nomeDoContatoAberto) + '"'
-                        : ''}
-                    </span>
-                  </div>
+                  <EnvioDeTemplate
+                    waId={openWa}
+                    nomeContato={nomeDoContatoAberto}
+                    enviando={sending}
+                    estagio={sendStage}
+                    onEnviar={enviarTemplate}
+                  />
                 </div>
               ) : (
               <>

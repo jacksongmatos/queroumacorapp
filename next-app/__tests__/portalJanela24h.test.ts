@@ -136,6 +136,8 @@ describe('janela de 24h (portal)', () => {
 // sozinho no follow-up automático. Se as duas divergirem, um dos caminhos
 // acaba mandando `{{1}}` vazio — e o cliente recebe "Oi ,".
 
+let avisoMarketingEUA: (waId: string, cat: string) => string | null;
+let ehNumeroEUA: (waId: string) => boolean;
 let escolherNoPortal: (
   nome: string | null | undefined,
   preferido?: string
@@ -232,5 +234,58 @@ describe('marcadores de extração do portal', () => {
       // `<` seguido de letra maiúscula ou barra é abertura/fechamento de tag.
       expect(b, 'JSX dentro de um bloco que o teste avalia como JS puro').not.toMatch(/<[A-Za-z/]/);
     }
+  });
+});
+
+// ── Marketing para número dos EUA ────────────────────────────────────────
+// A Meta NÃO entrega template de categoria Marketing para número dos EUA: o
+// envio é aceito e o status volta `failed` (131049). Foi o que aconteceu com
+// 5 disparos em 2026-09-05 — o portal registrou tudo certo e o cliente nunca
+// recebeu. Sem o aviso, o operador repete achando que foi falha de rede.
+
+describe('aviso de marketing para número dos EUA', () => {
+  // beforeAll PRÓPRIO: um `beforeAll` dentro de outro describe não vale
+  // aqui. Esqueci disso na 1ª versão e os cinco testes falharam com
+  // "ehNumeroEUA is not defined" — o que, ao menos, falha alto.
+  beforeAll(() => {
+    const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = src.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = src.indexOf('// [teste:template-fim]');
+    const fabrica = new Function(
+      `${src.slice(inicio, fim)}; return { avisoMarketingEUA, ehNumeroEUA };`
+    ) as () => {
+      avisoMarketingEUA: typeof avisoMarketingEUA;
+      ehNumeroEUA: typeof ehNumeroEUA;
+    };
+    ({ avisoMarketingEUA, ehNumeroEUA } = fabrica());
+  });
+
+  it('reconhece número dos EUA (DDI 1, 11 dígitos)', () => {
+    expect(ehNumeroEUA('16502701234')).toBe(true);
+    expect(ehNumeroEUA('+1 (650) 270-1234')).toBe(true);
+  });
+
+  it('número brasileiro não é confundido', () => {
+    // 5511987654321 tem 13 dígitos e começa com 55.
+    expect(ehNumeroEUA('5511987654321')).toBe(false);
+    expect(ehNumeroEUA('551139876543')).toBe(false);
+    // 11 dígitos mas começando com 5 (celular BR sem DDI) também não.
+    expect(ehNumeroEUA('11987654321')).toBe(false);
+  });
+
+  it('avisa em Marketing + EUA', () => {
+    const a = avisoMarketingEUA('16502701234', 'MARKETING');
+    expect(a).toContain('marketing');
+    expect(a).toContain('Utility');
+  });
+
+  it('não avisa em Utility, nem em número brasileiro', () => {
+    expect(avisoMarketingEUA('16502701234', 'UTILITY')).toBeNull();
+    expect(avisoMarketingEUA('5511987654321', 'MARKETING')).toBeNull();
+    expect(avisoMarketingEUA('', 'MARKETING')).toBeNull();
+  });
+
+  it('categoria em minúscula também conta', () => {
+    expect(avisoMarketingEUA('16502701234', 'marketing')).not.toBeNull();
   });
 });
