@@ -194,24 +194,50 @@ export async function sendWhatsAppMessage(
       signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
     });
   } catch {
-    throw new ServiceError('falha de rede ao chamar a API do Dualhook', 502);
+    // 500, não 502: ver o comentário do bloco de erro abaixo — o Cloudflare
+    // troca o corpo do 502 pela página dele e a explicação some.
+    console.error('dualhook_send_failed', { status: 0, body: 'network' });
+    throw new ServiceError('falha de rede ao chamar a API do Dualhook', 500, {
+      dualhookStatus: 0,
+    });
   }
 
+  // Lê o corpo como TEXTO primeiro: em falha ele vai inteiro pro log, e a
+  // resposta do Dualhook nem sempre é JSON (proxy, HTML de erro, corpo
+  // vazio). `res.json()` engoliria justamente o caso que mais precisa ser
+  // visto.
+  const rawText = await res.text().catch(() => '');
   let data: GraphMessagesResponse = {};
   try {
-    data = (await res.json()) as GraphMessagesResponse;
+    data = JSON.parse(rawText) as GraphMessagesResponse;
   } catch {
     /* corpo não-JSON cai na checagem de status abaixo */
   }
 
   if (!res.ok || data.error) {
+    // NUNCA 502/504 daqui pra baixo: o Cloudflare SUBSTITUI o corpo dessas
+    // duas pela página de erro dele, e a mensagem que explica a falha se
+    // perde no caminho — quem está no portal vê "502 Bad gateway" e não
+    // sabe se foi credencial, janela de 24h ou número errado. Erro 4xx do
+    // Dualhook vira 400 (a culpa é da nossa requisição), o resto vira 500.
+    // O `dualhookStatus` viaja no corpo (ServiceError.extra) pra tela poder
+    // mostrar o número real.
+    console.error('dualhook_send_failed', { status: res.status, body: rawText });
+
+    const dualhookStatus = res.status;
+    const extra = { dualhookStatus };
+    const httpStatus = res.status >= 400 && res.status < 500 ? 400 : 500;
     const code = data.error?.code;
+
     // 131047: fora da janela de 24h — texto livre não entrega, precisa de
     // template aprovado. Erro mais comum na prática; mensagem acionável.
+    // Fica em 422 de propósito: é status próprio, não é substituído pelo
+    // Cloudflare, e a tela já o distingue de falha genérica.
     if (code === 131047 || data.error?.error_subcode === 131047) {
       throw new ServiceError(
         'destinatário fora da janela de 24h — use um template aprovado',
-        422
+        422,
+        extra
       );
     }
     // 190: credencial expirada/revogada. Chega tanto do Dualhook quanto,
@@ -220,11 +246,12 @@ export async function sendWhatsAppMessage(
     if (code === 190 || res.status === 401 || res.status === 403) {
       throw new ServiceError(
         'credencial do Dualhook inválida ou expirada (regenerar a Outbound API key)',
-        502
+        httpStatus,
+        extra
       );
     }
     const detail = (data.error?.message || `HTTP ${res.status}`).slice(0, 200);
-    throw new ServiceError(`Dualhook recusou o envio: ${detail}`, 502);
+    throw new ServiceError(`Dualhook recusou o envio: ${detail}`, httpStatus, extra);
   }
 
   return {

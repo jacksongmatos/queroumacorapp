@@ -48,7 +48,8 @@ export const runtime = 'edge';
 // e aí quem chega na tela é a página "502 Bad gateway" do PRÓPRIO CF — HTML
 // cru, sem dizer nada — em vez do nosso JSON. Foi o que voltou em
 // 2026-08-31 na abordagem de lead. Este teto garante que a resposta é
-// SEMPRE nossa: se o trabalho não terminou, respondemos 504 explicando.
+// SEMPRE nossa: se o trabalho não terminou, respondemos 500 explicando
+// (500 e não 504 — ver deadlineResponse).
 const ROUTE_DEADLINE_MS = 22000;
 
 // Teto do que roda DEPOIS do envio (gravar a mensagem + audit). Passou
@@ -57,14 +58,21 @@ const ROUTE_DEADLINE_MS = 22000;
 // 502 em envio que deu certo.
 const BOOKKEEPING_BUDGET_MS = 6000;
 
-/** Resposta honesta quando o orçamento acaba: a mensagem PODE ter saído. */
+/**
+ * Resposta honesta quando o orçamento acaba: a mensagem PODE ter saído.
+ *
+ * 500, não 504: o Cloudflare substitui o corpo de 502/504 pela página de
+ * erro DELE, e este texto — que é a única coisa que diz ao operador pra
+ * conferir a conversa antes de reenviar — nunca chegaria na tela. Era o
+ * mesmo problema que a página "502 Bad gateway" já tinha criado aqui.
+ */
 function deadlineResponse() {
   return jsonResponse(
     {
       error:
         'o envio passou de 22s e foi interrompido pra não morrer no gateway. A mensagem PODE ter saído — confira a conversa em /admin/whatsapp antes de mandar de novo.',
     },
-    504
+    500
   );
 }
 

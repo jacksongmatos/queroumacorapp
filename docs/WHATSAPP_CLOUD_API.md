@@ -135,10 +135,29 @@ O Dualhook **espelha o contrato da Cloud API**: mesmo path, mesmo corpo
 resposta e de erro. Por isso os builders de payload não mudaram — trocaram
 só a base e o header de auth.
 
-Erros traduzidos: `131047` → 422 "fora da janela de 24h, use template";
-`190` **ou qualquer 401/403** → 502 "credencial do Dualhook inválida"
-(o 401 deles não carrega o `code` da Meta, e sem essa ramificação a
-mensagem mandaria olhar o painel errado).
+**Nenhuma falha responde 502 ou 504.** O Cloudflare substitui o corpo dessas
+duas pela página de erro dele, e a mensagem que explica a falha nunca chega
+na tela — o operador via só "502 Bad gateway" e não sabia se era credencial,
+janela de 24h ou número errado. Mapeamento:
+
+| Situação | HTTP nosso | Corpo |
+| --- | --- | --- |
+| 4xx do Dualhook (credencial, número inválido…) | **400** | `{ error, dualhookStatus }` |
+| 5xx do Dualhook, ou falha de rede | **500** | idem (`dualhookStatus: 0` na rede) |
+| `131047` (fora da janela de 24h) | **422** | mensagem acionável |
+| Sem `DUALHOOK_API_KEY` | **503** | config ausente |
+
+Toda falha loga `dualhook_send_failed { status, body }` (corpo cru, → CF
+logs). O corpo é lido como TEXTO antes do parse: resposta não-JSON (HTML de
+proxy, corpo vazio) é justamente o caso que mais precisa aparecer no log, e
+`res.json()` a engoliria.
+
+`190` **ou qualquer 401/403** vira "credencial do Dualhook inválida" — o 401
+deles não carrega o `code` da Meta, e sem essa ramificação a mensagem
+mandaria olhar o painel errado.
+
+O portal exibe o `error` na faixa "Falha no envio" sem precisar de mudança:
+ele já lê `res.error` do JSON.
 
 ### Cadastro do webhook no painel da Meta (legado — app próprio)
 
