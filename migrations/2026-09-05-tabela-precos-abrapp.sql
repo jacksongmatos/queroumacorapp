@@ -43,10 +43,6 @@ CREATE TABLE IF NOT EXISTS public.price_table_items (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Listagem por folha na ordem impressa (é o acesso padrão da tela).
-CREATE INDEX IF NOT EXISTS idx_price_table_sheet
-  ON public.price_table_items (edicao, sheet_no, sort_order);
-
 -- Busca por texto do serviço. pg_trgm porque a consulta da tela é
 -- "contém" (ILIKE %termo%), que índice b-tree não atende.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -59,6 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_price_table_servico_trgm
 -- Telhados e outra em Baldrame, com o mesmo preço; a segunda seria engolida
 -- em silêncio. Posição é única por construção e faz o arquivo de dados virar
 -- upsert: rodar de novo CORRIGE valor errado em vez de ignorar.
+-- É também o índice da listagem — (edicao, sheet_no, sort_order) é
+-- exatamente a ordem em que a tela lê a tabela, então um segundo índice nas
+-- mesmas colunas só custaria escrita.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_price_table_unique
   ON public.price_table_items (edicao, sheet_no, sort_order);
 
