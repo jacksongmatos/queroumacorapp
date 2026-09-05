@@ -1284,11 +1284,17 @@
   manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
   grava em lotes de 200 com `source='planilha'`.
   - **Importação de 986 leads do Google Maps (2026-08-29)** —
-    `/migrations/2026-08-29-import-leads-planilha.sql`, **NÃO RODADA —
-    confirmado no banco em 2026-09-05 (nenhum lead com `source='planilha'`).
-    ADIADA POR DECISÃO DO USUÁRIO (2026-09-05): "os leads serão depois". Não
-    é bug nem esquecimento — não cobrar.** O arquivo fica pronto no repo pra
-    quando ele quiser. Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    `/migrations/2026-08-29-import-leads-planilha.sql`. **JÁ IMPORTADOS —
+    confirmado pelo usuário em 2026-09-05 ("já importamos esses leads, estão
+    no BD"); o portal mostra 1072 leads. Não pedir pra rodar, não listar como
+    pendência.**
+    - **A anotação anterior dizia "NÃO RODADA, confirmado no banco" e estava
+      ERRADA.** A verificação procurou `source='planilha'` e não achou —
+      mas a importação aconteceu por outro caminho, ou depois da consulta.
+      Ou seja: nem uma verificação pontual imuniza a anotação, porque ela
+      envelhece a partir do instante em que foi escrita. Mesmo padrão das 7
+      pendências falsas de 2026-09-05. **Quando o usuário disser que algo
+      está feito, ele ganha da anotação — ele vê o banco, o arquivo não.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
     sem telefone ficaram fora). Categoria crua do Maps ("Architect",
     "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
     quando a categoria briga com ele; "Região" separada em cidade ×
@@ -1741,6 +1747,14 @@
     - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
       não tem espelho: a prévia diz que o texto vive no painel, em vez de
       inventar um diferente do que a pessoa recebe.
+  - **BANNER DE "ATUALIZE O APP" — ADIADO POR DECISÃO (2026-09-05).** O
+    usuário perguntou como o app pediria atualização depois de uma build
+    nova, avaliamos disparar no boot/resume, e ele encerrou: "não faça nada,
+    vamos avaliar melhor depois". **Nada foi implementado e não é
+    esquecimento.** Se voltar, o ponto em aberto era a frequência: checar a
+    cada abertura incomoda, e a versão instalada não é legível do lado web
+    sem o plugin nativo (`lib/native/device` já expõe build/versão na casca
+    Capacitor).
   - **iOS: BUILDS FEITAS, EM REVIEW NA APPLE (2026-09-05, informado pelo
     usuário).** Várias builds já subiram pelo workflow `ios-ipa` do
     Codemagic; a espera agora é da Apple, não de código. **NÃO listar
