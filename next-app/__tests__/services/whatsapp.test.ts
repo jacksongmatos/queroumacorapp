@@ -20,7 +20,10 @@ import {
   buildTextPayload,
   DEFAULT_PHONE_NUMBER_ID,
   GRAPH_API_VERSION,
+  checkWebhookUrlSecret,
+  getWebhookAuthMode,
   getWhatsAppConfig,
+  isExpectedWebhookPayload,
   isWhatsAppConfigured,
   normalizeBrPhone,
   parseInboundMessages,
@@ -40,6 +43,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.WHATSAPP_ACCESS_TOKEN;
   delete process.env.WHATSAPP_PHONE_NUMBER_ID;
+  delete process.env.WHATSAPP_WEBHOOK_AUTH_MODE;
   vi.unstubAllGlobals();
 });
 
@@ -286,6 +290,87 @@ describe('persistWhatsAppMessage', () => {
     expect(await persistWhatsAppMessage({ direction: 'in', waId: 'x' })).toBe(false);
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('down')));
     expect(await persistWhatsAppMessage({ direction: 'in', waId: 'x' })).toBe(false);
+  });
+});
+
+// ─── isExpectedWebhookPayload (modo Dualhook) ───────────────────────────────
+
+describe('isExpectedWebhookPayload', () => {
+  const expected = { wabaId: '865837919828100', phoneNumberId: '1284183724779574' };
+  const envelope = (overrides: Record<string, unknown> = {}) => ({
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: '865837919828100',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              messaging_product: 'whatsapp',
+              metadata: { display_phone_number: '5511999990000', phone_number_id: '1284183724779574' },
+              messages: [],
+            },
+          },
+        ],
+      },
+    ],
+    ...overrides,
+  });
+
+  it('aceita envelope do nosso WABA + número (inclusive só com statuses)', () => {
+    expect(isExpectedWebhookPayload(envelope(), expected)).toBe(true);
+  });
+
+  it('rejeita WABA de outro cliente', () => {
+    const p = envelope();
+    p.entry[0].id = '102067872689175';
+    expect(isExpectedWebhookPayload(p, expected)).toBe(false);
+  });
+
+  it('rejeita phone_number_id diferente', () => {
+    const p = envelope();
+    p.entry[0].changes[0].value.metadata.phone_number_id = '109293361953640';
+    expect(isExpectedWebhookPayload(p, expected)).toBe(false);
+  });
+
+  it('rejeita field ≠ messages, entry vazio, object errado e não-objeto', () => {
+    const p = envelope();
+    (p.entry[0].changes[0] as { field: string }).field = 'account_update';
+    expect(isExpectedWebhookPayload(p, expected)).toBe(false);
+    expect(isExpectedWebhookPayload(envelope({ entry: [] }), expected)).toBe(false);
+    expect(isExpectedWebhookPayload(envelope({ object: 'page' }), expected)).toBe(false);
+    expect(isExpectedWebhookPayload(null, expected)).toBe(false);
+    expect(isExpectedWebhookPayload('x', expected)).toBe(false);
+  });
+});
+
+describe('checkWebhookUrlSecret', () => {
+  const base = 'https://www.queroumacor.com.br/api/whatsapp/webhook';
+  it('ok quando ?token= bate com a env', () => {
+    expect(checkWebhookUrlSecret(new URL(`${base}?token=abc123`), 'abc123')).toBe('ok');
+  });
+  it('invalid com token errado, ausente ou de tamanho diferente', () => {
+    expect(checkWebhookUrlSecret(new URL(`${base}?token=abc124`), 'abc123')).toBe('invalid');
+    expect(checkWebhookUrlSecret(new URL(base), 'abc123')).toBe('invalid');
+    expect(checkWebhookUrlSecret(new URL(`${base}?token=abc`), 'abc123')).toBe('invalid');
+  });
+  it('missing-config sem env (fail-closed)', () => {
+    expect(checkWebhookUrlSecret(new URL(`${base}?token=abc123`), undefined)).toBe('missing-config');
+    expect(checkWebhookUrlSecret(new URL(`${base}?token=abc123`), '')).toBe('missing-config');
+  });
+  it('convive com os params hub.* do GET de verificação', () => {
+    const u = new URL(`${base}?token=abc123&hub.mode=subscribe&hub.challenge=1&hub.verify_token=v`);
+    expect(checkWebhookUrlSecret(u, 'abc123')).toBe('ok');
+  });
+});
+
+describe('getWebhookAuthMode', () => {
+  it('default é payload; só "hmac" exato liga o HMAC', () => {
+    expect(getWebhookAuthMode()).toBe('payload');
+    process.env.WHATSAPP_WEBHOOK_AUTH_MODE = 'HMAC';
+    expect(getWebhookAuthMode()).toBe('payload');
+    process.env.WHATSAPP_WEBHOOK_AUTH_MODE = 'hmac';
+    expect(getWebhookAuthMode()).toBe('hmac');
   });
 });
 

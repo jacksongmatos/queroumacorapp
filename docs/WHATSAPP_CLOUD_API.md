@@ -23,9 +23,12 @@ versioná-los. **O token de acesso NUNCA entra no repo.**
 | Env | Obrigatória | O que é |
 | --- | --- | --- |
 | `WHATSAPP_ACCESS_TOKEN` | Sim (pra enviar) | Token permanente do system user da Meta. **Secret.** |
-| `META_APP_SECRET` | Sim (pro webhook) | App Secret do app "CaliColors Integracao API" (Meta → Configurações do app → Básico). Valida a assinatura `X-Hub-Signature-256`. **Secret.** |
-| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Sim (pro webhook) | String qualquer escolhida por nós (ex.: gerar com `openssl rand -hex 24`). A mesma string é colada no painel da Meta ao cadastrar o webhook. |
-| `WHATSAPP_PHONE_NUMBER_ID` | Não | Só se o número mudar — default no código já é o da Cali Colors. |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Sim (pro webhook) | Com **Dualhook**: o Verify Token gerado no painel deles (conexão → Webhook Override). Sem Dualhook: string qualquer escolhida por nós, colada no painel da Meta ao cadastrar o webhook. |
+| `WHATSAPP_WEBHOOK_URL_SECRET` | Sim com Dualhook | String alta-entropia (`openssl rand -hex 24`) que vai na query da URL cadastrada no Dualhook: `…/api/whatsapp/webhook?token=<secret>`. Sem ela o modo `payload` responde 503 (fail-closed). **Secret.** |
+| `WHATSAPP_WEBHOOK_AUTH_MODE` | Não | `payload` (default) = modo Dualhook, valida WABA + phone_number_id do envelope. `hmac` = app Meta próprio, valida `X-Hub-Signature-256` com `META_APP_SECRET`. |
+| `META_APP_SECRET` | Só no modo `hmac` | App Secret do app "CaliColors Integracao API" (Meta → Configurações do app → Básico). **Secret.** Inútil com Dualhook (a assinatura é do app deles). |
+| `WHATSAPP_PHONE_NUMBER_ID` | Sim com Dualhook | Phone Number ID do número conectado. Default no código = número antigo (`109293361953640`); a conexão Dualhook (Coexistence) é **`1284183724779574`**. |
+| `WHATSAPP_WABA_ID` | Sim com Dualhook | WABA ID. Default no código = WABA antiga (`102067872689175`); a do Dualhook é **`865837919828100`**. |
 
 Depois de setar as envs, **refazer o deploy** (envs só valem em build novo).
 
@@ -64,13 +67,26 @@ Templates).
 
 ### `GET/POST /api/whatsapp/webhook` — recebimento
 
-- **GET** = verificação do painel da Meta (confere
-  `hub.verify_token` contra `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, devolve
-  `hub.challenge`).
-- **POST** = eventos. Assinatura `X-Hub-Signature-256` (HMAC-SHA256 do
-  `META_APP_SECRET` sobre o raw body) validada ANTES do parse; inválida →
-  401, secret ausente → 503. Depois da assinatura ok, **sempre 200**
-  (anti-retry-storm, mesma filosofia do mp-webhook).
+- **GET** = verificação (painel da Meta ou "Test verification GET" do
+  Dualhook): confere `hub.verify_token` contra
+  `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, devolve `hub.challenge` em texto puro.
+- **POST** = eventos. Autenticação por `WHATSAPP_WEBHOOK_AUTH_MODE`:
+  - `payload` (default, **Dualhook**): primeiro o `?token=` da URL tem que
+    bater com `WHATSAPP_WEBHOOK_URL_SECRET` (GET e POST; ausente → 503,
+    errado → 403/401) — é isso que autentica o remetente, porque WABA e
+    phone_number_id são públicos e forjáveis. Depois o envelope tem que ser
+    `whatsapp_business_account`, com `entry[].id` = `WHATSAPP_WABA_ID` e
+    `changes[].value.metadata.phone_number_id` = `WHATSAPP_PHONE_NUMBER_ID`
+    (`isExpectedWebhookPayload`). Qualquer desvio → 401. Motivo: no fluxo
+    de Embedded Signup do Dualhook o `X-Hub-Signature-256` é assinado pelo
+    app Meta **do Dualhook**, cujo secret não é exposto — HMAC nosso nunca
+    bate (doc deles: "No META_APP_SECRET? … validate inbound webhook
+    payload shape instead").
+  - `hmac` (app Meta próprio): `X-Hub-Signature-256` = HMAC-SHA256 do
+    `META_APP_SECRET` sobre o raw body, validado ANTES do parse; inválida →
+    401, secret ausente → 503.
+  Depois de autenticado, **sempre 200** (anti-retry-storm, mesma filosofia
+  do mp-webhook).
 - Mensagens recebidas são logadas (preview 60 chars → CF logs) **e
   gravadas em `whatsapp_messages`** (SQL Wave 38) via service_role,
   best-effort: falha de gravação não muda o 200. O `message_id` (wamid)
@@ -93,13 +109,31 @@ webhook e envio seguem funcionando (persistência é best-effort) — mas a
 tela `/admin/whatsapp` fica vazia e mostra erro de tabela inexistente na
 listagem.
 
-### Cadastro do webhook no painel da Meta
+### Cadastro do webhook via Dualhook (atual — Coexistence)
+
+1. dualhook.com → Connections → conexão "Cali Colors" → **Webhook
+   Override**.
+2. Webhook URL: `https://queroumacor.com.br/api/whatsapp/webhook?token=<WHATSAPP_WEBHOOK_URL_SECRET>`
+   (gerar o segredo com `openssl rand -hex 24`, salvar na env do CF Pages
+   ANTES de cadastrar a URL).
+3. Verify Token: copiar o gerado pelo Dualhook e colar na env
+   `WHATSAPP_WEBHOOK_VERIFY_TOKEN` do CF Pages → redeploy → "Test
+   verification GET" no Dualhook (ele re-registra na Meta sozinho).
+4. Setar `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_WABA_ID` com os IDs da
+   conexão (Account Details no Dualhook). Sem isso o POST devolve 401
+   "payload inesperado" porque os defaults são do número antigo.
+5. Envio de mensagens por essa conexão exige a Outbound API key do
+   Dualhook (`dh_live_…`, base `https://api.dualhook.com`) — ainda não
+   integrado no `whatsapp.ts` (que fala direto com `graph.facebook.com`).
+
+### Cadastro do webhook no painel da Meta (legado — app próprio)
 
 1. developers.facebook.com → app "CaliColors Integracao API" → WhatsApp →
    Configuration → Webhook.
 2. Callback URL: `https://www.queroumacor.com.br/api/whatsapp/webhook`
 3. Verify token: o mesmo valor da env `WHATSAPP_WEBHOOK_VERIFY_TOKEN`.
 4. Subscribe no campo **messages**.
+5. Setar `WHATSAPP_WEBHOOK_AUTH_MODE=hmac` + `META_APP_SECRET`.
 
 ## Segurança
 
