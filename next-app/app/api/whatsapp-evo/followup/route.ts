@@ -11,4 +11,8 @@
 // 2026-09-05-followup-url.sql` tiver rodado e a varredura estiver saindo
 // pelo endereço novo.
 
-export { POST, runtime } from '@/app/api/whatsapp/followup/route';
+// `runtime` PRECISA ser declarado literalmente: o Next nao reconhece o
+// campo quando ele e re-exportado de outro arquivo (o build avisa e usa o
+// default), e esta rota tem que rodar no edge como a nova.
+export const runtime = 'edge';
+export { POST } from '@/app/api/whatsapp/followup/route';

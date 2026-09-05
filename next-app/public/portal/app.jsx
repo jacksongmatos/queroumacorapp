@@ -2782,9 +2782,10 @@ const carregarTemplates = async () => {
     try {
       const { data: { session } } = await supa.auth.getSession();
       if(!session) return null;
+      // GET com o token no header: a rota cacheia por 5min do lado do
+      // servidor, entao abrir a tela varias vezes nao bate na Meta toda vez.
       const r = await fetch('/api/whatsapp/templates', {
-        method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ accessToken: session.access_token })
+        headers:{ Authorization: 'Bearer ' + session.access_token }
       });
       const res = await r.json().catch(() => ({}));
       if(!r.ok || !res.ok || !Array.isArray(res.templates)) {
@@ -2823,6 +2824,8 @@ const EnvioDeTemplate = ({ waId, nomeContato, enviando, estagio, onEnviar }) => 
   const [lista, setLista] = useState(templatesDisponiveis());
   const [escolhido, setEscolhido] = useState(TEMPLATE_COM_NOME);
   const [valores, setValores] = useState({});
+  // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
+  const [confirmado, setConfirmado] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -2860,18 +2863,23 @@ const EnvioDeTemplate = ({ waId, nomeContato, enviando, estagio, onEnviar }) => 
 
   const enviar = () => {
     if(!tpl || faltando.length) return;
+    // O aviso de marketing pra EUA NAO bloqueia: a Meta pode mudar a regra,
+    // e o operador pode ter motivo. Mas exige confirmacao — mandar sem ver
+    // o aviso e o que fez 5 disparos sumirem sem ninguem entender.
+    if(aviso && !confirmado){ setConfirmado(true); return; }
     const params = vars
       .sort((a,b) => a.indice - b.indice)
       .map(v => String(valores[v.indice]).trim());
+    // Registro com TODOS os parametros, na ordem — com 2 variaveis, guardar
+    // so a primeira esconderia metade do que foi enviado.
+    const detalhe = params.map((v, i) => '{{' + (i+1) + '}}=' + v).join(' ');
     onEnviar({
       template: tpl.nome,
       idioma: tpl.idioma || TEMPLATE_IDIOMA,
       components: params.length
         ? [{ type:'body', parameters: params.map(text => ({ type:'text', text })) }]
         : undefined,
-      registro: params.length
-        ? '[template ' + tpl.nome + '] {{1}}=' + params[0]
-        : '[template ' + tpl.nome + ']',
+      registro: '[template ' + tpl.nome + ']' + (detalhe ? ' ' + detalhe : ''),
     });
   };
 
@@ -2879,12 +2887,14 @@ const EnvioDeTemplate = ({ waId, nomeContato, enviando, estagio, onEnviar }) => 
     <div>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
         <label style={{ fontSize:12, fontWeight:700, color:C.ink }}>Template:</label>
-        <select value={tpl ? tpl.nome : ''} onChange={e=>{ setEscolhido(e.target.value); setValores({}); }}
+        <select value={tpl ? tpl.nome : ''} onChange={e=>{ setEscolhido(e.target.value); setValores({}); setConfirmado(false); }}
           style={{ flex:'1 1 260px', padding:'8px 10px', borderRadius:10, fontSize:13,
             border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
           {lista.map(t => (
             <option key={t.nome} value={t.nome}>
-              {t.nome}{t.categoria ? ' · ' + String(t.categoria).toLowerCase() : ''}
+              {t.nome}
+              {t.categoria ? ' · ' + String(t.categoria).charAt(0).toUpperCase() + String(t.categoria).slice(1).toLowerCase() : ''}
+              {t.idioma ? ' · ' + t.idioma : ''}
             </option>
           ))}
         </select>
@@ -2894,6 +2904,11 @@ const EnvioDeTemplate = ({ waId, nomeContato, enviando, estagio, onEnviar }) => 
         <div style={{ marginBottom:10, padding:'9px 12px', background:'#fff4e5', border:'1px solid #f0c98a',
           borderRadius:10, fontSize:12, color:'#8a5300', lineHeight:1.5 }}>
           ⚠️ {aviso}
+          {confirmado ? (
+            <div style={{ marginTop:6, fontWeight:700 }}>
+              Toque em “Enviar mesmo assim” pra mandar apesar do aviso.
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -2936,7 +2951,8 @@ const EnvioDeTemplate = ({ waId, nomeContato, enviando, estagio, onEnviar }) => 
             fontSize:13, fontWeight:700,
             cursor: (enviando || faltando.length) ? 'not-allowed' : 'pointer',
             opacity: (enviando || faltando.length) ? .5 : 1 }}>
-          {enviando ? (estagio || 'Enviando…') : '📤 Enviar template'}
+          {enviando ? (estagio || 'Enviando…')
+            : (aviso && confirmado ? '📤 Enviar mesmo assim' : '📤 Enviar template')}
         </button>
         <span style={{ fontSize:11, color:C.muted }}>
           {tpl ? <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{tpl.nome}</code> : null}

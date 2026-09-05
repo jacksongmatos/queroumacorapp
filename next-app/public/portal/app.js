@@ -5662,14 +5662,12 @@ const carregarTemplates = async () => {
         }
       } = await supa.auth.getSession();
       if (!session) return null;
+      // GET com o token no header: a rota cacheia por 5min do lado do
+      // servidor, entao abrir a tela varias vezes nao bate na Meta toda vez.
       const r = await fetch('/api/whatsapp/templates', {
-        method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          accessToken: session.access_token
-        })
+          Authorization: 'Bearer ' + session.access_token
+        }
       });
       const res = await r.json().catch(() => ({}));
       if (!r.ok || !res.ok || !Array.isArray(res.templates)) {
@@ -5714,6 +5712,8 @@ const EnvioDeTemplate = ({
   const [lista, setLista] = useState(templatesDisponiveis());
   const [escolhido, setEscolhido] = useState(TEMPLATE_COM_NOME);
   const [valores, setValores] = useState({});
+  // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
+  const [confirmado, setConfirmado] = useState(false);
   useEffect(() => {
     let vivo = true;
     carregarTemplates().then(t => {
@@ -5756,7 +5756,17 @@ const EnvioDeTemplate = ({
   })();
   const enviar = () => {
     if (!tpl || faltando.length) return;
+    // O aviso de marketing pra EUA NAO bloqueia: a Meta pode mudar a regra,
+    // e o operador pode ter motivo. Mas exige confirmacao — mandar sem ver
+    // o aviso e o que fez 5 disparos sumirem sem ninguem entender.
+    if (aviso && !confirmado) {
+      setConfirmado(true);
+      return;
+    }
     const params = vars.sort((a, b) => a.indice - b.indice).map(v => String(valores[v.indice]).trim());
+    // Registro com TODOS os parametros, na ordem — com 2 variaveis, guardar
+    // so a primeira esconderia metade do que foi enviado.
+    const detalhe = params.map((v, i) => '{{' + (i + 1) + '}}=' + v).join(' ');
     onEnviar({
       template: tpl.nome,
       idioma: tpl.idioma || TEMPLATE_IDIOMA,
@@ -5767,7 +5777,7 @@ const EnvioDeTemplate = ({
           text
         }))
       }] : undefined,
-      registro: params.length ? '[template ' + tpl.nome + '] {{1}}=' + params[0] : '[template ' + tpl.nome + ']'
+      registro: '[template ' + tpl.nome + ']' + (detalhe ? ' ' + detalhe : '')
     });
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -5789,6 +5799,7 @@ const EnvioDeTemplate = ({
     onChange: e => {
       setEscolhido(e.target.value);
       setValores({});
+      setConfirmado(false);
     },
     style: {
       flex: '1 1 260px',
@@ -5804,7 +5815,7 @@ const EnvioDeTemplate = ({
   }, lista.map(t => /*#__PURE__*/React.createElement("option", {
     key: t.nome,
     value: t.nome
-  }, t.nome, t.categoria ? ' · ' + String(t.categoria).toLowerCase() : '')))), aviso ? /*#__PURE__*/React.createElement("div", {
+  }, t.nome, t.categoria ? ' · ' + String(t.categoria).charAt(0).toUpperCase() + String(t.categoria).slice(1).toLowerCase() : '', t.idioma ? ' · ' + t.idioma : '')))), aviso ? /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 10,
       padding: '9px 12px',
@@ -5815,7 +5826,12 @@ const EnvioDeTemplate = ({
       color: '#8a5300',
       lineHeight: 1.5
     }
-  }, "\u26A0\uFE0F ", aviso) : null, vars.length ? /*#__PURE__*/React.createElement("div", {
+  }, "\u26A0\uFE0F ", aviso, confirmado ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 6,
+      fontWeight: 700
+    }
+  }, "Toque em \u201CEnviar mesmo assim\u201D pra mandar apesar do aviso.") : null) : null, vars.length ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -5905,7 +5921,7 @@ const EnvioDeTemplate = ({
       cursor: enviando || faltando.length ? 'not-allowed' : 'pointer',
       opacity: enviando || faltando.length ? .5 : 1
     }
-  }, enviando ? estagio || 'Enviando…' : '📤 Enviar template'), /*#__PURE__*/React.createElement("span", {
+  }, enviando ? estagio || 'Enviando…' : aviso && confirmado ? '📤 Enviar mesmo assim' : '📤 Enviar template'), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted

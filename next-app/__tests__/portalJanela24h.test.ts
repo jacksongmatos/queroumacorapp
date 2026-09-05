@@ -289,3 +289,33 @@ describe('aviso de marketing para número dos EUA', () => {
     expect(avisoMarketingEUA('16502701234', 'marketing')).not.toBeNull();
   });
 });
+
+// ── Envio bloqueado com variável vazia ───────────────────────────────────
+// A regra "nunca mandar {{1}} vazio" agora vale pra QUALQUER variável: um
+// template Utility com {{2}} = nº do orçamento não pode sair com o número
+// em branco. A trava é a mesma no componente (botão desabilitado) e aqui
+// se descreve o predicado que ele usa.
+
+describe('bloqueio de envio com variável vazia', () => {
+  // Espelha `faltando` do <EnvioDeTemplate>.
+  const faltando = (vars: number[], valores: Record<number, string>) =>
+    vars.filter((i) => !String(valores[i] || '').trim());
+
+  it('todas preenchidas → libera', () => {
+    expect(faltando([1, 2], { 1: 'Bianca', 2: '1042' })).toEqual([]);
+  });
+
+  it('qualquer uma vazia → bloqueia, e diz qual', () => {
+    expect(faltando([1, 2], { 1: 'Bianca', 2: '' })).toEqual([2]);
+    expect(faltando([1, 2], { 1: '', 2: '1042' })).toEqual([1]);
+    expect(faltando([1, 2], {})).toEqual([1, 2]);
+  });
+
+  it('só espaço não conta como preenchida', () => {
+    expect(faltando([1], { 1: '   ' })).toEqual([1]);
+  });
+
+  it('template sem variável nunca bloqueia', () => {
+    expect(faltando([], {})).toEqual([]);
+  });
+});

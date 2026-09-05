@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   extrairVariaveis,
   normalizarTemplate,
-} from '../../app/api/whatsapp/templates/route';
+} from '../../lib/api/_services/whatsapp-templates';
 
 describe('extrairVariaveis', () => {
   // Contamos pelo TEXTO, não pelo `example`: template pode ter variável sem
@@ -90,5 +90,54 @@ describe('normalizarTemplate', () => {
     const t = normalizarTemplate({ name: 'x', status: 'APPROVED' });
     expect(t?.corpo).toBeNull();
     expect(t?.variaveis).toEqual([]);
+  });
+});
+
+// ── Filtro de status ─────────────────────────────────────────────────────
+// Só APPROVED vai pra tela. Template em rascunho, pausado ou reprovado
+// seria um botão que sempre falha com 132001 — e o operador ficaria
+// achando que o problema é a conexão.
+
+describe('filtro de APPROVED', () => {
+  const cru = [
+    { name: 'calicolors', status: 'APPROVED', category: 'MARKETING', language: 'pt_BR',
+      components: [{ type: 'BODY', text: 'Texto fixo.' }] },
+    { name: 'calicolors_nome', status: 'APPROVED', category: 'MARKETING', language: 'pt_BR',
+      components: [{ type: 'BODY', text: 'Oi {{1}}!', example: { body_text: [['Ana']] } }] },
+    { name: 'calicolors_orcamento_pronto', status: 'APPROVED', category: 'UTILITY', language: 'pt_BR',
+      components: [{ type: 'BODY', text: 'Oi {{1}}, orçamento {{2}}.' }] },
+    { name: 'em_rascunho', status: 'PENDING', category: 'MARKETING', language: 'pt_BR',
+      components: [{ type: 'BODY', text: 'x' }] },
+    { name: 'reprovado', status: 'REJECTED', category: 'MARKETING', language: 'pt_BR',
+      components: [{ type: 'BODY', text: 'x' }] },
+    { name: 'pausado', status: 'PAUSED', category: 'MARKETING', language: 'pt_BR',
+      components: [{ type: 'BODY', text: 'x' }] },
+  ];
+
+  // Espelha o filtro da rota. Se ele mudar lá sem mudar aqui, este teste
+  // não pega — por isso ele testa a REGRA, e a rota tem só uma linha.
+  const aprovados = cru
+    .map(normalizarTemplate)
+    .filter((t): t is NonNullable<typeof t> => t !== null)
+    .filter((t) => t.status.toUpperCase() === 'APPROVED');
+
+  it('mantém só os aprovados', () => {
+    expect(aprovados.map((t) => t.nome)).toEqual([
+      'calicolors',
+      'calicolors_nome',
+      'calicolors_orcamento_pronto',
+    ]);
+  });
+
+  it('preserva categoria e idioma pro rótulo da tela', () => {
+    const utility = aprovados.find((t) => t.nome === 'calicolors_orcamento_pronto');
+    expect(utility?.categoria).toBe('UTILITY');
+    expect(utility?.idioma).toBe('pt_BR');
+    // Dois campos na tela: nome e nº do orçamento.
+    expect(utility?.variaveis.map((v) => v.indice)).toEqual([1, 2]);
+  });
+
+  it('o sem variável não gera campo nenhum', () => {
+    expect(aprovados.find((t) => t.nome === 'calicolors')?.variaveis).toEqual([]);
   });
 });
