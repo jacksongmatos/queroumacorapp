@@ -43,6 +43,23 @@
     que a proteção da `main` EXISTE (push direto recusado com "protected
     branch hook declined").
 
+- **VÍDEO EM `<img>` — miniaturas quebradas no "Em alta" (2026-09-05).** A
+  tela `/explore` mostrava metade do grid como ícone de imagem quebrada, e
+  uma miniatura exibia a LEGENDA como texto (o `alt` de um `<img>` que não
+  carregou). Causa: post de VÍDEO renderizado dentro de `<img>`.
+  - **A regra vivia em QUATRO lugares de TRÊS jeitos**: `PostMedia` (extensão
+    OU `media_type` — o certo), `StoryViewer` (só extensão),
+    `PortfolioSection` (só `media_type`) e `TrendingGrid`/`HashtagFeed`
+    (nenhum dos dois). Agora é `isVideoPost(url, mediaType)` em
+    `lib/utils.ts`, usada por todas — regra duplicada é regra que diverge.
+  - **`media_type` NÃO diz se a mídia é vídeo** — ele marca que o post é
+    STORY. Vídeo com `media_type` 'story' ou nulo escapa de qualquer teste
+    que olhe só esse campo. E só a extensão também não basta: upload legado
+    tem path sem extensão. Por isso os DOIS sinais.
+  - O helper é type predicate (`url is string`): quem chama usa `media_url`
+    direto no `<video>` sem repetir guard de nulo.
+  - Grade nova que mostra post = `isVideoPost`, nunca `<img>` seco.
+
 - **PAR CRUZADO DE ENV DO SUPABASE — a causa do "Faça login" em TODA a IA
   (2026-09-04, PR #202, FECHADO).** Usuário perfeitamente logado levava
   `Faça login (token_invalid)` em toda rota de IA. Evidência do painel do CF

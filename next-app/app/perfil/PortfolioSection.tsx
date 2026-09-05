@@ -4,6 +4,7 @@
 'use client';
 
 import Link from 'next/link';
+import { isVideoPost } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { getSupabase } from '@/lib/supabase';
@@ -112,7 +113,7 @@ export function PortfolioSection() {
               style={{ aspectRatio: '1 / 1', borderRadius: 8 }}
             >
               {p.media_url ? (
-                p.media_type === 'video' ? (
+                isVideoPost(p.media_url, p.media_type) ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <video
                     src={p.media_url}

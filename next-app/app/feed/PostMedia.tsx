@@ -15,7 +15,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { isVideoUrl } from '@/lib/utils';
+import { isVideoPost } from '@/lib/utils';
 import { cfImg, cfImgSrcSet } from '@/lib/cfImg';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
@@ -36,7 +36,7 @@ export interface PostMediaProps {
 }
 
 export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onToggleMute }: PostMediaProps) {
-  const isVideo = !!url && (isVideoUrl(url) || mediaType === 'video');
+  const isVideo = isVideoPost(url, mediaType);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // tocando: dirige o overlay de play. No WebView do wrapper (WebIntoApp) o
   // play() disparado pelo IntersectionObserver NÃO é gesto do usuário e é
