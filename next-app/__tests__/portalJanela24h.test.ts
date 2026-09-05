@@ -34,8 +34,13 @@ beforeAll(() => {
     join(process.cwd(), 'public/portal/app.jsx'),
     'utf8'
   );
+  // Marcadores explícitos, não texto de comentário vizinho: em 2026-09-05
+  // um componente JSX foi inserido entre o fim das funções e o comentário
+  // que servia de âncora, o `new Function` quebrou no `<` e o arquivo
+  // inteiro virou "skipped" — verde na contagem de testes, sem cobertura
+  // nenhuma. Marcador nomeado torna o acidente visível.
   const inicio = src.indexOf('const JANELA_MS =');
-  const fim = src.indexOf('// Previa na lista de conversas');
+  const fim = src.indexOf('// [teste:janela-fim]');
   expect(inicio).toBeGreaterThan(-1);
   expect(fim).toBeGreaterThan(inicio);
 
@@ -140,7 +145,7 @@ describe('escolha de template: portal e servidor concordam', () => {
   beforeAll(() => {
     const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
     const inicio = src.indexOf('const TEMPLATE_IDIOMA =');
-    const fim = src.indexOf('// Texto pra MOSTRAR na tela');
+    const fim = src.indexOf('// [teste:template-fim]');
     expect(inicio).toBeGreaterThan(-1);
     expect(fim).toBeGreaterThan(inicio);
     const fabrica = new Function(
@@ -186,6 +191,46 @@ describe('escolha de template: portal e servidor concordam', () => {
       expect(sv.template).toBe(TEMPLATE_SEM_NOME);
       expect(p.components).toBeUndefined();
       expect(sv.components).toBeUndefined();
+    }
+  });
+});
+
+// ── Guarda dos marcadores ────────────────────────────────────────────────
+// Este arquivo lê o fonte do portal por marcador. Se alguém apagar o
+// marcador, ou enfiar JSX entre eles, o `new Function` quebra e o vitest
+// reporta o arquivo como SKIPPED — a contagem de testes segue verde e a
+// cobertura some sem ninguém notar. Aconteceu em 2026-09-05. Este teste
+// não depende da extração, então ele falha ALTO quando isso acontece.
+
+describe('marcadores de extração do portal', () => {
+  const MARCADORES = [
+    '// [teste:janela-fim]',
+    '// [teste:template-inicio]',
+    '// [teste:template-fim]',
+    'const JANELA_MS =',
+    'const TEMPLATE_IDIOMA =',
+  ];
+
+  let fonte = '';
+  beforeAll(() => {
+    fonte = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+  });
+
+  it('todos os marcadores existem', () => {
+    for (const m of MARCADORES) {
+      expect(fonte.includes(m), `marcador sumiu do app.jsx: ${m}`).toBe(true);
+    }
+  });
+
+  it('os blocos extraídos não contêm JSX', () => {
+    const blocos = [
+      fonte.slice(fonte.indexOf('const JANELA_MS ='), fonte.indexOf('// [teste:janela-fim]')),
+      fonte.slice(fonte.indexOf('const TEMPLATE_IDIOMA ='), fonte.indexOf('// [teste:template-fim]')),
+    ];
+    for (const b of blocos) {
+      expect(b.length).toBeGreaterThan(50);
+      // `<` seguido de letra maiúscula ou barra é abertura/fechamento de tag.
+      expect(b, 'JSX dentro de um bloco que o teste avalia como JS puro').not.toMatch(/<[A-Za-z/]/);
     }
   });
 });

@@ -483,6 +483,69 @@ export async function persistWhatsAppMessage(
   }
 }
 
+/**
+ * Grava o status de entrega na linha da mensagem que saiu.
+ *
+ * PATCH por `message_id` (o wamid), que já é UNIQUE. Não cria linha: status
+ * de mensagem que não temos (enviada por outro caminho, ou anterior ao
+ * histórico) simplesmente não tem onde pousar, e inventar uma linha sem
+ * corpo poluiria a conversa.
+ *
+ * Best-effort, como toda a escrituração do webhook: falhar aqui não pode
+ * custar o 200 pra Meta. E TOLERA A COLUNA AUSENTE de propósito — se a
+ * migration ainda não rodou, o PATCH volta 42703/400 e a função devolve
+ * false; a mensagem segue sendo entregue e gravada normalmente, só sem o
+ * ✓✓. Mesma lição do `quotes.post_id` e do `leads.city`: recurso novo não
+ * pode quebrar o que já funcionava por causa de SQL pendente.
+ */
+export async function persistStatusEntrega(
+  st: AtualizacaoDeStatus
+): Promise<boolean> {
+  try {
+    const url = getSupabaseUrl();
+    const serviceKey = getServiceKey();
+    if (!url || !serviceKey || !st.messageId) return false;
+
+    let quando: string | null = null;
+    if (st.timestamp && /^\d+$/.test(st.timestamp)) {
+      const d = new Date(Number(st.timestamp) * 1000);
+      if (!Number.isNaN(d.getTime())) quando = d.toISOString();
+    }
+
+    const res = await fetch(
+      `${url.replace(/\/$/, '')}/rest/v1/whatsapp_messages` +
+        `?message_id=eq.${encodeURIComponent(st.messageId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          delivery_status: st.status,
+          delivery_status_at: quando || new Date().toISOString(),
+          delivery_error: st.erro,
+        }),
+        signal: AbortSignal.timeout(PERSIST_TIMEOUT_MS),
+      }
+    );
+    if (!res.ok) {
+      // Log com o corpo: é assim que "o ✓✓ não aparece" deixa de ser
+      // mistério — a resposta diz se é coluna ausente ou outra coisa.
+      const corpo = await res.text().catch(() => '');
+      console.warn(
+        `[whatsapp-status] PATCH falhou (${res.status}) msg=${st.messageId}: ${corpo.slice(0, 200)}`
+      );
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Webhook: verificação de assinatura ─────────────────────────────────────
 
 /**
@@ -667,6 +730,98 @@ export function parseInboundMessages(payload: unknown): InboundWhatsAppMessage[]
               ? ((msg.text as { body: string }).body)
               : '',
           profileName: contact?.profile?.name || '',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Status de entrega que a Meta reporta pra uma mensagem que MANDAMOS. */
+export type StatusEntrega = 'sent' | 'delivered' | 'read' | 'failed';
+
+export interface AtualizacaoDeStatus {
+  /** wamid da mensagem que saiu — casa com `whatsapp_messages.message_id`. */
+  messageId: string;
+  status: StatusEntrega;
+  /** Epoch em segundos, como a Meta manda. */
+  timestamp: string;
+  recipientId: string;
+  /** Só em `failed`: por que não entregou. */
+  erro: string | null;
+}
+
+// A ordem importa: a Meta pode entregar os eventos fora de ordem (e reenviar
+// os antigos), e sem isso um `sent` atrasado sobrescreveria um `read` que já
+// tínhamos. Nunca deixamos o status ANDAR PRA TRÁS — exceto pra `failed`,
+// que é desfecho e sempre vence.
+const PESO_STATUS: Record<StatusEntrega, number> = {
+  sent: 1,
+  delivered: 2,
+  read: 3,
+  failed: 4,
+};
+
+/** `novo` deve substituir `atual`? */
+export function statusAvanca(
+  atual: string | null | undefined,
+  novo: StatusEntrega
+): boolean {
+  const antes = PESO_STATUS[(atual || '') as StatusEntrega] ?? 0;
+  return PESO_STATUS[novo] > antes;
+}
+
+/**
+ * Extrai os avisos de entrega do envelope.
+ *
+ * A Meta manda status no MESMO webhook das mensagens, com `field='messages'`
+ * — a diferença é que o `value` traz `statuses` em vez de `messages`. Por
+ * isso eles já passavam pela validação do envelope e mesmo assim eram
+ * DESCARTADOS: `parseInboundMessages` devolvia lista vazia e a rota só
+ * processava quando havia mensagem. O portal registrava que a loja mandou e
+ * nunca sabia se chegou.
+ */
+export function parseStatusUpdates(payload: unknown): AtualizacaoDeStatus[] {
+  const out: AtualizacaoDeStatus[] = [];
+  const entries = (payload as { entry?: unknown[] })?.entry;
+  if (!Array.isArray(entries)) return out;
+  for (const entry of entries) {
+    const changes = (entry as { changes?: unknown[] })?.changes;
+    if (!Array.isArray(changes)) continue;
+    for (const change of changes) {
+      const value = (change as { value?: Record<string, unknown> })?.value;
+      const statuses = value?.statuses;
+      if (!Array.isArray(statuses)) continue;
+      for (const st of statuses as Array<Record<string, unknown>>) {
+        const status = String(st.status ?? '');
+        if (!['sent', 'delivered', 'read', 'failed'].includes(status)) continue;
+        const messageId = typeof st.id === 'string' ? st.id : '';
+        if (!messageId) continue;
+        // O motivo da falha é o que faz a diferença pra quem opera: sem ele
+        // a tela só diria "falhou" e a pessoa ficaria adivinhando entre
+        // número sem WhatsApp, opt-out de marketing e limite da Meta.
+        let erro: string | null = null;
+        const errs = st.errors;
+        if (Array.isArray(errs) && errs.length > 0) {
+          const e = errs[0] as {
+            code?: unknown;
+            title?: unknown;
+            message?: unknown;
+            error_data?: { details?: unknown };
+          };
+          const partes = [
+            e.code != null ? `${e.code}` : '',
+            String(e.title || e.message || ''),
+            String(e.error_data?.details || ''),
+          ].filter(Boolean);
+          erro = partes.join(' · ').slice(0, 300) || 'falha sem detalhe';
+        }
+        out.push({
+          messageId,
+          status: status as StatusEntrega,
+          timestamp: typeof st.timestamp === 'string' ? st.timestamp : '',
+          recipientId: typeof st.recipient_id === 'string' ? st.recipient_id : '',
+          erro,
         });
       }
     }

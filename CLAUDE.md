@@ -1657,6 +1657,37 @@
     - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
       não tem espelho: a prévia diz que o texto vive no painel, em vez de
       inventar um diferente do que a pessoa recebe.
+  - **STATUS DE ENTREGA — Wave 58 (2026-09-05). SQL PENDENTE:**
+    `/migrations/2026-09-05-whatsapp-delivery-status.sql` (3 `ALTER TABLE`
+    de uma linha). Motivo: um template de abordagem foi enviado com sucesso
+    (o portal registrou) e não apareceu no celular do cliente — e não havia
+    como separar "número sem WhatsApp" de "recusou marketing" de "limite da
+    Meta". Os três produzem o MESMO silêncio.
+    - A Meta manda esses avisos no MESMO webhook das mensagens (`field=
+      'messages'`, com `statuses` no lugar de `messages`). Eles já passavam
+      pela validação do envelope e eram **descartados**: `parseInboundMessages`
+      devolvia lista vazia e nada mais olhava o payload.
+    - `parseStatusUpdates` + `persistStatusEntrega` (PATCH por `message_id`,
+      que já é UNIQUE; não cria linha). Bolha mostra ✓ / ✓✓ / ✓✓ azul, e
+      `failed` mostra **o motivo por extenso na bolha**, não só no tooltip.
+    - **`statusAvanca` impede o status de andar pra trás**: a Meta entrega
+      fora de ordem e reenvia, e um `sent` atrasado sobrescreveria um `read`.
+      `failed` é desfecho e vence tudo.
+    - **Tolera a coluna ausente nos DOIS lados** (servidor loga e segue; o
+      portal refaz o `select` sem elas). Recurso novo não derruba o que já
+      funcionava por SQL pendente — lição de `quotes.post_id`/`leads.city`.
+  - **ARMADILHA DE TESTE: arquivo "skipped" é verde na contagem
+    (2026-09-05).** `__tests__/portalJanela24h.test.ts` lê o FONTE do portal
+    (que não tem módulos) e avalia o trecho com `new Function`. Ao inserir um
+    componente JSX dentro do trecho extraído, o parse quebrou e o vitest
+    reportou o arquivo como **skipped** — `Tests 1619 passed | 12 skipped`,
+    e eu quase mergeei olhando só a contagem de testes.
+    - **REGRA: conferir a linha `Test Files`, não só `Tests`.** Suíte com
+      arquivo falhando ainda soma "passed" nos outros.
+    - A extração agora usa marcadores nomeados (`// [teste:janela-inicio]`
+      etc.) e há um teste que falha ALTO se um marcador sumir ou se entrar
+      JSX entre eles — ele não depende da extração, então sobrevive ao
+      acidente que precisa denunciar.
   - **Aquecimento da Evolution REMOVIDO do portal (2026-09-05).** A tela de
     WhatsApp e a abordagem de lead cutucavam
     `https://evolution-api-8arv.onrender.com` antes de cada envio — ao
