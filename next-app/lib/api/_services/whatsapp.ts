@@ -254,6 +254,17 @@ export async function sendWhatsAppMessage(
         extra
       );
     }
+    // 132001: template inexistente ou não aprovado pra este idioma. O
+    // detalhe da Meta é genérico ("Template name does not exist"), e sem
+    // dizer o que conferir a pessoa vai procurar no lugar errado — o nome
+    // vive no painel do Dualhook, e o par nome+idioma tem que bater EXATO.
+    if (code === 132001 || data.error?.error_subcode === 132001) {
+      throw new ServiceError(
+        'template não encontrado ou não aprovado — confira nome e idioma no painel do Dualhook',
+        422,
+        extra
+      );
+    }
     // 190: credencial expirada/revogada. Chega tanto do Dualhook quanto,
     // repassado, da Meta — a ação agora é regenerar a Outbound API key no
     // painel do Dualhook, não o token no painel da Meta.
@@ -317,6 +328,72 @@ export async function sendWhatsAppTemplate(opts: {
   return sendWhatsAppMessage(
     buildTemplatePayload(to, opts.template, opts.languageCode || 'pt_BR', opts.components)
   );
+}
+
+// ─── Templates aprovados ────────────────────────────────────────────────────
+//
+// Dois templates aprovados na Meta (ambos Marketing, pt_BR):
+//   - `calicolors`      — texto fixo, sem variável;
+//   - `calicolors_nome` — {{1}} = primeiro nome de quem recebe.
+//
+// O de nome é o padrão: mensagem que chama a pessoa pelo nome tem resposta
+// melhor e parece menos disparo em massa. Mas ele SÓ pode ser usado com um
+// nome de verdade — `{{1}}` vazio faria a Meta mandar "Oi ," pro cliente,
+// ou recusar o envio. Por isso o fallback existe e é obrigatório.
+export const TEMPLATE_SEM_NOME = 'calicolors';
+export const TEMPLATE_COM_NOME = 'calicolors_nome';
+
+/** Template padrão da abordagem. Env sobrescreve sem deploy. */
+export function getTemplateAbordagem(): string {
+  return getRuntimeEnv('WHATSAPP_TEMPLATE_ABORDAGEM') || TEMPLATE_COM_NOME;
+}
+
+/**
+ * Primeiro nome utilizável pra `{{1}}`, ou null.
+ *
+ * Devolve null pra qualquer coisa que não sirva como tratamento: vazio, só
+ * espaço, ou um "nome" que na verdade é o telefone (a base tem lead cujo
+ * `name` é o próprio número, vindo da importação). Mandar "Oi 11987654321"
+ * é pior do que não mandar nome nenhum.
+ */
+export function primeiroNome(bruto: string | null | undefined): string | null {
+  const limpo = (bruto || '').trim().replace(/\s+/g, ' ');
+  if (!limpo) return null;
+  // Só dígitos/pontuação de telefone → não é nome.
+  if (!/[\p{L}]/u.test(limpo)) return null;
+  const primeiro = limpo.split(' ')[0];
+  // Uma letra só ("J") não é tratamento; melhor cair no template sem nome.
+  if (primeiro.length < 2) return null;
+  return primeiro.slice(0, 60);
+}
+
+export interface EscolhaDeTemplate {
+  template: string;
+  components?: TemplateComponent[];
+  /** Nome usado no {{1}}, pra registrar no histórico. */
+  nome: string | null;
+}
+
+/**
+ * Escolhe o template e monta os `components`.
+ *
+ * Com nome utilizável → o de variável. Sem nome → o fixo. Nunca manda
+ * `{{1}}` vazio: a regra vive AQUI, num lugar só, porque ela é a mesma pro
+ * botão de abordagem, pra tela de WhatsApp e pro follow-up — e se cada um
+ * decidisse por conta, um deles acabaria mandando "Oi ,".
+ */
+export function escolherTemplate(
+  nomeBruto: string | null | undefined,
+  preferido?: string
+): EscolhaDeTemplate {
+  const nome = primeiroNome(nomeBruto);
+  const comNome = preferido || getTemplateAbordagem();
+  if (!nome) return { template: TEMPLATE_SEM_NOME, nome: null };
+  return {
+    template: comNome,
+    nome,
+    components: [{ type: 'body', parameters: [{ type: 'text', text: nome }] }],
+  };
 }
 
 // ─── Persistência (SQL Wave 38: tabela whatsapp_messages) ───────────────────
