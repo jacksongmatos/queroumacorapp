@@ -1657,7 +1657,17 @@
     - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
       não tem espelho: a prévia diz que o texto vive no painel, em vez de
       inventar um diferente do que a pessoa recebe.
-  - **STATUS DE ENTREGA — Wave 58 (2026-09-05). SQL PENDENTE:**
+  - **LISTA DE CONTATOS: busca NO BANCO + índice A-Z (2026-09-05).** A 1ª
+    versão do modal trazia 500 leads + 500 perfis e filtrava em memória. Com
+    **1072 leads**, quem estava fora dos primeiros 500 ficava INVISÍVEL pra
+    busca — digitar o nome não achava nada, e a tela não dava pista de que
+    faltava gente. **Lista truncada que se parece com lista completa é pior
+    que lista vazia.** Agora a busca consulta o banco (ilike em nome E
+    telefone, 250ms de atraso) e há índice A-Z que também consulta — clicar
+    numa letra não filtra o que já está na tela, senão sofreria do mesmo
+    problema. A tela mostra o total e diz que está exibindo um pedaço.
+  - **STATUS DE ENTREGA — Wave 58 (2026-09-05). SQL JÁ EXECUTADO
+    (2026-09-05, confirmado pelo usuário). Não pedir pra rodar de novo.**
     `/migrations/2026-09-05-whatsapp-delivery-status.sql` (3 `ALTER TABLE`
     de uma linha). Motivo: um template de abordagem foi enviado com sucesso
     (o portal registrou) e não apareceu no celular do cliente — e não havia
