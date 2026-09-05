@@ -1478,7 +1478,7 @@
     `X-Hub-Signature-256` é assinado pelo app Meta DO DUALHOOK (secret não
     exposto) → HMAC com `META_APP_SECRET` nunca bate; por isso o modo
     `payload`. IDs da conexão Dualhook: Phone Number ID
-    `1284183724779574`, WABA `865837919828100` (≠ defaults do código, que
+    `1220273824510260`, WABA `1320667299892030` (≠ defaults do código, que
     são do número antigo +55 11 95976-5031) → precisam das envs
     `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_WABA_ID` no CF Pages. Como os
     IDs são públicos, o modo `payload` TAMBÉM exige
