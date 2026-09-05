@@ -1467,16 +1467,29 @@
   puros + `sendWhatsAppText/Template` + `verifyMetaSignature` +
   `parseInboundMessages`); rotas `/api/whatsapp/send` (admin-only, mesmo
   gate do `/api/admin/users`, rate limit 30/min, audit_log com preview de
-  80 chars) e `/api/whatsapp/webhook` (GET verificação + POST com HMAC
-  `X-Hub-Signature-256` validado antes do parse; pós-assinatura sempre 200,
-  anti-retry-storm igual mp-webhook). 22 testes em
-  `__tests__/services/whatsapp.test.ts`. Doc: `docs/WHATSAPP_CLOUD_API.md`.
+  80 chars) e `/api/whatsapp/webhook` (GET verificação + POST autenticado
+  por `WHATSAPP_WEBHOOK_AUTH_MODE`: `payload` (default, Dualhook — valida
+  WABA + phone_number_id do envelope via `isExpectedWebhookPayload`) ou
+  `hmac` (app próprio — `X-Hub-Signature-256` com `META_APP_SECRET`);
+  pós-autenticação sempre 200, anti-retry-storm igual mp-webhook). Testes
+  em `__tests__/services/whatsapp.test.ts`. Doc: `docs/WHATSAPP_CLOUD_API.md`.
+  - **Dualhook (2026-09-05)**: o webhook do número em Coexistence passou a
+    ser registrado via Dualhook (Webhook Override). Nesse fluxo o
+    `X-Hub-Signature-256` é assinado pelo app Meta DO DUALHOOK (secret não
+    exposto) → HMAC com `META_APP_SECRET` nunca bate; por isso o modo
+    `payload`. IDs da conexão Dualhook: Phone Number ID
+    `1284183724779574`, WABA `865837919828100` (≠ defaults do código, que
+    são do número antigo +55 11 95976-5031) → precisam das envs
+    `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_WABA_ID` no CF Pages. Como os
+    IDs são públicos, o modo `payload` TAMBÉM exige
+    `WHATSAPP_WEBHOOK_URL_SECRET` no `?token=` da URL cadastrada no
+    Dualhook (fail-closed sem ela) — payload sozinho não autentica.
+    `WHATSAPP_WEBHOOK_VERIFY_TOKEN` = Verify Token gerado pelo Dualhook
+    (já trocado no CF Pages + redeploy + GET verificado em 2026-09-05).
+    Envio pelo Dualhook (`api.dualhook.com` + `dh_live_…`) ainda NÃO está
+    integrado — `sendWhatsAppMessage` segue em `graph.facebook.com`.
   - **O access token NÃO está no código** (IDs públicos são default; token
-    só via env). As 3 envs JÁ ESTÃO no CF Pages Production (2026-08-25):
-    `WHATSAPP_ACCESS_TOKEN`, `META_APP_SECRET`,
-    `WHATSAPP_WEBHOOK_VERIFY_TOKEN`. Webhook JÁ CADASTRADO e verificado no
-    painel da Meta (subscribe em "messages"). Não pedir pra configurar de
-    novo. Se o token vazar/expirar (erro 190 do Graph): regenerar no
+    só via env). Se o token vazar/expirar (erro 190 do Graph): regenerar no
     painel Meta e trocar só a env + redeploy.
   - **Janela de 24h da Meta**: texto livre só pra quem escreveu nas últimas
     24h; fora dela o Graph dá 131047 e a rota responde 422 "use um template

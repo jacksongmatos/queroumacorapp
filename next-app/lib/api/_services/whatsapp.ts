@@ -10,9 +10,29 @@
 //   - `WHATSAPP_ACCESS_TOKEN`   (secret) — token permanente do system user.
 //     NUNCA commitar; vive só no painel do CF Pages.
 //   - `WHATSAPP_PHONE_NUMBER_ID` — opcional; default abaixo (não é secret).
-//   - `META_APP_SECRET`          (secret) — valida assinatura do webhook.
+//   - `WHATSAPP_WABA_ID`         — opcional; default abaixo (não é secret).
+//   - `WHATSAPP_WEBHOOK_AUTH_MODE` — `payload` (default) ou `hmac`. Ver
+//     abaixo em "Webhook: autenticação do POST".
+//   - `META_APP_SECRET`          (secret) — só no modo `hmac`.
+//   - `WHATSAPP_WEBHOOK_URL_SECRET` (secret) — obrigatório no modo `payload`:
+//     string alta-entropia que vai na query da URL cadastrada no Dualhook
+//     (`.../api/whatsapp/webhook?token=<secret>`). É o que prova que a
+//     chamada veio de quem conhece a URL (Meta via Dualhook), já que o
+//     payload sozinho é forjável (WABA/phone id são públicos).
 //   - `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — string escolhida por nós, conferida
-//     no GET de verificação do webhook (Meta manda de volta).
+//     no GET de verificação do webhook (Meta manda de volta). Com Dualhook,
+//     é o Verify Token gerado no painel deles (Webhook Override).
+//
+// Webhook: autenticação do POST. Desde a migração pro Dualhook (Coexistence
+// via Embedded Signup), o header `X-Hub-Signature-256` é assinado pelo app
+// Meta DO DUALHOOK, cujo App Secret não é exposto — logo o HMAC com o nosso
+// `META_APP_SECRET` NUNCA bate. A recomendação do Dualhook é validar o
+// FORMATO do payload (`isExpectedWebhookPayload`): envelope
+// `whatsapp_business_account`, `entry[].id` = nosso WABA e
+// `metadata.phone_number_id` = nosso número — MAIS o segredo de URL
+// (`WHATSAPP_WEBHOOK_URL_SECRET`), porque IDs no corpo não autenticam
+// remetente. O modo `hmac` fica disponível pra voltar ao app próprio (sem
+// Dualhook) sem mexer em código.
 //
 // Regra da janela de 24h da Meta: mensagem de TEXTO livre só chega pra quem
 // mandou mensagem pro número nas últimas 24h; fora da janela é obrigatório
@@ -55,6 +75,23 @@ export function getWhatsAppConfig(): WhatsAppConfig {
 
 export function isWhatsAppConfigured(): boolean {
   return Boolean(getRuntimeEnv('WHATSAPP_ACCESS_TOKEN'));
+}
+
+/** WABA ID do runtime (env sobrescreve o default da Cali Colors). */
+export function getWabaId(): string {
+  return getRuntimeEnv('WHATSAPP_WABA_ID') || DEFAULT_WABA_ID;
+}
+
+/** Phone Number ID do runtime, sem exigir o access token (uso no webhook). */
+export function getPhoneNumberId(): string {
+  return getRuntimeEnv('WHATSAPP_PHONE_NUMBER_ID') || DEFAULT_PHONE_NUMBER_ID;
+}
+
+export type WebhookAuthMode = 'payload' | 'hmac';
+
+/** Modo de autenticação do POST do webhook. Qualquer valor ≠ `hmac` → `payload`. */
+export function getWebhookAuthMode(): WebhookAuthMode {
+  return getRuntimeEnv('WHATSAPP_WEBHOOK_AUTH_MODE') === 'hmac' ? 'hmac' : 'payload';
 }
 
 /**
@@ -330,6 +367,66 @@ export async function verifyMetaSignature(
     diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
   }
   return diff === 0;
+}
+
+// ─── Webhook: segredo de URL (modo Dualhook) ────────────────────────────────
+
+/** Compara duas strings em tempo constante (evita timing leak do token). */
+export function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Confere o `?token=` da URL do webhook contra `WHATSAPP_WEBHOOK_URL_SECRET`.
+ * Retorna 'ok' | 'missing-config' | 'invalid'. Sem env configurada é
+ * fail-closed (503 no caller) — nunca aceitar sem segredo no modo payload.
+ */
+export function checkWebhookUrlSecret(
+  url: URL,
+  configured: string | undefined
+): 'ok' | 'missing-config' | 'invalid' {
+  if (!configured) return 'missing-config';
+  const provided = url.searchParams.get('token') || '';
+  return safeEqual(provided, configured) ? 'ok' : 'invalid';
+}
+
+// ─── Webhook: validação do formato do payload (modo Dualhook) ────────────────
+
+/**
+ * Confere se o envelope é o que a Meta manda pro NOSSO número: objeto
+ * `whatsapp_business_account`, ao menos um `entry` e TODOS os entries com
+ * `id` = nosso WABA, `changes` não vazio, todo change com `field='messages'`
+ * e `value.metadata.phone_number_id` = nosso número. Qualquer desvio → false.
+ *
+ * Substitui o HMAC quando o webhook chega via Dualhook (assinatura deles,
+ * não verificável). Não é autenticação criptográfica — é a validação que o
+ * Dualhook recomenda; a URL do webhook deve continuar não-pública.
+ */
+export function isExpectedWebhookPayload(
+  payload: unknown,
+  expected: { wabaId: string; phoneNumberId: string }
+): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const body = payload as { object?: unknown; entry?: unknown };
+  if (body.object !== 'whatsapp_business_account') return false;
+  if (!Array.isArray(body.entry) || body.entry.length === 0) return false;
+  for (const entry of body.entry as Array<Record<string, unknown>>) {
+    if (!entry || typeof entry !== 'object') return false;
+    if (String(entry.id ?? '') !== expected.wabaId) return false;
+    const changes = entry.changes;
+    if (!Array.isArray(changes) || changes.length === 0) return false;
+    for (const change of changes as Array<Record<string, unknown>>) {
+      if (!change || change.field !== 'messages') return false;
+      const value = change.value as { metadata?: { phone_number_id?: unknown } } | undefined;
+      if (String(value?.metadata?.phone_number_id ?? '') !== expected.phoneNumberId) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 // ─── Webhook: parse do payload de entrada ───────────────────────────────────
