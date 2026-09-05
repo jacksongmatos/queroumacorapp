@@ -5530,6 +5530,9 @@ const montarAbordagem = (lead, produtos) => {
 // no painel do Dualhook, mudar aqui. Template sem espelho conhecido nao
 // inventa texto — diz que o conteudo esta no painel, o que e honesto e
 // melhor do que mostrar algo diferente do que a pessoa vai receber.
+// [teste:template-inicio] — mesmo esquema do bloco da janela: extraido por
+// __tests__/portalJanela24h.test.ts pra provar que portal e servidor
+// escolhem o MESMO template. So JS puro entre os marcadores.
 const TEMPLATE_IDIOMA = 'pt_BR';
 const TEMPLATES_APROVADOS = [{
   nome: 'calicolors_nome',
@@ -5586,6 +5589,8 @@ const escolherTemplate = (nomeBruto, preferido) => {
     }]
   };
 };
+
+// [teste:template-fim]
 
 // Texto pra MOSTRAR na tela (previa antes de enviar, e bolha depois).
 // Devolve null quando nao ha espelho: a tela entao diz onde o texto vive,
@@ -5686,7 +5691,10 @@ const NovaConversaModal = ({
   // Agora: sem termo, traz as primeiras por nome (so pra ter o que
   // navegar); com termo, consulta o banco com ilike em nome E telefone.
   const [total, setTotal] = useState(null);
-  const buscarContatos = async termo => {
+  // Letra do indice A-Z. '' = todas. '#' = nome que nao comeca por letra
+  // (empresa que comeca com numero, nome vazio).
+  const [letra, setLetra] = useState('');
+  const buscarContatos = async (termo, ini) => {
     setCarregando(true);
     const q = (termo || '').trim();
     const digitos = q.replace(/\D/g, '');
@@ -5697,7 +5705,13 @@ const NovaConversaModal = ({
     const filtro = sel => {
       let r = sel.not('phone', 'is', null);
       if (nomeLike && alvoLike) r = r.or('name.ilike.' + nomeLike + ',phone.ilike.' + alvoLike);else if (nomeLike) r = r.ilike('name', nomeLike);else if (alvoLike) r = r.ilike('phone', alvoLike);
-      return r.order('name').limit(80);
+      // A letra so entra quando NAO ha busca: quem digitou quer procurar em
+      // todos, e manter a letra ativa esconderia o resultado sem explicar.
+      else if (ini === '#') r = r.not('name', 'ilike', '[A-Za-zÀ-ÿ]*');else if (ini) r = r.ilike('name', ini + '*');
+      // Teto alto: com a letra escolhida, cada fatia e pequena. Sem letra e
+      // sem busca, mostra o comeco do alfabeto — a tela avisa que e um
+      // pedaco.
+      return r.order('name').limit(ini ? 300 : 80);
     };
     const [ld, pf] = await Promise.all([filtro(supa.from('leads').select('id, name, phone, city, category')), filtro(supa.from('profiles').select('id, name, phone, city'))]);
     const vistos = new Set();
@@ -5746,13 +5760,13 @@ const NovaConversaModal = ({
   useEffect(() => {
     let vivo = true;
     const t = setTimeout(() => {
-      if (vivo) buscarContatos(busca).catch(() => setCarregando(false));
+      if (vivo) buscarContatos(busca, letra).catch(() => setCarregando(false));
     }, 250);
     return () => {
       vivo = false;
       clearTimeout(t);
     };
-  }, [busca]);
+  }, [busca, letra]);
 
   // Mesma regra do servidor (normalizeWhatsAppTarget): BR local ganha o 55;
   // numero que ja vem com DDI de outro pais passa direto.
@@ -5950,7 +5964,10 @@ const NovaConversaModal = ({
     }
   }, total.toLocaleString('pt-BR'), " no total") : null), /*#__PURE__*/React.createElement("input", {
     value: busca,
-    onChange: e => setBusca(e.target.value),
+    onChange: e => {
+      setBusca(e.target.value);
+      if (e.target.value.trim()) setLetra('');
+    },
     placeholder: "Buscar por nome ou n\xFAmero\u2026",
     style: {
       width: '100%',
@@ -5963,11 +5980,40 @@ const NovaConversaModal = ({
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: 3,
+      marginBottom: 8
+    }
+  }, ['', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''), '#'].map(l => {
+    const sel = letra === l;
+    return /*#__PURE__*/React.createElement("button", {
+      key: l || 'todos',
+      onClick: () => {
+        setLetra(l);
+        setBusca('');
+      },
+      title: l === '' ? 'Todos' : l === '#' ? 'Nome que não começa por letra' : 'Nomes com ' + l,
+      style: {
+        minWidth: l === '' ? 44 : 24,
+        padding: '3px 5px',
+        borderRadius: 6,
+        fontSize: 11,
+        fontWeight: sel ? 800 : 600,
+        cursor: 'pointer',
+        lineHeight: 1.5,
+        border: '1px solid ' + (sel ? C.p1 : C.border),
+        background: sel ? C.p1 + '18' : '#fff',
+        color: sel ? C.p1 : C.muted
+      }
+    }, l === '' ? 'Todos' : l);
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       fontSize: 11,
       color: C.muted,
       marginBottom: 10
     }
-  }, busca.trim() ? contatos.length >= 80 ? 'Mostrando os 80 primeiros — refine a busca.' : contatos.length + ' encontrado(s).' : 'Mostrando os primeiros por ordem alfabética. Digite para buscar em todos.'), carregando ? /*#__PURE__*/React.createElement("div", {
+  }, busca.trim() ? contatos.length >= 80 ? 'Mostrando os 80 primeiros — refine a busca.' : contatos.length + ' encontrado(s).' : letra ? contatos.length + ' com ' + (letra === '#' ? 'nome fora do alfabeto' : letra) + '.' : 'Mostrando o começo da lista. Use as letras acima ou digite para buscar em todos.'), carregando ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: C.muted,
@@ -10157,6 +10203,13 @@ const textoDeTemplate = m => {
 // decide de verdade e a Meta: pode haver mensagem que o webhook nao gravou,
 // e o relogio dela e o dela. Por isso o erro 131047 continua tratado no
 // envio — a previsao melhora a UX, nao substitui a checagem.
+// [teste:janela-inicio] — o bloco entre este marcador e o de fim e
+// EXTRAIDO e avaliado por __tests__/portalJanela24h.test.ts. O portal nao
+// tem modulos, entao o teste le o fonte. Duas regras: so JS puro aqui
+// dentro (JSX nao passa pelo `new Function` do teste) e nao mexer nos
+// marcadores. Ja quebrou uma vez, em 2026-09-05, quando um componente novo
+// foi inserido no meio — a suite reportou o arquivo como "skipped" e a
+// contagem de testes seguiu verde, entao passou perto de ir pra main.
 const JANELA_MS = 24 * 60 * 60 * 1000;
 const instanteDaMsg = m => {
   const iso = m.wa_timestamp || m.created_at;
@@ -10189,6 +10242,53 @@ const restanteDaJanela = msgs => {
   const h = Math.floor(ms / 3600000);
   if (h >= 1) return h + 'h';
   return Math.max(1, Math.floor(ms / 60000)) + 'min';
+};
+
+// [teste:janela-fim]
+
+// ── Status de entrega (Wave 58) ─────────────────────────────────────────
+// A Meta avisa por webhook o que aconteceu com cada mensagem que a loja
+// mandou. Sem isso, "nao chegou" era adivinhacao: nao dava pra separar
+// numero sem WhatsApp de recusa de marketing de limite da Meta.
+//
+// `failed` NAO e um ✗ discreto: e a unica informacao acionavel da tela, e
+// vem com o motivo por extenso. Os outros tres seguem a convencao do
+// proprio WhatsApp (✓ enviado, ✓✓ entregue, ✓✓ azul lido), que o operador
+// ja conhece — inventar simbolo novo aqui seria custo sem ganho.
+const StatusEntrega = ({
+  m
+}) => {
+  if (m.direction !== 'out') return null;
+  const st = m.delivery_status;
+  if (!st) {
+    // Sem status pode ser mensagem antiga (anterior a Wave 58) ou aviso
+    // que ainda nao chegou. Nao mostramos nada: um "?" faria parecer
+    // problema onde nao ha.
+    return null;
+  }
+  if (st === 'failed') {
+    return /*#__PURE__*/React.createElement("span", {
+      title: m.delivery_error || 'A Meta nao detalhou o motivo.',
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontWeight: 700
+      }
+    }, "\u26A0 n\xE3o entregue"));
+  }
+  const rot = st === 'read' ? '✓✓' : st === 'delivered' ? '✓✓' : '✓';
+  const titulo = st === 'read' ? 'Lida' : st === 'delivered' ? 'Entregue no aparelho' : 'Enviada (ainda não entregue)';
+  return /*#__PURE__*/React.createElement("span", {
+    title: titulo,
+    style: {
+      opacity: st === 'sent' ? .8 : 1,
+      color: st === 'read' ? '#8fd0ff' : 'inherit'
+    }
+  }, rot);
 };
 
 // Previa na lista de conversas: audio mostra a transcricao em vez de
@@ -10348,7 +10448,13 @@ const WhatsAppTab = () => {
   const [err, setErr] = useState('');
   const [busca, setBusca] = useState('');
   const endRef = React.useRef(null);
-  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
+
+  // `delivery_*` sao da Wave 58. Se a migration ainda nao rodou, o
+  // PostgREST devolve 42703 e a lista NAO CARREGA — por isso o load tenta
+  // com elas e refaz sem elas no erro (ver `carregarMsgs`). Recurso novo
+  // nao pode derrubar a tela por causa de SQL pendente.
+  const WA_COLS_BASE = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
+  const WA_COLS = WA_COLS_BASE + ', delivery_status, delivery_status_at, delivery_error';
 
   // MIDIA (Wave 49). O bucket e PRIVADO — conversa de cliente nao vira
   // link publico. Pedimos URL assinada em lote pras mensagens visiveis e
@@ -10377,11 +10483,23 @@ const WhatsAppTab = () => {
     } catch (_) {/* sem assinatura a bolha cai no marcador de texto */}
   };
   const load = async () => {
-    const {
-      data
+    // Tenta com as colunas de status; se a migration da Wave 58 ainda nao
+    // rodou, o PostgREST responde 42703 e refazemos SEM elas. A tela toda
+    // parar de carregar porque falta um SQL seria trocar um recurso novo
+    // (o ✓✓) pela funcao inteira — mesma licao de `quotes.post_id`.
+    let {
+      data,
+      error
     } = await supa.from('whatsapp_messages').select(WA_COLS).order('created_at', {
       ascending: false
     }).limit(500);
+    if (error && /delivery_status|42703/i.test(error.message || '')) {
+      ({
+        data
+      } = await supa.from('whatsapp_messages').select(WA_COLS_BASE).order('created_at', {
+        ascending: false
+      }).limit(500));
+    }
     if (data) {
       // So troca o state se algo MUDOU de verdade — sem isso cada poll
       // recriava o array e a tela repintava (a "piscada").
@@ -11508,9 +11626,29 @@ const WhatsAppTab = () => {
       fontSize: 10,
       opacity: .7,
       marginTop: 3,
-      textAlign: 'right'
+      textAlign: 'right',
+      display: 'flex',
+      gap: 5,
+      justifyContent: 'flex-end',
+      alignItems: 'center'
     }
-  }, waHora(m)))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, waHora(m)), /*#__PURE__*/React.createElement(StatusEntrega, {
+    m: m
+  })), m.direction === 'out' && m.delivery_status === 'failed' && m.delivery_error ?
+  /*#__PURE__*/
+  /* O motivo fica NA BOLHA, nao so no title: quem esta
+     investigando por que o cliente nao respondeu precisa
+     ler isso sem descobrir que ha um tooltip. */
+  React.createElement("div", {
+    style: {
+      fontSize: 10,
+      marginTop: 4,
+      padding: '4px 6px',
+      borderRadius: 6,
+      background: 'rgba(255,255,255,.22)',
+      lineHeight: 1.4
+    }
+  }, m.delivery_error) : null)), /*#__PURE__*/React.createElement("div", {
     ref: endRef
   })), err ? /*#__PURE__*/React.createElement("div", {
     style: {

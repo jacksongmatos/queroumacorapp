@@ -165,6 +165,40 @@ describe('POST /api/whatsapp/webhook', () => {
     expect(await res.json()).toMatchObject({ ignored: true });
   });
 
+  // Antes da Wave 58 o envelope de status passava pela validação e era
+  // descartado em silêncio — o portal registrava que a loja mandou e nunca
+  // sabia se chegou.
+  it('envelope de status → 200 (não pode ser recusado)', async () => {
+    const statusEnv = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: WABA,
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: { phone_number_id: PHONE },
+                statuses: [
+                  {
+                    id: 'wamid.teste',
+                    status: 'failed',
+                    timestamp: '1757100000',
+                    recipient_id: '16502701234',
+                    errors: [{ code: 131026, title: 'Message undeliverable' }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const res = await chamarPost(pedido(statusEnv));
+    expect(res.status).toBe(200);
+  });
+
   it('token de URL errado → 403', async () => {
     const res = await chamarPost(pedido(envelopeDeMensagem(), 'token-errado'));
     expect(res.status).toBe(403);

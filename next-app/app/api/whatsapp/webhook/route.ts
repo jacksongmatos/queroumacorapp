@@ -50,7 +50,11 @@ import {
   getWebhookAuthMode,
   classifyWebhookPayload,
   parseInboundMessages,
+  parseStatusUpdates,
+  persistStatusEntrega,
   persistWhatsAppMessage,
+  statusAvanca,
+  type AtualizacaoDeStatus,
   resumirEnvelope,
   type InboundWhatsAppMessage,
 } from '@/lib/api/_services/whatsapp';
@@ -150,6 +154,36 @@ async function processarEntrada(messages: InboundWhatsAppMessage[]): Promise<voi
   }
 }
 
+/**
+ * Grava os avisos de entrega. Roda depois da resposta, como o resto.
+ *
+ * A Meta reenvia e pode entregar FORA DE ORDEM — um `sent` atrasado
+ * chegando depois do `read` não pode fazer o status andar pra trás. Quem
+ * decide é `statusAvanca`; aqui só deduplicamos o lote antes de escrever,
+ * pra não gastar N PATCHs na mesma mensagem quando o envelope traz
+ * `sent`+`delivered` juntos.
+ */
+async function processarStatus(lista: AtualizacaoDeStatus[]): Promise<void> {
+  const maisAvancado = new Map<string, AtualizacaoDeStatus>();
+  for (const st of lista) {
+    const atual = maisAvancado.get(st.messageId);
+    if (!atual || statusAvanca(atual.status, st.status)) {
+      maisAvancado.set(st.messageId, st);
+    }
+  }
+  for (const st of maisAvancado.values()) {
+    // `failed` é o que o operador precisa ver, então vai pro log com o
+    // motivo: é ele que separa "número sem WhatsApp" de "recusou marketing"
+    // de "limite da Meta".
+    if (st.status === 'failed') {
+      console.warn(
+        `[whatsapp-status] FALHOU msg=${st.messageId} para=${st.recipientId}: ${st.erro || 'sem detalhe'}`
+      );
+    }
+    await persistStatusEntrega(st);
+  }
+}
+
 export async function POST(request: NextRequest) {
   // (1) Segredo de URL — o que realmente autentica o remetente.
   const check = checkWebhookUrlSecret(
@@ -227,7 +261,14 @@ export async function POST(request: NextRequest) {
       e instanceof Error ? e.message : e
     );
   }
+  // Avisos de ENTREGA (sent/delivered/read/failed) das mensagens que a loja
+  // mandou. Vinham no mesmo envelope e eram DESCARTADOS: o parse de
+  // mensagens devolvia lista vazia e nada mais olhava o payload. O portal
+  // registrava que mandamos e nunca sabia se chegou.
+  const statuses = parseStatusUpdates(payload);
+
   if (messages.length > 0) runAfterResponse(processarEntrada(messages));
+  if (statuses.length > 0) runAfterResponse(processarStatus(statuses));
 
   return NextResponse.json({ received: true }, { status: 200 });
 }

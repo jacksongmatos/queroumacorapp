@@ -2649,6 +2649,9 @@ const montarAbordagem = (lead, produtos) => {
 // no painel do Dualhook, mudar aqui. Template sem espelho conhecido nao
 // inventa texto — diz que o conteudo esta no painel, o que e honesto e
 // melhor do que mostrar algo diferente do que a pessoa vai receber.
+// [teste:template-inicio] — mesmo esquema do bloco da janela: extraido por
+// __tests__/portalJanela24h.test.ts pra provar que portal e servidor
+// escolhem o MESMO template. So JS puro entre os marcadores.
 const TEMPLATE_IDIOMA = 'pt_BR';
 
 const TEMPLATES_APROVADOS = [
@@ -2705,6 +2708,8 @@ const escolherTemplate = (nomeBruto, preferido) => {
     components: [{ type:'body', parameters:[{ type:'text', text: nome }] }],
   };
 };
+
+// [teste:template-fim]
 
 // Texto pra MOSTRAR na tela (previa antes de enviar, e bolha depois).
 // Devolve null quando nao ha espelho: a tela entao diz onde o texto vive,
@@ -2785,8 +2790,11 @@ const NovaConversaModal = ({ onClose, onAbrir }) => {
   // Agora: sem termo, traz as primeiras por nome (so pra ter o que
   // navegar); com termo, consulta o banco com ilike em nome E telefone.
   const [total, setTotal] = useState(null);
+  // Letra do indice A-Z. '' = todas. '#' = nome que nao comeca por letra
+  // (empresa que comeca com numero, nome vazio).
+  const [letra, setLetra] = useState('');
 
-  const buscarContatos = async (termo) => {
+  const buscarContatos = async (termo, ini) => {
     setCarregando(true);
     const q = (termo || '').trim();
     const digitos = q.replace(/\D/g, '');
@@ -2800,7 +2808,14 @@ const NovaConversaModal = ({ onClose, onAbrir }) => {
       if(nomeLike && alvoLike) r = r.or('name.ilike.' + nomeLike + ',phone.ilike.' + alvoLike);
       else if(nomeLike) r = r.ilike('name', nomeLike);
       else if(alvoLike) r = r.ilike('phone', alvoLike);
-      return r.order('name').limit(80);
+      // A letra so entra quando NAO ha busca: quem digitou quer procurar em
+      // todos, e manter a letra ativa esconderia o resultado sem explicar.
+      else if(ini === '#') r = r.not('name', 'ilike', '[A-Za-zÀ-ÿ]*');
+      else if(ini) r = r.ilike('name', ini + '*');
+      // Teto alto: com a letra escolhida, cada fatia e pequena. Sem letra e
+      // sem busca, mostra o comeco do alfabeto — a tela avisa que e um
+      // pedaco.
+      return r.order('name').limit(ini ? 300 : 80);
     };
 
     const [ld, pf] = await Promise.all([
@@ -2843,9 +2858,9 @@ const NovaConversaModal = ({ onClose, onAbrir }) => {
   // produtos, que tem 21 mil linhas).
   useEffect(() => {
     let vivo = true;
-    const t = setTimeout(() => { if(vivo) buscarContatos(busca).catch(() => setCarregando(false)); }, 250);
+    const t = setTimeout(() => { if(vivo) buscarContatos(busca, letra).catch(() => setCarregando(false)); }, 250);
     return () => { vivo = false; clearTimeout(t); };
-  }, [busca]);
+  }, [busca, letra]);
 
   // Mesma regra do servidor (normalizeWhatsAppTarget): BR local ganha o 55;
   // numero que ja vem com DDI de outro pais passa direto.
@@ -2923,16 +2938,38 @@ const NovaConversaModal = ({ onClose, onAbrir }) => {
               </span>
             ) : null}
           </div>
-          <input value={busca} onChange={e=>setBusca(e.target.value)}
+          <input value={busca} onChange={e=>{ setBusca(e.target.value); if(e.target.value.trim()) setLetra(''); }}
             placeholder="Buscar por nome ou número…"
             style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1.5px solid '+C.border, fontSize:13, outline:'none', marginBottom:6 }} />
+          {/* Indice A-Z: com mais de mil contatos, rolar uma lista unica nao
+              serve. Clicar numa letra CONSULTA O BANCO por aquela inicial —
+              nao filtra o que ja esta na tela, senao a letra sofreria do
+              mesmo problema que a busca sofria (so achava quem ja tinha sido
+              carregado). '#' pega quem nao comeca por letra. */}
+          <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:8 }}>
+            {['', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''), '#'].map(l => {
+              const sel = letra === l;
+              return (
+                <button key={l || 'todos'} onClick={()=>{ setLetra(l); setBusca(''); }}
+                  title={l === '' ? 'Todos' : l === '#' ? 'Nome que não começa por letra' : 'Nomes com ' + l}
+                  style={{ minWidth: l === '' ? 44 : 24, padding:'3px 5px', borderRadius:6, fontSize:11,
+                    fontWeight: sel ? 800 : 600, cursor:'pointer', lineHeight:1.5,
+                    border:'1px solid '+(sel ? C.p1 : C.border),
+                    background: sel ? C.p1+'18' : '#fff', color: sel ? C.p1 : C.muted }}>
+                  {l === '' ? 'Todos' : l}
+                </button>
+              );
+            })}
+          </div>
           {/* A lista mostra um pedaco; sem dizer isso, quem nao acha o
               contato conclui que ele nao existe. A busca vai ao banco, entao
               digitar ALCANCA quem nao esta na tela. */}
           <div style={{ fontSize:11, color:C.muted, marginBottom:10 }}>
             {busca.trim()
               ? (contatos.length >= 80 ? 'Mostrando os 80 primeiros — refine a busca.' : contatos.length + ' encontrado(s).')
-              : 'Mostrando os primeiros por ordem alfabética. Digite para buscar em todos.'}
+              : letra
+                ? contatos.length + ' com ' + (letra === '#' ? 'nome fora do alfabeto' : letra) + '.'
+                : 'Mostrando o começo da lista. Use as letras acima ou digite para buscar em todos.'}
           </div>
           {carregando ? (
             <div style={{ fontSize:13, color:C.muted, padding:'8px 0' }}>Carregando contatos…</div>
@@ -4794,6 +4831,13 @@ const textoDeTemplate = (m) => {
 // decide de verdade e a Meta: pode haver mensagem que o webhook nao gravou,
 // e o relogio dela e o dela. Por isso o erro 131047 continua tratado no
 // envio — a previsao melhora a UX, nao substitui a checagem.
+// [teste:janela-inicio] — o bloco entre este marcador e o de fim e
+// EXTRAIDO e avaliado por __tests__/portalJanela24h.test.ts. O portal nao
+// tem modulos, entao o teste le o fonte. Duas regras: so JS puro aqui
+// dentro (JSX nao passa pelo `new Function` do teste) e nao mexer nos
+// marcadores. Ja quebrou uma vez, em 2026-09-05, quando um componente novo
+// foi inserido no meio — a suite reportou o arquivo como "skipped" e a
+// contagem de testes seguiu verde, entao passou perto de ir pra main.
 const JANELA_MS = 24 * 60 * 60 * 1000;
 
 const instanteDaMsg = (m) => {
@@ -4828,6 +4872,43 @@ const restanteDaJanela = (msgs) => {
   const h = Math.floor(ms / 3600000);
   if(h >= 1) return h + 'h';
   return Math.max(1, Math.floor(ms / 60000)) + 'min';
+};
+
+// [teste:janela-fim]
+
+// ── Status de entrega (Wave 58) ─────────────────────────────────────────
+// A Meta avisa por webhook o que aconteceu com cada mensagem que a loja
+// mandou. Sem isso, "nao chegou" era adivinhacao: nao dava pra separar
+// numero sem WhatsApp de recusa de marketing de limite da Meta.
+//
+// `failed` NAO e um ✗ discreto: e a unica informacao acionavel da tela, e
+// vem com o motivo por extenso. Os outros tres seguem a convencao do
+// proprio WhatsApp (✓ enviado, ✓✓ entregue, ✓✓ azul lido), que o operador
+// ja conhece — inventar simbolo novo aqui seria custo sem ganho.
+const StatusEntrega = ({ m }) => {
+  if(m.direction !== 'out') return null;
+  const st = m.delivery_status;
+  if(!st){
+    // Sem status pode ser mensagem antiga (anterior a Wave 58) ou aviso
+    // que ainda nao chegou. Nao mostramos nada: um "?" faria parecer
+    // problema onde nao ha.
+    return null;
+  }
+  if(st === 'failed'){
+    return (
+      <span title={m.delivery_error || 'A Meta nao detalhou o motivo.'}
+        style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
+        <span style={{ fontWeight:700 }}>⚠ não entregue</span>
+      </span>
+    );
+  }
+  const rot = st === 'read' ? '✓✓' : st === 'delivered' ? '✓✓' : '✓';
+  const titulo = st === 'read' ? 'Lida' : st === 'delivered' ? 'Entregue no aparelho' : 'Enviada (ainda não entregue)';
+  return (
+    <span title={titulo} style={{ opacity: st === 'sent' ? .8 : 1, color: st === 'read' ? '#8fd0ff' : 'inherit' }}>
+      {rot}
+    </span>
+  );
 };
 
 // Previa na lista de conversas: audio mostra a transcricao em vez de
@@ -4924,7 +5005,12 @@ const WhatsAppTab = () => {
   const [busca, setBusca] = useState('');
   const endRef = React.useRef(null);
 
-  const WA_COLS = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
+  // `delivery_*` sao da Wave 58. Se a migration ainda nao rodou, o
+  // PostgREST devolve 42703 e a lista NAO CARREGA — por isso o load tenta
+  // com elas e refaz sem elas no erro (ver `carregarMsgs`). Recurso novo
+  // nao pode derrubar a tela por causa de SQL pendente.
+  const WA_COLS_BASE = 'id, direction, wa_id, profile_name, type, body, template, media_url, media_mime, transcript, wa_timestamp, created_at, sent_by, origin';
+  const WA_COLS = WA_COLS_BASE + ', delivery_status, delivery_status_at, delivery_error';
 
   // MIDIA (Wave 49). O bucket e PRIVADO — conversa de cliente nao vira
   // link publico. Pedimos URL assinada em lote pras mensagens visiveis e
@@ -4945,11 +5031,22 @@ const WhatsAppTab = () => {
   };
 
   const load = async () => {
-    const { data } = await supa
+    // Tenta com as colunas de status; se a migration da Wave 58 ainda nao
+    // rodou, o PostgREST responde 42703 e refazemos SEM elas. A tela toda
+    // parar de carregar porque falta um SQL seria trocar um recurso novo
+    // (o ✓✓) pela funcao inteira — mesma licao de `quotes.post_id`.
+    let { data, error } = await supa
       .from('whatsapp_messages')
       .select(WA_COLS)
       .order('created_at', { ascending:false })
       .limit(500);
+    if(error && /delivery_status|42703/i.test(error.message || '')){
+      ({ data } = await supa
+        .from('whatsapp_messages')
+        .select(WA_COLS_BASE)
+        .order('created_at', { ascending:false })
+        .limit(500));
+    }
     if(data){
       // So troca o state se algo MUDOU de verdade — sem isso cada poll
       // recriava o array e a tela repintava (a "piscada").
@@ -5575,7 +5672,19 @@ const WhatsAppTab = () => {
                     boxShadow:'0 1px 3px rgba(0,0,0,.06)', whiteSpace:'pre-wrap', wordBreak:'break-word'
                   }}>
                     <BolhaConteudo m={m} url={m.media_url ? midiaUrls[m.media_url] : null} />
-                    <div style={{ fontSize:10, opacity:.7, marginTop:3, textAlign:'right' }}>{waHora(m)}</div>
+                    <div style={{ fontSize:10, opacity:.7, marginTop:3, textAlign:'right', display:'flex', gap:5, justifyContent:'flex-end', alignItems:'center' }}>
+                      <span>{waHora(m)}</span>
+                      <StatusEntrega m={m} />
+                    </div>
+                    {m.direction === 'out' && m.delivery_status === 'failed' && m.delivery_error ? (
+                      /* O motivo fica NA BOLHA, nao so no title: quem esta
+                         investigando por que o cliente nao respondeu precisa
+                         ler isso sem descobrir que ha um tooltip. */
+                      <div style={{ fontSize:10, marginTop:4, padding:'4px 6px', borderRadius:6,
+                        background:'rgba(255,255,255,.22)', lineHeight:1.4 }}>
+                        {m.delivery_error}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
                 <div ref={endRef} />
