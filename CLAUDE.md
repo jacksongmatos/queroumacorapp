@@ -1284,11 +1284,17 @@
   manual, mostra prévia, deduplica pelos 8 últimos dígitos do telefone e
   grava em lotes de 200 com `source='planilha'`.
   - **Importação de 986 leads do Google Maps (2026-08-29)** —
-    `/migrations/2026-08-29-import-leads-planilha.sql`, **NÃO RODADA —
-    confirmado no banco em 2026-09-05 (nenhum lead com `source='planilha'`).
-    ADIADA POR DECISÃO DO USUÁRIO (2026-09-05): "os leads serão depois". Não
-    é bug nem esquecimento — não cobrar.** O arquivo fica pronto no repo pra
-    quando ele quiser. Da planilha de 1000 do usuário (13 telefones repetidos + 1
+    `/migrations/2026-08-29-import-leads-planilha.sql`. **JÁ IMPORTADOS —
+    confirmado pelo usuário em 2026-09-05 ("já importamos esses leads, estão
+    no BD"); o portal mostra 1072 leads. Não pedir pra rodar, não listar como
+    pendência.**
+    - **A anotação anterior dizia "NÃO RODADA, confirmado no banco" e estava
+      ERRADA.** A verificação procurou `source='planilha'` e não achou —
+      mas a importação aconteceu por outro caminho, ou depois da consulta.
+      Ou seja: nem uma verificação pontual imuniza a anotação, porque ela
+      envelhece a partir do instante em que foi escrita. Mesmo padrão das 7
+      pendências falsas de 2026-09-05. **Quando o usuário disser que algo
+      está feito, ele ganha da anotação — ele vê o banco, o arquivo não.** Da planilha de 1000 do usuário (13 telefones repetidos + 1
     sem telefone ficaram fora). Categoria crua do Maps ("Architect",
     "Closed") traduzida pras chaves de `LEAD_PITCH`; segmento vence
     quando a categoria briga com ele; "Região" separada em cidade ×
@@ -1741,6 +1747,58 @@
     - Espelho de texto de template é só pra TELA. `calicolors_nome` ainda
       não tem espelho: a prévia diz que o texto vive no painel, em vez de
       inventar um diferente do que a pessoa recebe.
+  - **BANNER DE "ATUALIZE O APP" — ADIADO POR DECISÃO (2026-09-05).** O
+    usuário perguntou como o app pediria atualização depois de uma build
+    nova, avaliamos disparar no boot/resume, e ele encerrou: "não faça nada,
+    vamos avaliar melhor depois". **Nada foi implementado e não é
+    esquecimento.** Se voltar, o ponto em aberto era a frequência: checar a
+    cada abertura incomoda, e a versão instalada não é legível do lado web
+    sem o plugin nativo (`lib/native/device` já expõe build/versão na casca
+    Capacitor).
+  - **iOS: BUILDS FEITAS, EM REVIEW NA APPLE (2026-09-05, informado pelo
+    usuário).** Várias builds já subiram pelo workflow `ios-ipa` do
+    Codemagic; a espera agora é da Apple, não de código. **NÃO listar
+    "disparar build iOS" como pendência** — a recusa por
+    `NSUserTrackingUsageDescription` foi resolvida na `main` (#200/#203) e
+    já saiu em build.
+  - **FOLLOW-UP ESTAVA PARADO — rota nova, SQL JÁ EXECUTADO (2026-09-05,
+    confirmado pelo usuário: `app_settings.whatsapp_followup_url` já aponta
+    pra `/api/whatsapp/followup?token=<segredo do webhook>`). Não pedir pra
+    rodar de novo.** A rota antiga (`/api/whatsapp-evo/followup`) autentica
+    o cron com `EVOLUTION_WEBHOOK_TOKEN`, env **removida** do Cloudflare
+    quando a Evolution foi aposentada. Sem ela `expected` fica vazio, o
+    caminho do cron nunca autentica, a chamada cai na exigência de token de
+    admin — que o cron não tem — e volta **403 de hora em hora, sem ninguém
+    ver**. A varredura estava morta desde a remoção das envs.
+    - A rota nova aceita `WHATSAPP_WEBHOOK_URL_SECRET` (e ainda o token
+      antigo, como ponte). A antiga continua no ar **delegando** pra ela:
+      trocar código e configuração ao mesmo tempo deixaria a varredura sem
+      chamador no intervalo.
+    - `delivery_error_code`/`delivery_error_title` também rodaram nessa leva.
+  - **TEMPLATES VÊM DA META, não de lista escrita à mão (2026-09-05).**
+    `GET /api/whatsapp/templates` consulta o Dualhook
+    (`/{WABA}/message_templates`), filtra `APPROVED` e devolve nome,
+    categoria, idioma, corpo e as VARIÁVEIS; cache de 5min no isolate. O
+    portal cai na lista embutida se a consulta falhar. Lista à mão envelhece
+    igual lista de pendência — e se o nome mudar no painel, o envio quebra
+    com 132001 enquanto a tela mostra o nome velho.
+    - `<EnvioDeTemplate>` monta um campo por variável, prévia com os valores
+      já substituídos e botão travado enquanto faltar variável. A regra
+      "nunca mandar `{{1}}` vazio" virou "nenhuma variável vazia".
+    - **Aviso de MARKETING pra número dos EUA** (a Meta não entrega; volta
+      `failed` 131049). Não bloqueia — exige confirmação. Detectar por "11
+      dígitos começando com 1" NÃO basta: `11987654321` (celular de SP sem
+      DDI) tem a mesma forma; o desempate é a regra do NANP (código de área
+      dos EUA nunca começa com 0 nem 1).
+  - **ARMADILHA: `route.ts` do Next só aceita exports fechados
+    (2026-09-05).** Exportar um helper de um arquivo de rota quebra o build
+    com `"X is not a valid Route export field"` — e **nem `tsc` nem vitest
+    pegam**, só o `next build`. Derrubou o deploy do #227. Função pura de
+    rota vai pra `lib/api/_services/`. Vale também pra `runtime`: o Next
+    **não** reconhece o campo re-exportado de outro arquivo (avisa e usa o
+    default, tirando a rota do edge).
+    - **REGRA: rodar `next build` antes de subir mudança estrutural de
+      rota.** Suíte verde e tsc limpo não provam que o deploy vai passar.
   - **LISTA DE CONTATOS: busca NO BANCO + índice A-Z (2026-09-05).** A 1ª
     versão do modal trazia 500 leads + 500 perfis e filtrava em memória. Com
     **1072 leads**, quem estava fora dos primeiros 500 ficava INVISÍVEL pra
