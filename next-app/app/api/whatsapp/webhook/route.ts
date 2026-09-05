@@ -3,28 +3,31 @@
 // GET  = verificação de assinatura do webhook (painel da Meta ou Dualhook):
 //        confere `hub.verify_token` contra WHATSAPP_WEBHOOK_VERIFY_TOKEN e
 //        devolve `hub.challenge` em texto puro.
-// POST = eventos (mensagens recebidas + status de entrega). Autenticação
-//        conforme WHATSAPP_WEBHOOK_AUTH_MODE:
-//        - `payload` (default; Dualhook): exige o segredo de URL
-//          (`?token=` = WHATSAPP_WEBHOOK_URL_SECRET, no GET e no POST) E
-//          valida o FORMATO do envelope — WABA e phone_number_id têm que
-//          ser os nossos. O header `X-Hub-Signature-256` vem assinado pelo
-//          app do Dualhook e não é verificável por nós (ver comentário em
-//          _services/whatsapp.ts). Só o payload não basta: os IDs são
-//          públicos, o segredo de URL é o que autentica o remetente.
-//        - `hmac` (app Meta próprio, sem Dualhook): HMAC-SHA256 do
-//          META_APP_SECRET sobre o RAW body, validado ANTES do parse.
+// POST = eventos (mensagens recebidas + status de entrega). Duas checagens,
+//        nesta ordem:
+//          1. o `?token=` da URL contra WHATSAPP_WEBHOOK_URL_SECRET
+//             (constant-time) — é ISTO que autentica o remetente;
+//          2. o envelope: `object` = whatsapp_business_account, `entry[].id`
+//             = WHATSAPP_WABA_ID e `metadata.phone_number_id` =
+//             WHATSAPP_PHONE_NUMBER_ID.
+//        Qualquer falha → 403.
 //
-// Anti-retry-storm (mesma filosofia do mp-webhook): depois de autenticado,
-// SEMPRE 200 — falha nossa de processamento não pode fazer a Meta
-// martelar (ela desativa webhook com muitas falhas). 401 só pra
-// autenticação inválida; 503 só pra config ausente.
+// O `X-Hub-Signature-256` NÃO é mais validado no POST (2026-09-05). Com a
+// WABA inscrita no app Meta DO DUALHOOK, a assinatura é feita com o App
+// Secret deles — que não é exposto —, então o HMAC com META_APP_SECRET
+// jamais bateria e todo POST caía em 401. Os IDs do envelope, sozinhos, não
+// autenticam ninguém (são públicos): quem faz esse papel é o segredo de URL.
 //
-// Por enquanto o POST só reconhece, loga e persiste (console → Cloudflare
-// logs; tabela `whatsapp_messages`). Responder automático é etapa futura.
+// Passou nas duas: responde 200 NA HORA e processa o payload depois da
+// resposta (`runAfterResponse` → `ctx.waitUntil` do worker). A Meta espera
+// resposta rápida e desativa webhook que demora ou falha; gravar no banco
+// antes de responder colocava a latência do Supabase no caminho dela.
+//
+// O POST reconhece, loga e persiste (console → Cloudflare logs; tabela
+// `whatsapp_messages`). Responder automático é etapa futura.
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { getRuntimeEnv } from '@/lib/api/env';
+import { getRuntimeEnv, runAfterResponse } from '@/lib/api/env';
 import {
   checkWebhookUrlSecret,
   getPhoneNumberId,
@@ -33,7 +36,7 @@ import {
   isExpectedWebhookPayload,
   parseInboundMessages,
   persistWhatsAppMessage,
-  verifyMetaSignature,
+  type InboundWhatsAppMessage,
 } from '@/lib/api/_services/whatsapp';
 
 export const runtime = 'edge';
@@ -73,100 +76,100 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: 'verificação inválida' }, { status: 403 });
 }
 
+/**
+ * Loga e grava as mensagens. Roda DEPOIS da resposta (ver `runAfterResponse`),
+ * então nada aqui pode afetar o status — só o log conta o que aconteceu.
+ */
+async function processarEntrada(messages: InboundWhatsAppMessage[]): Promise<void> {
+  for (const msg of messages) {
+    // Log estruturado → Cloudflare logs. Não logar o corpo inteiro
+    // (conversa de cliente); preview basta pra depurar entrega.
+    console.log(
+      `[whatsapp-webhook] msg de ${msg.from} (${msg.profileName || 'sem nome'}) ` +
+        `type=${msg.type} id=${msg.messageId} preview="${msg.text.slice(0, 60)}"`
+    );
+  }
+  // SQL Wave 38: grava em `whatsapp_messages` (best-effort; wamid UNIQUE
+  // dedupa retries da Meta).
+  const persisted = await Promise.all(
+    messages.map((msg) =>
+      persistWhatsAppMessage({
+        direction: 'in',
+        waId: msg.from,
+        profileName: msg.profileName,
+        messageId: msg.messageId,
+        type: msg.type,
+        body: msg.text,
+        waTimestamp: msg.timestamp,
+      })
+    )
+  );
+  if (persisted.some((ok) => !ok)) {
+    console.warn('[whatsapp-webhook] falha ao persistir parte das mensagens (best-effort)');
+  }
+}
+
 export async function POST(request: NextRequest) {
-  const authMode = getWebhookAuthMode();
+  // (1) Segredo de URL — o que realmente autentica o remetente.
+  const check = checkWebhookUrlSecret(
+    new URL(request.url),
+    getRuntimeEnv('WHATSAPP_WEBHOOK_URL_SECRET')
+  );
+  if (check !== 'ok') {
+    // Fail-closed também quando a env falta: sem segredo não dá pra
+    // distinguir a Meta de qualquer um. O motivo vai no corpo — 403 sozinho
+    // não diferencia "env não subiu" de "token errado", e essa distinção é
+    // a primeira pergunta de quem for depurar.
+    console.warn(`[whatsapp-webhook] POST recusado: url-secret ${check}`);
+    return NextResponse.json(
+      {
+        error: 'não autorizado',
+        reason: check === 'missing-config' ? 'url_secret_ausente' : 'token_invalido',
+      },
+      { status: 403 }
+    );
+  }
 
   let rawBody = '';
   try {
     rawBody = await request.text();
   } catch {
-    /* body vazio cai na autenticação inválida abaixo */
+    /* body vazio cai no parse abaixo */
   }
 
-  let payload: unknown = null;
-  if (authMode === 'hmac') {
-    const appSecret = getRuntimeEnv('META_APP_SECRET');
-    if (!appSecret) {
-      // Fail-closed: sem o secret não dá pra distinguir Meta de atacante.
-      return NextResponse.json(
-        { error: 'webhook não configurado (META_APP_SECRET ausente)' },
-        { status: 503 }
-      );
-    }
-    const signature = request.headers.get('x-hub-signature-256');
-    const valid = await verifyMetaSignature(rawBody, signature, appSecret);
-    if (!valid) {
-      return NextResponse.json({ error: 'assinatura inválida' }, { status: 401 });
-    }
-    try {
-      payload = JSON.parse(rawBody) as unknown;
-    } catch {
-      payload = null;
-    }
-  } else {
-    // Modo Dualhook: (1) segredo de URL autentica o remetente; (2) o
-    // envelope precisa ser do NOSSO WABA + número.
-    const check = checkWebhookUrlSecret(
-      new URL(request.url),
-      getRuntimeEnv('WHATSAPP_WEBHOOK_URL_SECRET')
-    );
-    if (check === 'missing-config') {
-      // Fail-closed: sem segredo, payload sozinho não autentica ninguém.
-      return NextResponse.json(
-        { error: 'webhook não configurado (WHATSAPP_WEBHOOK_URL_SECRET ausente)' },
-        { status: 503 }
-      );
-    }
-    if (check === 'invalid') {
-      return NextResponse.json({ error: 'token inválido' }, { status: 401 });
-    }
-    try {
-      payload = JSON.parse(rawBody) as unknown;
-    } catch {
-      return NextResponse.json({ error: 'payload inválido' }, { status: 401 });
-    }
-    const expected = { wabaId: getWabaId(), phoneNumberId: getPhoneNumberId() };
-    if (!isExpectedWebhookPayload(payload, expected)) {
-      console.warn('[whatsapp-webhook] payload rejeitado (WABA/phone_number_id não conferem)');
-      return NextResponse.json({ error: 'payload inesperado' }, { status: 401 });
-    }
-  }
-
-  // Daqui pra baixo é sempre 200 (anti-retry-storm).
+  let payload: unknown;
   try {
-    const messages = parseInboundMessages(payload);
-    for (const msg of messages) {
-      // Log estruturado → Cloudflare logs. Não logar o corpo inteiro
-      // (conversa de cliente); preview basta pra depurar entrega.
-      console.log(
-        `[whatsapp-webhook] msg de ${msg.from} (${msg.profileName || 'sem nome'}) ` +
-          `type=${msg.type} id=${msg.messageId} preview="${msg.text.slice(0, 60)}"`
-      );
-    }
-    // SQL Wave 38: grava em `whatsapp_messages` (best-effort; wamid UNIQUE
-    // dedupa retries da Meta). Falha vira log — a resposta segue 200.
-    const persisted = await Promise.all(
-      messages.map((msg) =>
-        persistWhatsAppMessage({
-          direction: 'in',
-          waId: msg.from,
-          profileName: msg.profileName,
-          messageId: msg.messageId,
-          type: msg.type,
-          body: msg.text,
-          waTimestamp: msg.timestamp,
-        })
-      )
+    payload = JSON.parse(rawBody) as unknown;
+  } catch {
+    return NextResponse.json(
+      { error: 'não autorizado', reason: 'payload_invalido' },
+      { status: 403 }
     );
-    if (persisted.some((ok) => !ok)) {
-      console.warn('[whatsapp-webhook] falha ao persistir parte das mensagens (best-effort)');
-    }
+  }
+
+  // (2) O envelope tem que ser do NOSSO WABA + número.
+  const expected = { wabaId: getWabaId(), phoneNumberId: getPhoneNumberId() };
+  if (!isExpectedWebhookPayload(payload, expected)) {
+    console.warn('[whatsapp-webhook] payload rejeitado (WABA/phone_number_id não conferem)');
+    return NextResponse.json(
+      { error: 'não autorizado', reason: 'payload_inesperado' },
+      { status: 403 }
+    );
+  }
+
+  // Autenticado: 200 IMEDIATO, processamento depois da resposta. O parse é
+  // barato e fica aqui pra um payload malformado não sumir no silêncio do
+  // trabalho de fundo; o que custa (Supabase) é que vai pro waitUntil.
+  let messages: InboundWhatsAppMessage[] = [];
+  try {
+    messages = parseInboundMessages(payload);
   } catch (e) {
     console.error(
-      'whatsapp-webhook: falha ao processar payload (200 mesmo assim):',
+      'whatsapp-webhook: falha ao ler o payload (200 mesmo assim):',
       e instanceof Error ? e.message : e
     );
   }
+  if (messages.length > 0) runAfterResponse(processarEntrada(messages));
 
   return NextResponse.json({ received: true }, { status: 200 });
 }

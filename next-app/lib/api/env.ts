@@ -23,6 +23,45 @@ const CF_REQUEST_CONTEXT = Symbol.for('__cloudflare-request-context__');
 
 interface CloudflareRequestContext {
   env?: Record<string, unknown>;
+  /** ExecutionContext do worker — é dele que sai o `waitUntil`. */
+  ctx?: { waitUntil?: (p: Promise<unknown>) => void };
+}
+
+/** Lê o contexto da request publicado pelo runtime, se houver. */
+function readRequestContext(): CloudflareRequestContext | undefined {
+  try {
+    return (globalThis as Record<symbol, unknown>)[CF_REQUEST_CONTEXT] as
+      | CloudflareRequestContext
+      | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Deixa um trabalho rodando DEPOIS da resposta já ter sido enviada.
+ *
+ * No edge do Cloudflare o worker é encerrado assim que a resposta sai —
+ * promessa solta é abortada no meio. `waitUntil` é o que mantém o worker
+ * vivo até ela terminar. Fora do edge (build, dev, vitest) não existe
+ * contexto: aí AGUARDA a promessa, que é o comportamento correto nesses
+ * ambientes e mantém os testes determinísticos.
+ *
+ * Nunca lança: falha no trabalho de fundo não pode virar erro de resposta.
+ */
+export function runAfterResponse(work: Promise<unknown>): void {
+  const seguro = Promise.resolve(work).catch((e) => {
+    console.error(
+      'runAfterResponse: trabalho de fundo falhou:',
+      e instanceof Error ? e.message : e,
+    );
+  });
+  const waitUntil = readRequestContext()?.ctx?.waitUntil;
+  if (typeof waitUntil === 'function') {
+    waitUntil(seguro);
+    return;
+  }
+  void seguro;
 }
 
 /**
@@ -30,16 +69,8 @@ interface CloudflareRequestContext {
  * Cloudflare (única fonte no edge) → `process.env` (build/dev/testes).
  */
 export function getRuntimeEnv(key: string): string | undefined {
-  try {
-    const ctx = (globalThis as Record<symbol, unknown>)[CF_REQUEST_CONTEXT] as
-      | CloudflareRequestContext
-      | undefined;
-    const value = ctx?.env?.[key];
-    if (value !== undefined && value !== null) return String(value);
-  } catch {
-    // Qualquer coisa estranha no globalThis não pode derrubar a leitura —
-    // o fallback abaixo resolve.
-  }
+  const value = readRequestContext()?.env?.[key];
+  if (value !== undefined && value !== null) return String(value);
   return process.env[key];
 }
 
