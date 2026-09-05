@@ -61,18 +61,23 @@
   topo da tela, longe da Calculadora. Com
   busca, filtro por categoria e por altura, faixas mín/média/máx e uma
   calculadora de quantidade por item. Rota `/tabela-precos` pra deep link.
-  - **SQL PARCIALMENTE EXECUTADO (situação em 2026-09-05).** O schema rodou;
-    dos 19 blocos de dados, os das folhas 1-12 foram rodados e faltam 13-19.
-    **A anotação anterior dizia "todas executadas" e estava ERRADA** — foi
-    escrita a partir de um "rodei todas" no chat, sem conferir. Quem pegou foi
-    a consulta: `97 itens / 5 folhas` quando o esperado era 328/19.
-    **Regra reforçada: relato não é evidência, nem quando vem do usuário.**
-    Duas linhas em `/migrations/2026-09-05-conferencia-pendencias.sql`
-    conferem no banco (esperado: **328 itens** e **212** com `altura`) —
-    conferir por lá antes de afirmar qualquer coisa, nos dois sentidos.
-    O `212` já nasceu errado uma vez neste arquivo (escrevi 213 de cabeça, e
-    o número real, contado do arquivo de dados, é 212): **número de
-    conferência se conta do fonte, não se estima.**
+  - **SQL COMPLETO no Supabase (2026-09-05).** Schema + os 19 blocos de dados.
+    **Não pedir pra rodar de novo.** O que sustenta essa afirmação não é
+    "alguém disse que rodou": é a consulta de conferência devolvendo
+    **328 itens · 212 com `altura` · 19 folhas**, os três números que o
+    arquivo de dados prevê. Reconferir por
+    `/migrations/2026-09-05-conferencia-pendencias.sql` (2 linhas) antes de
+    afirmar qualquer coisa, nos dois sentidos.
+  - **DOIS ERROS MEUS NO CAMINHO, os dois pegos por essa consulta** — vale
+    mais que a feature em si:
+    1. Marquei "todas as migrations executadas" a partir de um "rodei todas"
+       no chat. A consulta devolveu `97 itens / 5 folhas`: só as folhas 1-5
+       tinham entrado. **Relato não é evidência, nem vindo do usuário.**
+    2. A própria linha de conferência exigia **213** linhas com altura —
+       número que estimei de cabeça. O real, contado do arquivo de dados
+       simulando o `UPDATE`, é **212**. Checagem com número errado reporta
+       `false` pra sempre e ensina a ignorar a checagem, que é pior do que
+       não ter checagem. **Número de conferência se conta do fonte.**
     O `UPDATE` de `altura` é o último statement do arquivo e é o fácil de
     pular: sem ele nada quebra, o filtro de altura da tela só para de
     filtrar, **em silêncio**. Cada bloco do arquivo de dados é uma folha e é
