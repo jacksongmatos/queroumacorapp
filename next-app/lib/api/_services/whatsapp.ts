@@ -59,9 +59,22 @@ export const GRAPH_API_VERSION = 'v25.0';
  * IDs do WhatsApp Business da Cali Colors. NÃO são secrets (aparecem em URL
  * de API e no painel da Meta) — ficam como default pra reduzir setup a uma
  * env só (o token). Env correspondente sobrescreve se o número mudar.
+ *
+ * ATENÇÃO ao que estes números significam: o TELEFONE é o mesmo de sempre.
+ * O que mudou em 2026-09-05 foi o REGISTRO — ao entrar em Coexistence pelo
+ * Dualhook, a Meta emitiu um `phone_number_id` e uma WABA novos pro mesmo
+ * aparelho. Os IDs antigos (`109293361953640` / `102067872689175`, do
+ * cadastro direto da Cali Colors) não recebem nem enviam mais nada.
+ *
+ * Por que eles PRECISAVAM sair daqui: um default errado não falha, ele
+ * MENTE. No envio, a URL apontava pra um número que não é nosso e o
+ * Dualhook recusava; no recebimento era pior — `isExpectedWebhookPayload`
+ * comparava o envelope contra a WABA velha e devolvia 403 pra TODA entrega,
+ * ou seja, silêncio total no portal, sem erro em lugar nenhum. As envs
+ * continuam podendo sobrescrever, mas agora o caminho sem env é o certo.
  */
-export const DEFAULT_PHONE_NUMBER_ID = '109293361953640'; // +55 11 95976-5031
-export const DEFAULT_WABA_ID = '102067872689175'; // CaliColors Tintas
+export const DEFAULT_PHONE_NUMBER_ID = '1220273824510260'; // Dualhook (Coexistence)
+export const DEFAULT_WABA_ID = '1320667299892030'; // WABA da conexão Dualhook
 
 const GRAPH_TIMEOUT_MS = 15000;
 
@@ -535,4 +548,33 @@ export function parseInboundMessages(payload: unknown): InboundWhatsAppMessage[]
     }
   }
   return out;
+}
+
+/**
+ * Descreve, pra log, os IDs que vieram num envelope recusado.
+ *
+ * Existe porque "payload rejeitado" sozinho manda quem depura abrir o
+ * Cloudflare, o Dualhook e o painel da Meta pra descobrir qual dos dois IDs
+ * não bateu — e o modo de falha aqui é silêncio (403 pro Dualhook, nada no
+ * portal), então a linha de log é a ÚNICA pista que sobra. Os IDs são
+ * públicos: aparecem na URL da API e no painel, então logá-los não vaza
+ * nada. Nunca inclui o conteúdo da conversa.
+ */
+export function resumirEnvelope(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return 'payload não é objeto';
+  const body = payload as { object?: unknown; entry?: unknown };
+  const partes = [`object=${String(body.object ?? '(ausente)')}`];
+  const entry = Array.isArray(body.entry)
+    ? (body.entry[0] as Record<string, unknown> | undefined)
+    : undefined;
+  partes.push(`waba=${String(entry?.id ?? '(ausente)')}`);
+  const change = Array.isArray(entry?.changes)
+    ? ((entry.changes as Array<Record<string, unknown>>)[0] as
+        | Record<string, unknown>
+        | undefined)
+    : undefined;
+  partes.push(`field=${String(change?.field ?? '(ausente)')}`);
+  const value = change?.value as { metadata?: { phone_number_id?: unknown } } | undefined;
+  partes.push(`phone_number_id=${String(value?.metadata?.phone_number_id ?? '(ausente)')}`);
+  return partes.join(' ');
 }
