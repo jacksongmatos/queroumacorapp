@@ -1,7 +1,8 @@
-// Testes do catálogo da revista Click Rua. Além das funções puras, este
-// arquivo confere que os ARQUIVOS das páginas existem em `public/` — o
-// catálogo é escrito à mão, e uma edição que anuncia 8 páginas e tem 7 no
-// disco só apareceria como página em branco no celular de alguém.
+// Testes da revista Click Rua. Cobrem as funções puras — incluindo a
+// conversão da linha do banco em edição — e conferem no disco que as
+// páginas do catálogo de FALLBACK existem: ele é o que aparece enquanto a
+// migration não roda, e uma edição que promete 8 páginas e tem 7 vira
+// página em branco no celular de alguém.
 
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
@@ -11,59 +12,93 @@ import {
   ANGULO_VIRADO,
   anguloDaVirada,
   confirmaVirada,
-  EDICOES,
+  edicaoDeLinha,
+  EDICOES_FALLBACK,
   edicoesProntas,
-  paginaUrl,
   paginasDe,
   rotuloEdicao,
+  type LinhaEdicao,
 } from '@/lib/clickRua';
 
 function caminhoPublico(url: string): string {
   return fileURLToPath(new URL(`../public${url}`, import.meta.url));
 }
 
-describe('catálogo Click Rua', () => {
+function linha(over: Partial<LinhaEdicao> = {}): LinhaEdicao {
+  return {
+    numero: 2,
+    quando: 'março de 2026',
+    destaque: 'Uma chamada de capa',
+    status: 'pronta',
+    capa_url: 'https://exemplo/capa.webp',
+    paginas: ['https://exemplo/1.webp', 'https://exemplo/2.webp'],
+    ...over,
+  };
+}
+
+describe('catálogo de fallback', () => {
   it('tem a edição 1 pronta e as outras cinco como "em breve"', () => {
-    expect(EDICOES).toHaveLength(6);
-    expect(edicoesProntas()).toHaveLength(1);
-    expect(edicoesProntas()[0]!.numero).toBe(1);
-    expect(EDICOES.filter((e) => e.status === 'em_breve')).toHaveLength(5);
+    expect(EDICOES_FALLBACK).toHaveLength(6);
+    const prontas = edicoesProntas(EDICOES_FALLBACK);
+    expect(prontas).toHaveLength(1);
+    expect(prontas[0]!.numero).toBe(1);
+    expect(prontas[0]!.paginas).toHaveLength(8);
   });
 
   it('numera as edições em sequência, sem repetir', () => {
-    expect(EDICOES.map((e) => e.numero)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(EDICOES_FALLBACK.map((e) => e.numero)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it('monta a URL da página a partir do slug', () => {
-    const ed = edicoesProntas()[0]!;
-    expect(paginaUrl(ed, 1)).toBe('/click-rua/ed01/1.webp');
-    expect(paginasDe(ed)).toHaveLength(ed.paginas);
-    expect(paginasDe(ed).at(-1)).toBe(`/click-rua/ed01/${ed.paginas}.webp`);
-  });
-
-  it('rotula com dois dígitos, como na capa', () => {
-    expect(rotuloEdicao(1)).toBe('Edição #01');
-    expect(rotuloEdicao(12)).toBe('Edição #12');
-  });
-});
-
-describe('arquivos das edições', () => {
-  it('toda página anunciada existe em public/', () => {
-    for (const ed of edicoesProntas()) {
+  it('toda página e capa do fallback existe em public/', () => {
+    for (const ed of edicoesProntas(EDICOES_FALLBACK)) {
       for (const url of paginasDe(ed)) {
         expect(existsSync(caminhoPublico(url)), `faltando ${url}`).toBe(true);
       }
+      expect(existsSync(caminhoPublico(ed.capa!)), `faltando ${ed.capa}`).toBe(true);
     }
-  });
-
-  it('toda edição pronta tem capa no disco', () => {
-    for (const ed of edicoesProntas()) {
-      expect(existsSync(caminhoPublico(ed.capa)), `faltando ${ed.capa}`).toBe(true);
-    }
-  });
-
-  it('o logo usado no cabeçalho existe', () => {
     expect(existsSync(caminhoPublico('/click-rua/logo.webp'))).toBe(true);
+  });
+});
+
+describe('edicaoDeLinha', () => {
+  it('converte a linha pronta preservando a ordem das páginas', () => {
+    const ed = edicaoDeLinha(linha());
+    expect(ed.status).toBe('pronta');
+    if (ed.status !== 'pronta') return;
+    expect(ed.paginas).toEqual(['https://exemplo/1.webp', 'https://exemplo/2.webp']);
+    expect(ed.quando).toBe('março de 2026');
+  });
+
+  it('edição marcada PRONTA mas sem página volta a ser "em breve"', () => {
+    // Acontece de verdade: a linha é criada antes do upload, ou o upload
+    // falha no meio. Abrir um leitor de zero páginas é tela preta sem saída.
+    expect(edicaoDeLinha(linha({ paginas: [] })).status).toBe('em_breve');
+    expect(edicaoDeLinha(linha({ paginas: null })).status).toBe('em_breve');
+  });
+
+  it('descarta página vazia no meio do array', () => {
+    const ed = edicaoDeLinha(linha({ paginas: ['https://exemplo/1.webp', '', null as never] }));
+    expect(ed.status).toBe('pronta');
+    if (ed.status !== 'pronta') return;
+    expect(ed.paginas).toHaveLength(1);
+  });
+
+  it('sem capa, usa a primeira página como capa', () => {
+    const ed = edicaoDeLinha(linha({ capa_url: null }));
+    if (ed.status !== 'pronta') throw new Error('deveria estar pronta');
+    expect(ed.capa).toBe('https://exemplo/1.webp');
+  });
+
+  it('status desconhecido não vira pronta por engano', () => {
+    expect(edicaoDeLinha(linha({ status: 'rascunho' })).status).toBe('em_breve');
+    expect(edicaoDeLinha(linha({ status: null })).status).toBe('em_breve');
+  });
+});
+
+describe('rótulo', () => {
+  it('usa dois dígitos, como na capa', () => {
+    expect(rotuloEdicao(1)).toBe('Edição #01');
+    expect(rotuloEdicao(12)).toBe('Edição #12');
   });
 });
 

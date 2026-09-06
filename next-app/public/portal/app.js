@@ -12021,6 +12021,611 @@ const WhatsAppTab = () => {
     }
   }, "Janela de texto livre aberta \u2014 fecha em ", restanteDaJanela(thread), " se a pessoa n\xE3o escrever de novo.") : null)))));
 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// Revista Click Rua — lista as edições e publica edição nova.
+//
+// A CONVERSÃO PRA WEBP ACONTECE NO NAVEGADOR, antes de subir: canvas +
+// toBlob('image/webp'). Não há servidor de imagem no caminho, e é o que
+// deixa a loja mandar PNG/JPG direto do computador sem inchar o bucket —
+// na edição #01, 16 MB de PNG viraram 1,1 MB de WebP na mesma qualidade.
+//
+// O QUE NÃO DÁ PRA CONVERTER SOBE COMO VEIO. HEIC de iPhone, por exemplo, o
+// canvas não decodifica; nesse caso o arquivo original é recusado pelo
+// bucket (que só aceita webp/jpeg/png) e a tela diz qual arquivo foi, em
+// vez de falhar em silêncio no meio de oito.
+
+const CLICK_RUA_BUCKET = 'click-rua';
+const CLICK_RUA_QUALIDADE = 0.82;
+const CLICK_RUA_CAPA_PX = 560;
+const CLICK_RUA_TIPOS_OK = ['image/webp', 'image/jpeg', 'image/png'];
+
+/**
+ * Pasta da edição no bucket, com um carimbo de tempo.
+ *
+ * O carimbo NÃO é enfeite: sem ele, republicar uma edição sobrescreveria
+ * `1.webp` na MESMA URL, e o navegador (e o CDN) continuariam entregando a
+ * página antiga — a loja trocaria o conteúdo e não veria diferença nenhuma.
+ * Pasta nova a cada publicação = URL nova = sem cache velho. O custo é
+ * deixar os arquivos da publicação anterior no bucket.
+ */
+function crPastaDaEdicao(numero) {
+  return 'ed' + String(numero).padStart(2, '0') + '/' + Date.now();
+}
+
+/** Ordena "2.png" antes de "10.png" — ordem de página, não alfabética. */
+function crOrdemNatural(a, b) {
+  return String(a.name).localeCompare(String(b.name), 'pt-BR', {
+    numeric: true,
+    sensitivity: 'base'
+  });
+}
+
+/**
+ * Desenha o arquivo num canvas e devolve WebP. `maxLado` opcional reduz a
+ * imagem (usado só na capa).
+ *
+ * Devolve o ORIGINAL quando não consegue converter ou quando o WebP sairia
+ * maior — acontece com JPEG já otimizado, e trocar por um arquivo maior
+ * seria piorar em nome do formato.
+ */
+async function crParaWebp(file, maxLado) {
+  let bitmap = null;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (_) {
+    bitmap = null;
+  }
+  if (!bitmap) return {
+    blob: file,
+    tipo: file.type || '',
+    convertido: false
+  };
+  let w = bitmap.width,
+    h = bitmap.height;
+  if (maxLado && Math.max(w, h) > maxLado) {
+    const escala = maxLado / Math.max(w, h);
+    w = Math.round(w * escala);
+    h = Math.round(h * escala);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  if (bitmap.close) bitmap.close();
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/webp', CLICK_RUA_QUALIDADE));
+  if (!blob) return {
+    blob: file,
+    tipo: file.type || '',
+    convertido: false
+  };
+  if (!maxLado && blob.size >= file.size) return {
+    blob: file,
+    tipo: file.type || '',
+    convertido: false
+  };
+  return {
+    blob,
+    tipo: 'image/webp',
+    convertido: true
+  };
+}
+function crFmtKB(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  return bytes < 1024 * 1024 ? Math.round(bytes / 1024) + ' KB' : (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+const ClickRua = () => {
+  const [edicoes, setEdicoes] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [erro, setErro] = React.useState('');
+  const [editando, setEditando] = React.useState(null); // numero da edicao
+  const [progresso, setProgresso] = React.useState('');
+  const carregar = React.useCallback(async () => {
+    setErro('');
+    const {
+      data,
+      error
+    } = await supa.from('click_rua_editions').select('numero, quando, destaque, status, capa_url, paginas').order('numero', {
+      ascending: true
+    });
+    if (error) {
+      setErro(error.code === '42P01' ? 'A tabela click_rua_editions ainda não existe — rode a migration 2026-09-06-click-rua-bucket.sql.' : error.message || 'Erro ao carregar edições');
+      setEdicoes([]);
+    } else {
+      setEdicoes(data || []);
+    }
+    setLoading(false);
+  }, []);
+  React.useEffect(() => {
+    carregar();
+  }, [carregar]);
+  if (loading) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 24,
+      color: C.muted
+    }
+  }, "Carregando edi\xE7\xF5es\u2026");
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 6,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 20,
+      color: C.ink
+    }
+  }, "\uD83D\uDCD6 Revista Click Rua"), /*#__PURE__*/React.createElement("button", {
+    onClick: carregar,
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '6px 12px',
+      fontSize: 12,
+      cursor: 'pointer',
+      color: C.muted
+    }
+  }, "\u21BB Atualizar")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: C.muted,
+      marginTop: 0,
+      marginBottom: 16
+    }
+  }, "As p\xE1ginas ficam no bucket ", /*#__PURE__*/React.createElement("b", null, CLICK_RUA_BUCKET), ". Ao publicar, cada arquivo \xE9 convertido para WebP aqui no navegador \u2014 pode mandar PNG ou JPG direto."), erro ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: '1px solid ' + C.p4,
+      color: C.p4,
+      borderRadius: 10,
+      padding: 12,
+      fontSize: 13,
+      marginBottom: 16
+    }
+  }, erro) : null, progresso ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: '1px solid ' + C.p1,
+      color: C.p1,
+      borderRadius: 10,
+      padding: 12,
+      fontSize: 13,
+      marginBottom: 16,
+      fontWeight: 600
+    }
+  }, progresso) : null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+      gap: 14
+    }
+  }, edicoes.map(ed => /*#__PURE__*/React.createElement(CardEdicaoPortal, {
+    key: ed.numero,
+    ed: ed,
+    aberta: editando === ed.numero,
+    onAbrir: () => setEditando(editando === ed.numero ? null : ed.numero),
+    onProgresso: setProgresso,
+    onMudou: carregar
+  }))), edicoes.length === 0 && !erro ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 13
+    }
+  }, "Nenhuma edi\xE7\xE3o cadastrada ainda.") : null);
+};
+const CardEdicaoPortal = ({
+  ed,
+  aberta,
+  onAbrir,
+  onProgresso,
+  onMudou
+}) => {
+  const paginas = ed.paginas || [];
+  const pronta = ed.status === 'pronta' && paginas.length > 0;
+  // Edição que ainda aponta pros arquivos publicados junto com o app
+  // (caminho começa em "/") pode ser levada pro bucket num clique.
+  const estatica = paginas.length > 0 && paginas.every(p => String(p).startsWith('/'));
+  const [quando, setQuando] = React.useState(ed.quando || '');
+  const [destaque, setDestaque] = React.useState(ed.destaque || '');
+  const [arquivos, setArquivos] = React.useState([]);
+  const [busy, setBusy] = React.useState(false);
+  async function salvarTexto() {
+    setBusy(true);
+    const {
+      error
+    } = await supa.from('click_rua_editions').update({
+      quando: quando.trim() || null,
+      destaque: destaque.trim() || null
+    }).eq('numero', ed.numero);
+    setBusy(false);
+    if (error) alert('Erro ao salvar: ' + (error.message || error));else onMudou();
+  }
+
+  /** Sobe um blob e devolve a URL pública. */
+  async function subir(path, blob, tipo) {
+    const {
+      error
+    } = await supa.storage.from(CLICK_RUA_BUCKET).upload(path, blob, {
+      upsert: true,
+      contentType: tipo
+    });
+    if (error) throw error;
+    const {
+      data
+    } = supa.storage.from(CLICK_RUA_BUCKET).getPublicUrl(path);
+    return data && data.publicUrl || '';
+  }
+  async function publicar() {
+    if (arquivos.length === 0) {
+      alert('Escolha os arquivos das páginas.');
+      return;
+    }
+    setBusy(true);
+    const pasta = crPastaDaEdicao(ed.numero);
+    try {
+      const urls = [];
+      for (let i = 0; i < arquivos.length; i++) {
+        const f = arquivos[i];
+        onProgresso('Convertendo e enviando página ' + (i + 1) + ' de ' + arquivos.length + '…');
+        const {
+          blob,
+          tipo,
+          convertido
+        } = await crParaWebp(f, 0);
+        if (!convertido && CLICK_RUA_TIPOS_OK.indexOf(tipo) === -1) {
+          throw new Error('Não consegui converter "' + f.name + '" (' + (tipo || 'formato desconhecido') + '). Converta para JPG ou PNG antes de subir — HEIC do iPhone não é lido pelo navegador.');
+        }
+        const ext = convertido ? 'webp' : tipo === 'image/png' ? 'png' : 'jpg';
+        urls.push(await subir(pasta + '/' + (i + 1) + '.' + ext, blob, tipo || 'image/webp'));
+      }
+      onProgresso('Gerando a capa…');
+      const capa = await crParaWebp(arquivos[0], CLICK_RUA_CAPA_PX);
+      const capaUrl = await subir(pasta + '/capa.webp', capa.blob, capa.tipo || 'image/webp');
+      onProgresso('Salvando a edição…');
+      const {
+        error
+      } = await supa.from('click_rua_editions').update({
+        paginas: urls,
+        capa_url: capaUrl,
+        status: 'pronta',
+        quando: quando.trim() || null,
+        destaque: destaque.trim() || null
+      }).eq('numero', ed.numero);
+      if (error) throw error;
+      setArquivos([]);
+      onProgresso('');
+      onMudou();
+      alert('Edição #' + ed.numero + ' publicada com ' + urls.length + ' páginas.');
+    } catch (err) {
+      onProgresso('');
+      alert('Erro ao publicar: ' + (err.message || err));
+    }
+    setBusy(false);
+  }
+
+  /** Leva as páginas estáticas (servidas pelo site) pro bucket. */
+  async function migrarParaBucket() {
+    if (!confirm('Copiar as ' + paginas.length + ' páginas da edição #' + ed.numero + ' para o bucket?')) return;
+    setBusy(true);
+    const pasta = crPastaDaEdicao(ed.numero);
+    try {
+      const urls = [];
+      for (let i = 0; i < paginas.length; i++) {
+        onProgresso('Copiando página ' + (i + 1) + ' de ' + paginas.length + ' para o bucket…');
+        const resp = await fetch(paginas[i]);
+        if (!resp.ok) throw new Error('Não consegui baixar ' + paginas[i] + ' (HTTP ' + resp.status + ')');
+        const blob = await resp.blob();
+        urls.push(await subir(pasta + '/' + (i + 1) + '.webp', blob, 'image/webp'));
+      }
+      let capaUrl = ed.capa_url;
+      if (capaUrl && String(capaUrl).startsWith('/')) {
+        onProgresso('Copiando a capa…');
+        const resp = await fetch(capaUrl);
+        if (resp.ok) capaUrl = await subir(pasta + '/capa.webp', await resp.blob(), 'image/webp');
+      }
+      onProgresso('Salvando…');
+      const {
+        error
+      } = await supa.from('click_rua_editions').update({
+        paginas: urls,
+        capa_url: capaUrl
+      }).eq('numero', ed.numero);
+      if (error) throw error;
+      onProgresso('');
+      onMudou();
+      alert('Edição #' + ed.numero + ' agora está no bucket.');
+    } catch (err) {
+      onProgresso('');
+      alert('Erro ao migrar: ' + (err.message || err));
+    }
+    setBusy(false);
+  }
+  async function despublicar() {
+    if (!confirm('Tirar a edição #' + ed.numero + ' do ar? As páginas continuam no bucket.')) return;
+    setBusy(true);
+    const {
+      error
+    } = await supa.from('click_rua_editions').update({
+      status: 'em_breve'
+    }).eq('numero', ed.numero);
+    setBusy(false);
+    if (error) alert('Erro: ' + (error.message || error));else onMudou();
+  }
+  function escolher(lista) {
+    setArquivos(Array.from(lista).sort(crOrdemNatural));
+  }
+  function mover(i, delta) {
+    const j = i + delta;
+    if (j < 0 || j >= arquivos.length) return;
+    const copia = arquivos.slice();
+    const t = copia[i];
+    copia[i] = copia[j];
+    copia[j] = t;
+    setArquivos(copia);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1px solid ' + C.border,
+      borderRadius: 12,
+      overflow: 'hidden'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      aspectRatio: '1 / 1',
+      background: '#1a1a2e',
+      position: 'relative'
+    }
+  }, pronta && ed.capa_url ? /*#__PURE__*/React.createElement("img", {
+    src: ed.capa_url,
+    alt: "",
+    style: {
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      display: 'block'
+    }
+  }) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      color: 'rgba(255,255,255,.85)',
+      fontSize: 34,
+      fontWeight: 800,
+      background: 'linear-gradient(135deg,#ff6b35,#1a1a2e)'
+    }
+  }, "#", String(ed.numero).padStart(2, '0'))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'baseline',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("b", {
+    style: {
+      fontSize: 14,
+      color: C.ink
+    }
+  }, "Edi\xE7\xE3o #", String(ed.numero).padStart(2, '0')), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: pronta ? C.p6 : C.muted,
+      fontWeight: 600
+    }
+  }, pronta ? paginas.length + ' páginas no ar' : 'Em breve')), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      marginTop: 2
+    }
+  }, ed.quando || 'sem data'), ed.destaque ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.p1,
+      marginTop: 2,
+      fontWeight: 600
+    }
+  }, ed.destaque) : null, estatica ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
+      marginTop: 6,
+      lineHeight: 1.4
+    }
+  }, "\u26A0\uFE0F Ainda servida do site, n\xE3o do bucket.") : null, /*#__PURE__*/React.createElement("button", {
+    onClick: onAbrir,
+    style: {
+      marginTop: 10,
+      width: '100%',
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '7px 12px',
+      fontSize: 12,
+      cursor: 'pointer',
+      color: C.ink
+    }
+  }, aberta ? 'Fechar' : 'Editar / publicar'), aberta ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      borderTop: '1px solid ' + C.border,
+      paddingTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, "M\xEAs/ano da capa"), /*#__PURE__*/React.createElement("input", {
+    value: quando,
+    onChange: e => setQuando(e.target.value),
+    placeholder: "setembro de 2020",
+    style: {
+      width: '100%',
+      padding: '7px 10px',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      fontSize: 13,
+      marginBottom: 8
+    }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, "Chamada de capa"), /*#__PURE__*/React.createElement("input", {
+    value: destaque,
+    onChange: e => setDestaque(e.target.value),
+    placeholder: "B.Girl LU BSB e sua trajet\xF3ria",
+    style: {
+      width: '100%',
+      padding: '7px 10px',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      fontSize: 13,
+      marginBottom: 10
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: salvarTexto,
+    disabled: busy,
+    style: {
+      width: '100%',
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '7px 12px',
+      fontSize: 12,
+      cursor: 'pointer',
+      color: C.ink,
+      marginBottom: 12
+    }
+  }, "Salvar texto"), /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
+      display: 'block',
+      marginBottom: 4
+    }
+  }, "P\xE1ginas (na ordem de leitura)"), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    multiple: true,
+    disabled: busy,
+    onChange: e => escolher(e.target.files),
+    style: {
+      fontSize: 12,
+      width: '100%'
+    }
+  }), arquivos.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      maxHeight: 220,
+      overflowY: 'auto',
+      border: '1px solid ' + C.border,
+      borderRadius: 8
+    }
+  }, arquivos.map((f, i) => /*#__PURE__*/React.createElement("div", {
+    key: f.name + i,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '6px 8px',
+      borderTop: i ? '1px solid ' + C.border : 'none'
+    }
+  }, /*#__PURE__*/React.createElement("b", {
+    style: {
+      fontSize: 11,
+      color: C.muted,
+      width: 18
+    }
+  }, i + 1), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      flex: 1,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap'
+    }
+  }, f.name), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: C.muted
+    }
+  }, crFmtKB(f.size)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => mover(i, -1),
+    disabled: i === 0,
+    style: {
+      border: 'none',
+      background: 'none',
+      cursor: 'pointer',
+      fontSize: 12
+    }
+  }, "\u2191"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => mover(i, 1),
+    disabled: i === arquivos.length - 1,
+    style: {
+      border: 'none',
+      background: 'none',
+      cursor: 'pointer',
+      fontSize: 12
+    }
+  }, "\u2193")))) : null, /*#__PURE__*/React.createElement("button", {
+    onClick: publicar,
+    disabled: busy || arquivos.length === 0,
+    style: {
+      width: '100%',
+      marginTop: 10,
+      background: busy || arquivos.length === 0 ? C.border : C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 8,
+      padding: '9px 12px',
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: busy || arquivos.length === 0 ? 'default' : 'pointer'
+    }
+  }, busy ? 'Trabalhando…' : 'Publicar ' + (arquivos.length || '') + ' páginas'), estatica ? /*#__PURE__*/React.createElement("button", {
+    onClick: migrarParaBucket,
+    disabled: busy,
+    style: {
+      width: '100%',
+      marginTop: 8,
+      background: 'none',
+      border: '1px solid ' + C.p1,
+      color: C.p1,
+      borderRadius: 8,
+      padding: '7px 12px',
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: busy ? 'default' : 'pointer'
+    }
+  }, "Copiar p\xE1ginas do site para o bucket") : null, pronta ? /*#__PURE__*/React.createElement("button", {
+    onClick: despublicar,
+    disabled: busy,
+    style: {
+      width: '100%',
+      marginTop: 8,
+      background: 'none',
+      border: '1px solid ' + C.border,
+      color: C.muted,
+      borderRadius: 8,
+      padding: '7px 12px',
+      fontSize: 12,
+      cursor: busy ? 'default' : 'pointer'
+    }
+  }, "Tirar do ar") : null) : null));
+};
 const PAGES_DEF = [{
   id: 'dashboard',
   icon: '📊',
@@ -12138,6 +12743,12 @@ const PAGES_DEF = [{
   label: 'Cursos',
   section: 'LOJA',
   component: /*#__PURE__*/React.createElement(CursosList, null)
+}, {
+  id: 'click-rua',
+  icon: '📖',
+  label: 'Revista Click Rua',
+  section: 'LOJA',
+  component: /*#__PURE__*/React.createElement(ClickRua, null)
 }, {
   id: 'marketing',
   icon: '📣',

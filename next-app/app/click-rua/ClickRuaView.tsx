@@ -29,16 +29,17 @@ import {
   anguloDaVirada,
   CLICK_RUA_TAG,
   confirmaVirada,
-  EDICOES,
   paginasDe,
   rotuloEdicao,
   type Edicao,
   type EdicaoPronta,
   type SentidoVirada,
 } from '@/lib/clickRua';
+import { useClickRua } from '@/lib/hooks/useClickRua';
 
 export function ClickRuaView() {
   const [lendo, setLendo] = useState<EdicaoPronta | null>(null);
+  const { edicoes, loading, error } = useClickRua();
 
   return (
     <div className="px-3.5 pt-4 pb-8">
@@ -57,15 +58,34 @@ export function ClickRuaView() {
         {CLICK_RUA_TAG}
       </p>
 
-      <div className="grid grid-cols-2 gap-2.5">
-        {EDICOES.map((ed) => (
-          <CardEdicao
-            key={ed.numero}
-            edicao={ed}
-            onAbrir={() => ed.status === 'pronta' && setLendo(ed)}
-          />
-        ))}
-      </div>
+      {loading ? (
+        <p className="text-center text-sm py-8" style={{ color: 'var(--color-muted)' }}>
+          Carregando as edições…
+        </p>
+      ) : error ? (
+        <p
+          style={{
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: 'var(--color-danger)',
+            border: '1px solid var(--color-danger)',
+            borderRadius: 14,
+            padding: 13,
+          }}
+        >
+          Não deu para carregar as edições agora. Verifique a conexão e tente de novo.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2.5">
+          {edicoes.map((ed) => (
+            <CardEdicao
+              key={ed.numero}
+              edicao={ed}
+              onAbrir={() => ed.status === 'pronta' && setLendo(ed)}
+            />
+          ))}
+        </div>
+      )}
 
       {lendo ? <Leitor edicao={lendo} onFechar={() => setLendo(null)} /> : null}
     </div>
@@ -98,7 +118,7 @@ function CardEdicao({ edicao, onAbrir }: { edicao: Edicao; onAbrir: () => void }
         {pronta ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={edicao.capa}
+            src={edicao.capa ?? ''}
             alt={`Capa da ${rotuloEdicao(edicao.numero)} da Click Rua`}
             width={560}
             height={560}
@@ -125,9 +145,11 @@ function CardEdicao({ edicao, onAbrir }: { edicao: Edicao; onAbrir: () => void }
           {rotuloEdicao(edicao.numero)}
         </div>
         <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2, lineHeight: 1.4 }}>
-          {pronta ? `${edicao.quando} · ${edicao.paginas} páginas` : 'Em breve'}
+          {pronta
+            ? [edicao.quando, `${edicao.paginas.length} páginas`].filter(Boolean).join(' · ')
+            : 'Em breve'}
         </div>
-        {pronta ? (
+        {pronta && edicao.destaque ? (
           <div
             style={{
               fontSize: 10,
