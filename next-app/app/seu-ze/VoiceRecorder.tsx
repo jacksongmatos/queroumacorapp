@@ -44,7 +44,7 @@ export function VoiceRecorder({
       : 'Gravar mensagem de voz';
 
   return (
-    <div className="flex flex-col items-stretch gap-1">
+    <div className="shrink-0 flex flex-col items-stretch gap-1">
       <button
         type="button"
         onClick={onToggle}

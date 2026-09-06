@@ -349,7 +349,7 @@ export function FeChat() {
           }}
           placeholder="Pergunte ao Fê…"
           rows={1}
-          className="flex-1 resize-none px-3 py-2 text-sm border border-[color:var(--color-border)] rounded-xl focus:outline-none focus:ring-2 max-h-32"
+          className="flex-1 min-w-0 resize-none px-3 py-2 text-sm border border-[color:var(--color-border)] rounded-xl focus:outline-none focus:ring-2 max-h-32"
           style={{ ['--tw-ring-color' as never]: '#ff6b35' }}
           aria-label="Mensagem para o Fê"
           disabled={isSending || isTranscribing}
@@ -364,7 +364,7 @@ export function FeChat() {
         <button
           type="submit"
           disabled={!input.trim() || isSending || isTranscribing}
-          className="px-4 py-2 text-white rounded-xl text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+          className="shrink-0 px-4 py-2 text-white rounded-xl text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
           style={{ background: '#ff6b35' }}
         >
           {isSending ? '…' : 'Enviar'}
