@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function TermosClientePage() {
   return (
     <InfoSubPage title="Termos de Uso - Cliente">
-      <LegalUpd>Última atualização: 17 de junho de 2026</LegalUpd>
+      <LegalUpd>Última atualização: 6 de setembro de 2026</LegalUpd>
       <LegalP>
         Estes Termos complementam os{' '}
         <a
@@ -32,9 +32,12 @@ export default function TermosClientePage() {
 
       <LegalH>2. Pagamentos</LegalH>
       <LegalP>
-        O QueroUmaCor processa apenas os pagamentos do <b>Plano PRO</b>, via
-        Mercado Pago. As negociações e os pagamentos dos serviços são de
-        responsabilidade exclusiva das partes (cliente e profissional).
+        <b>Não há cobrança nem pagamento dentro do aplicativo.</b> O Plano PRO
+        é ativado pela troca de pontos acumulados no app (ver o item 13 dos
+        Termos de Uso gerais) e os pedidos feitos na loja são fechados
+        diretamente com a Cali Colors, fora do aplicativo. As negociações e os
+        pagamentos dos serviços são de responsabilidade exclusiva das partes
+        (cliente e profissional).
       </LegalP>
 
       <LegalH>3. Avaliações</LegalH>
@@ -45,9 +48,12 @@ export default function TermosClientePage() {
 
       <LegalH>4. Direito de arrependimento</LegalH>
       <LegalP>
-        Você tem <b>7 dias corridos</b> para desistir do Plano PRO, com
-        reembolso integral, conforme o Art. 49 do Código de Defesa do
-        Consumidor.
+        Como o Plano PRO é obtido por troca de pontos e não envolve pagamento
+        em dinheiro, não há cobrança, fatura nem reembolso associados a ele. As
+        compras feitas diretamente com a loja Cali Colors, fora do aplicativo,
+        seguem os seus direitos de consumidor, inclusive o prazo de{' '}
+        <b>7 dias corridos</b> para arrependimento em compras a distância
+        (Art. 49 do Código de Defesa do Consumidor).
       </LegalP>
 
       <LegalH>5. Resolução de problemas</LegalH>
