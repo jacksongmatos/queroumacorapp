@@ -1,29 +1,29 @@
-// clickRua — catálogo das edições da revista Click Rua ("Graffiti do Brasil
-// inteiro", revista digital de graffiti e cultura hip hop).
+// clickRua — tipos, rótulos e a matemática da virada de página da revista
+// Click Rua ("Graffiti do Brasil inteiro").
 //
-// As páginas vivem em `public/click-rua/edNN/` como WebP e são servidas
-// estáticas pelo Cloudflare Pages. Não vão pro banco de propósito: são
-// ARQUIVO, não dado — ninguém consulta, filtra ou edita página de revista, e
-// edição nova já vem com um commit junto (o catálogo abaixo muda). Storage no
-// Supabase só acrescentaria um upload manual e uma URL assinada pra expirar.
+// ONDE MORAM AS PÁGINAS: no bucket `click-rua` do Supabase, e a lista de
+// edições na tabela `click_rua_editions` (migration 2026-09-06). Cada
+// edição guarda a URL de cada página, em ordem — não um padrão de caminho.
+// É isso que deixa a edição #01, que nasceu como arquivo estático em
+// `public/click-rua/ed01/`, conviver com as que a loja sobe pelo portal: o
+// leitor só usa a string como `src` e não sabe de onde ela veio.
 //
-// Edição nova = converter os PNG pra WebP (sharp, qualidade 82 — 16 MB de
-// PNG viraram 1,1 MB) em `public/click-rua/edNN/1..N.webp`, gerar a capa
-// reduzida e acrescentar uma entrada aqui trocando `em_breve` por `pronta`.
+// O catálogo estático abaixo é FALLBACK, não fonte: vale enquanto a tabela
+// não existir (migration não rodada). Sem ele, rodar o deploy antes do SQL
+// deixaria o tile abrindo numa banca vazia.
 
 export interface EdicaoPronta {
   status: 'pronta';
   /** Número impresso na capa. */
   numero: number;
   /** Mês/ano da edição, como sai na capa. */
-  quando: string;
+  quando: string | null;
   /** Chamada de capa — o que essa edição traz. */
-  destaque: string;
-  /** Pasta em `public/click-rua/`. */
-  slug: string;
-  /** Quantidade de páginas (arquivos 1.webp … N.webp). */
-  paginas: number;
-  capa: string;
+  destaque: string | null;
+  /** URL da capa (miniatura do card). */
+  capa: string | null;
+  /** URLs das páginas, na ordem de leitura. */
+  paginas: string[];
 }
 
 export interface EdicaoEmBreve {
@@ -35,15 +35,19 @@ export type Edicao = EdicaoPronta | EdicaoEmBreve;
 
 export const CLICK_RUA_TAG = '@click_rua';
 
-export const EDICOES: readonly Edicao[] = [
+/**
+ * Fallback usado só enquanto `click_rua_editions` não existe. Aponta pros
+ * arquivos que foram publicados junto com o app; depois que a migration
+ * roda, quem manda é o banco.
+ */
+export const EDICOES_FALLBACK: readonly Edicao[] = [
   {
     status: 'pronta',
     numero: 1,
     quando: 'setembro de 2020',
     destaque: 'B.Girl LU BSB e sua trajetória',
-    slug: 'ed01',
-    paginas: 8,
     capa: '/click-rua/ed01-capa.webp',
+    paginas: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `/click-rua/ed01/${n}.webp`),
   },
   { status: 'em_breve', numero: 2 },
   { status: 'em_breve', numero: 3 },
@@ -52,17 +56,45 @@ export const EDICOES: readonly Edicao[] = [
   { status: 'em_breve', numero: 6 },
 ];
 
-/** Caminho da página `n` (1-based) de uma edição. */
-export function paginaUrl(ed: EdicaoPronta, n: number): string {
-  return `/click-rua/${ed.slug}/${n}.webp`;
+/** Uma linha de `click_rua_editions` como o banco devolve. */
+export interface LinhaEdicao {
+  numero: number;
+  quando: string | null;
+  destaque: string | null;
+  status: string | null;
+  capa_url: string | null;
+  paginas: string[] | null;
 }
 
-/** Todas as páginas de uma edição, em ordem. */
+/**
+ * Converte a linha do banco na edição que a tela usa.
+ *
+ * Uma edição só conta como PRONTA se tem página. A linha pode estar
+ * marcada 'pronta' e ter chegado ali sem upload — criada primeiro, páginas
+ * depois, ou upload que falhou no meio. Abrir um leitor de zero páginas é
+ * tela preta sem saída, então nesse caso ela volta a ser "em breve".
+ */
+export function edicaoDeLinha(r: LinhaEdicao): Edicao {
+  const paginas = (r.paginas ?? []).filter((p) => typeof p === 'string' && p.length > 0);
+  if (r.status === 'pronta' && paginas.length > 0) {
+    return {
+      status: 'pronta',
+      numero: r.numero,
+      quando: r.quando,
+      destaque: r.destaque,
+      capa: r.capa_url || paginas[0]!,
+      paginas,
+    };
+  }
+  return { status: 'em_breve', numero: r.numero };
+}
+
+/** Páginas de uma edição, na ordem. */
 export function paginasDe(ed: EdicaoPronta): string[] {
-  return Array.from({ length: ed.paginas }, (_, i) => paginaUrl(ed, i + 1));
+  return ed.paginas;
 }
 
-export function edicoesProntas(lista: readonly Edicao[] = EDICOES): EdicaoPronta[] {
+export function edicoesProntas(lista: readonly Edicao[]): EdicaoPronta[] {
   return lista.filter((e): e is EdicaoPronta => e.status === 'pronta');
 }
 

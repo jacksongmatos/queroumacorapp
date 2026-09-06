@@ -16,15 +16,39 @@
   `ROLE_TILES` (`roles: ['grafiteiro']`, admin vê como em todos), abre uma
   grade de edições; a #01 (setembro/2020, 8 páginas, B.Girl LU BSB) está
   pronta e as outras 5 aparecem como "Em breve". Rota `/click-rua`.
-  - **As páginas são ARQUIVO ESTÁTICO, não banco** (`public/click-rua/edNN/
-    N.webp`): ninguém consulta, filtra ou edita página de revista, e edição
-    nova já vem com commit (o catálogo em `lib/clickRua.ts` muda junto).
-    Bucket no Supabase só acrescentaria upload manual e URL assinada pra
-    expirar. **Edição nova = converter PNG→WebP com sharp (qualidade 82: os
-    16 MB da #01 viraram 1,1 MB), gerar a capa reduzida e trocar `em_breve`
-    por `pronta` no catálogo.** `__tests__/clickRua.test.ts` confere no disco
-    que toda página anunciada existe — catálogo escrito à mão que promete 8
-    páginas e entrega 7 vira tela branca no celular de alguém.
+  - **AS PÁGINAS FORAM PRO BUCKET (2026-09-06) — a decisão anterior caiu
+    junto com a premissa.** No PR #228 elas eram arquivo estático porque
+    edição nova só chegava com um commit meu. Quando o usuário pediu upload
+    PELO PORTAL, deixou de existir onde gravar em runtime: virou bucket
+    `click-rua` + tabela `click_rua_editions` (migration
+    `/migrations/2026-09-06-click-rua-bucket.sql`, **PENDENTE de execução**).
+    - **A tabela guarda a URL de CADA página, não um padrão de caminho.** É
+      isso que deixa a #01 (ainda em `/click-rua/ed01/`, publicada junto com
+      o app) conviver com as que a loja sobe: o leitor só usa a string como
+      `src`. O botão "Copiar páginas do site para o bucket" no portal migra
+      quando quiserem, sem downtime.
+    - **`lib/clickRua.ts` guarda um catálogo de FALLBACK** usado só enquanto
+      a tabela não existir (42P01) — deploy antes do SQL não pode deixar a
+      banca vazia. Depois de migrar tudo, os arquivos de `public/click-rua/`
+      podem sair (menos o `logo.webp`, que a tela usa direto).
+    - **Edição marcada 'pronta' SEM página volta a ser "em breve"**
+      (`edicaoDeLinha`): a linha existe antes do upload, e abrir um leitor
+      de zero páginas é tela preta sem saída.
+  - **Portal converte pra WebP NO NAVEGADOR** (canvas + `toBlob`, qualidade
+    82), então a loja manda PNG/JPG direto. O que o canvas não decodifica
+    (HEIC de iPhone) o bucket recusa e a tela diz QUAL arquivo foi.
+    **A pasta do bucket leva carimbo de tempo (`edNN/<ts>/`) de propósito:**
+    republicar sobrescrevendo a mesma URL faria o navegador e o CDN
+    continuarem servindo a página velha — a loja trocaria o conteúdo e não
+    veria diferença. O custo é deixar a publicação anterior no bucket.
+  - **Mexeu no `app.jsx` do portal? O `app.js` é compilado e o `index.html`
+    tem hash SRI — hash errado = portal eternamente em "Carregando".**
+    O build é reproduzível byte a byte, e vale CONFERIR isso antes de
+    confiar na saída: compile o `app.jsx` do HEAD e compare com o `app.js`
+    do HEAD. Opções: `@babel/preset-react` com `runtime:'classic'`,
+    `generatorOpts.jsescOption.minimal:**false**` (com `true` o arquivo sai
+    ~900 bytes menor e o hash não bate), `compact:false`, `configFile:false`,
+    sem quebra de linha no fim.
   - **O leitor é TELA CHEIA (portal no body), não continua no bottom-sheet**:
     a página é quadrada e cheia de texto e, dentro do sheet, nasceria com
     metade da largura útil. Truque do histórico do `StoryViewer` pro botão
