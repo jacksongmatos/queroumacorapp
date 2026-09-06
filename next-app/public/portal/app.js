@@ -11884,6 +11884,35 @@ function crFmtKB(bytes) {
   if (!bytes && bytes !== 0) return '';
   return bytes < 1024 * 1024 ? Math.round(bytes / 1024) + ' KB' : (bytes / 1024 / 1024).toFixed(1) + ' MB';
 }
+
+/**
+ * Confere que a sessão ainda vale ANTES de converter e subir 27 imagens.
+ *
+ * A RLS do bucket exige `is_portal_admin()`. Quando o token expira no meio
+ * de uma sessão longa de upload, `auth.uid()` vira NULL e o storage recusa
+ * com "new row violates row-level security policy" — mensagem que parece
+ * "faltou rodar o SQL" e não é. Pior: a LISTA continua carregando normal,
+ * porque a leitura é liberada pra todo mundo, então nada na tela sugere
+ * sessão. É o mesmo estado stale que já derrubou o PDF do orçamento.
+ *
+ * Fail-open no que não dá pra provar: se a RPC não estiver exposta no
+ * PostgREST, seguimos e deixamos o storage dar a palavra final. Só barramos
+ * com um NÃO explícito — checagem que chuta "não" trava quem estava
+ * conseguindo trabalhar.
+ */
+async function crGaranteSessao() {
+  const expirou = 'Sua sessão expirou. Saia e entre de novo no portal antes de publicar.';
+  let ses = (await supa.auth.getSession()).data.session;
+  if (!ses) ses = ((await supa.auth.refreshSession()).data || {}).session;
+  if (!ses) throw new Error(expirou);
+  const r1 = await supa.rpc('is_portal_admin');
+  if (r1.error || r1.data !== false) return;
+  // Um "não" pode ser só token velho: renova e pergunta de novo.
+  if (!((await supa.auth.refreshSession()).data || {}).session) throw new Error(expirou);
+  const r2 = await supa.rpc('is_portal_admin');
+  if (r2.error || r2.data !== false) return;
+  throw new Error('Esta conta não passa em is_portal_admin(), e o bucket da revista ' + 'recusa a escrita sem isso. Entre com a conta da loja.');
+}
 const ClickRua = () => {
   const [edicoes, setEdicoes] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -12005,13 +12034,16 @@ const CardEdicaoPortal = ({
   async function salvarTexto() {
     setBusy(true);
     const {
+      data: salvas,
       error
     } = await supa.from('click_rua_editions').update({
       quando: quando.trim() || null,
       destaque: destaque.trim() || null
-    }).eq('numero', ed.numero);
+    }).eq('numero', ed.numero).select('numero');
     setBusy(false);
-    if (error) alert('Erro ao salvar: ' + (error.message || error));else onMudou();
+    if (error) alert('Erro ao salvar: ' + (error.message || error));else if (!salvas || salvas.length === 0) {
+      alert('Nada foi gravado: a sessão perdeu o acesso de admin do portal. ' + 'Saia e entre de novo.');
+    } else onMudou();
   }
 
   /** Sobe um blob e devolve a URL pública. */
@@ -12022,7 +12054,17 @@ const CardEdicaoPortal = ({
       upsert: true,
       contentType: tipo
     });
-    if (error) throw error;
+    if (error) {
+      const msg = String(error.message || error);
+      // "row-level security" aqui é SEMPRE do bucket, nunca da tabela: o
+      // Postgres escreve `for table "..."` quando é tabela, e o storage
+      // não escreve. Sem essa distinção o operador vai conferir a
+      // migration, que está certa, em vez da sessão, que não está.
+      if (/row-level security/i.test(msg)) {
+        throw new Error('O bucket "' + CLICK_RUA_BUCKET + '" recusou ' + path + ': a sessão não passa em is_portal_admin(). Saia e entre de novo no ' + 'portal. Se continuar, confira as policies "click-rua admin insert" e ' + '"click-rua admin update" em storage.objects.');
+      }
+      throw new Error('Falha ao enviar ' + path + ' (' + crFmtKB(blob.size) + ', ' + (tipo || 'sem tipo') + '): ' + msg);
+    }
     const {
       data
     } = supa.storage.from(CLICK_RUA_BUCKET).getPublicUrl(path);
@@ -12036,6 +12078,9 @@ const CardEdicaoPortal = ({
     setBusy(true);
     const pasta = crPastaDaEdicao(ed.numero);
     try {
+      // Antes de gastar minutos convertendo: a sessão ainda escreve?
+      onProgresso('Conferindo a sessão…');
+      await crGaranteSessao();
       const urls = [];
       for (let i = 0; i < arquivos.length; i++) {
         const f = arquivos[i];
@@ -12055,7 +12100,11 @@ const CardEdicaoPortal = ({
       const capa = await crParaWebp(arquivos[0], CLICK_RUA_CAPA_PX);
       const capaUrl = await subir(pasta + '/capa.webp', capa.blob, capa.tipo || 'image/webp');
       onProgresso('Salvando a edição…');
+      // `.select()` NÃO é enfeite: UPDATE barrado por RLS não devolve erro,
+      // devolve ZERO linha. Sem conferir isso, as 27 páginas ficariam no
+      // bucket e a edição simplesmente não apareceria — falha cara e muda.
       const {
+        data: salvas,
         error
       } = await supa.from('click_rua_editions').update({
         paginas: urls,
@@ -12063,8 +12112,11 @@ const CardEdicaoPortal = ({
         status: 'pronta',
         quando: quando.trim() || null,
         destaque: destaque.trim() || null
-      }).eq('numero', ed.numero);
+      }).eq('numero', ed.numero).select('numero');
       if (error) throw error;
+      if (!salvas || salvas.length === 0) {
+        throw new Error('As ' + urls.length + ' páginas subiram, mas a linha da edição #' + ed.numero + ' não foi gravada (nenhuma linha atingida). Ou a sessão perdeu o ' + 'acesso de admin, ou a edição #' + ed.numero + ' não existe na tabela.');
+      }
       setArquivos([]);
       onProgresso('');
       onMudou();
@@ -12082,6 +12134,8 @@ const CardEdicaoPortal = ({
     setBusy(true);
     const pasta = crPastaDaEdicao(ed.numero);
     try {
+      onProgresso('Conferindo a sessão…');
+      await crGaranteSessao();
       const urls = [];
       for (let i = 0; i < paginas.length; i++) {
         onProgresso('Copiando página ' + (i + 1) + ' de ' + paginas.length + ' para o bucket…');
@@ -12098,12 +12152,16 @@ const CardEdicaoPortal = ({
       }
       onProgresso('Salvando…');
       const {
+        data: salvas,
         error
       } = await supa.from('click_rua_editions').update({
         paginas: urls,
         capa_url: capaUrl
-      }).eq('numero', ed.numero);
+      }).eq('numero', ed.numero).select('numero');
       if (error) throw error;
+      if (!salvas || salvas.length === 0) {
+        throw new Error('As páginas foram copiadas, mas a linha da edição #' + ed.numero + ' não foi gravada (nenhuma linha atingida).');
+      }
       onProgresso('');
       onMudou();
       alert('Edição #' + ed.numero + ' agora está no bucket.');
