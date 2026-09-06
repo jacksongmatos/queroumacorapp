@@ -249,3 +249,91 @@ function palpiteMime(tipo: string): string {
   if (tipo === 'document') return 'application/pdf';
   return 'application/octet-stream';
 }
+
+// ─── Cloud API (Meta via Dualhook) ──────────────────────────────────────────
+//
+// Aqui a mídia NÃO vem no webhook: o evento traz só um `id`, e o arquivo se
+// busca em dois passos — `GET /{id}` devolve uma URL temporária, e essa URL
+// entrega os bytes. Os dois pedem o mesmo Bearer.
+//
+// É diferente da Evolution, que mandava o base64 dentro do próprio evento
+// (ou servia o arquivo num endpoint só). Por isso este caminho é novo em vez
+// de reaproveitar `baixarMidiaEvolution`.
+//
+// Falha aqui é BEST-EFFORT: a mensagem já foi gravada e aparece na conversa
+// com o marcador ("[audio]"). Perder o arquivo degrada; derrubar o webhook
+// por causa dele faria a Meta reenviar tudo.
+
+const CLOUD_FETCH_TIMEOUT_MS = 20000;
+
+/**
+ * Baixa a mídia de uma mensagem recebida pela Cloud API.
+ *
+ * O download da URL temporária é feito SEM seguir para outro host sem o
+ * header: a URL costuma apontar pro CDN da Meta e exigir o mesmo Bearer.
+ * Se o CDN recusar a nossa credencial (a chave é do Dualhook, não da Meta),
+ * o corpo da recusa vai pro log — é a única pista pra saber se o caminho
+ * precisa de outra credencial.
+ */
+export async function baixarMidiaCloudApi(
+  mediaId: string,
+  apiBase: string,
+  versao: string,
+  token: string,
+): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  if (!mediaId || !token) return null;
+  try {
+    const metaRes = await fetch(
+      `${apiBase}/${versao}/${encodeURIComponent(mediaId)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(CLOUD_FETCH_TIMEOUT_MS),
+      },
+    );
+    const cru = await metaRes.text().catch(() => '');
+    if (!metaRes.ok) {
+      console.warn(
+        `wa-media: metadados recusados (${metaRes.status}) id=${mediaId}: ${cru.slice(0, 200)}`,
+      );
+      return null;
+    }
+    let info: { url?: string; mime_type?: string; file_size?: number };
+    try {
+      info = JSON.parse(cru) as typeof info;
+    } catch {
+      console.warn(`wa-media: metadados ilegíveis id=${mediaId}: ${cru.slice(0, 200)}`);
+      return null;
+    }
+    if (!info.url) {
+      console.warn(`wa-media: metadados sem url id=${mediaId}`);
+      return null;
+    }
+    // Recusa ANTES de baixar quando a Meta já diz o tamanho: não adianta
+    // puxar 40 MB pra descobrir que passa do teto do bucket.
+    if (typeof info.file_size === 'number' && info.file_size > MAX_MEDIA_BYTES) {
+      console.warn(`wa-media: arquivo grande demais (${info.file_size}) id=${mediaId}`);
+      return null;
+    }
+
+    const arqRes = await fetch(info.url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(CLOUD_FETCH_TIMEOUT_MS),
+    });
+    if (!arqRes.ok) {
+      const corpo = await arqRes.text().catch(() => '');
+      console.warn(
+        `wa-media: download recusado (${arqRes.status}) id=${mediaId}: ${corpo.slice(0, 200)}`,
+      );
+      return null;
+    }
+    const buf = new Uint8Array(await arqRes.arrayBuffer());
+    if (buf.length > MAX_MEDIA_BYTES) {
+      console.warn(`wa-media: arquivo grande demais (${buf.length}) id=${mediaId}`);
+      return null;
+    }
+    return { bytes: buf, mime: info.mime_type || arqRes.headers.get('content-type') || '' };
+  } catch (e) {
+    console.warn('wa-media: exceção no download da Cloud API:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}

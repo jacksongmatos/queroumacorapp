@@ -622,6 +622,12 @@ describe('parseInboundMessages', () => {
         type: 'text',
         text: 'Quero um orçamento',
         profileName: 'Zé Pintor',
+        // Campos de mídia (2026-09-05): nulos em mensagem de texto. Ficam
+        // no `toEqual` de propósito — se um dia vierem preenchidos aqui, o
+        // parser está confundindo texto com mídia.
+        mediaId: null,
+        mediaMime: null,
+        filename: null,
       },
     ]);
   });
@@ -657,5 +663,93 @@ describe('isForaDaJanela24h', () => {
     expect(isForaDaJanela24h(new ServiceError('upstream', 500))).toBe(false);
     expect(isForaDaJanela24h(new Error('qualquer'))).toBe(false);
     expect(isForaDaJanela24h(null)).toBe(false);
+  });
+});
+
+// ─── Mídia recebida (Cloud API) ─────────────────────────────────────────────
+//
+// Na Cloud API o webhook NÃO traz o arquivo: vem só um `id`, e os bytes se
+// buscam depois em dois passos. A Evolution mandava base64 no próprio
+// evento — por isso este caminho é novo, e por isso a conversa mostrava
+// "[audio]" e "[sticker]" secos: ninguém extraía o id.
+//
+// Detalhe que o parser tinha que acertar: o objeto da mídia vem numa chave
+// com o NOME DO TIPO (`audio`, `image`, …), não numa chave fixa.
+
+describe('parseInboundMessages — mídia', () => {
+  const envelopeMidia = (msg: Record<string, unknown>) => ({
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: '1320667299892030',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              metadata: { phone_number_id: '1220273824510260' },
+              contacts: [{ profile: { name: 'Zé' }, wa_id: '5511988887777' }],
+              messages: [{ from: '5511988887777', id: 'wamid.m1', timestamp: '1757100000', ...msg }],
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  it('áudio: extrai id e mime', () => {
+    const [m] = parseInboundMessages(
+      envelopeMidia({
+        type: 'audio',
+        audio: { id: 'MEDIA_1', mime_type: 'audio/ogg; codecs=opus', voice: true },
+      })
+    );
+    expect(m.type).toBe('audio');
+    expect(m.mediaId).toBe('MEDIA_1');
+    expect(m.mediaMime).toContain('audio/ogg');
+  });
+
+  it('figurinha: mesmo caminho (era o "[sticker]" seco da conversa)', () => {
+    const [m] = parseInboundMessages(
+      envelopeMidia({ type: 'sticker', sticker: { id: 'MEDIA_2', mime_type: 'image/webp' } })
+    );
+    expect(m.mediaId).toBe('MEDIA_2');
+    expect(m.mediaMime).toBe('image/webp');
+  });
+
+  // Legenda de foto/vídeo vira o corpo: senão a mensagem apareceria sem o
+  // texto que a pessoa escreveu junto.
+  it('foto com legenda: a legenda vira o corpo', () => {
+    const [m] = parseInboundMessages(
+      envelopeMidia({
+        type: 'image',
+        image: { id: 'MEDIA_3', mime_type: 'image/jpeg', caption: 'olha a parede' },
+      })
+    );
+    expect(m.text).toBe('olha a parede');
+    expect(m.mediaId).toBe('MEDIA_3');
+  });
+
+  it('documento: guarda o nome original', () => {
+    const [m] = parseInboundMessages(
+      envelopeMidia({
+        type: 'document',
+        document: { id: 'MEDIA_4', mime_type: 'application/pdf', filename: 'orcamento.pdf' },
+      })
+    );
+    expect(m.filename).toBe('orcamento.pdf');
+  });
+
+  it('texto puro continua sem mídia', () => {
+    const [m] = parseInboundMessages(
+      envelopeMidia({ type: 'text', text: { body: 'oi' } })
+    );
+    expect(m.text).toBe('oi');
+    expect(m.mediaId).toBeNull();
+    expect(m.mediaMime).toBeNull();
+  });
+
+  it('tipo desconhecido não inventa mídia', () => {
+    const [m] = parseInboundMessages(envelopeMidia({ type: 'reaction', reaction: { emoji: '👍' } }));
+    expect(m.mediaId).toBeNull();
   });
 });

@@ -698,6 +698,15 @@ export interface InboundWhatsAppMessage {
   text: string;
   /** Nome de perfil do remetente, quando a Meta manda. */
   profileName: string;
+  /**
+   * Mídia: na Cloud API o webhook NÃO traz o arquivo, só um id — os bytes
+   * se buscam depois, em dois passos. (A Evolution mandava base64 no
+   * próprio evento; por isso este campo não existia antes.)
+   */
+  mediaId: string | null;
+  mediaMime: string | null;
+  /** Nome original, só em documento. */
+  filename: string | null;
 }
 
 /**
@@ -722,16 +731,30 @@ export function parseInboundMessages(payload: unknown): InboundWhatsAppMessage[]
       for (const msg of messages as Array<Record<string, unknown>>) {
         const from = typeof msg.from === 'string' ? msg.from : '';
         const contact = contacts.find((c) => c.wa_id === from) || contacts[0];
+        const tipo = typeof msg.type === 'string' ? msg.type : 'unknown';
+        // O objeto da mídia vem numa chave com o NOME DO TIPO
+        // (`audio`, `image`, `sticker`, `video`, `document`) — não numa
+        // chave fixa. Legenda de foto/vídeo vem em `caption`, e é ela que
+        // deve virar o corpo da mensagem na conversa.
+        const midia = msg[tipo] as
+          | { id?: unknown; mime_type?: unknown; caption?: unknown; filename?: unknown }
+          | undefined;
+        const texto =
+          typeof (msg.text as { body?: unknown } | undefined)?.body === 'string'
+            ? (msg.text as { body: string }).body
+            : typeof midia?.caption === 'string'
+              ? midia.caption
+              : '';
         out.push({
           from,
           messageId: typeof msg.id === 'string' ? msg.id : '',
           timestamp: typeof msg.timestamp === 'string' ? msg.timestamp : '',
-          type: typeof msg.type === 'string' ? msg.type : 'unknown',
-          text:
-            typeof (msg.text as { body?: unknown } | undefined)?.body === 'string'
-              ? ((msg.text as { body: string }).body)
-              : '',
+          type: tipo,
+          text: texto,
           profileName: contact?.profile?.name || '',
+          mediaId: typeof midia?.id === 'string' ? midia.id : null,
+          mediaMime: typeof midia?.mime_type === 'string' ? midia.mime_type : null,
+          filename: typeof midia?.filename === 'string' ? midia.filename : null,
         });
       }
     }
