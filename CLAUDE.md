@@ -1855,6 +1855,24 @@
       trocar código e configuração ao mesmo tempo deixaria a varredura sem
       chamador no intervalo.
     - `delivery_error_code`/`delivery_error_title` também rodaram nessa leva.
+- **TELA CORTADA NA DIREITA NAS IAs — o culpado não era o topo
+  (2026-09-05).** Ao abrir a Alice num celular estreito, o ícone de mensagem
+  do `TopNav` aparecia CORTADO pela direita.
+  - **O `TopNav` é `sticky`, não `fixed`** — ele tem a largura do
+    CONTAINER, não da janela. Quando um filho da página é mais largo que o
+    viewport, o container estica e a barra vai junto; o que sai da tela é a
+    ponta direita dela. **Barra cortada = overflow em OUTRO lugar da
+    página.** Procurar o defeito no topo é procurar no lugar errado.
+  - O filho largo era a linha de digitar: `<textarea class="flex-1">` +
+    microfone (44px) + botão Enviar. **Item de flex não encolhe abaixo da
+    largura intrínseca sem `min-w-0`**, e `<textarea>` tem intrínseca alta
+    (cols=20 ≈ 190px) — a linha passava de 360px.
+  - **REGRA: `flex-1` em campo de texto pede `min-w-0`**; o que fica ao lado
+    (botão, ícone) pede `shrink-0`. O CLAUDE.md já registrava o mesmo padrão
+    no comentário do feed (A3, 2026-09-01) — virou teste agora porque são
+    QUATRO telas clonadas, e corrigir uma esquecendo as outras é o modo de
+    falha natural delas.
+
   - **MÍDIA RECEBIDA PELA CLOUD API (2026-09-05).** A conversa mostrava
     `[audio]` e `[sticker]` secos: o webhook da Meta **não tratava mídia
     nenhuma**. Toda a Wave 49 (`whatsapp-media.ts`) foi escrita pra
