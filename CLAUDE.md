@@ -106,10 +106,15 @@
     edição nova só chegava com um commit meu. Quando o usuário pediu upload
     PELO PORTAL, deixou de existir onde gravar em runtime: virou bucket
     `click-rua` + tabela `click_rua_editions` (migration
-    `/migrations/2026-09-06-click-rua-bucket.sql`, **PENDENTE de execução**).
+    `/migrations/2026-09-06-click-rua-bucket.sql`). **JÁ EXECUTADA no
+    Supabase (2026-09-06) — não pedir pra rodar de novo.** Conferido nos
+    dois lados: a consulta de conferência devolveu as 6 edições (a #01
+    `pronta`), e `storage.objects` mostra `ed01/<ts>/1..24.webp` + `capa.webp`
+    no bucket. Ou seja, a #01 **já está no bucket** (24 páginas, publicadas
+    pelo portal), e não mais nos arquivos estáticos.
     - **A tabela guarda a URL de CADA página, não um padrão de caminho.** É
-      isso que deixa a #01 (ainda em `/click-rua/ed01/`, publicada junto com
-      o app) conviver com as que a loja sobe: o leitor só usa a string como
+      isso que deixa a #01 (que nasceu em `/click-rua/ed01/`, publicada junto
+      com o app) conviver com as que a loja sobe: o leitor só usa a string como
       `src`. O botão "Copiar páginas do site para o bucket" no portal migra
       quando quiserem, sem downtime.
     - **`lib/clickRua.ts` guarda um catálogo de FALLBACK** usado só enquanto
@@ -160,7 +165,7 @@
     o zip trazia só as 8 páginas. Se aparecer o arquivo original do logo, é
     só trocar esse WebP; nada mais referencia o recorte.
 
-- **TABELA DE PREÇOS DA ABRAPP 2026 — tile novo + SQL PENDENTE (2026-09-05).**
+- **TABELA DE PREÇOS DA ABRAPP 2026 — tile novo, SQL JÁ EXECUTADO (2026-09-05).**
   O PDF da ABRAPP ("Sugestão de Preços de Pintura 2026", 26 folhas) virou
   ferramenta no app: tile **Tabela de Preços** no `BusinessGrid`, ao lado da
   Calculadora (uma calcula material, a outra o preço da mão de obra), **visível
