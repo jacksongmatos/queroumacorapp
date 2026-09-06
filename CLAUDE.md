@@ -240,13 +240,42 @@
     ninguém a revalida porque parece barato confiar nela. Custou repetir por
     semanas que o degrau 2 do PDF estava quebrado e que faltava ligar o Image
     Resizing, as duas coisas falsas.
+  - **O job `validate` É CHECK OBRIGATÓRIO — verificado em 2026-09-06.** Não
+    havia ferramenta de branch protection no MCP pra consultar, mas o merge do
+    PR #240 respondeu `405 Required status check "validate" is in progress`, o
+    que só a proteção configurada produz. Some da lista de pendências (estava
+    aberta desde a auditoria de 03/09, item C5).
   - **NÃO VERIFICÁVEIS deste ambiente** (a política de rede só libera
-    GitHub/npm/Anthropic; o proxy recusa DNS-over-HTTPS e a produção, e não há
-    ferramenta de branch protection no MCP): DMARC do `calicolors.com.br`,
-    o opt-in do CSAM Scanning e se o job `validate` é check obrigatório. Não
-    afirmar nada sobre esses três sem o usuário conferir — o que já se sabe é
-    que a proteção da `main` EXISTE (push direto recusado com "protected
-    branch hook declined").
+    GitHub/npm/Anthropic; o proxy recusa DNS-over-HTTPS e a produção): DMARC do
+    `calicolors.com.br` e o opt-in do CSAM Scanning. Não afirmar nada sobre
+    esses dois sem o usuário conferir — o que já se sabe é que a proteção da
+    `main` EXISTE (push direto recusado com "protected branch hook declined").
+
+- **DOCUMENTOS LEGAIS: o app não cobra nada de ninguém (2026-09-06, #240).**
+  A Privacidade listava o **Mercado Pago** como operador que recebe dados pra
+  "processamento de pagamentos do plano PRO e da loja", e os Termos do Cliente
+  prometiam **reembolso integral em 7 dias do Plano PRO**. Os dois descreviam o
+  mundo anterior a 18/06: desde então o PRO é ativado por **troca de pontos**
+  (item 13 dos Termos gerais) e o carrinho da loja só registra o pedido — a
+  venda fecha com a Cali Colors fora do app (compliance Apple 3.1.3(e)).
+  `startProCheckout` existe em `lib/services/billing-platform.ts` mas **não tem
+  call site de UI nenhum**, então nenhum dado sai do app pro MP.
+  - **Operador que não recebe nada sai da lista de compartilhamento** — deixar
+    ali sugere um fluxo de dados que não existe. No lugar entrou a frase que
+    diz o fato ("não há pagamento dentro do aplicativo").
+  - **Direito prometido sobre cobrança inexistente também é erro**: o reembolso
+    virou a regra real (sem cobrança → sem fatura nem reembolso), preservando o
+    prazo do CDC pras compras feitas com a loja FORA do app.
+  - **A data de "última atualização" da Privacidade estava em 22/05** — antes
+    de metade do que este arquivo registra. Documento legal com data velha é do
+    mesmo tipo da lista de pendências: envelhece e ninguém revalida.
+  - **Escopo declarado pelo usuário:** portal, mídia do WhatsApp, os 1072 leads
+    e o Dualhook são **back-office**, não aparecem pra quem usa o app — a
+    política do app fala do app. A ressalva registrada aqui, porque é dele a
+    decisão: a LGPD prende no TITULAR, não na tela; os leads e quem tem áudio
+    transcrito por terceiro nos EUA são titulares da Cali Colors de todo jeito.
+    Se um dia quiserem cobrir isso, é uma seção de prospecção/portal separada,
+    não uma linha na política do app.
 
 - **VÍDEO EM `<img>` — miniaturas quebradas no "Em alta" (2026-09-05).** A
   tela `/explore` mostrava metade do grid como ícone de imagem quebrada, e
@@ -377,9 +406,10 @@
     callback`). NÃO tentar "unificar" os dois — são de stores diferentes. O
     product ID de billing segue `com.calicolors.queroumacor.pro.monthly`
     (configurado nas stores; não renomear sem mexer lá).
-  - **C5 ✓ (código)** Suíte 100% verde, 0 erros de lint, ci.yml roda também
-    em push pra main, typecheck.yml duplicado deletado. Falta (painel
-    GitHub): branch protection exigindo o job `validate`.
+  - **C5 ✓ FECHADO (2026-09-06).** Suíte 100% verde, 0 erros de lint, ci.yml
+    roda também em push pra main, typecheck.yml duplicado deletado. E a branch
+    protection exigindo o job `validate` EXISTE — provada pela recusa
+    `405 Required status check "validate" is in progress` no merge do #240.
   - **C6 ✓** jspdf 2→4.2.1 (CRITICAL eliminada); next pinado EXATO em
     `15.5.2` (teto do peer range do @cloudflare/next-on-pages — NÃO subir
     next sem subir next-on-pages junto; caret ali quebra o npm ci). As ~26
