@@ -7,12 +7,17 @@ import { ServiceError, getServiceKey, getSupabaseUrl } from '../security';
 
 const QUERY_TIMEOUT_MS = 10000;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface ErrorsListFilters {
   limit?: number | string;
   offset?: number | string;
   type?: string;
   since_hours?: number | string;
   search?: string;
+  /** Filtra por PESSOA. Sem ele, "os erros do fulano" era impossível: o
+   *  `search` casa em `msg`, e o id do usuário nunca aparece na mensagem. */
+  user_id?: string;
 }
 
 export interface ErrorsListResult {
@@ -47,6 +52,13 @@ export async function listErrors(args: {
   const sinceHours = Math.min(Math.max(parseIntOr(filters?.since_hours, 24), 1), 720);
   const search =
     typeof filters?.search === 'string' && filters.search ? filters.search.slice(0, 100) : '';
+  // Só UUID: a coluna é `uuid` no Postgres, e mandar texto solto pro
+  // PostgREST devolveria 400 (que a tela mostraria como "falha ao
+  // consultar logs" — erro nosso disfarçado de erro do banco).
+  const userId =
+    typeof filters?.user_id === 'string' && UUID_RE.test(filters.user_id)
+      ? filters.user_id
+      : '';
 
   const sinceISO = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
   const qs = new URLSearchParams();
@@ -57,6 +69,7 @@ export async function listErrors(args: {
   qs.set('created_at', `gte.${sinceISO}`);
   if (filterType) qs.set('type', `eq.${filterType}`);
   if (search) qs.set('msg', `ilike.*${search}*`);
+  if (userId) qs.set('user_id', `eq.${userId}`);
 
   try {
     const r = await fetch(`${supaUrl}/rest/v1/errors?${qs.toString()}`, {
