@@ -64,3 +64,7 @@ UNION ALL SELECT 'admin_delete_user com p_force_admin (Wave 44)',
        EXISTS (SELECT 1 FROM pg_proc WHERE proname='admin_delete_user'
                  AND pg_get_function_identity_arguments(oid) LIKE '%boolean%')
 ORDER BY 1;
+
+-- leads.opted_out_at (2026-09-06): sem ela o botao "Abordar" segue
+-- oferecendo quem tocou em "Nao tenho interesse".
+SELECT 'leads.opted_out_at existe' AS item, EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='opted_out_at') AS ok;
