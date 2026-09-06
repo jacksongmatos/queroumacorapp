@@ -5486,30 +5486,6 @@ const pitchDoLead = l => LEAD_PITCH[l.category] || {
   termos: ['acrilic', 'latex']
 };
 
-// Monta o texto da abordagem. Sem preco — ver regra no topo do bloco.
-const montarAbordagem = (lead, produtos) => {
-  const p = pitchDoLead(lead);
-  const nome = (lead.name || '').trim();
-  const ondeEsta = lead.neighborhood || lead.city || '';
-  const saudacao = 'Olá' + (nome ? ', ' + nome : '') + '!';
-  const abre = ' Aqui é a Cali Colors, loja de tintas em Guarulhos.';
-  const contexto = ondeEsta ? ' Vi que vocês atuam em ' + ondeEsta + '.' : '';
-  // Produto especifico e OPCIONAL e entra sem volume/cor: o catalogo tem
-  // "18L" como padrao em tudo, entao citar tamanho era mentir.
-  const citados = produtos.length ? ' Tem, por exemplo, ' + produtos.map(x => x.name).slice(0, 3).join(', ') + '.' : '';
-  let corpo;
-  if (p.funil === 'fornece') {
-    corpo = '\n\nTemos ' + p.oferta + '.' + citados + ' Atendemos profissional com condição especial.' + '\n\n' + (p.fecho || 'Quer ver o que temos pra sua linha de trabalho?');
-  } else {
-    corpo = '\n\nTemos ' + p.oferta + '.' + citados + ' Fornecemos a tinta e indicamos profissionais de confiança pra execução.' + '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
-  }
-  // Sem convite pro app e sem rodapé de opt-out, a pedido da loja
-  // (2026-08-29). A palavra PARE continua funcionando: quem responder
-  // isso é marcado como opted_out e não recebe mais nada — só deixou de
-  // ser anunciada na mensagem.
-  return saudacao + abre + contexto + corpo;
-};
-
 // ── Templates aprovados pela Meta (primeira mensagem) ───────────────────
 // Numero que nunca escreveu pra loja NAO tem janela de 24h aberta: a Cloud
 // API recusa texto livre (131047) e so template aprovado passa. E quem abre
@@ -6390,70 +6366,40 @@ const NovaConversaModal = ({
 // Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
 // catalogo pelo segmento (marcaveis), deixa editar o texto e envia pelo
 // canal da loja.
+// SO TEMPLATE (2026-09-05, decisao do usuario). O modal tinha uma aba de
+// "texto livre" com seletor de produtos e campo de mensagem — o pitch
+// personalizado do `montarAbordagem`. Saiu inteiro por dois motivos:
+//
+//   1. Abordagem e, por definicao, a PRIMEIRA mensagem pra quem nunca
+//      escreveu pra loja. Ali a janela de 24h esta fechada e a Cloud API so
+//      aceita template. O texto livre nunca ia sair daqui — oferecer o campo
+//      era convidar pro 131047.
+//   2. Depois que a pessoa responde, a conversa vive na aba WhatsApp, que
+//      ja tem campo de texto, sugestao da IA e historico. Ter um segundo
+//      lugar pra escrever a mesma conversa so espalha o atendimento.
+//
+// O `montarAbordagem` saiu junto: ele existia SO pra alimentar aquele
+// campo. O follow-up automatico tem textos proprios no servidor
+// (`textoCobranca`/`textoReengajamento` em whatsapp-followup.ts) — nao
+// dependia desta funcao. Deixar codigo morto com um comentario dizendo que
+// alguem usa e pior do que apagar.
 const AbordagemModal = ({
   lead,
   onClose,
   onSent
 }) => {
-  const [produtos, setProdutos] = useState([]);
-  const [sel, setSel] = useState({});
-  const [texto, setTexto] = useState('');
-  const [busca, setBusca] = useState('');
-  const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [estagio, setEstagio] = useState('');
   const [erro, setErro] = useState('');
-  const [editado, setEditado] = useState(false);
-  // 'template' = primeira mensagem, unica que a Meta deixa passar pra quem
-  // nunca escreveu. 'livre' = texto personalizado, so vale com a janela de
-  // 24h aberta (ou seja, depois que a pessoa respondeu).
-  const [modo, setModo] = useState('template');
-  // Template escolhido no dropdown. `escolherTemplate` ainda decide por
-  // cima: se o lead nao tem nome utilizavel, o de variavel nao serve e cai
-  // no fixo — a escolha do operador nao pode mandar "Oi ,".
   const pitch = pitchDoLead(lead);
   const alvo = normalizeLeadPhone(lead.phone);
   const linha = tipoDeLinha(lead.phone);
-
-  // Busca no catalogo pelos termos do segmento (ou pela busca manual).
-  const buscarProdutos = async termosManuais => {
-    setCarregando(true);
-    const termos = termosManuais ? [termosManuais] : pitch.termos;
-    const filtro = termos.map(t => 'name.ilike.*' + t + '*').join(',');
-    const {
-      data
-    } = await supa.from('products').select('id, name, volume, line, category, stock, active').or(filtro).eq('active', true).limit(12);
-    const lista = (data || []).filter(p => p.stock == null || p.stock > 0).slice(0, 8);
-    setProdutos(lista);
-    // NADA marcado por padrao (2026-08-29). Marcar sozinho enfiava SKU
-    // aleatorio na mensagem — um grafiteiro recebia "AROMINHA SPRAY CARRO
-    // NOVO 60ML" so porque o termo 'spray' casou. A mensagem ja diz o que a
-    // loja tem pro segmento; produto especifico e escolha do operador.
-    if (!termosManuais) setSel({});
-    setCarregando(false);
-  };
-  useEffect(() => {
-    buscarProdutos();
-  }, []);
-
-  // Recompoe o texto sempre que a selecao muda — a menos que o operador
-  // ja tenha editado na mao (nao sobrescrever o trabalho dele).
-  const escolhidos = produtos.filter(p => sel[p.id]);
-  useEffect(() => {
-    if (!editado) setTexto(montarAbordagem(lead, escolhidos));
-  }, [produtos, sel, editado]);
-
-  // Envio comum: texto livre e template compartilham tudo menos a carga.
-  // `pacote` vindo do <EnvioDeTemplate> => template; ausente => texto livre.
   const enviarPara = async pacote => {
     if (!alvo) {
       setErro('Numero invalido neste lead.');
       return;
     }
-    if (!pacote && !texto.trim()) {
-      setErro('A mensagem esta vazia.');
-      return;
-    }
+    if (!pacote) return;
     setEnviando(true);
     setErro('');
     try {
@@ -6471,17 +6417,6 @@ const AbordagemModal = ({
       // No template o `body` NAO e o que a Meta envia (o texto dela vive
       // la): e o registro pro historico do portal, pra conversa nao virar um
       // "[template]" seco. Ver persistWhatsAppMessage na rota.
-      const carga = pacote ? {
-        to: alvo,
-        type: 'template',
-        template: pacote.template,
-        languageCode: pacote.idioma,
-        components: pacote.components,
-        body: pacote.registro
-      } : {
-        to: alvo,
-        body: texto
-      };
       const r = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: {
@@ -6489,7 +6424,14 @@ const AbordagemModal = ({
         },
         body: JSON.stringify({
           accessToken: session.access_token,
-          ...carga
+          to: alvo,
+          type: 'template',
+          template: pacote.template,
+          languageCode: pacote.idioma,
+          components: pacote.components,
+          // O `body` NAO e o que a Meta envia (o texto dela vive la): e o
+          // registro pro historico, pra conversa nao virar "[template]".
+          body: pacote.registro
         })
       });
       let raw = '';
@@ -6594,189 +6536,30 @@ const AbordagemModal = ({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: 'flex',
-      gap: 8,
-      marginBottom: 12
-    }
-  }, [['template', '1ª mensagem (template aprovado)'], ['livre', 'Texto livre']].map(([v, rot]) => /*#__PURE__*/React.createElement("button", {
-    key: v,
-    onClick: () => {
-      setModo(v);
-      setErro('');
-    },
-    style: {
-      flex: 1,
-      padding: '9px 12px',
-      borderRadius: 10,
-      fontSize: 12,
-      fontWeight: 700,
-      cursor: 'pointer',
-      border: '1.5px solid ' + (modo === v ? C.p1 : C.border),
-      background: modo === v ? C.p1 + '12' : '#fff',
-      color: modo === v ? C.p1 : C.muted
-    }
-  }, rot))), modo === 'template' ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
       fontSize: 12,
       color: C.muted,
       lineHeight: 1.5,
-      marginBottom: 10
+      marginBottom: 14
     }
-  }, "Quem nunca escreveu pra loja n\xE3o tem janela aberta \u2014 o WhatsApp s\xF3 aceita template aprovado como primeira mensagem. ", /*#__PURE__*/React.createElement("strong", {
+  }, "Quem nunca escreveu pra loja n\xE3o tem janela aberta \u2014 o WhatsApp s\xF3 aceita ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.ink
     }
-  }, "O texto abaixo \xE9 fixo"), " e n\xE3o d\xE1 pra editar: quem guarda ele \xE9 a Meta. Assim que a pessoa ", /*#__PURE__*/React.createElement("strong", {
+  }, "template aprovado"), " como primeira mensagem, e o texto dele \xE9 fixo (quem guarda \xE9 a Meta). Assim que a pessoa ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.ink
     }
-  }, "responder"), ", abrem 24h pra falar livremente \u2014 a\xED a aba WhatsApp (ou o \"Texto livre\" aqui) vale."), /*#__PURE__*/React.createElement(EnvioDeTemplate, {
+  }, "responder"), ", abrem 24h pra falar livremente \u2014 e a\xED a conversa segue na aba", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, " WhatsApp"), ", que tem o hist\xF3rico e a sugest\xE3o da IA."), /*#__PURE__*/React.createElement(EnvioDeTemplate, {
     waId: alvo,
     nomeContato: lead.name,
     enviando: enviando,
     estagio: estagio,
     onEnviar: enviarPara
-  })) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: C.muted,
-      lineHeight: 1.5,
-      marginBottom: 12
-    }
-  }, "Texto livre s\xF3 sai se a pessoa escreveu pra loja nas \xFAltimas 24h. Em n\xFAmero novo isto falha \u2014 e a faixa vermelha vai dizer isso. Para o primeiro contato, use a aba do template."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      fontWeight: 700,
-      color: C.ink,
-      marginBottom: 8,
-      marginTop: modo === 'template' ? 18 : 0
-    }
-  }, "Citar algum produto? ", /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 400,
-      color: C.muted
-    }
-  }, "\u2014 opcional. A mensagem j\xE1 diz o que a loja tem pra este segmento.")), /*#__PURE__*/React.createElement("input", {
-    value: busca,
-    onChange: e => setBusca(e.target.value),
-    onKeyDown: e => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        buscarProdutos(busca.trim() || null);
-      }
-    },
-    placeholder: "Buscar outro produto no cat\xE1logo e apertar Enter\u2026",
-    style: {
-      width: '100%',
-      padding: '8px 12px',
-      borderRadius: 10,
-      border: '1.5px solid ' + C.border,
-      fontSize: 13,
-      outline: 'none',
-      marginBottom: 10
-    }
-  }), carregando ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: C.muted,
-      fontSize: 13,
-      padding: '10px 0'
-    }
-  }, "Buscando no cat\xE1logo\u2026") : produtos.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: C.muted,
-      fontSize: 13,
-      padding: '10px 0'
-    }
-  }, "Nenhum produto casou com este segmento. Tudo bem: a mensagem j\xE1 fala das linhas que a loja tem. Use a busca acima se quiser citar algo espec\xEDfico.") : /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: 8,
-      marginBottom: 16
-    }
-  }, produtos.map(p => /*#__PURE__*/React.createElement("label", {
-    key: p.id,
-    style: {
-      display: 'flex',
-      gap: 8,
-      alignItems: 'flex-start',
-      padding: '8px 10px',
-      border: '1px solid ' + (sel[p.id] ? C.p1 : C.border),
-      borderRadius: 10,
-      cursor: 'pointer',
-      background: sel[p.id] ? C.p1 + '0d' : '#fff'
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: !!sel[p.id],
-    onChange: () => {
-      setSel(s => ({
-        ...s,
-        [p.id]: !s[p.id]
-      }));
-      setEditado(false);
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      lineHeight: 1.35
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 600,
-      color: C.ink
-    }
-  }, p.name), p.line ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: C.muted,
-      fontSize: 11
-    }
-  }, p.line) : null)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      fontWeight: 700,
-      color: C.ink,
-      marginBottom: 6,
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "Mensagem"), editado ? /*#__PURE__*/React.createElement("button", {
-    onClick: () => setEditado(false),
-    style: {
-      background: 'none',
-      border: '1px solid ' + C.border,
-      borderRadius: 6,
-      padding: '2px 8px',
-      fontSize: 11,
-      cursor: 'pointer',
-      color: C.muted
-    }
-  }, "\u21BA Voltar ao texto autom\xE1tico") : null), /*#__PURE__*/React.createElement("textarea", {
-    value: texto,
-    onChange: e => {
-      setTexto(e.target.value);
-      setEditado(true);
-    },
-    rows: 10,
-    style: {
-      width: '100%',
-      padding: 12,
-      borderRadius: 12,
-      border: '1.5px solid ' + C.border,
-      fontSize: 13,
-      lineHeight: 1.5,
-      outline: 'none',
-      resize: 'vertical',
-      fontFamily: 'DM Sans, sans-serif'
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: C.muted,
-      marginTop: 6
-    }
-  }, "Sem pre\xE7o por regra da loja \u2014 valor e or\xE7amento s\xE3o tratados por uma pessoa."), erro ? /*#__PURE__*/React.createElement("div", {
+  }), erro ? /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: '8px 12px',
@@ -6815,21 +6598,7 @@ const AbordagemModal = ({
       cursor: 'pointer',
       color: C.muted
     }
-  }, "Cancelar"), modo === 'livre' ? /*#__PURE__*/React.createElement("button", {
-    onClick: () => enviarPara(null),
-    disabled: enviando || !alvo,
-    style: {
-      background: C.p1,
-      color: '#fff',
-      border: 'none',
-      borderRadius: 10,
-      padding: '9px 22px',
-      fontSize: 13,
-      fontWeight: 700,
-      cursor: enviando ? 'wait' : 'pointer',
-      opacity: enviando || !alvo ? .6 : 1
-    }
-  }, enviando ? estagio || 'Enviando…' : '📤 Enviar texto livre') : null))));
+  }, "Cancelar")))));
 };
 // ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
 // Antes o header era uma lista de textos com "↕" decorativo. Cada coluna

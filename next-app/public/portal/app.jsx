@@ -2598,36 +2598,6 @@ const pitchDoLead = (l) => LEAD_PITCH[l.category] ||
     fecho:'Quer ver o que temos pra sua linha de trabalho?',
     termos:['acrilic','latex'] };
 
-// Monta o texto da abordagem. Sem preco — ver regra no topo do bloco.
-const montarAbordagem = (lead, produtos) => {
-  const p = pitchDoLead(lead);
-  const nome = (lead.name || '').trim();
-  const ondeEsta = lead.neighborhood || lead.city || '';
-  const saudacao = 'Olá' + (nome ? ', ' + nome : '') + '!';
-  const abre = ' Aqui é a Cali Colors, loja de tintas em Guarulhos.';
-  const contexto = ondeEsta ? ' Vi que vocês atuam em ' + ondeEsta + '.' : '';
-  // Produto especifico e OPCIONAL e entra sem volume/cor: o catalogo tem
-  // "18L" como padrao em tudo, entao citar tamanho era mentir.
-  const citados = produtos.length
-    ? ' Tem, por exemplo, ' + produtos.map(x => x.name).slice(0,3).join(', ') + '.'
-    : '';
-
-  let corpo;
-  if(p.funil === 'fornece'){
-    corpo = '\n\nTemos ' + p.oferta + '.' + citados +
-      ' Atendemos profissional com condição especial.' +
-      '\n\n' + (p.fecho || 'Quer ver o que temos pra sua linha de trabalho?');
-  } else {
-    corpo = '\n\nTemos ' + p.oferta + '.' + citados +
-      ' Fornecemos a tinta e indicamos profissionais de confiança pra execução.' +
-      '\n\nVocês têm algo pra pintar ou reformar nos próximos meses?';
-  }
-  // Sem convite pro app e sem rodapé de opt-out, a pedido da loja
-  // (2026-08-29). A palavra PARE continua funcionando: quem responder
-  // isso é marcado como opted_out e não recebe mais nada — só deixou de
-  // ser anunciada na mensagem.
-  return saudacao + abre + contexto + corpo;
-};
 
 // ── Templates aprovados pela Meta (primeira mensagem) ───────────────────
 // Numero que nunca escreveu pra loja NAO tem janela de 24h aberta: a Cloud
@@ -3236,59 +3206,34 @@ const NovaConversaModal = ({ onClose, onAbrir }) => {
 // Janela de abordagem: mostra o que sabemos do lead, sugere produtos do
 // catalogo pelo segmento (marcaveis), deixa editar o texto e envia pelo
 // canal da loja.
+// SO TEMPLATE (2026-09-05, decisao do usuario). O modal tinha uma aba de
+// "texto livre" com seletor de produtos e campo de mensagem — o pitch
+// personalizado do `montarAbordagem`. Saiu inteiro por dois motivos:
+//
+//   1. Abordagem e, por definicao, a PRIMEIRA mensagem pra quem nunca
+//      escreveu pra loja. Ali a janela de 24h esta fechada e a Cloud API so
+//      aceita template. O texto livre nunca ia sair daqui — oferecer o campo
+//      era convidar pro 131047.
+//   2. Depois que a pessoa responde, a conversa vive na aba WhatsApp, que
+//      ja tem campo de texto, sugestao da IA e historico. Ter um segundo
+//      lugar pra escrever a mesma conversa so espalha o atendimento.
+//
+// O `montarAbordagem` saiu junto: ele existia SO pra alimentar aquele
+// campo. O follow-up automatico tem textos proprios no servidor
+// (`textoCobranca`/`textoReengajamento` em whatsapp-followup.ts) — nao
+// dependia desta funcao. Deixar codigo morto com um comentario dizendo que
+// alguem usa e pior do que apagar.
 const AbordagemModal = ({ lead, onClose, onSent }) => {
-  const [produtos, setProdutos] = useState([]);
-  const [sel, setSel] = useState({});
-  const [texto, setTexto] = useState('');
-  const [busca, setBusca] = useState('');
-  const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [estagio, setEstagio] = useState('');
   const [erro, setErro] = useState('');
-  const [editado, setEditado] = useState(false);
-  // 'template' = primeira mensagem, unica que a Meta deixa passar pra quem
-  // nunca escreveu. 'livre' = texto personalizado, so vale com a janela de
-  // 24h aberta (ou seja, depois que a pessoa respondeu).
-  const [modo, setModo] = useState('template');
-  // Template escolhido no dropdown. `escolherTemplate` ainda decide por
-  // cima: se o lead nao tem nome utilizavel, o de variavel nao serve e cai
-  // no fixo — a escolha do operador nao pode mandar "Oi ,".
   const pitch = pitchDoLead(lead);
   const alvo = normalizeLeadPhone(lead.phone);
   const linha = tipoDeLinha(lead.phone);
 
-  // Busca no catalogo pelos termos do segmento (ou pela busca manual).
-  const buscarProdutos = async (termosManuais) => {
-    setCarregando(true);
-    const termos = termosManuais ? [termosManuais] : pitch.termos;
-    const filtro = termos.map(t => 'name.ilike.*' + t + '*').join(',');
-    const { data } = await supa.from('products')
-      .select('id, name, volume, line, category, stock, active')
-      .or(filtro).eq('active', true).limit(12);
-    const lista = (data || []).filter(p => (p.stock == null || p.stock > 0)).slice(0, 8);
-    setProdutos(lista);
-    // NADA marcado por padrao (2026-08-29). Marcar sozinho enfiava SKU
-    // aleatorio na mensagem — um grafiteiro recebia "AROMINHA SPRAY CARRO
-    // NOVO 60ML" so porque o termo 'spray' casou. A mensagem ja diz o que a
-    // loja tem pro segmento; produto especifico e escolha do operador.
-    if(!termosManuais) setSel({});
-    setCarregando(false);
-  };
-
-  useEffect(() => { buscarProdutos(); }, []);
-
-  // Recompoe o texto sempre que a selecao muda — a menos que o operador
-  // ja tenha editado na mao (nao sobrescrever o trabalho dele).
-  const escolhidos = produtos.filter(p => sel[p.id]);
-  useEffect(() => {
-    if(!editado) setTexto(montarAbordagem(lead, escolhidos));
-  }, [produtos, sel, editado]);
-
-  // Envio comum: texto livre e template compartilham tudo menos a carga.
-  // `pacote` vindo do <EnvioDeTemplate> => template; ausente => texto livre.
   const enviarPara = async (pacote) => {
     if(!alvo){ setErro('Numero invalido neste lead.'); return; }
-    if(!pacote && !texto.trim()){ setErro('A mensagem esta vazia.'); return; }
+    if(!pacote) return;
     setEnviando(true); setErro('');
     try {
       const { data: { session } } = await supa.auth.getSession();
@@ -3297,14 +3242,16 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
       // No template o `body` NAO e o que a Meta envia (o texto dela vive
       // la): e o registro pro historico do portal, pra conversa nao virar um
       // "[template]" seco. Ver persistWhatsAppMessage na rota.
-      const carga = pacote
-        ? { to: alvo, type:'template', template: pacote.template,
-            languageCode: pacote.idioma, components: pacote.components,
-            body: pacote.registro }
-        : { to: alvo, body: texto };
       const r = await fetch('/api/whatsapp/send', {
         method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ accessToken: session.access_token, ...carga })
+        body: JSON.stringify({
+          accessToken: session.access_token,
+          to: alvo, type:'template', template: pacote.template,
+          languageCode: pacote.idioma, components: pacote.components,
+          // O `body` NAO e o que a Meta envia (o texto dela vive la): e o
+          // registro pro historico, pra conversa nao virar "[template]".
+          body: pacote.registro,
+        })
       });
       let raw = ''; try { raw = await r.text(); } catch(_){}
       let res = {}; try { res = JSON.parse(raw); } catch(_){}
@@ -3347,85 +3294,24 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
 
         {/* Corpo rolavel */}
         <div style={{ padding:20, overflowY:'auto', flex:1 }}>
-          {/* Escolha do que sai. Template e o padrao porque e a UNICA coisa
-              que a Meta deixa passar pra quem nunca escreveu pra loja. */}
-          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
-            {[['template','1ª mensagem (template aprovado)'],['livre','Texto livre']].map(([v, rot]) => (
-              <button key={v} onClick={()=>{ setModo(v); setErro(''); }}
-                style={{ flex:1, padding:'9px 12px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer',
-                  border:'1.5px solid '+(modo===v ? C.p1 : C.border),
-                  background: modo===v ? C.p1+'12' : '#fff', color: modo===v ? C.p1 : C.muted }}>
-                {rot}
-              </button>
-            ))}
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:14 }}>
+            Quem nunca escreveu pra loja não tem janela aberta — o WhatsApp só
+            aceita <strong style={{ color:C.ink }}>template aprovado</strong> como
+            primeira mensagem, e o texto dele é fixo (quem guarda é a Meta).
+            Assim que a pessoa <strong style={{ color:C.ink }}>responder</strong>,
+            abrem 24h pra falar livremente — e aí a conversa segue na aba
+            <strong style={{ color:C.ink }}> WhatsApp</strong>, que tem o histórico
+            e a sugestão da IA.
           </div>
 
-          {modo === 'template' ? (
-            <div>
-              <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:10 }}>
-                Quem nunca escreveu pra loja não tem janela aberta — o WhatsApp
-                só aceita template aprovado como primeira mensagem. <strong style={{ color:C.ink }}>O
-                texto abaixo é fixo</strong> e não dá pra editar: quem guarda ele é a Meta.
-                Assim que a pessoa <strong style={{ color:C.ink }}>responder</strong>, abrem 24h
-                pra falar livremente — aí a aba WhatsApp (ou o "Texto livre" aqui) vale.
-              </div>
-              <EnvioDeTemplate
-                waId={alvo}
-                nomeContato={lead.name}
-                enviando={enviando}
-                estagio={estagio}
-                onEnviar={enviarPara}
-              />
-            </div>
-          ) : (
-            <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:12 }}>
-              Texto livre só sai se a pessoa escreveu pra loja nas últimas 24h.
-              Em número novo isto falha — e a faixa vermelha vai dizer isso.
-              Para o primeiro contato, use a aba do template.
-            </div>
-          )}
+          <EnvioDeTemplate
+            waId={alvo}
+            nomeContato={lead.name}
+            enviando={enviando}
+            estagio={estagio}
+            onEnviar={enviarPara}
+          />
 
-          <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:8, marginTop: modo==='template' ? 18 : 0 }}>
-            Citar algum produto? <span style={{ fontWeight:400, color:C.muted }}>— opcional. A mensagem já diz o que a loja tem pra este segmento.</span>
-          </div>
-          <input value={busca} onChange={e=>setBusca(e.target.value)}
-            onKeyDown={e => { if(e.key==='Enter'){ e.preventDefault(); buscarProdutos(busca.trim() || null); } }}
-            placeholder="Buscar outro produto no catálogo e apertar Enter…"
-            style={{ width:'100%', padding:'8px 12px', borderRadius:10, border:'1.5px solid '+C.border, fontSize:13, outline:'none', marginBottom:10 }} />
-          {carregando ? (
-            <div style={{ color:C.muted, fontSize:13, padding:'10px 0' }}>Buscando no catálogo…</div>
-          ) : produtos.length === 0 ? (
-            <div style={{ color:C.muted, fontSize:13, padding:'10px 0' }}>
-              Nenhum produto casou com este segmento. Tudo bem: a mensagem já fala das linhas que a loja tem. Use a busca acima se quiser citar algo específico.
-            </div>
-          ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:16 }}>
-              {produtos.map(p => (
-                <label key={p.id} style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'8px 10px', border:'1px solid '+(sel[p.id]?C.p1:C.border), borderRadius:10, cursor:'pointer', background: sel[p.id]?C.p1+'0d':'#fff' }}>
-                  <input type="checkbox" checked={!!sel[p.id]}
-                    onChange={()=>{ setSel(s => ({ ...s, [p.id]: !s[p.id] })); setEditado(false); }} />
-                  <span style={{ fontSize:12, lineHeight:1.35 }}>
-                    <span style={{ fontWeight:600, color:C.ink }}>{p.name}</span>
-                    {p.line ? <div style={{ color:C.muted, fontSize:11 }}>{p.line}</div> : null}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
-
-          <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <span>Mensagem</span>
-            {editado ? (
-              <button onClick={()=>setEditado(false)} style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 8px', fontSize:11, cursor:'pointer', color:C.muted }}>
-                ↺ Voltar ao texto automático
-              </button>
-            ) : null}
-          </div>
-          <textarea value={texto} onChange={e=>{ setTexto(e.target.value); setEditado(true); }} rows={10}
-            style={{ width:'100%', padding:12, borderRadius:12, border:'1.5px solid '+C.border, fontSize:13, lineHeight:1.5, outline:'none', resize:'vertical', fontFamily:'DM Sans, sans-serif' }} />
-          <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>
-            Sem preço por regra da loja — valor e orçamento são tratados por uma pessoa.
-          </div>
           {erro ? <div style={{ marginTop:10, padding:'8px 12px', background:'#fdecea', color:'#b3261e', borderRadius:8, fontSize:12 }}>{erro}</div> : null}
         </div>
 
@@ -3436,16 +3322,6 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
           </span>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={onClose} style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'9px 16px', fontSize:13, cursor:'pointer', color:C.muted }}>Cancelar</button>
-            {/* No modo template quem envia e o botao do <EnvioDeTemplate>,
-                que so libera com as variaveis preenchidas. Dois botoes de
-                enviar na mesma tela, um deles ignorando as variaveis, seria
-                convite pra mandar "Oi ,". */}
-            {modo === 'livre' ? (
-              <button onClick={()=>enviarPara(null)} disabled={enviando || !alvo}
-                style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 22px', fontSize:13, fontWeight:700, cursor: enviando?'wait':'pointer', opacity: enviando||!alvo ? .6 : 1 }}>
-                {enviando ? (estagio || 'Enviando…') : '📤 Enviar texto livre'}
-              </button>
-            ) : null}
           </div>
         </div>
       </div>
