@@ -1855,6 +1855,43 @@
       trocar código e configuração ao mesmo tempo deixaria a varredura sem
       chamador no intervalo.
     - `delivery_error_code`/`delivery_error_title` também rodaram nessa leva.
+  - **MÍDIA RECEBIDA PELA CLOUD API (2026-09-05).** A conversa mostrava
+    `[audio]` e `[sticker]` secos: o webhook da Meta **não tratava mídia
+    nenhuma**. Toda a Wave 49 (`whatsapp-media.ts`) foi escrita pra
+    **Evolution**, que mandava base64 dentro do próprio evento — e só o
+    webhook DELA chamava `processarMidia`.
+    - **Na Cloud API o arquivo não vem no webhook**: vem um `id`, e os bytes
+      se buscam em DOIS passos (`GET /{id}` devolve URL temporária; a URL
+      entrega o arquivo). Os dois pedem o mesmo Bearer.
+      `baixarMidiaCloudApi` faz isso; upload, transcrição e nome de arquivo
+      são os mesmos da Wave 49.
+    - **O objeto da mídia vem numa chave com o NOME DO TIPO** (`audio`,
+      `image`, `sticker`, `video`, `document`), não numa chave fixa — é o
+      detalhe que o parser tinha que acertar.
+    - Legenda de foto/vídeo (`caption`) vira o corpo da mensagem; áudio
+      continua sendo transcrito, que é o que faz voz entrar na prévia e no
+      histórico que a IA lê.
+    - Tudo best-effort: falhar deixa a mensagem com o marcador do tipo, que
+      é pior que ter o arquivo e MUITO melhor que perder a mensagem.
+    - **Incerteza declarada:** a URL temporária costuma apontar pro CDN da
+      Meta, e a nossa credencial é do Dualhook. Se o CDN recusar, o corpo da
+      recusa vai pro log — é a única pista de que o caminho precisa de outra
+      credencial.
+  - **"ABORDAR" É SÓ TEMPLATE (2026-09-05, decisão do usuário).** O modal
+    tinha aba de "texto livre" com seletor de produtos e campo de mensagem
+    (o pitch do `montarAbordagem`). Saiu inteiro:
+    - Abordagem é, por definição, a PRIMEIRA mensagem pra quem nunca
+      escreveu — janela fechada, só template passa. O campo de texto ali
+      nunca ia enviar nada; era um convite pro 131047.
+    - Depois que a pessoa responde, a conversa vive na aba WhatsApp, que já
+      tem campo, sugestão da IA e histórico. Dois lugares pra escrever a
+      mesma conversa espalham o atendimento.
+    - **`montarAbordagem` foi APAGADA junto** — existia só pra alimentar
+      aquele campo. O follow-up tem textos próprios no servidor
+      (`textoCobranca`/`textoReengajamento`); não dependia dela. Código
+      morto com comentário dizendo que alguém usa é pior que apagar.
+    - Bug corrigido de brinde: o seletor de produtos e o campo de mensagem
+      apareciam TAMBÉM no modo template, onde não faziam nada.
   - **TEMPLATES VÊM DA META, não de lista escrita à mão (2026-09-05).**
     `GET /api/whatsapp/templates` consulta o Dualhook
     (`/{WABA}/message_templates`), filtra `APPROVED` e devolve nome,

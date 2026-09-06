@@ -59,6 +59,16 @@ import {
   type InboundWhatsAppMessage,
 } from '@/lib/api/_services/whatsapp';
 import { maybeAutoReply } from '@/lib/api/_services/whatsapp-ai-runner';
+import {
+  baixarMidiaCloudApi,
+  caminhoMidia,
+  subirMidia,
+  transcreverAudio,
+} from '@/lib/api/_services/whatsapp-media';
+import {
+  DUALHOOK_API_BASE,
+  GRAPH_API_VERSION,
+} from '@/lib/api/_services/whatsapp';
 
 export const runtime = 'edge';
 
@@ -98,6 +108,53 @@ export async function GET(request: NextRequest) {
 }
 
 /**
+ * Busca o arquivo de uma mensagem de mídia e sobe pro bucket privado.
+ *
+ * Best-effort em cada degrau: falhar aqui deixa a mensagem na conversa com o
+ * marcador do tipo, que é pior que ter o arquivo mas MUITO melhor que perder
+ * a mensagem. Nada aqui pode lançar — isto roda depois da resposta, e a Meta
+ * já recebeu o 200.
+ *
+ * Áudio ainda é transcrito (Whisper): é o que faz a mensagem de voz entrar na
+ * prévia da lista e no histórico que a IA lê — sem isso ela responderia no
+ * vácuo quando o cliente manda áudio.
+ */
+async function materializarMidia(
+  msg: InboundWhatsAppMessage
+): Promise<{ path?: string; mime?: string; transcript?: string } | null> {
+  if (!msg.mediaId) return null;
+  try {
+    const token = getRuntimeEnv('DUALHOOK_API_KEY') || '';
+    if (!token) return null;
+    const baixado = await baixarMidiaCloudApi(
+      msg.mediaId,
+      DUALHOOK_API_BASE,
+      GRAPH_API_VERSION,
+      token
+    );
+    if (!baixado) return null;
+
+    const mime = baixado.mime || msg.mediaMime || '';
+    const path = caminhoMidia(msg.from, msg.messageId, mime, msg.type);
+    const salvo = await subirMidia(path, baixado.bytes, mime);
+    if (!salvo) return null;
+
+    let transcript: string | undefined;
+    if (msg.type === 'audio' || msg.type === 'voice') {
+      const t = await transcreverAudio(baixado.bytes, mime);
+      if (t) transcript = t;
+    }
+    return { path: salvo, mime, transcript };
+  } catch (e) {
+    console.warn(
+      '[whatsapp-webhook] mídia não materializada:',
+      e instanceof Error ? e.message : e
+    );
+    return null;
+  }
+}
+
+/**
  * Loga e grava as mensagens. Roda DEPOIS da resposta (ver `runAfterResponse`),
  * então nada aqui pode afetar o status — só o log conta o que aconteceu.
  */
@@ -110,10 +167,15 @@ async function processarEntrada(messages: InboundWhatsAppMessage[]): Promise<voi
         `type=${msg.type} id=${msg.messageId} preview="${msg.text.slice(0, 60)}"`
     );
   }
+  // Mídia recebida (áudio, foto, vídeo, figurinha, documento). Na Cloud API
+  // o webhook traz só um id; os bytes se buscam depois. Sem isto a conversa
+  // mostrava "[audio]" e "[sticker]" secos, sem como ouvir nem ver.
+  const midias = await Promise.all(messages.map((m) => materializarMidia(m)));
+
   // SQL Wave 38: grava em `whatsapp_messages` (best-effort; wamid UNIQUE
   // dedupa retries da Meta).
   const persisted = await Promise.all(
-    messages.map((msg) =>
+    messages.map((msg, i) =>
       persistWhatsAppMessage({
         direction: 'in',
         waId: msg.from,
@@ -122,6 +184,9 @@ async function processarEntrada(messages: InboundWhatsAppMessage[]): Promise<voi
         type: msg.type,
         body: msg.text,
         waTimestamp: msg.timestamp,
+        mediaUrl: midias[i]?.path,
+        mediaMime: midias[i]?.mime,
+        transcript: midias[i]?.transcript,
       })
     )
   );
