@@ -17,7 +17,8 @@
     é editado no painel da Meta e pode voltar como "Nao tenho interesse"
     sem ninguém aqui saber.
   - **`leads.opted_out_at`** (`/migrations/2026-09-06-leads-opt-out.sql`,
-    uma linha) — **PENDENTE**. Sem ela, `whatsapp_ai_state.opted_out` cala a
+    uma linha) — **JÁ EXECUTADA no Supabase (2026-09-06). Não pedir pra
+    rodar de novo.** Sem ela, `whatsapp_ai_state.opted_out` cala a
     IA e o follow-up, mas o botão "Abordar" da lista segue oferecendo o
     contato e o operador dispara de novo pra quem acabou de dizer não. O
     código TOLERA a coluna ausente (o opt-out da IA já valeu) — recurso novo
