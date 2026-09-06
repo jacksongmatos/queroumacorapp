@@ -6,6 +6,7 @@
 import type { Metadata } from 'next';
 import { ProductsList } from './ProductsList';
 import { AliceFab } from './AliceFab';
+import { CorDoAnoModal } from './CorDoAnoModal';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function LojaPage() {
     <AppShell>
       <ProductsList />
       <AliceFab />
+      <CorDoAnoModal />
     </AppShell>
   );
 }
