@@ -12,12 +12,14 @@ import {
   escolherTemplate,
   getTemplateAbordagem,
   primeiroNome,
+  valorDeVariavel,
   TEMPLATE_COM_NOME,
   TEMPLATE_SEM_NOME,
 } from '../../lib/api/_services/whatsapp';
 
 afterEach(() => {
   delete process.env.WHATSAPP_TEMPLATE_ABORDAGEM;
+  delete process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO;
 });
 
 describe('primeiroNome', () => {
@@ -94,5 +96,88 @@ describe('escolherTemplate', () => {
 
   it('default é o template com nome', () => {
     expect(getTemplateAbordagem()).toBe(TEMPLATE_COM_NOME);
+  });
+});
+
+describe('valorDeVariavel ({{2}} bairro, {{3}} segmento)', () => {
+  it('aceita o dado normal, normalizando espaço', () => {
+    expect(valorDeVariavel('  Jardim   dos Pimentas ')).toBe('Jardim dos Pimentas');
+  });
+
+  it('recusa vazio e valor curto demais pra ser bairro', () => {
+    for (const v of ['', '   ', 'a', null, undefined]) expect(valorDeVariavel(v)).toBeNull();
+  });
+
+  // A base importada usa marcador no lugar do dado. "aqui no n/a" chega
+  // assim mesmo na tela do cliente.
+  it('recusa os marcadores de "sem dado"', () => {
+    for (const v of ['n/a', 'N/A', 'não informado', 'nao informado', 'indefinido', '—', '-']) {
+      expect(valorDeVariavel(v), v).toBeNull();
+    }
+  });
+});
+
+describe('escolherTemplate com bairro e segmento', () => {
+  it('sem a env, NÃO usa o de 3 variáveis (template não aprovado = 132001)', () => {
+    const e = escolherTemplate('Beatris', undefined, { bairro: 'Centro', segmento: 'Pintura' });
+    expect(e.template).toBe(TEMPLATE_COM_NOME);
+    expect(e.components?.[0]?.parameters).toHaveLength(1);
+  });
+
+  it('com a env e os dois dados, manda nome + bairro + segmento', () => {
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+    const e = escolherTemplate('Beatris Porsebon', undefined, {
+      bairro: 'Jardim dos Pimentas',
+      segmento: 'Pintura',
+    });
+    expect(e.template).toBe('calicolors_bairro');
+    expect(e.components).toEqual([
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Beatris' },
+          { type: 'text', text: 'Jardim dos Pimentas' },
+          { type: 'text', text: 'Pintura' },
+        ],
+      },
+    ]);
+  });
+
+  // Meia personalização não existe: {{2}} vazio é envio recusado ou frase
+  // quebrada na tela de quem recebe.
+  it('faltando UM dos dois, desce pro de nome', () => {
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+    for (const dados of [
+      { bairro: 'Centro', segmento: '' },
+      { bairro: null, segmento: 'Pintura' },
+      { bairro: 'Centro', segmento: 'n/a' },
+      {},
+    ]) {
+      const e = escolherTemplate('Beatris', undefined, dados);
+      expect(e.template, JSON.stringify(dados)).toBe(TEMPLATE_COM_NOME);
+      expect(e.components?.[0]?.parameters).toHaveLength(1);
+    }
+  });
+
+  it('sem nome, os outros dois não salvam — vai o fixo', () => {
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+    const e = escolherTemplate(null, undefined, { bairro: 'Centro', segmento: 'Pintura' });
+    expect(e.template).toBe(TEMPLATE_SEM_NOME);
+    expect(e.components).toBeUndefined();
+  });
+
+  it('template escolhido na tela manda mais que o degrau automático', () => {
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+    const e = escolherTemplate('Beatris', 'outro', { bairro: 'Centro', segmento: 'Pintura' });
+    expect(e.template).toBe('outro');
+    expect(e.components?.[0]?.parameters).toHaveLength(1);
+  });
+
+  it('nunca monta parameters com texto vazio, nem no de 3 variáveis', () => {
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+    const e = escolherTemplate('Beatris', undefined, { bairro: 'Centro', segmento: 'Pintura' });
+    for (const p of e.components?.[0]?.parameters ?? []) {
+      expect(String((p as { text?: string }).text ?? '')).not.toBe('');
+    }
   });
 });

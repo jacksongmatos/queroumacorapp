@@ -198,6 +198,45 @@ export function isOptOut(text: string): boolean {
   return /^(pare|parar|sair|remover|descadastrar|nao quero|não quero|stop)\b/.test(t);
 }
 
+/**
+ * A pessoa tocou no botão "Não tenho interesse" do template de abordagem.
+ *
+ * É opt-out igual ao PARE — mas com desfecho diferente: quem tocou nesse
+ * botão respondeu a uma mensagem NOSSA, e sumir sem dizer nada é grosseria.
+ * Vai um agradecimento curto, e só.
+ *
+ * Compara sem acento e sem caixa porque o rótulo do botão é editado no
+ * painel da Meta: "Não tenho interesse" pode virar "Nao tenho interesse"
+ * numa revisão e ninguém aqui ficaria sabendo.
+ */
+export function ehRecusaDeAbordagem(text: string): boolean {
+  const t = (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!]+$/, '');
+  return (
+    t === 'nao tenho interesse' ||
+    t === 'sem interesse' ||
+    t === 'nao me interessa' ||
+    t === 'nao tenho interesse no momento'
+  );
+}
+
+/**
+ * Resposta ao "Não tenho interesse". Curta de propósito: quem acabou de
+ * dizer que não quer não vai ler um parágrafo, e insistir aqui é o que
+ * transforma um "não" educado numa denúncia de spam.
+ *
+ * Não menciona "PARE" nem promete retorno — a decisão da loja (29/08) é
+ * não anunciar opt-out em texto automático, e a pessoa já saiu da lista.
+ */
+export function textoRecusaAgradecida(): string {
+  return 'Obrigado pelo retorno! Não vamos mais incomodar. ' +
+    'Se um dia precisar de tinta ou de uma cor específica, é só chamar aqui. 🎨';
+}
+
 // ─── Prompt ─────────────────────────────────────────────────────────────────
 
 export function buildSystemPrompt(opts: {

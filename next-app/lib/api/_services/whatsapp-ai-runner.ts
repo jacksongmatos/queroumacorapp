@@ -19,6 +19,8 @@ import {
   isAiConfigured,
   isBusinessHour,
   isOptOut,
+  ehRecusaDeAbordagem,
+  textoRecusaAgradecida,
   diaBrt,
   MAX_AUTO_REPLIES_PER_DAY,
   parseHoursSetting,
@@ -331,6 +333,40 @@ async function loadLead(waId: string): Promise<{ id: string; ctx: LeadContext } 
 }
 
 /**
+ * Marca o lead como "não abordar de novo".
+ *
+ * Sem isso, `whatsapp_ai_state.opted_out` cala a IA e o follow-up, mas o
+ * botão "Abordar" da lista de leads continua oferecendo o contato — e o
+ * operador dispara de novo, sem saber, pra quem acabou de dizer não.
+ *
+ * Tolera a coluna ausente (a migration pode não ter rodado ainda): o
+ * opt-out no `whatsapp_ai_state` já valeu, e recusar aqui derrubaria o
+ * atendimento por causa de SQL pendente — a lição de `quotes.post_id`.
+ */
+async function marcarLeadOptOut(waId: string): Promise<boolean> {
+  const tail = waId.slice(-8);
+  try {
+    const r = await fetch(
+      rest(`leads?phone=ilike.*${encodeURIComponent(tail)}*`),
+      {
+        method: 'PATCH',
+        headers: headers({ Prefer: 'return=minimal' }),
+        body: JSON.stringify({ opted_out_at: new Date().toISOString() }),
+        signal: AbortSignal.timeout(DB_TIMEOUT_MS),
+      }
+    );
+    if (!r.ok) {
+      console.warn('[whatsapp-ia] não marquei o lead como opt-out:', r.status, (await r.text()).slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[whatsapp-ia] opt-out do lead falhou:', e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
+/**
  * Ponto de entrada chamado pelo webhook depois de gravar a mensagem
  * recebida. Nunca lança — devolve o que aconteceu, pra log.
  */
@@ -363,6 +399,42 @@ async function decidirEAgir(opts: {
         body: 'A IA foi desligada nesta conversa. Não enviar mais mensagens para este número.',
       });
       return { acted: true, why: 'opt-out' };
+    }
+
+    // 1b. Tocou em "Não tenho interesse" no template de abordagem. É
+    // opt-out igual ao PARE, com uma diferença: essa pessoa respondeu a
+    // uma mensagem NOSSA, então sumir sem dizer nada é grosseria. Vai um
+    // agradecimento curto — e o lead sai da lista de abordagem, senão o
+    // botão "Abordar" ofereceria o contato de novo amanhã.
+    if (ehRecusaDeAbordagem(opts.text)) {
+      await setAiEnabled(opts.waId, false, true);
+      const noLead = await marcarLeadOptOut(opts.waId);
+      // A janela está aberta: ela acabou de tocar no botão. O envio vem
+      // DEPOIS de gravar o opt-out e num try próprio — falhar em agradecer
+      // não pode fazer o número voltar pra lista.
+      try {
+        const corpo = textoRecusaAgradecida();
+        const sent = await sendWhatsAppText({ to: opts.waId, body: corpo });
+        await persistWhatsAppMessage({
+          origin: 'ia',
+          direction: 'out',
+          waId: opts.waId,
+          messageId: sent.messageId,
+          type: 'text',
+          body: corpo,
+        });
+      } catch (e) {
+        console.warn('[whatsapp-ia] não consegui agradecer a recusa:', e instanceof Error ? e.message : e);
+      }
+      await createAlert({
+        kind: 'humano',
+        waId: opts.waId,
+        title: 'Lead disse que não tem interesse',
+        body:
+          'Respondeu pelo botão do template. A IA foi desligada e o número saiu ' +
+          'da abordagem' + (noLead ? '.' : ' — mas NÃO consegui marcar o lead (confira a coluna leads.opted_out_at).'),
+      });
+      return { acted: true, why: 'recusou a abordagem — agradeci e tirei da lista' };
     }
 
     const { enabled, state } = await isAiEnabledFor(opts.waId);

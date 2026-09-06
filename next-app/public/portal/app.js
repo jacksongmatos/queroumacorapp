@@ -5525,6 +5525,11 @@ const TEMPLATES_APROVADOS = [{
 }];
 const TEMPLATE_SEM_NOME = 'calicolors';
 const TEMPLATE_COM_NOME = 'calicolors_nome';
+// {{1}} nome, {{2}} bairro, {{3}} segmento. Mensagem que diz o bairro e o
+// ramo da pessoa e a que menos parece disparo em massa — mas depende de
+// dado que boa parte da base nao tem, entao o fallback pro de nome e
+// obrigatorio, nao opcional.
+const TEMPLATE_COM_BAIRRO = 'calicolors_bairro';
 
 // Lista VIVA, carregada de /api/whatsapp/templates (que consulta a Meta via
 // Dualhook). A lista embutida acima fica de fallback: se a consulta falhar
@@ -5553,9 +5558,24 @@ const primeiroNome = bruto => {
   return p.slice(0, 60);
 };
 
+// Valor utilizavel pra uma variavel de template, ou null. Mesma regua do
+// primeiroNome e pelo mesmo motivo: {{2}} vazio faz a Meta entregar
+// "aqui no  " ou recusar o envio. Recusa tambem os marcadores que a base
+// importada usa no lugar do dado ("n/a", "nao informado"), que chegariam
+// ao cliente como texto literal.
+const valorDeVariavel = bruto => {
+  const limpo = String(bruto || '').trim().replace(/\s+/g, ' ');
+  if (limpo.length < 2) return null;
+  if (!/\p{L}/u.test(limpo)) return null;
+  if (/^(n\/?a|nao informado|não informado|sem (bairro|segmento)|indefinido)$/i.test(limpo)) return null;
+  return limpo.slice(0, 60);
+};
+
 // Monta o que vai no corpo do POST. Sem nome utilizavel -> template fixo,
-// nunca o de variavel com {{1}} vazio.
-const escolherTemplate = (nomeBruto, preferido) => {
+// nunca o de variavel com {{1}} vazio. Com nome + bairro + segmento sobe
+// pro de tres variaveis; falta UM e desce pro de nome, porque meia
+// personalizacao nao existe.
+const escolherTemplate = (nomeBruto, preferido, dados) => {
   const nome = primeiroNome(nomeBruto);
   const alvo = templatePorNome(preferido) || templatePorNome(TEMPLATE_COM_NOME);
   if (alvo && !alvo.precisaNome) return {
@@ -5566,6 +5586,33 @@ const escolherTemplate = (nomeBruto, preferido) => {
     template: TEMPLATE_SEM_NOME,
     nome: null
   };
+  const bairro = valorDeVariavel(dados && dados.bairro);
+  const segmento = valorDeVariavel(dados && dados.segmento);
+  // So usa o de tres variaveis se a Meta disser que ele existe (a lista
+  // viva vem de /api/whatsapp/templates). Template nao aprovado volta
+  // 132001, e chutar que existe quebraria a abordagem de todo lead com
+  // bairro e segmento. O servidor faz a mesma coisa por env — fontes de
+  // prova diferentes, mesma regra: so uso se me disserem que existe.
+  const temBairro = !!templatePorNome(TEMPLATE_COM_BAIRRO);
+  if (!preferido && temBairro && bairro && segmento) {
+    return {
+      template: TEMPLATE_COM_BAIRRO,
+      nome,
+      components: [{
+        type: 'body',
+        parameters: [{
+          type: 'text',
+          text: nome
+        }, {
+          type: 'text',
+          text: bairro
+        }, {
+          type: 'text',
+          text: segmento
+        }]
+      }]
+    };
+  }
   return {
     template: alvo && alvo.nome || TEMPLATE_COM_NOME,
     nome,
@@ -7453,15 +7500,18 @@ const Leads = () => {
         gap: 6
       }
     }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setAbordar(l),
-      title: "Abordagem personalizada pelo numero da loja",
+      onClick: () => {
+        if (!l.opted_out_at) setAbordar(l);
+      },
+      disabled: !!l.opted_out_at,
+      title: l.opted_out_at ? 'Este contato pediu para nao receber mais abordagem' : 'Abordagem personalizada pelo numero da loja',
       style: {
-        background: '#25D366',
-        color: '#fff',
+        background: l.opted_out_at ? C.border : '#25D366',
+        color: l.opted_out_at ? C.muted : '#fff',
         border: 'none',
         borderRadius: 8,
         padding: '6px 12px',
-        cursor: 'pointer',
+        cursor: l.opted_out_at ? 'not-allowed' : 'pointer',
         fontSize: 11,
         fontWeight: 600,
         display: 'flex',
@@ -7469,7 +7519,7 @@ const Leads = () => {
         gap: 4,
         whiteSpace: 'nowrap'
       }
-    }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCAC"), " Abordar"), /*#__PURE__*/React.createElement("button", {
+    }, /*#__PURE__*/React.createElement("span", null, l.opted_out_at ? '🚫' : '💬'), " ", l.opted_out_at ? 'Nao abordar' : 'Abordar'), /*#__PURE__*/React.createElement("button", {
       onClick: () => openWhatsApp(l.phone, l.name),
       title: "Abrir no MEU WhatsApp (nao usa o numero da loja)",
       style: {

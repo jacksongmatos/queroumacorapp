@@ -8,6 +8,8 @@ import {
   diaBrt,
   isBusinessHour,
   isOptOut,
+  ehRecusaDeAbordagem,
+  textoRecusaAgradecida,
   replyLeaksPrice,
   shouldSendAway,
   textoAusencia,
@@ -188,5 +190,60 @@ describe('buildSystemPrompt', () => {
     const p = buildSystemPrompt({ primeiroContato: false });
     expect(p).not.toContain('PRIMEIRA MENSAGEM DA CONVERSA');
     expect(p).toContain('No máximo 3 frases curtas');
+  });
+});
+
+// ── "Não tenho interesse" (quick reply do template) ─────────────────────
+describe('ehRecusaDeAbordagem', () => {
+  it('reconhece o rótulo do botão', () => {
+    expect(ehRecusaDeAbordagem('Não tenho interesse')).toBe(true);
+  });
+
+  // O rótulo é editado no painel da Meta: pode voltar sem acento, em outra
+  // caixa ou com ponto, e ninguém aqui ficaria sabendo.
+  it('não depende de acento, caixa ou pontuação', () => {
+    for (const t of [
+      'nao tenho interesse',
+      'NÃO TENHO INTERESSE',
+      '  Não tenho interesse.  ',
+      'Sem interesse',
+      'não me interessa',
+    ]) {
+      expect(ehRecusaDeAbordagem(t), t).toBe(true);
+    }
+  });
+
+  it('não confunde com quem está conversando', () => {
+    for (const t of [
+      'tenho interesse',
+      'tenho interesse sim',
+      'me interessa muito',
+      'qual o preço?',
+      '',
+      'não tenho interesse em tinta acrílica, quero esmalte',
+    ]) {
+      expect(ehRecusaDeAbordagem(t), t).toBe(false);
+    }
+  });
+
+  it('é separado do PARE — os dois calam, mas o desfecho difere', () => {
+    expect(isOptOut('Não tenho interesse')).toBe(false);
+    expect(ehRecusaDeAbordagem('PARE')).toBe(false);
+  });
+});
+
+describe('textoRecusaAgradecida', () => {
+  const texto = textoRecusaAgradecida();
+
+  it('é curto — quem disse não não vai ler parágrafo', () => {
+    expect(texto.length).toBeLessThan(200);
+  });
+
+  it('não fala preço (a regra da loja vale aqui também)', () => {
+    expect(replyLeaksPrice(texto)).toBe(false);
+  });
+
+  it('não anuncia o PARE (decisão da loja, 29/08)', () => {
+    expect(texto).not.toMatch(/\bPARE\b/);
   });
 });
