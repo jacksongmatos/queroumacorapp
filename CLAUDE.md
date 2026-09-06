@@ -1,5 +1,39 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **QUICK REPLY DE TEMPLATE CHEGAVA COMO BOLHA VAZIA (2026-09-06).** Quem
+  tocava num botão do template de abordagem mandava `type='button'` com
+  `{text, payload}` — e NADA em `text.body`. O `parseInboundMessages` só
+  olhava `text.body` e `caption`, então o corpo saía vazio: a conversa
+  mostrava bolha em branco e o `if (!texto) continue` do webhook **pulava a
+  mensagem**, ou seja, justamente quem demonstrou interesse ficava sem
+  resposta. `type='interactive'` (button_reply/list_reply) tinha o mesmo
+  buraco. Agora o rótulo do botão vira o corpo, e o `payload` (identificador
+  estável que a gente define no template) é guardado à parte.
+  - **"Não tenho interesse" é opt-out com desfecho PRÓPRIO.** O `PARE` cala
+    e não responde; aqui a pessoa respondeu a uma mensagem NOSSA, e sumir é
+    grosseria — vai um agradecimento curto (`textoRecusaAgradecida`, sem
+    preço e sem anunciar PARE, decisão de 29/08) e o lead sai da abordagem.
+    `ehRecusaDeAbordagem` compara SEM ACENTO E SEM CAIXA: o rótulo do botão
+    é editado no painel da Meta e pode voltar como "Nao tenho interesse"
+    sem ninguém aqui saber.
+  - **`leads.opted_out_at`** (`/migrations/2026-09-06-leads-opt-out.sql`,
+    uma linha) — **PENDENTE**. Sem ela, `whatsapp_ai_state.opted_out` cala a
+    IA e o follow-up, mas o botão "Abordar" da lista segue oferecendo o
+    contato e o operador dispara de novo pra quem acabou de dizer não. O
+    código TOLERA a coluna ausente (o opt-out da IA já valeu) — recurso novo
+    não derruba o que funciona por SQL pendente. Coluna nova em vez de
+    `status='perdido'`: "perdido" quer dizer "não fechou", e sobrescrever o
+    status apagaria o funil de um lead talvez já qualificado.
+  - **Template de 3 variáveis (`{{2}}` bairro, `{{3}}` segmento) é OPT-IN.**
+    `escolherTemplate` só sobe pra ele com PROVA de que existe: o servidor
+    pela env `WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO`, o portal pela lista viva
+    que vem da Meta. Ligar por padrão faria todo lead com os dois dados
+    falhar com 132001 (template não aprovado). **Faltando UM dos dois, desce
+    pro `calicolors_nome`** — meia personalização não existe: `{{2}}` vazio
+    é envio recusado ou frase quebrada na tela do cliente. `valorDeVariavel`
+    recusa também os marcadores da base importada ("n/a", "não informado"),
+    que chegariam como texto literal.
+
 - **UPLOAD DE MÍDIA SEM SEGUNDA CHANCE — "Falha de rede ao enviar a mídia
   (1,3 MB)" (2026-09-06).** Um pintor levou esse erro publicando um story com
   foto de 1,3 MB — abaixo do `COMPRESS_THRESHOLD`, então nem passa pelo

@@ -628,6 +628,8 @@ describe('parseInboundMessages', () => {
         mediaId: null,
         mediaMime: null,
         filename: null,
+        // Idem pro rótulo de botão (2026-09-06): mensagem de texto não tem.
+        replyPayload: null,
       },
     ]);
   });
@@ -751,5 +753,72 @@ describe('parseInboundMessages — mídia', () => {
   it('tipo desconhecido não inventa mídia', () => {
     const [m] = parseInboundMessages(envelopeMidia({ type: 'reaction', reaction: { emoji: '👍' } }));
     expect(m.mediaId).toBeNull();
+  });
+});
+
+// ── Quick reply de template (2026-09-06) ────────────────────────────────
+// A pessoa toca num botão do template e a Meta manda `type='button'` com
+// `{text, payload}` — nada em `text.body`. Isso caía em corpo VAZIO: a
+// bolha aparecia em branco na conversa e o atendimento automático pulava a
+// mensagem (`if (!texto) continue`), então justamente quem demonstrou
+// interesse ficava sem resposta.
+describe('parseInboundMessages: resposta por botão', () => {
+  function envelope(msg: Record<string, unknown>) {
+    return {
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                contacts: [{ wa_id: '5511999998888', profile: { name: 'Fabio' } }],
+                messages: [{ from: '5511999998888', id: 'wamid.X', timestamp: '1757000000', ...msg }],
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('quick reply de template vira o texto do botão', () => {
+    const [m] = parseInboundMessages(
+      envelope({ type: 'button', button: { text: 'Não tenho interesse', payload: 'SEM_INTERESSE' } })
+    );
+    expect(m.text).toBe('Não tenho interesse');
+    expect(m.type).toBe('button');
+    expect(m.replyPayload).toBe('SEM_INTERESSE');
+    expect(m.mediaId).toBeNull();
+  });
+
+  it('botão de mensagem interativa também', () => {
+    const [m] = parseInboundMessages(
+      envelope({
+        type: 'interactive',
+        interactive: { type: 'button_reply', button_reply: { id: 'sim', title: 'Quero saber mais' } },
+      })
+    );
+    expect(m.text).toBe('Quero saber mais');
+    expect(m.replyPayload).toBe('sim');
+  });
+
+  it('item de lista interativa também', () => {
+    const [m] = parseInboundMessages(
+      envelope({
+        type: 'interactive',
+        interactive: { type: 'list_reply', list_reply: { id: 'tinta', title: 'Tintas' } },
+      })
+    );
+    expect(m.text).toBe('Tintas');
+  });
+
+  it('texto puro segue intocado, sem payload', () => {
+    const [m] = parseInboundMessages(envelope({ type: 'text', text: { body: 'oi' } }));
+    expect(m.text).toBe('oi');
+    expect(m.replyPayload).toBeNull();
+  });
+
+  it('botão sem rótulo não inventa texto', () => {
+    const [m] = parseInboundMessages(envelope({ type: 'button', button: { payload: 'X' } }));
+    expect(m.text).toBe('');
   });
 });

@@ -342,10 +342,48 @@ export async function sendWhatsAppTemplate(opts: {
 // ou recusar o envio. Por isso o fallback existe e é obrigatório.
 export const TEMPLATE_SEM_NOME = 'calicolors';
 export const TEMPLATE_COM_NOME = 'calicolors_nome';
+/**
+ * Template de três variáveis: {{1}} nome, {{2}} bairro, {{3}} segmento.
+ * Mensagem que diz o bairro e o ramo da pessoa é a que menos parece
+ * disparo em massa — mas ela depende de dado que boa parte da base não
+ * tem, então o fallback pro de nome é obrigatório, não opcional.
+ */
+export const TEMPLATE_COM_BAIRRO = 'calicolors_bairro';
 
 /** Template padrão da abordagem. Env sobrescreve sem deploy. */
 export function getTemplateAbordagem(): string {
   return getRuntimeEnv('WHATSAPP_TEMPLATE_ABORDAGEM') || TEMPLATE_COM_NOME;
+}
+
+/**
+ * Template de 3 variáveis, ou null quando ele não está liberado.
+ *
+ * É OPT-IN pela env (`WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO`), e isso não é
+ * burocracia: template não aprovado na Meta faz o envio voltar 132001, e
+ * ligar por padrão quebraria a abordagem de TODO lead que tem bairro e
+ * segmento — a maioria da base importada. Aprovou lá, seta a env aqui e
+ * liga sem deploy.
+ */
+export function getTemplateAbordagemBairro(): string | null {
+  return getRuntimeEnv('WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO') || null;
+}
+
+/**
+ * Valor utilizável pra uma variável de template, ou null.
+ *
+ * Mesma régua do `primeiroNome`, pelo mesmo motivo: `{{2}}` vazio faz a
+ * Meta entregar "aqui no  " ou recusar o envio. Recusa também os
+ * marcadores que a base importada usa no lugar do dado ("—", "n/a"), que
+ * chegariam ao cliente como texto literal.
+ */
+export function valorDeVariavel(bruto: string | null | undefined): string | null {
+  const limpo = (bruto || '').trim().replace(/\s+/g, ' ');
+  if (limpo.length < 2) return null;
+  if (!/[\p{L}]/u.test(limpo)) return null;
+  if (/^(n\/?a|nao informado|não informado|sem (bairro|segmento)|indefinido)$/i.test(limpo)) {
+    return null;
+  }
+  return limpo.slice(0, 60);
 }
 
 /**
@@ -384,13 +422,37 @@ export interface EscolhaDeTemplate {
  */
 export function escolherTemplate(
   nomeBruto: string | null | undefined,
-  preferido?: string
+  preferido?: string,
+  dados?: { bairro?: string | null; segmento?: string | null }
 ): EscolhaDeTemplate {
   const nome = primeiroNome(nomeBruto);
-  const comNome = preferido || getTemplateAbordagem();
   if (!nome) return { template: TEMPLATE_SEM_NOME, nome: null };
+
+  // Degrau de cima: nome + bairro + segmento. Falta UM e desce pro de
+  // nome — meia personalização não existe, {{2}} vazio é envio recusado
+  // ou frase quebrada na tela do cliente. `preferido` (o operador
+  // escolheu na tela) manda mais que o degrau automático.
+  const bairro = valorDeVariavel(dados?.bairro);
+  const segmento = valorDeVariavel(dados?.segmento);
+  const comBairro = getTemplateAbordagemBairro();
+  if (!preferido && comBairro && bairro && segmento) {
+    return {
+      template: comBairro,
+      nome,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: nome },
+            { type: 'text', text: bairro },
+            { type: 'text', text: segmento },
+          ],
+        },
+      ],
+    };
+  }
   return {
-    template: comNome,
+    template: preferido || getTemplateAbordagem(),
     nome,
     components: [{ type: 'body', parameters: [{ type: 'text', text: nome }] }],
   };
@@ -694,7 +756,11 @@ export interface InboundWhatsAppMessage {
   messageId: string;
   timestamp: string;
   type: string;
-  /** Corpo quando type='text'; vazio pra mídia/interactive. */
+  /**
+   * Corpo da mensagem. Além do texto puro, carrega a legenda de mídia e o
+   * RÓTULO do botão quando a pessoa responde por quick reply de template
+   * (`type='button'`) ou por menu (`type='interactive'`).
+   */
   text: string;
   /** Nome de perfil do remetente, quando a Meta manda. */
   profileName: string;
@@ -707,6 +773,41 @@ export interface InboundWhatsAppMessage {
   mediaMime: string | null;
   /** Nome original, só em documento. */
   filename: string | null;
+  /**
+   * Payload do botão — o valor que NÓS definimos no template, que pode
+   * diferir do rótulo que a pessoa lê. Guardado porque é o identificador
+   * estável: mudar o texto do botão no painel não deveria quebrar quem
+   * decide pelo payload.
+   */
+  replyPayload: string | null;
+}
+
+/**
+ * Rótulo do botão que a pessoa tocou.
+ *
+ * Quick reply de TEMPLATE chega como `type='button'` com `{text, payload}`;
+ * botão/lista de mensagem interativa chega como `type='interactive'` com
+ * `button_reply.title` ou `list_reply.title`. Os dois casos caíam em texto
+ * VAZIO: a bolha aparecia em branco na conversa e o atendimento automático
+ * pulava a mensagem (`if (!texto) continue`), então quem respondeu tocando
+ * no botão ficava sem resposta — justamente quem demonstrou interesse.
+ */
+function textoDeBotao(msg: Record<string, unknown>): { texto: string; payload: string | null } {
+  const btn = msg.button as { text?: unknown; payload?: unknown } | undefined;
+  if (btn && typeof btn.text === 'string') {
+    return { texto: btn.text, payload: typeof btn.payload === 'string' ? btn.payload : null };
+  }
+  const inter = msg.interactive as
+    | {
+        button_reply?: { id?: unknown; title?: unknown };
+        list_reply?: { id?: unknown; title?: unknown };
+      }
+    | undefined;
+  const escolha = inter?.button_reply || inter?.list_reply;
+  if (escolha && typeof escolha.title === 'string') {
+    return { texto: escolha.title, payload: typeof escolha.id === 'string' ? escolha.id : null };
+  }
+  return { texto: '', payload: null };
 }
 
 /**
@@ -739,12 +840,13 @@ export function parseInboundMessages(payload: unknown): InboundWhatsAppMessage[]
         const midia = msg[tipo] as
           | { id?: unknown; mime_type?: unknown; caption?: unknown; filename?: unknown }
           | undefined;
+        const botao = textoDeBotao(msg);
         const texto =
           typeof (msg.text as { body?: unknown } | undefined)?.body === 'string'
             ? (msg.text as { body: string }).body
             : typeof midia?.caption === 'string'
               ? midia.caption
-              : '';
+              : botao.texto;
         out.push({
           from,
           messageId: typeof msg.id === 'string' ? msg.id : '',
@@ -755,6 +857,7 @@ export function parseInboundMessages(payload: unknown): InboundWhatsAppMessage[]
           mediaId: typeof midia?.id === 'string' ? midia.id : null,
           mediaMime: typeof midia?.mime_type === 'string' ? midia.mime_type : null,
           filename: typeof midia?.filename === 'string' ? midia.filename : null,
+          replyPayload: botao.payload,
         });
       }
     }
