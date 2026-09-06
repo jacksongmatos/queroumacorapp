@@ -251,6 +251,27 @@
     esses dois sem o usuário conferir — o que já se sabe é que a proteção da
     `main` EXISTE (push direto recusado com "protected branch hook declined").
 
+- **CORES DO ANO NA LOJA — modal de uma vez só (2026-09-06).** Ao abrir a
+  `/loja`, um diálogo mostra as Cores do Ano das fabricantes (Sherwin-Williams
+  **Universal Khaki SW 6150**; Suvinil **Tempestade D177** e **Cipó da Amazônia
+  N879** — a Suvinil elegeu DUAS em 2026) com quadro da cor, nome, código e
+  NCS, e um botão "Entendi" que fecha pra sempre. Dados em `lib/coresDoAno.ts`,
+  tela em `app/loja/CorDoAnoModal.tsx`.
+  - **A chave do "já vi" carrega o ANO (`cor_do_ano_visto_2026`).** Com chave
+    fixa, a edição do ano que vem nunca apareceria pra quem já viu esta — o
+    modal morreria em silêncio. Trocar `ANO_DAS_CORES` + a lista faz todo mundo
+    ver uma vez de novo.
+  - **O `hex` é só pro quadradinho da tela** e NÃO substitui o código de
+    fórmula: tela de celular não reproduz tinta, e o modal diz isso ("peça pelo
+    código no balcão") pra não virar reclamação de cor diferente.
+  - **Não mexe no histórico do navegador.** StoryViewer e Click Rua empurram
+    entrada pro VOLTAR do Android fechar o overlay, mas os dois são tela cheia;
+    aqui o `BackGuard` já cuida do voltar e o modal vive dentro da /loja.
+    Empilhar entrada por um diálogo de um botão arriscaria a sentinela do
+    BackGuard sem ganho.
+  - Fechar por Entendi, Esc ou toque no fundo conta igual — reabrir o que a
+    pessoa acabou de fechar é o que ensina a ignorar aviso.
+
 - **DOCUMENTOS LEGAIS: o app não cobra nada de ninguém (2026-09-06, #240).**
   A Privacidade listava o **Mercado Pago** como operador que recebe dados pra
   "processamento de pagamentos do plano PRO e da loja", e os Termos do Cliente

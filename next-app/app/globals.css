@@ -135,12 +135,20 @@ main::-webkit-scrollbar,
   to   { transform: scale(1) translateY(0); }
 }
 
+/* Diálogo simples (Cores do Ano da Loja). Reaproveita os keyframes do tour —
+   é a mesma entrada; o nome é próprio pra não sugerir que o tour está
+   envolvido. */
+.modal-fade { animation: tourBalloonFade .28s ease-out both; }
+.modal-pop  { animation: tourBalloonIn .34s cubic-bezier(.34, 1.4, .64, 1) both; }
+
 /* Sem animação quando o sistema pede movimento reduzido. O componente já
    corta as transições em JS; isto cobre as classes CSS. */
 @media (prefers-reduced-motion: reduce) {
   .tour-ring { animation: none; }
   .tour-balloon-in { animation: none; }
   .tour-balloon-fade { animation: none; }
+  .modal-pop { animation: none; }
+  .modal-fade { animation: none; }
 }
 
 /* ───────────────────────────────────────────────────────────────────────
