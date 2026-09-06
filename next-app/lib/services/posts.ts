@@ -43,6 +43,9 @@ export const MAX_IMAGES = 5;                              // limite UI: até 5 f
 export const COMPRESS_THRESHOLD = 2 * 1024 * 1024;        // >2MB → recomprimir
 export const COMPRESS_MAX_DIM = 1920;                     // lado maior pós-resize
 export const COMPRESS_QUALITY = 0.85;                     // JPEG quality
+// Espera entre a 1a e a 2a tentativa de upload. Curto de propósito: é pra
+// atravessar o soluço do rádio da WebView, não pra esperar a rede voltar.
+export const UPLOAD_RETRY_MS = 900;
 
 // Mime types aceitos no bucket. Mantemos aqui pra validar ANTES do upload
 // (Supabase rejeita com 400 silencioso se não bater — preferimos erro claro).
@@ -72,16 +75,44 @@ export interface UploadMediaResult {
   mediaHash: string;
 }
 
+/** Resultado da leitura do arquivo feita pra calcular o hash. */
+interface LeituraDeMidia {
+  /** SHA-256 hex, ou string vazia quando não deu pra calcular. */
+  hash: string;
+  /**
+   * O binário não pôde ser lido. Diferente de "não calculei o hash": aqui o
+   * blob PERDEU O LASTRO — o arquivo saiu do lugar, ou o `content://` do
+   * Android morreu junto com o processo do app enquanto a foto esperava na
+   * tela (o mesmo acidente que o `pickerRecovery` cobre). Nesse estado o
+   * upload falha com o TypeError cru do fetch, que se parece com queda de
+   * rede e não é: mandar "verifique a conexão" faz a pessoa tentar de novo
+   * pra sempre, com a mesma foto morta.
+   */
+  ilegivel: boolean;
+}
+
 /**
- * SHA-256 hex de um File via crypto.subtle. Edge/browser friendly.
- * Retorna string vazia se a API não estiver disponível ou arquivo vazio
- * (caller decide se trata como blocker — uploadMedia segue mesmo sem hash).
+ * Lê o arquivo inteiro (uma vez) e calcula o SHA-256. A leitura serve
+ * também de sonda: se ela falha, sabemos que o problema é o ARQUIVO, não a
+ * rede.
+ *
+ * Sem `crypto.subtle` não lemos nada, então `ilegivel` fica false — não
+ * saber é diferente de saber que está quebrado.
  */
-async function sha256Hex(file: File): Promise<string> {
-  if (typeof crypto === 'undefined' || !crypto.subtle) return '';
+async function lerEHashear(file: File): Promise<LeituraDeMidia> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    return { hash: '', ilegivel: false };
+  }
+  let buf: ArrayBuffer;
   try {
-    const buf = await file.arrayBuffer();
-    if (buf.byteLength === 0) return '';
+    buf = await file.arrayBuffer();
+  } catch {
+    return { hash: '', ilegivel: true };
+  }
+  // `file.size` já foi conferido lá em cima; chegar aqui com zero byte
+  // significa que a leitura devolveu vazio — mesmo sintoma do blob morto.
+  if (buf.byteLength === 0) return { hash: '', ilegivel: true };
+  try {
     const digest = await crypto.subtle.digest('SHA-256', buf);
     const bytes = new Uint8Array(digest);
     let out = '';
@@ -89,10 +120,19 @@ async function sha256Hex(file: File): Promise<string> {
       const h = bytes[i].toString(16);
       out += h.length === 1 ? '0' + h : h;
     }
-    return out;
+    return { hash: out, ilegivel: false };
   } catch {
-    return '';
+    return { hash: '', ilegivel: false };
   }
+}
+
+/** A mensagem do storage parece queda de rede (e não recusa do servidor)? */
+function pareceQuedaDeRede(msg: string): boolean {
+  return /failed to fetch|load failed|network|networkerror|timed? ?out|aborted/i.test(msg);
+}
+
+function esperar(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
@@ -113,6 +153,13 @@ export async function uploadMedia(
   if (file.size > MAX_FILE_BYTES) {
     throw new ValidationError(
       `Arquivo grande demais (máx ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB).`
+    );
+  }
+  // Arquivo de zero byte não é "quase certo": subir isso grava um post com
+  // mídia quebrada, que ninguém consegue consertar depois.
+  if (file.size === 0) {
+    throw new ValidationError(
+      'O arquivo está vazio. Escolha a foto ou o vídeo de novo.'
     );
   }
 
@@ -139,40 +186,71 @@ export async function uploadMedia(
   const ext =
     (file.name?.split('.').pop()?.toLowerCase() || '').replace(/[^a-z0-9]/g, '') ||
     (mediaType === 'video' ? 'mp4' : 'jpg');
-  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const sb = getSupabase();
+  // Caminho NOVO a cada tentativa. Se a primeira chegou no servidor e só a
+  // resposta se perdeu, repetir o mesmo path devolveria "Duplicate" com
+  // `upsert:false` — um 409 no lugar do erro de verdade. O arquivo órfão da
+  // tentativa perdida é varrido por `cleanup_orphan_media()`.
+  const novoPath = () =>
+    `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const enviar = (destino: string) =>
+    sb.storage.from('posts').upload(destino, file, {
+      contentType: mime,
+      upsert: false,
+    });
 
   // Wave 29: SHA-256 do binário ANTES do upload. Calcula em paralelo
   // com o upload pra não inflar latência (hash de 1-5MB ~50ms; upload
   // ~200ms-2s na rede móvel).
-  const sb = getSupabase();
-  const [hashResult, uploadResult] = await Promise.all([
-    sha256Hex(file),
-    sb.storage.from('posts').upload(path, file, {
-      contentType: mime,
-      upsert: false,
-    }),
-  ]);
-  if (uploadResult.error) {
+  let path = novoPath();
+  const [leitura, primeira] = await Promise.all([lerEHashear(file), enviar(path)]);
+
+  let resultado = primeira;
+  if (resultado.error) {
+    const bruto = resultado.error.message || '';
+    // O arquivo morreu na mão da pessoa: a leitura falhou junto com o
+    // upload. "Tente de novo" não resolve — a foto precisa ser escolhida
+    // outra vez. Só concluímos isso quando as DUAS coisas falham: ler 50 MB
+    // de vídeo pode estourar memória num aparelho fraco enquanto o upload
+    // segue bem, e não é hora de barrar quem estava conseguindo publicar.
+    if (leitura.ilegivel) {
+      throw new ValidationError(
+        'Não foi possível ler o arquivo. Se o app reiniciou depois que você ' +
+          'escolheu a foto, selecione ela de novo.',
+        { bruto },
+      );
+    }
+    // Uma segunda chance antes de devolver o erro. Na WebView o rádio cai
+    // por instantes o tempo todo (é a mesma razão da retentativa do service
+    // worker), e hoje o primeiro soluço custava a publicação inteira.
+    if (pareceQuedaDeRede(bruto)) {
+      await esperar(UPLOAD_RETRY_MS);
+      path = novoPath();
+      resultado = await enviar(path);
+    }
+  }
+
+  if (resultado.error) {
     // Falha de REDE do supabase-js chega aqui como o TypeError cru do fetch
     // ("Failed to fetch" / "Load failed"), que na tela não diz nada a quem
     // está publicando nem a quem vai depurar. Anexamos o tamanho e o passo:
     // upload grande morrendo na rede móvel é a causa comum, e o número é o
-    // que separa "conexão ruim" de "arquivo grande demais".
-    const bruto = uploadResult.error.message || '';
-    const rede = /failed to fetch|load failed|network|networkerror/i.test(bruto);
+    // que separa "conexão ruim" de "arquivo grande demais". A mensagem CRUA
+    // vai no `cause` — é ela que chega no /admin/errors.
+    const bruto = resultado.error.message || '';
     const mb = (file.size / 1024 / 1024).toFixed(1);
     throw new NetworkError(
-      rede
+      pareceQuedaDeRede(bruto)
         ? `Falha de rede ao enviar a mídia (${mb} MB). Verifique a conexão e tente de novo.`
         : bruto || 'Falha ao subir mídia.',
-      uploadResult.error,
+      resultado.error,
     );
   }
   const { data: urlData } = sb.storage.from('posts').getPublicUrl(path);
   if (!urlData?.publicUrl) {
     throw new NetworkError('Bucket não devolveu publicUrl.');
   }
-  return { url: urlData.publicUrl, mediaType, path, mediaHash: hashResult };
+  return { url: urlData.publicUrl, mediaType, path, mediaHash: leitura.hash };
 }
 
 /**

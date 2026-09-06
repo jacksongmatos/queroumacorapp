@@ -38,8 +38,22 @@ export function reportFailure(
 ): void {
   if (typeof window === 'undefined') return;
   try {
-    const e = err as { message?: string; name?: string; stack?: string } | null;
-    const msg = (e?.message || String(err) || 'erro sem mensagem').slice(0, 1000);
+    const e = err as
+      | { message?: string; name?: string; stack?: string; cause?: unknown }
+      | null;
+    // A mensagem que o usuário vê costuma ser a TRADUZIDA ("Falha de rede ao
+    // enviar a mídia (1,3 MB)") — boa pra ele, inútil pra quem depura: ela
+    // apaga o texto do servidor, que é o que diz se foi RLS, mime recusado,
+    // quota ou o TypeError cru do fetch. Anexamos a causa quando existe.
+    const causa = e?.cause as { message?: string } | null | undefined;
+    const causaMsg = causa && typeof causa === 'object' ? String(causa.message ?? '') : '';
+    const msg = [
+      e?.message || String(err) || 'erro sem mensagem',
+      causaMsg ? `| causa: ${causaMsg}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .slice(0, 1000);
     fetch('/api/log-error', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

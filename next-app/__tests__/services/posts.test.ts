@@ -54,6 +54,8 @@ interface QueueItem {
 
 interface StorageOpts {
   uploadResult?: { data?: unknown; error?: unknown };
+  /** Um resultado por TENTATIVA, na ordem — pra cobrir a retentativa. */
+  uploadResults?: Array<{ data?: unknown; error?: unknown }>;
   publicUrl?: string | null;
 }
 
@@ -102,6 +104,9 @@ function makeFakeClient(
   const storageBucket = {
     upload: vi.fn(async (path: string, file: File, opts: unknown) => {
       spies.upload(path, file, opts);
+      if (storageOpts.uploadResults) {
+        return storageOpts.uploadResults.shift() ?? { data: { path }, error: null };
+      }
       const r = storageOpts.uploadResult ?? { data: { path }, error: null };
       return r;
     }),
@@ -278,6 +283,108 @@ describe('uploadMedia', () => {
     await expect(uploadMedia('user-1', file)).rejects.toBeInstanceOf(
       NetworkError
     );
+  });
+
+  // ── Regressão 2026-09-06: "Falha de rede ao enviar a mídia (1.3 MB)" ────
+  // Um único soluço de rede na WebView custava a publicação inteira: não
+  // havia segunda tentativa em lugar nenhum do caminho.
+  it('soluço de rede: tenta de novo e publica', async () => {
+    const { client, spies } = makeFakeClient([], {
+      uploadResults: [
+        { error: { message: 'Failed to fetch' } },
+        { data: { path: 'ok' }, error: null },
+      ],
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    const out = await uploadMedia('user-1', makeFile('foo.jpg', 'image/jpeg', 1000));
+    expect(out.url).toContain('user-1/');
+    expect(spies.upload).toHaveBeenCalledTimes(2);
+  });
+
+  it('a 2a tentativa usa um caminho NOVO (senão volta "Duplicate")', async () => {
+    // Com upsert:false, repetir o mesmo path depois de uma tentativa que
+    // CHEGOU no servidor (e só perdeu a resposta) devolveria 409 — um erro
+    // inventado por nós no lugar do de verdade.
+    const { client, spies } = makeFakeClient([], {
+      uploadResults: [
+        { error: { message: 'Load failed' } },
+        { data: { path: 'ok' }, error: null },
+      ],
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await uploadMedia('user-1', makeFile('foo.jpg', 'image/jpeg', 1000));
+    expect(spies.upload.mock.calls[0][0]).not.toBe(spies.upload.mock.calls[1][0]);
+  });
+
+  it('erro que NÃO é de rede não repete (RLS, mime, quota)', async () => {
+    const { client, spies } = makeFakeClient([], {
+      uploadResults: [
+        { error: { message: 'new row violates row-level security policy' } },
+      ],
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(
+      uploadMedia('user-1', makeFile('foo.jpg', 'image/jpeg', 1000)),
+    ).rejects.toMatchObject({ message: /row-level security/ });
+    expect(spies.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('arquivo ilegível não vira "falha de rede" — manda escolher de novo', async () => {
+    // O blob perdeu o lastro (o app reiniciou depois da escolha da foto).
+    // Dizer "verifique a conexão" faz a pessoa repetir pra sempre com a
+    // mesma foto morta.
+    const { client, spies } = makeFakeClient([], {
+      uploadResult: { error: { message: 'Failed to fetch' } },
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    const file = makeFile('foo.jpg', 'image/jpeg', 1000);
+    vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new Error('não pude ler'));
+    await expect(uploadMedia('user-1', file)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    await expect(uploadMedia('user-1', file)).rejects.toMatchObject({
+      message: /selecione ela de novo/i,
+    });
+    // Não adianta repetir: o arquivo é que morreu.
+    expect(spies.upload).toHaveBeenCalledTimes(2); // 1 por chamada, sem retry
+  });
+
+  it('arquivo ilegível mas upload OK não barra ninguém', async () => {
+    // Ler 50 MB de vídeo pode estourar memória num aparelho fraco enquanto
+    // o upload segue bem. Só concluímos "arquivo morto" quando as DUAS
+    // coisas falham.
+    const { client } = makeFakeClient([]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    const file = makeFile('obra.mp4', 'video/mp4', 1000);
+    vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new Error('sem memória'));
+    const out = await uploadMedia('user-1', file);
+    expect(out.mediaHash).toBe('');
+  });
+
+  it('arquivo de zero byte é recusado antes de sujar o bucket', async () => {
+    const { client, spies } = makeFakeClient([]);
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(
+      uploadMedia('user-1', makeFile('vazio.jpg', 'image/jpeg', 0)),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(spies.upload).not.toHaveBeenCalled();
+  });
+
+  it('mensagem CRUA do storage vai no cause (é o que chega no /admin/errors)', async () => {
+    const { client } = makeFakeClient([], {
+      uploadResults: [
+        { error: { message: 'Failed to fetch' } },
+        { error: { message: 'Failed to fetch' } },
+      ],
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    const err = await uploadMedia(
+      'user-1',
+      makeFile('foo.jpg', 'image/jpeg', 1300000),
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect(err.message).toContain('1.2 MB');
+    expect((err.cause as { message: string }).message).toBe('Failed to fetch');
   });
 });
 
