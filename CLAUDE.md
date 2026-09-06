@@ -32,6 +32,24 @@
   - **Não há prova de qual dos dois disparou no caso do fabio** — a linha
     dele no `/admin/errors` é anterior a essa mudança e não carrega a causa.
     A próxima ocorrência diz.
+  - **A investigação esbarrou numa ferramenta cega — e essa é a lição maior
+    (2026-09-06).** Mandei "abra o /admin/errors, filtre `publish-fail` e
+    procure o `user_id` do fabio". **Nenhuma das três coisas existia.** O
+    `reportFailure` grava 12 tipos e a tela tinha 5 chips escritos à mão,
+    com `scrollpin-diag` (apagado em 30/08) no lugar de destaque; a linha
+    NUNCA mostrava o `user_id`, embora o campo viesse do servidor; e a busca
+    filtra `msg ilike`, onde o id de usuário não aparece nunca. Corrigido:
+    os chips saem do `FAILURE_TYPE_LABELS` (um `Record<FailureType,string>`
+    — **tipo novo sem rótulo não compila**, então o dashboard não envelhece
+    em silêncio de novo), a linha mostra o dono e clicar nele filtra, e
+    `user_id` virou filtro de verdade na rota (só UUID: a coluna é `uuid` e
+    texto solto viraria 400, que a tela mostraria como "falha ao consultar
+    logs" — erro nosso disfarçado de erro do banco).
+  - **REGRA: painel de diagnóstico com lista escrita à mão é lista que
+    mente.** Mesma doença da lista de "SQL pendente" deste arquivo: barato
+    de escrever, ninguém revalida, e o custo aparece justo na hora do
+    incidente. Quando existir a lista canônica (aqui, os tipos que o
+    `reportFailure` aceita), o painel deriva dela.
 
 - **🚫 WEBINTOAPP ESTÁ MORTO — NÃO CITAR, NÃO CONSIDERAR (2026-09-04, decisão
   do usuário).** As DUAS lojas saem do **Codemagic + Capacitor**, deste repo:

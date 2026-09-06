@@ -16,20 +16,33 @@
 // Best-effort de verdade: nunca lança, nunca espera. Se o log falhar, o
 // usuário nem fica sabendo — ele já tem o erro na tela.
 
-/** Tipos usados hoje. `type` do schema tem teto de 32 chars. */
-export type FailureType =
-  | 'publish-fail'
-  | 'avatar-fail'
-  | 'picker-fail'
-  | 'picker-restart'
-  | 'sw-status'
-  | 'profile-load-fail'
-  | 'consent-fail'
-  | 'camera-fail'
-  | 'pdf-link-fail'
-  | 'feed-extras-fail'
-  | 'render-error'
-  | 'video-fail';
+/**
+ * Tipos usados hoje, com o rótulo que o /admin/errors mostra no filtro.
+ *
+ * É um `Record` de propósito: tipo novo aqui sem rótulo NÃO COMPILA, e é o
+ * que impede o dashboard de envelhecer em silêncio. Ele já tinha: eram 12
+ * tipos gravados e 2 filtros na tela, e o chip de destaque era de um
+ * diagnóstico apagado em 30/08. Quem foi procurar um `publish-fail` não
+ * tinha por onde.
+ *
+ * `type` do schema tem teto de 32 chars.
+ */
+export const FAILURE_TYPE_LABELS = {
+  'publish-fail': '📤 Publicar',
+  'avatar-fail': '🖼️ Foto de perfil',
+  'video-fail': '🎬 Vídeo',
+  'picker-fail': '📂 Seletor',
+  'picker-restart': '♻️ App reiniciou',
+  'camera-fail': '📷 Câmera',
+  'pdf-link-fail': '📄 PDF do orçamento',
+  'render-error': '💥 Tela quebrou',
+  'profile-load-fail': '👤 Perfil',
+  'feed-extras-fail': '📰 Feed',
+  'consent-fail': '✍️ Consentimento',
+  'sw-status': '⚙️ Service worker',
+} as const satisfies Record<string, string>;
+
+export type FailureType = keyof typeof FAILURE_TYPE_LABELS;
 
 export function reportFailure(
   type: FailureType,

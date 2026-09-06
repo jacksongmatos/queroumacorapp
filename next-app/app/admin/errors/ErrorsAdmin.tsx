@@ -11,6 +11,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { getSupabase } from '@/lib/supabase';
 import { getTimeAgo } from '@/lib/utils';
 import { ListSkeleton } from '@/components/Skeletons';
+import { FAILURE_TYPE_LABELS } from '@/lib/utils/reportFailure';
 
 interface ErrorRow {
   id: string;
@@ -32,12 +33,17 @@ interface ErrorsListResult {
   total: number;
 }
 
+// Os chips saem da MESMA lista que o `reportFailure` usa pra gravar, então
+// falha nova nasce com filtro. Antes eram 5 chips escritos à mão pra 12
+// tipos gravados — e o primeiro deles era o `scrollpin-diag`, diagnóstico
+// removido em 30/08. Ele fica no fim, pelas linhas históricas.
 const TYPE_FILTERS: { label: string; value: string }[] = [
   { label: 'Todos', value: '' },
-  { label: '📌 Scroll pin', value: 'scrollpin-diag' },
+  ...Object.entries(FAILURE_TYPE_LABELS).map(([value, label]) => ({ value, label })),
   { label: '🔥 SW 5xx', value: 'sw-nav-5xx' },
   { label: 'JS error', value: 'error' },
   { label: 'Web Vitals', value: 'web-vital' },
+  { label: '📌 Scroll pin (histórico)', value: 'scrollpin-diag' },
 ];
 
 const SINCE_OPTIONS: { label: string; value: number }[] = [
@@ -64,7 +70,10 @@ async function fetchErrors(filters: {
       limit: 100,
       type: filters.type || undefined,
       since_hours: filters.since_hours,
-      search: filters.search || undefined,
+      // Buscar "o erro do fulano" precisa filtrar por PESSOA. O `search`
+      // antigo só casava em `msg`, onde o id nunca aparece.
+      search: UUID_RE.test(filters.search) ? undefined : filters.search || undefined,
+      user_id: UUID_RE.test(filters.search) ? filters.search : undefined,
     }),
   });
   const json = (await res.json()) as ErrorsListResult & { error?: string };
@@ -76,7 +85,14 @@ const TYPE_BADGE: Record<string, { bg: string; fg: string }> = {
   'scrollpin-diag': { bg: '#e8f0fe', fg: '#2563eb' },
   'sw-nav-5xx': { bg: '#fde8e8', fg: '#c81e1e' },
   error: { bg: '#fff1e8', fg: '#d2541f' },
+  'publish-fail': { bg: '#fde8e8', fg: '#c81e1e' },
+  'avatar-fail': { bg: '#fde8e8', fg: '#c81e1e' },
+  'render-error': { bg: '#fde8e8', fg: '#c81e1e' },
+  'picker-restart': { bg: '#fff1e8', fg: '#d2541f' },
 };
+
+/** A busca virou UUID? Aí ela filtra por PESSOA, não por mensagem. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function ErrorsAdmin() {
   const { user, loading: authLoading } = useAuth();
@@ -136,7 +152,7 @@ export function ErrorsAdmin() {
             type="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Buscar na mensagem…"
+            placeholder="Mensagem ou ID do usuário…"
             className="flex-1 min-w-0 text-sm border border-[color:var(--color-border)] rounded-lg px-3 py-2 bg-white"
             aria-label="Buscar na mensagem"
           />
@@ -196,6 +212,22 @@ export function ErrorsAdmin() {
                         <span className="text-[11px] text-[color:var(--color-muted)] truncate max-w-[180px]">
                           {r.url}
                         </span>
+                      ) : null}
+                      {/* Sem isto não dá pra saber DE QUEM é a linha — o
+                          campo já vinha do servidor e morria aqui. Clicar
+                          filtra por essa pessoa. */}
+                      {r.user_id ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchInput(r.user_id!);
+                            setSearch(r.user_id!);
+                          }}
+                          title={`Ver só os erros de ${r.user_id}`}
+                          className="text-[11px] font-mono underline text-[color:var(--color-muted)]"
+                        >
+                          👤 {r.user_id.slice(0, 8)}
+                        </button>
                       ) : null}
                     </div>
                     <p className="text-sm break-words whitespace-pre-wrap font-mono text-[13px]">

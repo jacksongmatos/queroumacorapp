@@ -138,4 +138,59 @@ describe('POST /api/admin/errors-list', () => {
     expect(capturedUrl).toContain('TypeError');
     expect(capturedUrl).toContain('limit=25');
   });
+  // 2026-09-06: investigar "o erro do fabio" era impossível — o `search` só
+  // casa em `msg`, e o id do usuário nunca aparece na mensagem.
+  it('filtra por PESSOA quando vem user_id', async () => {
+    let capturedUrl = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'c', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('/rest/v1/errors')) {
+        capturedUrl = url;
+        return Promise.resolve(
+          new Response('[]', { status: 200, headers: { 'content-range': '*/0' } })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/errors-list/route');
+    const uid = '11111111-2222-3333-4444-555555555555';
+    const res = await POST(mkReq({ accessToken: 'good', user_id: uid, type: 'publish-fail' }));
+    expect(res.status).toBe(200);
+    expect(capturedUrl).toContain(`user_id=eq.${uid}`);
+    expect(capturedUrl).toContain('type=eq.publish-fail');
+  });
+
+  it('user_id que não é UUID é ignorado (senão o PostgREST devolve 400)', async () => {
+    // A coluna é `uuid`. Texto solto viraria 400, que a tela mostra como
+    // "falha ao consultar logs" — erro nosso disfarçado de erro do banco.
+    let capturedUrl = '';
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/v1/user')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'c', email: 'boss@x.com' }), { status: 200 })
+        );
+      }
+      if (url.includes('/rpc/check_rate_limit')) {
+        return Promise.resolve(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+      }
+      if (url.includes('/rest/v1/errors')) {
+        capturedUrl = url;
+        return Promise.resolve(
+          new Response('[]', { status: 200, headers: { 'content-range': '*/0' } })
+        );
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    const { POST } = await import('@/app/api/admin/errors-list/route');
+    const res = await POST(mkReq({ accessToken: 'good', user_id: 'fabio' }));
+    expect(res.status).toBe(200);
+    expect(capturedUrl).not.toContain('user_id=');
+  });
 });
