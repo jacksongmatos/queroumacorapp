@@ -1,5 +1,38 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **UPLOAD DE MÍDIA SEM SEGUNDA CHANCE — "Falha de rede ao enviar a mídia
+  (1,3 MB)" (2026-09-06).** Um pintor levou esse erro publicando um story com
+  foto de 1,3 MB — abaixo do `COMPRESS_THRESHOLD`, então nem passa pelo
+  compressor: a foto era pequena e o upload morreu assim mesmo. O que o
+  caminho de publicar NÃO tinha era **retentativa**: um soluço do rádio na
+  WebView (o mesmo que fez o service worker ganhar retry em 22/08) custava a
+  publicação inteira. `uploadMedia` agora repete UMA vez após
+  `UPLOAD_RETRY_MS`, e **num caminho NOVO** — com `upsert:false`, repetir o
+  mesmo path depois de uma tentativa que chegou no servidor e só perdeu a
+  resposta devolveria `Duplicate` (409), um erro inventado por nós no lugar
+  do de verdade. O órfão da tentativa perdida cai no `cleanup_orphan_media()`.
+  - **"Falha de rede" era um balde grande demais.** Quando o blob perde o
+    lastro (o app reiniciou depois que a pessoa escolheu a foto — o acidente
+    que o `pickerRecovery` cobre), o `fetch` também estoura o TypeError cru,
+    e a frase "verifique a conexão" faz a pessoa tentar pra sempre com uma
+    foto morta. O sinal que faltava já existia e era jogado fora: o
+    `sha256Hex` lia o arquivo inteiro e **engolia a falha de leitura** num
+    `catch` mudo. Virou `lerEHashear`, que devolve `ilegivel` — e a mensagem
+    passa a ser "selecione ela de novo". **Só concluímos "arquivo morto"
+    quando leitura E upload falham:** ler 50 MB de vídeo pode estourar
+    memória num aparelho fraco enquanto o upload segue bem, e barrar aí
+    quebraria quem estava conseguindo publicar.
+  - **REGRA: a mensagem amigável não pode ser a única que sobra.** O
+    `reportFailure` gravava só a frase traduzida, então o `/admin/errors`
+    mostrava "Falha de rede ao enviar a mídia" e nada do que o servidor
+    disse — RLS, mime recusado, quota e queda de rede chegavam idênticos.
+    Agora ele anexa `| causa: <mensagem crua>` quando o erro tem `cause`.
+  - Arquivo de zero byte é recusado antes do upload: subir isso grava post
+    com mídia quebrada, que ninguém conserta depois.
+  - **Não há prova de qual dos dois disparou no caso do fabio** — a linha
+    dele no `/admin/errors` é anterior a essa mudança e não carrega a causa.
+    A próxima ocorrência diz.
+
 - **🚫 WEBINTOAPP ESTÁ MORTO — NÃO CITAR, NÃO CONSIDERAR (2026-09-04, decisão
   do usuário).** As DUAS lojas saem do **Codemagic + Capacitor**, deste repo:
   **Android AAB** pelo workflow `android-aab` (→ Internal Testing da Play) e
