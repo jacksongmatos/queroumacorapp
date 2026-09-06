@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default function PrivacidadePage() {
   return (
     <InfoSubPage title="Política de Privacidade">
-      <LegalUpd>Última atualização: 22 de maio de 2026</LegalUpd>
+      <LegalUpd>Última atualização: 6 de setembro de 2026</LegalUpd>
       <LegalP>
         Esta Política de Privacidade explica como o QueroUmaCor coleta, usa,
         compartilha e protege os seus dados pessoais, em conformidade com a Lei
@@ -101,12 +101,13 @@ export default function PrivacidadePage() {
           <b>Functional Software Inc. (Sentry)</b> (EUA) — coleta de erros e
           relatórios de falhas do aplicativo, sem dados pessoais identificáveis
         </li>
-        <li>
-          <b>Mercado Pago</b> (Brasil) — processamento de pagamentos do plano
-          PRO e da loja. O QueroUmaCor não armazena dados de cartão; o
-          checkout é feito direto no ambiente seguro do Mercado Pago
-        </li>
       </ul>
+      <LegalP>
+        <b>Não há pagamento dentro do aplicativo.</b> O Plano PRO é ativado
+        pela troca de pontos acumulados no app e os pedidos da loja são
+        fechados diretamente com a Cali Colors, fora do aplicativo — por isso
+        nenhum dado seu é enviado a processadores de pagamento.
+      </LegalP>
       <LegalP>
         A transferência internacional desses dados ocorre com base no Art. 33 da
         LGPD (cumprimento de obrigação legal e proteção do crédito) e nas
