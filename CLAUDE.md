@@ -313,7 +313,8 @@
     pergunta por nome.** Nome só cobre o que você já sabe que existe.
 
 - **CADASTRO: NADA É OPCIONAL, e o passo 2 mudou (2026-09-07, pedido do
-  usuário).** Telefone, cidade, estado e **foto** viraram obrigatórios; o
+  usuário).** Telefone, cidade e estado viraram obrigatórios (a **foto** é a
+  única exceção — ver abaixo); o
   rótulo "WhatsApp" virou **"Telefone"**.
   - **Nome sai em Maiúscula Inicial sozinho** (`formatarNomeProprio`), com
     conectivo minúsculo ("João da Silva") — menos no começo ("Da Costa").
@@ -331,13 +332,16 @@
       app roda em WebView.
     - **Cidade aceita texto livre de propósito** (`allowFree`): se o IBGE não
       responder, travar o cadastro é pior que aceitar o nome digitado.
-  - **A FOTO OBRIGATÓRIA REABRE UM RISCO CONHECIDO** — ela virou opcional em
-    28/08 porque, no Android, abrir a galeria manda o app pro fundo e o
-    sistema pode MATAR o processo: com a foto obrigatória, quem perdesse o
-    processo não conseguia terminar a conta. Mitigado, não eliminado: o passo
-    2 agora **salva o rascunho ANTES de abrir o seletor** (`onPersist`), e a
-    câmera é o segundo caminho. Se voltar a travar cadastro, é o primeiro
-    lugar a olhar.
+  - **A FOTO CONTINUA OPCIONAL — a exceção da regra "nada é opcional".** Ela
+    foi obrigatória por algumas horas em 07/09 e voltou atrás no mesmo dia,
+    por decisão do usuário depois de ver o risco: no Android, abrir a galeria
+    manda o app pro fundo e o sistema pode MATAR o processo, então foto
+    obrigatória vira porta trancada (foi o incidente de 28/08). Tem teste
+    travando isso pra ela não voltar a ser porta sem querer.
+  - **O `onPersist` FICOU**: o passo 2 salva o rascunho ANTES de abrir o
+    seletor. Vale de todo jeito — quem escolhe foto e perde o processo não
+    perde mais o que já digitou. Era um buraco real: os campos viviam só no
+    RHF, e o rascunho só era salvo na troca de passo.
 
 - **MODO ESCURO: `text-white` era texto ESCURO (2026-09-07).** No dark, o logo
   "QueroUmaCor" e o "Loja Cali Colors" sumiam. Causa: o Tailwind compila

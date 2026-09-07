@@ -119,8 +119,12 @@ describe('estado e cidade', () => {
   });
 });
 
-describe('nada é opcional', () => {
-  it('não continua sem foto', async () => {
+describe('foto', () => {
+  it('segue OPCIONAL — continuar sem ela não pode travar o cadastro', async () => {
+    // Foi obrigatória por algumas horas em 07/09/2026 e voltou atrás no mesmo
+    // dia: no Android, abrir a galeria pode fazer o sistema matar o processo
+    // do app, e aí a foto obrigatória vira porta trancada (incidente de
+    // 28/08). Este teste existe pra ela não voltar a ser porta sem querer.
     const onNext = montar();
     fireEvent.change(screen.getByLabelText('Nome completo'), {
       target: { value: 'Maria Souza' },
@@ -131,10 +135,24 @@ describe('nada é opcional', () => {
     fireEvent.change(screen.getByLabelText('Telefone'), {
       target: { value: '(11) 99999-9999' },
     });
+    fireEvent.change(screen.getByLabelText('Data de nascimento'), {
+      target: { value: '10/10/1991' },
+    });
+    const estado = screen.getByLabelText('Estado') as HTMLInputElement;
+    fireEvent.focus(estado);
+    fireEvent.change(estado, { target: { value: 'são pau' } });
+    fireEvent.mouseDown(await screen.findByText('São Paulo'));
+    const cidade = screen.getByLabelText('Cidade') as HTMLInputElement;
+    await waitFor(() => expect(cidade.disabled).toBe(false));
+    fireEvent.focus(cidade);
+    fireEvent.change(cidade, { target: { value: 'guaru' } });
+    fireEvent.mouseDown(await screen.findByText('Guarulhos'));
+
     await act(async () => {
       fireEvent.click(screen.getByText('Continuar →'));
     });
-    expect(onNext).not.toHaveBeenCalled();
-    expect(await screen.findByText('Escolha uma foto para continuar.')).toBeTruthy();
+    // Sem foto, e mesmo assim avança.
+    await waitFor(() => expect(onNext).toHaveBeenCalled());
+    expect(onNext.mock.calls[0][0].avatarFile).toBeNull();
   });
 });
