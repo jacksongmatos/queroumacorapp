@@ -141,7 +141,7 @@ let ehNumeroEUA: (waId: string) => boolean;
 let escolherNoPortal: (
   nome: string | null | undefined,
   preferido?: string,
-  dados?: { bairro?: string | null; segmento?: string | null }
+  dados?: { cidade?: string | null; segmento?: string | null }
 ) => { template: string; nome: string | null; components?: unknown[] };
 let registroDeTemplate: (e: { template: string; nome: string | null }) => string;
 let parseRegistroTemplate: (b: string) => { template: string; param: string | null } | null;
@@ -179,13 +179,13 @@ describe('escolha de template: portal e servidor concordam', () => {
     'J Silva',
   ];
 
-  // Bairro + segmento (2026-09-06). Os dois lados só sobem pro template de
+  // Cidade + segmento (2026-09-06; era bairro até 07/09). Os dois lados só sobem pro template de
   // 3 variáveis com PROVA de que ele existe — o servidor pela env, o portal
   // pela lista viva que vem da Meta. Sem prova, os dois descem pro de nome:
   // template não aprovado volta 132001 e quebraria a abordagem de todo lead
   // que tem os dois dados.
   it('sem prova de que o template de 3 variáveis existe, os dois descem pro de nome', () => {
-    const dados = { bairro: 'Jardim dos Pimentas', segmento: 'Pintura' };
+    const dados = { cidade: 'Guarulhos', segmento: 'pintura residencial' };
     const p = escolherNoPortal('Beatris', undefined, dados);
     const sv = escolherNoServidor('Beatris', undefined, dados);
     expect(p.template).toBe(sv.template);

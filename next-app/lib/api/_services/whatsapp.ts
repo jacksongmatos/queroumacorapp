@@ -343,12 +343,16 @@ export async function sendWhatsAppTemplate(opts: {
 export const TEMPLATE_SEM_NOME = 'calicolors';
 export const TEMPLATE_COM_NOME = 'calicolors_nome';
 /**
- * Template de três variáveis: {{1}} nome, {{2}} bairro, {{3}} segmento.
- * Mensagem que diz o bairro e o ramo da pessoa é a que menos parece
- * disparo em massa — mas ela depende de dado que boa parte da base não
- * tem, então o fallback pro de nome é obrigatório, não opcional.
+ * Template de três variáveis: {{1}} nome, {{2}} CIDADE, {{3}} segmento
+ * ("Vi que você atende em {{2}} e trabalha com {{3}}"). Mensagem que diz a
+ * cidade e o ramo da pessoa é a que menos parece disparo em massa — mas ela
+ * depende de dado que parte da base não tem, então o fallback pro de nome é
+ * obrigatório, não opcional.
+ *
+ * Era "bairro" até 2026-09-07; a decisão do usuário é CIDADE, que quase
+ * todo lead tem (bairro faltava na maioria). O nome é o que a Meta aprovou.
  */
-export const TEMPLATE_COM_BAIRRO = 'calicolors_bairro';
+export const TEMPLATE_COM_CIDADE = 'calicolors_abordagem_v2';
 
 /** Template padrão da abordagem. Env sobrescreve sem deploy. */
 export function getTemplateAbordagem(): string {
@@ -358,21 +362,21 @@ export function getTemplateAbordagem(): string {
 /**
  * Template de 3 variáveis, ou null quando ele não está liberado.
  *
- * É OPT-IN pela env (`WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO`), e isso não é
+ * É OPT-IN pela env (`WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE`), e isso não é
  * burocracia: template não aprovado na Meta faz o envio voltar 132001, e
- * ligar por padrão quebraria a abordagem de TODO lead que tem bairro e
+ * ligar por padrão quebraria a abordagem de TODO lead que tem cidade e
  * segmento — a maioria da base importada. Aprovou lá, seta a env aqui e
  * liga sem deploy.
  */
-export function getTemplateAbordagemBairro(): string | null {
-  return getRuntimeEnv('WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO') || null;
+export function getTemplateAbordagemCidade(): string | null {
+  return getRuntimeEnv('WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE') || null;
 }
 
 /**
  * Valor utilizável pra uma variável de template, ou null.
  *
  * Mesma régua do `primeiroNome`, pelo mesmo motivo: `{{2}}` vazio faz a
- * Meta entregar "aqui no  " ou recusar o envio. Recusa também os
+ * Meta entregar "atende em  " ou recusar o envio. Recusa também os
  * marcadores que a base importada usa no lugar do dado ("—", "n/a"), que
  * chegariam ao cliente como texto literal.
  */
@@ -380,7 +384,7 @@ export function valorDeVariavel(bruto: string | null | undefined): string | null
   const limpo = (bruto || '').trim().replace(/\s+/g, ' ');
   if (limpo.length < 2) return null;
   if (!/[\p{L}]/u.test(limpo)) return null;
-  if (/^(n\/?a|nao informado|não informado|sem (bairro|segmento)|indefinido)$/i.test(limpo)) {
+  if (/^(n\/?a|nao informado|não informado|sem (cidade|bairro|segmento)|indefinido)$/i.test(limpo)) {
     return null;
   }
   return limpo.slice(0, 60);
@@ -423,28 +427,28 @@ export interface EscolhaDeTemplate {
 export function escolherTemplate(
   nomeBruto: string | null | undefined,
   preferido?: string,
-  dados?: { bairro?: string | null; segmento?: string | null }
+  dados?: { cidade?: string | null; segmento?: string | null }
 ): EscolhaDeTemplate {
   const nome = primeiroNome(nomeBruto);
   if (!nome) return { template: TEMPLATE_SEM_NOME, nome: null };
 
-  // Degrau de cima: nome + bairro + segmento. Falta UM e desce pro de
+  // Degrau de cima: nome + cidade + segmento. Falta UM e desce pro de
   // nome — meia personalização não existe, {{2}} vazio é envio recusado
   // ou frase quebrada na tela do cliente. `preferido` (o operador
   // escolheu na tela) manda mais que o degrau automático.
-  const bairro = valorDeVariavel(dados?.bairro);
+  const cidade = valorDeVariavel(dados?.cidade);
   const segmento = valorDeVariavel(dados?.segmento);
-  const comBairro = getTemplateAbordagemBairro();
-  if (!preferido && comBairro && bairro && segmento) {
+  const comCidade = getTemplateAbordagemCidade();
+  if (!preferido && comCidade && cidade && segmento) {
     return {
-      template: comBairro,
+      template: comCidade,
       nome,
       components: [
         {
           type: 'body',
           parameters: [
             { type: 'text', text: nome },
-            { type: 'text', text: bairro },
+            { type: 'text', text: cidade },
             { type: 'text', text: segmento },
           ],
         },
