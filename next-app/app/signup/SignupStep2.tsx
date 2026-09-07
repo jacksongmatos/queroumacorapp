@@ -122,9 +122,6 @@ export function SignupStep2({ userType, initial, onNext, onBack, onPersist }: Pr
   const [avatarFile, setAvatarFile] = useState<File | null>(initial?.avatarFile ?? null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [camAberta, setCamAberta] = useState(false);
-  // Só acende depois que a pessoa tenta continuar — cobrar a foto antes de
-  // ela chegar no fim do formulário é ranzinza.
-  const [fotoFaltando, setFotoFaltando] = useState(false);
   const podeCamera = useOfereceCamera();
 
   const {
@@ -229,7 +226,6 @@ export function SignupStep2({ userType, initial, onNext, onBack, onPersist }: Pr
     if (!ehImagem(file)) return;
     if (file.size > 5 * 1024 * 1024) return;
     setAvatarFile(file);
-    setFotoFaltando(false);
     const reader = new FileReader();
     reader.onload = (ev) => setAvatarPreview(String(ev.target?.result ?? ''));
     reader.readAsDataURL(file);
@@ -237,22 +233,12 @@ export function SignupStep2({ userType, initial, onNext, onBack, onPersist }: Pr
 
   function onSubmit(data: Step2Data) {
     if (tagStatus === 'taken') return;
-    if (!avatarFile) {
-      setFotoFaltando(true);
-      return;
-    }
     onNext({ ...data, avatarFile });
   }
 
   return (
     <form
-      onSubmit={handleSubmit(onSubmit, () => {
-        // O resolver barra antes de `onSubmit` rodar. Sem isto, quem toca em
-        // Continuar com o formulário incompleto veria os erros dos campos e
-        // NADA sobre a foto — e descobriria que ela era obrigatória só na
-        // tentativa seguinte. Todos os pendentes aparecem de uma vez.
-        if (!avatarFile) setFotoFaltando(true);
-      })}
+      onSubmit={handleSubmit(onSubmit)}
       className="space-y-4"
       noValidate
     >
@@ -292,19 +278,21 @@ export function SignupStep2({ userType, initial, onNext, onBack, onPersist }: Pr
         </p>
       </Field>
 
-      {/* Foto de perfil — OBRIGATÓRIA desde 07/09/2026 (decisão do usuário:
-          nada no cadastro é opcional). O upload acontece no passo 3.
+      {/* Foto de perfil — OPCIONAL. Foi obrigatória por algumas horas em
+          07/09/2026 e voltou a ser opcional no mesmo dia, por decisão do
+          usuário depois de entender o risco: no Android, abrir a galeria
+          manda o app pro fundo e o sistema pode MATAR o processo — com a
+          foto obrigatória, quem perdesse o processo não terminava a conta
+          (foi o que aconteceu em 28/08).
 
-          RISCO CONHECIDO, mitigado e não eliminado: no Android o seletor pode
-          derrubar o processo do app (foi por isso que a foto virou opcional
-          em 28/08). O que segura agora é o `onPersist` acima — o passo salva
-          o rascunho ANTES de abrir o seletor — mais a câmera como segundo
-          caminho. Se voltar a travar cadastro, é aqui que se olha. */}
+          O `onPersist` acima FICA: salvar o rascunho antes de abrir o
+          seletor é bom de todo jeito — quem escolhe uma foto e perde o
+          processo não perde mais o que já digitou. */}
       <div>
         <label
           className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]"
         >
-          Foto de perfil
+          Foto de perfil (opcional)
         </label>
         <div className="flex items-center gap-3">
           <div
@@ -380,18 +368,9 @@ export function SignupStep2({ userType, initial, onNext, onBack, onPersist }: Pr
           onCapture={aceitarFoto}
           ctx="signup"
         />
-        <p
-          className={
-            'text-xs mt-1 ' +
-            (fotoFaltando
-              ? 'text-[color:var(--color-danger)]'
-              : 'text-[color:var(--color-muted)]')
-          }
-          role={fotoFaltando ? 'alert' : undefined}
-        >
-          {fotoFaltando
-            ? 'Escolha uma foto para continuar.'
-            : 'Aparece no seu story e no seu perfil.'}
+        <p className="text-xs text-[color:var(--color-muted)] mt-1">
+          Aparece no seu story e perfil. Dá pra adicionar depois em Perfil →
+          Editar.
         </p>
       </div>
 
