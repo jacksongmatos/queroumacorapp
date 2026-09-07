@@ -154,8 +154,36 @@ export async function updateProfile(
   let attempt: ProfilePatch = { ...cleaned };
   for (let i = 0; i < Object.keys(cleaned).length + 1; i++) {
     if (Object.keys(attempt).length === 0) return; // nada sobrou pra atualizar
-    const { error } = await sb.from('profiles').update(attempt as never).eq('id', userId);
-    if (!error) return;
+    // `.select('id')` NÃO é enfeite: UPDATE que não acha linha nenhuma volta
+    // SUCESSO com zero linhas. Era esse silêncio que fazia o
+    // /completar-perfil virar um loop — a pessoa clicava em "Concluir
+    // cadastro", nada era gravado, e a tela voltava a pedir os mesmos dados
+    // (relatado em 07/09/2026, depois de três correções que erraram o alvo).
+    const { data: atingidas, error } = await sb
+      .from('profiles')
+      .update(attempt as never)
+      .eq('id', userId)
+      .select('id');
+    if (!error) {
+      if (atingidas && atingidas.length > 0) return;
+      // NÃO EXISTE LINHA DE PERFIL pra este usuário. Acontece quando a
+      // trigger `handle_new_user` falha: ela engole a própria exceção com
+      // RAISE WARNING, então a conta de auth nasce e o perfil não.
+      // A policy "Users can insert own profile" permite o dono criar a
+      // própria linha — é o único jeito de sair do loop pelo app.
+      const { error: insErr } = await sb
+        .from('profiles')
+        .insert({ id: userId, ...attempt } as never);
+      if (!insErr) return;
+      // Falhou o insert também: ESTOURA. Antes isto seguia em silêncio e a
+      // tela reaparecia sem explicação nenhuma — erro visível é melhor que
+      // loop mudo.
+      throw new NetworkError(
+        'Não foi possível gravar seu perfil (o cadastro ficou sem registro no banco). ' +
+          insErr.message,
+        insErr,
+      );
+    }
     const msg = (error as { message?: string }).message || '';
     // Postgrest 4.x reporta "Could not find the 'X' column" quando a coluna
     // não existe no schema cache (DDL pendente). Extraímos X e droppamos.

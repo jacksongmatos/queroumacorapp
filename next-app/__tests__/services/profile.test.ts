@@ -39,6 +39,7 @@ interface ChainSpies {
   select: ReturnType<typeof vi.fn>;
   eq: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
+  insert: ReturnType<typeof vi.fn>;
   maybeSingle: ReturnType<typeof vi.fn>;
   storageFrom: ReturnType<typeof vi.fn>;
   upload: ReturnType<typeof vi.fn>;
@@ -70,6 +71,7 @@ function makeFakeClient(opts: FakeOpts = {}): {
     select: vi.fn(),
     eq: vi.fn(),
     update: vi.fn(),
+    insert: vi.fn(),
     maybeSingle: vi.fn(),
     storageFrom: vi.fn(),
     upload: vi.fn(),
@@ -97,6 +99,11 @@ function makeFakeClient(opts: FakeOpts = {}): {
     update: (patch: Record<string, unknown>) => {
       spies.update(patch);
       return chain;
+    },
+    insert: (row: Record<string, unknown>) => {
+      spies.insert(row);
+      const r = nextResponse();
+      return Promise.resolve({ data: r.data ?? null, error: r.error ?? null });
     },
     // maybeSingle retorna a próxima resposta direto (não chainable).
     maybeSingle: () => {
@@ -210,7 +217,9 @@ describe('updateProfile', () => {
   });
 
   it('happy path: aplica update + filtra por id + normaliza tag/state', async () => {
-    const { client, spies } = makeFakeClient({ queue: [{ data: null }] });
+    // `data` com uma linha = o UPDATE achou o perfil (é o que o `.select('id')`
+    // devolve). Sem isso o service entende "perfil não existe" e tenta criar.
+    const { client, spies } = makeFakeClient({ queue: [{ data: [{ id: 'u1' }] }] });
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
 
     await updateProfile('u1', {
@@ -231,6 +240,47 @@ describe('updateProfile', () => {
     // (supabase_init.sql). O vanilla setava como no-op silencioso; o typed
     // client agora rejeita. Garante que NÃO está mais sendo enviado.
     expect(updateCall.updated_at).toBeUndefined();
+  });
+
+  it('perfil INEXISTENTE: cria a linha em vez de fingir que gravou', async () => {
+    // O loop do /completar-perfil (07/09/2026): a pessoa clicava em "Concluir
+    // cadastro", o UPDATE não achava linha nenhuma — o que no Supabase é
+    // SUCESSO com zero linhas, não erro — nada era gravado e a tela voltava a
+    // pedir os mesmos dados. Sem fim.
+    const { client, spies } = makeFakeClient({
+      queue: [
+        { data: [] }, // UPDATE não achou linha
+        { data: null, error: null }, // INSERT ok
+      ],
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+
+    await updateProfile('u1', { name: 'Fulano', tag: 'fulano' });
+
+    const inserido = spies.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(inserido.id).toBe('u1');
+    expect(inserido.name).toBe('Fulano');
+    expect(inserido.tag).toBe('fulano');
+  });
+
+  it('perfil inexistente E insert recusado → ERRO visível, nunca loop mudo', async () => {
+    const { client } = makeFakeClient({
+      queue: [
+        { data: [] }, // UPDATE não achou linha
+        { data: null, error: { message: 'new row violates row-level security policy' } },
+      ],
+    });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(updateProfile('u1', { name: 'x' })).rejects.toBeInstanceOf(
+      NetworkError,
+    );
+  });
+
+  it('UPDATE que achou a linha NÃO tenta inserir', async () => {
+    const { client, spies } = makeFakeClient({ queue: [{ data: [{ id: 'u1' }] }] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await updateProfile('u1', { name: 'x' });
+    expect(spies.insert).not.toHaveBeenCalled();
   });
 
   it('error path → joga NetworkError', async () => {
