@@ -16,6 +16,8 @@
 
 'use client';
 
+import { isProfessionalRole } from '@/lib/roles';
+
 import { useMemo, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -53,7 +55,7 @@ export function ChatConversation({ convId }: ChatConversationProps) {
   // a loja Cali Colors no chat com o cliente (vanilla #invite-store-bar).
   const role = profile?.role || profile?.user_type;
   const isPainter =
-    role === 'pintor' || role === 'grafiteiro' || role === 'automotivo';
+    isProfessionalRole(role);
 
   // Realtime: idempotente — se ChatList já montou, isso é no-op até unmount.
   // Cobre o caso de deeplink direto na conv.

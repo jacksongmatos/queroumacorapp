@@ -28,10 +28,11 @@ import { listQuals, listCourses, type Qualification, type Course } from '@/lib/s
 import { listPainterReviews, type PainterReview } from '@/lib/services/reviews';
 import type { Profile } from '@/lib/types';
 import { reportFailure } from '@/lib/utils/reportFailure';
+import { isProfessionalRole } from '@/lib/roles';
 
-// Roles considerados "profissionais" — habilitam CTA de orçamento, seção de
-// avaliações e o selo de raio de atendimento. Cliente comum não vê.
-const PRO_ROLES = new Set(['pintor', 'grafiteiro', 'automotivo', 'funileiro']);
+// Quem é "profissional" (CTA de orçamento, avaliações, raio de atendimento)
+// vem de `lib/roles`. Era um Set escrito à mão aqui — uma das nove cópias da
+// mesma lista, que divergiam entre si.
 
 interface PortfolioPost {
   id: string;
@@ -154,7 +155,7 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
   useEffect(() => {
     if (!profile?.id) return;
     const targetId = profile.id;
-    const isProfessional = PRO_ROLES.has(String(profile.role ?? '').toLowerCase());
+    const isProfessional = isProfessionalRole(profile.role);
     let cancel = false;
     const sb = getSupabase();
     // Stats já vêm das colunas do profile (efeito acima). Aqui: portfólio +
@@ -303,7 +304,7 @@ export function PublicProfileView({ idOrTag }: { idOrTag: string }) {
   const ratingAvg = Number(profile?.rating_avg ?? 0);
   const reviewCount = Number(profile?.review_count ?? 0);
   const serviceRadius = Number(profile?.service_radius ?? 0);
-  const isProfessional = PRO_ROLES.has(String(role ?? '').toLowerCase());
+  const isProfessional = isProfessionalRole(role);
   // Visitante também vê "Mensagem" — o clique abre o cadastro via handleMessage.
   const canMessage = !isOwn && !!profile?.id;
 

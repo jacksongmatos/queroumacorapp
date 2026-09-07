@@ -127,16 +127,39 @@ export async function signUp(input: SignupData): Promise<SignupResult> {
     throw new ValidationError('Falha ao criar conta.');
   }
 
-  // UPDATE pós-trigger: campos que não foram populados pela trigger
-  // handle_new_user (birth_date, city, state, avatar_url, invited_by).
-  // Best-effort — falhar não invalida a conta criada.
+  // UPDATE pós-trigger. Duas funções:
+  //
+  //  1. Campos que a trigger pode não ter populado (birth_date, city, state,
+  //     avatar_url, invited_by).
+  //  2. REAFIRMAR a identidade — name, @tag, categoria e telefone. Isso é
+  //     defesa contra uma versão ANTIGA da `handle_new_user` viva no banco:
+  //     a versão anterior a 18/06/2026 gravava só name/user_type/role, e o
+  //     perfil nascia SEM @tag. Sem tag, o `isProfileComplete` diz
+  //     "incompleto" e o AppShell manda a pessoa recém-cadastrada pro
+  //     /completar-perfil, que pede de novo o que ela acabou de digitar —
+  //     o "cadastro em duas etapas" relatado em 07/09/2026.
+  //     Escrever o mesmo valor que a trigger já gravou é no-op; escrever o
+  //     que faltou conserta. Não dá pra checar qual versão está viva daqui,
+  //     e não é preciso: o UPDATE cobre as duas.
+  //
+  // Best-effort — falhar não invalida a conta criada (sem sessão, a RLS
+  // recusa, e aí o /completar-perfil cumpre o papel de rede de segurança).
   const extras: {
+    name?: string;
+    tag?: string;
+    user_type?: string;
+    phone?: string;
     birth_date?: string | null;
     city?: string | null;
     state?: string | null;
     avatar_url?: string | null;
     invited_by?: string | null;
-  } = {};
+  } = {
+    name: input.name,
+    tag: input.tag.trim().toLowerCase(),
+    user_type: input.userType,
+  };
+  if (input.phone) extras.phone = input.phone;
   if (input.birthDate) extras.birth_date = input.birthDate;
   if (input.city) extras.city = input.city;
   if (input.state) extras.state = input.state.toUpperCase();

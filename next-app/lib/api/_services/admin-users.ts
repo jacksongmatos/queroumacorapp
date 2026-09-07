@@ -21,6 +21,10 @@ const ROLE_MAP: Record<string, Record<string, string>> = {
   grafiteiro: { role: 'grafiteiro', user_type: 'grafiteiro', profession: 'grafiteiro' },
   automotivo: { role: 'automotivo', user_type: 'automotivo', profession: 'automotivo' },
   funileiro: { role: 'automotivo', user_type: 'automotivo', profession: 'funileiro' },
+  arquiteto: { role: 'arquiteto', user_type: 'arquiteto', profession: 'arquiteto' },
+  // 'engenheiro' grava o MESMO papel, mudando só a profissão exibida —
+  // exatamente como 'funileiro' faz com 'automotivo'.
+  engenheiro: { role: 'arquiteto', user_type: 'arquiteto', profession: 'engenheiro' },
   cliente: { role: 'cliente', user_type: 'cliente' },
 };
 

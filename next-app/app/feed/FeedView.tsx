@@ -25,7 +25,7 @@ import { PostCard } from './PostCard';
 import { FeedStories } from './FeedStories';
 import { SuggestionsList } from '@/components/SuggestionsList';
 
-type RoleFilter = '' | 'pintor' | 'grafiteiro' | 'automotivo';
+type RoleFilter = '' | 'pintor' | 'grafiteiro' | 'automotivo' | 'arquiteto';
 
 interface FilterButton {
   value: RoleFilter;
@@ -39,6 +39,7 @@ const FILTER_BUTTONS: readonly FilterButton[] = [
   { value: 'pintor', label: '🖌️ Pintura' },
   { value: 'grafiteiro', label: '🎨 Grafite' },
   { value: 'automotivo', label: '🚗 Funileiro / Automotivo' },
+  { value: 'arquiteto', label: '📐 Arquitetura / Engenharia' },
 ];
 
 function PostSkeleton() {

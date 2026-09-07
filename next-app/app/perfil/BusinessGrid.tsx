@@ -203,7 +203,8 @@ const ROLE_TILES: ReadonlyArray<{ sheet: SheetKey; emoji: string; title: string;
     emoji: '⭐',
     title: 'Avaliar serviço',
     subtitle: 'Pinte como foi a obra',
-    roles: ['cliente'],
+    // Arquiteto/engenheiro CONTRATA pintor, então avalia obra como o cliente.
+    roles: ['cliente', 'arquiteto'],
   },
 ];
 
@@ -252,12 +253,15 @@ export function BusinessGrid() {
     // só faz sentido pra pintor. Fica em TILES, e não em ROLE_TILES, pra não
     // mudar de lugar no grid: ROLE_TILES renderiza antes de tudo, e o tile
     // pularia da vizinhança da Calculadora pro topo da tela.
-    if (t.sheet === 'tabela-precos') return showAdmin || userRole === 'pintor';
+    // Tabela ABRAPP é de mão de obra de PINTURA: serve a quem pinta e a
+    // quem contrata pintor pra saber se o preço da proposta faz sentido.
+    if (t.sheet === 'tabela-precos')
+      return showAdmin || userRole === 'pintor' || userRole === 'arquiteto';
     if (t.sheet === 'seu-ze') {
       // M6 fix: condição era `!userRole && userRole !== 'cliente'` que é
       // tautológica (se !userRole, segunda parte é sempre true). Intenção
       // original era: pintor OU sem role definida (fallback). Sem cliente.
-      return showAdmin || userRole === 'pintor' || !userRole;
+      return showAdmin || userRole === 'pintor' || userRole === 'arquiteto' || !userRole;
     }
     if (t.sheet === 'fe') return showAdmin || userRole === 'grafiteiro';
     if (t.sheet === 'senna') return showAdmin || userRole === 'automotivo' || userRole === 'funileiro';

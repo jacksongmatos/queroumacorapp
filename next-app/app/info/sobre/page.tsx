@@ -42,7 +42,8 @@ export default function SobrePage() {
           }}
         >
           Conectamos clientes aos melhores profissionais de pintura — pintores,
-          grafiteiros, muralistas, pintores automotivos e funileiros — de um
+          grafiteiros, muralistas, pintores automotivos, funileiros, arquitetos
+          e engenheiros — de um
           jeito simples, perto de você.
         </p>
         <div

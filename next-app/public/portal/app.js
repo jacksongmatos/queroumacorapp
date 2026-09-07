@@ -330,7 +330,7 @@ const authService = {
 };
 
 // Classificacao de perfis (consistente em todo o portal)
-const PRO_ROLES = ['pintor', 'grafiteiro', 'graffiti', 'automotivo', 'funileiro'];
+const PRO_ROLES = ['pintor', 'grafiteiro', 'graffiti', 'automotivo', 'funileiro', 'arquiteto', 'engenheiro'];
 const roleOf = p => (p && (p.role || p.user_type) || '').toString().trim().toLowerCase();
 // Obs: a coluna profession tem DEFAULT 'pintor', entao NAO serve para
 // classificar (marcaria todo cliente como profissional). Usada so no rotulo.
@@ -345,6 +345,8 @@ const ROLE_LABEL = {
   graffiti: 'Grafiteiro/Muralista',
   automotivo: 'Pintor Automotivo',
   funileiro: 'Funileiro',
+  arquiteto: 'Arquiteto',
+  engenheiro: 'Engenheiro',
   cliente: 'Cliente',
   admin: 'Admin'
 };
@@ -368,6 +370,16 @@ const APP_ROLE_OPTIONS = [{
   label: 'Funileiro',
   role: 'automotivo',
   profession: 'funileiro'
+}, {
+  v: 'arquiteto',
+  label: 'Arquiteto',
+  role: 'arquiteto',
+  profession: 'arquiteto'
+}, {
+  v: 'engenheiro',
+  label: 'Engenheiro',
+  role: 'arquiteto',
+  profession: 'engenheiro'
 }, {
   v: 'cliente',
   label: 'Cliente',
@@ -1336,8 +1348,11 @@ const setProfileRole = async (id, roleKey, after) => {
 // Deduz a opcao atual de papel a partir do profile
 const currentRoleKey = p => {
   if (professionOf(p) === 'funileiro') return 'funileiro';
+  // Engenheiro e o mesmo papel do arquiteto, mudando so a profissao exibida.
+  if (professionOf(p) === 'engenheiro') return 'engenheiro';
   const r = roleOf(p);
-  if (['pintor', 'grafiteiro', 'automotivo', 'cliente'].includes(r)) return r;
+  if (['pintor', 'grafiteiro', 'automotivo', 'arquiteto', 'cliente'].includes(r)) return r;
+  if (r === 'engenheiro') return 'arquiteto';
   if (r === 'graffiti') return 'grafiteiro';
   return isProProfile(p) ? 'pintor' : 'cliente';
 };
@@ -12576,6 +12591,19 @@ const PAGES_DEF = [{
     emptyMsg: "Nenhum funileiro cadastrado."
   })
 }, {
+  id: 'arquitetos',
+  icon: '📐',
+  label: 'Arquitetos / Engenheiros',
+  section: 'PESSOAS',
+  badgeKey: 'arquitetos',
+  component: /*#__PURE__*/React.createElement(PintoresList, {
+    key: "arquitetos",
+    roleFilter: p => currentRoleKey(p) === 'arquiteto' || currentRoleKey(p) === 'engenheiro',
+    title: "Arquitetos / Engenheiros",
+    defaultRole: "arquiteto",
+    emptyMsg: "Nenhum arquiteto ou engenheiro cadastrado."
+  })
+}, {
   id: 'leads',
   icon: '🧲',
   label: 'Leads',
@@ -13144,6 +13172,7 @@ function App() {
         pintores: profiles.filter(p => isProProfile(p) && currentRoleKey(p) === 'pintor').length,
         grafiteiros: profiles.filter(p => isProProfile(p) && currentRoleKey(p) === 'grafiteiro').length,
         funileiros: profiles.filter(p => isProProfile(p) && (currentRoleKey(p) === 'funileiro' || currentRoleKey(p) === 'automotivo')).length,
+        arquitetos: profiles.filter(p => isProProfile(p) && (currentRoleKey(p) === 'arquiteto' || currentRoleKey(p) === 'engenheiro')).length,
         leads: leadsRes.count || 0,
         clientes: profiles.filter(isClienteProfile).length,
         portalUsers: profiles.filter(p => p.portal_access === true).length

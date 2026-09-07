@@ -19,6 +19,7 @@ export type UserRole =
   | 'pintor'
   | 'grafiteiro'
   | 'automotivo'
+  | 'arquiteto'
   | 'cliente'
   | 'admin';
 

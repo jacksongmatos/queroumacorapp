@@ -13,6 +13,7 @@
 // `.mkt-search` do vanilla (styles.css linha 691+).
 
 'use client';
+import { isProfessionalRole } from '@/lib/roles';
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
@@ -113,7 +114,7 @@ function SuggestionCard({
 }) {
   const name = profile.name || (profile.tag ? '@' + profile.tag : 'Usuário');
   const city = profile.city ? profile.city : '';
-  const isPintor = profile.role === 'pintor' || profile.role === 'grafiteiro' || profile.role === 'automotivo';
+  const isPintor = isProfessionalRole(profile.role);
 
   return (
     <div

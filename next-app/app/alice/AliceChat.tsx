@@ -19,8 +19,9 @@ import { useProfile } from '@/lib/hooks/useProfile';
 import { useAlice } from '@/lib/hooks/useAlice';
 import { ChatMessage, TypingIndicator, type AvatarConfig } from '../seu-ze/ChatMessage';
 import { VoiceRecorder } from '../seu-ze/VoiceRecorder';
+import { isProfessionalRole } from '@/lib/roles';
 
-const PROFESSIONAL_ROLES = new Set(['pintor', 'grafiteiro', 'automotivo', 'funileiro']);
+// Quem é profissional vem de `lib/roles` (fonte única).
 
 const ALICE_AVATAR: AvatarConfig = {
   src: '/img/alice.webp',
@@ -133,7 +134,7 @@ export function AliceChat() {
     (profile as { is_admin?: boolean } | null)?.is_admin === true ||
     (profile as { portal_access?: boolean } | null)?.portal_access === true ||
     role === 'admin';
-  if (!isAdminLike && PROFESSIONAL_ROLES.has(role)) {
+  if (!isAdminLike && isProfessionalRole(role)) {
     return (
       <div className="text-center py-12 px-4 rounded-2xl bg-white border border-[color:var(--color-border)]">
         <div className="text-5xl mb-3" aria-hidden="true">🎨</div>
