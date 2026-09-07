@@ -18,6 +18,7 @@ import {
   dataBRParaISO,
   isoParaDataBR,
   limparNome,
+  formatarNomeProprio,
   limparTag,
   sugerirTagDeNome,
   personNameSchema,
@@ -137,7 +138,20 @@ describe('nome: só letras, mas ACENTO É LETRA', () => {
 
   it('o filtro de digitação tira só o que não pode', () => {
     expect(limparNome('João 123')).toBe('João ');
-    expect(limparNome('Maria-José')).toBe('Maria-José');
     expect(limparNome('Ana@#$')).toBe('Ana');
+    // 07/09/2026 — hífen e apóstrofo saíram junto com o resto: a regra
+    // pedida foi "só letra e acento". O custo é conhecido e está aqui pra
+    // ninguém descobrir por acidente: nome composto perde o sinal.
+    expect(limparNome('Maria-José')).toBe('MariaJosé');
+    expect(limparNome("D'Ávila")).toBe('DÁvila');
+  });
+
+  it('formata em Maiúscula Inicial, com conectivo minúsculo', () => {
+    expect(formatarNomeProprio('joão da silva')).toBe('João da Silva');
+    expect(formatarNomeProprio('MARIA DOS SANTOS')).toBe('Maria dos Santos');
+    expect(formatarNomeProprio('ana')).toBe('Ana');
+    // Conectivo no COMEÇO mantém a maiúscula — "da Costa" sozinho pareceria
+    // erro do app.
+    expect(formatarNomeProprio('da costa')).toBe('Da Costa');
   });
 });

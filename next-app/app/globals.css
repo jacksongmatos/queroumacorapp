@@ -16,6 +16,12 @@
      o --color-ink vira creme claro mas este aqui segue escuro pra
      texto/ícones brancos continuarem legíveis. */
   --color-ink-fixed: #1a1a2e;
+  /* Par do `--color-ink-fixed`: o BRANCO que NÃO inverte.
+     `--color-white` é a superfície de card e vira escura no dark — então
+     `text-white` sobre a barra (que segue escura de propósito) virava
+     texto escuro em fundo escuro: o logo "QueroUmaCor" e o "Loja" sumiam.
+     Texto/ícone sobre chrome fixo usa este. */
+  --color-white-fixed: #ffffff;
   --color-p1: #ff6b35;   /* orange */
   --color-p2: #f7c59f;   /* peach */
   --color-p3: #2ec4b6;   /* teal */

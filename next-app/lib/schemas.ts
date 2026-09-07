@@ -360,8 +360,32 @@ export function calculateAge(birthISO: string): number {
 const RE_NOME = /^\p{L}[\p{L}\s'’-]*$/u;
 
 /** Tira do texto o que não pode aparecer num nome. Usado no onChange. */
+/**
+ * Nome próprio com a primeira letra de cada palavra em maiúscula.
+ *
+ * Conectivos ficam minúsculos ("Maria da Silva", "João dos Santos") — é como
+ * nome brasileiro se escreve, e forçar "Da Silva" pareceria erro do app.
+ * Nunca no começo: "Da Costa" como nome inteiro mantém o D maiúsculo.
+ */
+const CONECTIVOS = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+export function formatarNomeProprio(bruto: string): string {
+  return (bruto || '')
+    .split(' ')
+    .map((palavra, i) => {
+      const p = palavra.toLocaleLowerCase('pt-BR');
+      if (!p) return p;
+      if (i > 0 && CONECTIVOS.has(p)) return p;
+      return p.charAt(0).toLocaleUpperCase('pt-BR') + p.slice(1);
+    })
+    .join(' ');
+}
+
 export function limparNome(bruto: string): string {
-  return (bruto || '').replace(/[^\p{L}\s'’-]/gu, '');
+  // Só letra (com acento) e espaço. Ponto, número, hífen e apóstrofo saem —
+  // decisão do usuário em 07/09/2026. Efeito colateral conhecido: nomes como
+  // "D'Ávila" e "Ana-Maria" perdem o sinal; se um dia incomodar, é aqui.
+  return (bruto || '').replace(/[^\p{L}\s]/gu, '');
 }
 
 export const personNameSchema = requiredField('seu nome')

@@ -90,7 +90,7 @@ export function TopNav({ proStatus }: TopNavProps) {
           type="button"
           onClick={handleBack}
           aria-label="Voltar"
-          className="flex items-center justify-center flex-shrink-0 text-white"
+          className="flex items-center justify-center flex-shrink-0 text-[color:var(--color-white-fixed)]"
           style={{
             width: 36,
             height: 36,
@@ -108,7 +108,7 @@ export function TopNav({ proStatus }: TopNavProps) {
       ) : null}
       <Link
         href={user ? '/feed' : '/'}
-        className="text-white font-extrabold tracking-tight whitespace-nowrap"
+        className="text-[color:var(--color-white-fixed)] font-extrabold tracking-tight whitespace-nowrap"
         style={{
           fontFamily: 'var(--font-display)',
           // Tamanho dinâmico — encolhe quando o badge é mais largo (ADMIN).
@@ -127,7 +127,7 @@ export function TopNav({ proStatus }: TopNavProps) {
           // Modo visitante: botão de login no lugar do badge + chat.
           <Link
             href="/login"
-            className="text-sm font-extrabold px-4 py-1.5 rounded-full text-white whitespace-nowrap"
+            className="text-sm font-extrabold px-4 py-1.5 rounded-full text-[color:var(--color-white-fixed)] whitespace-nowrap"
             style={{ background: 'var(--color-p1)', fontFamily: 'var(--font-display)' }}
             aria-label="Entrar ou cadastrar"
           >
@@ -138,7 +138,7 @@ export function TopNav({ proStatus }: TopNavProps) {
         <Link
           href="/pro"
           data-tour="nav-plano"
-          className="flex items-center text-xs font-extrabold px-3 py-1.5 rounded-full bg-white/15 text-white tracking-widest cursor-pointer border-none"
+          className="flex items-center text-xs font-extrabold px-3 py-1.5 rounded-full bg-[color:color-mix(in_srgb,var(--color-white-fixed)_15%,transparent)] text-[color:var(--color-white-fixed)] tracking-widest cursor-pointer border-none"
           style={{ fontFamily: 'var(--font-display)' }}
           aria-label="Ver plano PRO"
         >
@@ -168,7 +168,7 @@ export function TopNav({ proStatus }: TopNavProps) {
           </svg>
           {unreadChat > 0 && (
             <span
-              className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+              className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-[color:var(--color-white-fixed)]"
               style={{
                 background: 'var(--color-p4)',
                 border: '2px solid var(--color-ink-fixed)',

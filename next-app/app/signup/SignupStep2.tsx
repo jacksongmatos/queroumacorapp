@@ -10,12 +10,12 @@ import {
   emailSchema,
   tagSchema,
   phoneSchema,
-  phoneOptionalSchema,
   personNameSchema,
   birthDateSchema,
   calculateAge,
   MIN_AGE,
   limparNome,
+  formatarNomeProprio,
   limparTag,
   sugerirTagDeNome,
   mascararDataBR,
@@ -28,6 +28,8 @@ import { native } from '@/lib/native';
 import { useOfereceCamera } from '@/lib/hooks/useOfereceCamera';
 import type { UserRole } from '@/lib/types';
 import { ehImagem } from '@/lib/utils/mediaType';
+import { ComboBox } from '@/components/ComboBox';
+import { getCidadesByUF } from '@/lib/services/profile';
 
 // 27 UFs brasileiras (vanilla index.html linha 430+).
 const UFS: ReadonlyArray<{ value: string; label: string }> = [
@@ -64,29 +66,32 @@ const UFS: ReadonlyArray<{ value: string; label: string }> = [
 // que saiu junto com o seletor nativo — a idade é checada por
 // `birthDateSchema` e, em tempo real, por `birthTooYoung` abaixo.)
 
-// Schema parametrizado pelo tipo de usuário: pro Cliente o WhatsApp é
-// OPCIONAL (Apple 5.1.1 — não exigir telefone quando não é estritamente
-// necessário pra conta); pros profissionais segue obrigatório (é o canal de
-// contato de orçamentos/leads).
-function makeSchema(phoneRequired: boolean) {
+// NADA no cadastro é opcional (decisão do usuário, 07/09/2026): telefone,
+// cidade e estado passaram a ser obrigatórios pra todo mundo, inclusive
+// Cliente. O parâmetro segue existindo pra o dia em que o Cliente voltar a
+// ter telefone opcional (era a leitura da Apple 5.1.1 — não exigir dado que
+// não é estritamente necessário pra conta).
+function makeSchema(_phoneRequired: boolean) {
   return z.object({
     name: personNameSchema,
     tag: tagSchema,
     email: emailSchema,
-    phone: phoneRequired ? phoneSchema : phoneOptionalSchema,
+    phone: phoneSchema,
     // birthDate é obrigatório (LGPD-K + Apple 1.6 + Google Family Policy).
     // birthDateSchema bloqueia menores de MIN_AGE (18 anos).
     birthDate: birthDateSchema,
-    city: z.string().trim().max(80, 'Cidade muito longa').optional().default(''),
     state: z
       .string()
       .trim()
       .toUpperCase()
-      .refine((v) => v === '' || UFS.some((u) => u.value === v), {
-        message: 'UF inválida',
-      })
-      .optional()
-      .default(''),
+      .refine((v) => UFS.some((u) => u.value === v), {
+        message: 'Escolha o estado',
+      }),
+    city: z
+      .string()
+      .trim()
+      .min(2, 'Escolha a cidade')
+      .max(80, 'Cidade muito longa'),
   });
 }
 
@@ -98,15 +103,28 @@ interface Props {
   initial?: Partial<Step2Data>;
   onNext: (data: Step2Data) => void;
   onBack: () => void;
+  /**
+   * Guarda o que já foi digitado ANTES de abrir o seletor de foto.
+   *
+   * No Android, abrir a galeria manda o app pro fundo e o sistema pode matar
+   * o processo (é a mesma pegadinha do `pickerRecovery`). O rascunho do
+   * cadastro só era salvo na troca de passo, então quem perdia o processo
+   * aqui voltava com o passo 2 em branco. Com a foto OBRIGATÓRIA isso deixa
+   * de ser incômodo e vira porta trancada — por isso o passo salva antes.
+   */
+  onPersist?: (parcial: Partial<Step2Data>) => void;
 }
 
-export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
+export function SignupStep2({ userType, initial, onNext, onBack, onPersist }: Props) {
   const isCliente = userType === 'cliente';
   const schema = useMemo(() => makeSchema(!isCliente), [isCliente]);
 
   const [avatarFile, setAvatarFile] = useState<File | null>(initial?.avatarFile ?? null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [camAberta, setCamAberta] = useState(false);
+  // Só acende depois que a pessoa tenta continuar — cobrar a foto antes de
+  // ela chegar no fim do formulário é ranzinza.
+  const [fotoFaltando, setFotoFaltando] = useState(false);
   const podeCamera = useOfereceCamera();
 
   const {
@@ -114,6 +132,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
     handleSubmit,
     watch,
     setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<Step2Data>({
     resolver: zodResolver(schema),
@@ -152,12 +171,49 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
   // Sugestão de @ a partir do nome. Só aparece enquanto o campo está VAZIO —
   // depois que a pessoa escreve algo, sugerir por cima seria roubar o que ela
   // digitou. `tagTocada` marca que ela já mexeu.
+  // A sugestão de @ ENTRA no campo (07/09/2026). Antes era um botão embaixo
+  // ("Usar @fulano") que quase ninguém tocava — a tag ficava vazia e o
+  // cadastro parava ali. Só escreve enquanto a pessoa não mexeu no campo:
+  // sugerir por cima do que ela digitou seria roubar o texto dela.
   const [tagTocada, setTagTocada] = useState(Boolean(initial?.tag));
-  const tagSugerida = tagTocada ? '' : sugerirTagDeNome(nameValue || '');
+  useEffect(() => {
+    if (tagTocada) return;
+    const sugestao = sugerirTagDeNome(nameValue || '');
+    if (sugestao) setValue('tag', sugestao, { shouldValidate: true });
+  }, [nameValue, tagTocada, setValue]);
 
   // Validação de idade em tempo real (Apple 5.1.1 / Google Family): assim que
   // o usuário escolhe uma data, já avisamos se é menor de MIN_AGE — sem
   // esperar o submit. birthTooYoung também desabilita o "Continuar".
+  // Cidades da UF escolhida (IBGE, via /api/cidades). Trocar o estado limpa
+  // a cidade: manter "Guarulhos" com o estado no Ceará gravaria um endereço
+  // que não existe.
+  const ufValue = watch('state');
+  const cityValue = watch('city');
+  const [cidades, setCidades] = useState<string[]>([]);
+  const [carregandoCidades, setCarregandoCidades] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    if (!ufValue) {
+      setCidades([]);
+      return () => {
+        vivo = false;
+      };
+    }
+    setCarregandoCidades(true);
+    getCidadesByUF(ufValue)
+      .then((lista) => {
+        if (vivo) setCidades(lista);
+      })
+      .finally(() => {
+        if (vivo) setCarregandoCidades(false);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [ufValue]);
+
   const birthValue = watch('birthDate');
   const birthAge = birthValue ? calculateAge(birthValue) : -1;
   const birthTooYoung = birthAge >= 0 && birthAge < MIN_AGE;
@@ -173,6 +229,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
     if (!ehImagem(file)) return;
     if (file.size > 5 * 1024 * 1024) return;
     setAvatarFile(file);
+    setFotoFaltando(false);
     const reader = new FileReader();
     reader.onload = (ev) => setAvatarPreview(String(ev.target?.result ?? ''));
     reader.readAsDataURL(file);
@@ -180,16 +237,25 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
 
   function onSubmit(data: Step2Data) {
     if (tagStatus === 'taken') return;
-    // Foto agora é OPCIONAL no cadastro (2026-08-28): no wrapper Android,
-    // abrir a galeria manda o app pro fundo e o sistema pode matar o
-    // processo — o usuário voltava pra tela inicial com o cadastro perdido
-    // e, com a foto obrigatória, não tinha como completar a conta. A foto
-    // pode ser adicionada depois em /perfil/editar sem risco.
+    if (!avatarFile) {
+      setFotoFaltando(true);
+      return;
+    }
     onNext({ ...data, avatarFile });
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+    <form
+      onSubmit={handleSubmit(onSubmit, () => {
+        // O resolver barra antes de `onSubmit` rodar. Sem isto, quem toca em
+        // Continuar com o formulário incompleto veria os erros dos campos e
+        // NADA sobre a foto — e descobriria que ela era obrigatória só na
+        // tentativa seguinte. Todos os pendentes aparecem de uma vez.
+        if (!avatarFile) setFotoFaltando(true);
+      })}
+      className="space-y-4"
+      noValidate
+    >
       <h1
         className="text-2xl font-bold mb-1"
         style={{ fontFamily: 'var(--font-display)' }}
@@ -211,7 +277,10 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           // Impedir na hora ensina mais que recusar no submit — e o schema
           // (`personNameSchema`) segue valendo como defesa real.
           onChange={(e) => {
-            const limpo = limparNome(e.target.value);
+            // Limpa (só letra e espaço) e já devolve em Maiúscula Inicial —
+            // corrigir na digitação evita "joão da silva" virar o nome que
+            // aparece no perfil pra todo mundo.
+            const limpo = formatarNomeProprio(limparNome(e.target.value));
             if (limpo !== e.target.value) e.target.value = limpo;
             void register('name').onChange(e);
           }}
@@ -219,18 +288,23 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           aria-invalid={errors.name ? 'true' : 'false'}
         />
         <p className="text-xs text-[color:var(--color-muted)] mt-1">
-          Só letras — sem números ou símbolos.
+          Só letras — a primeira de cada palavra vira maiúscula sozinha.
         </p>
       </Field>
 
-      {/* Foto de perfil — OPCIONAL (upload acontece em handleStep3 quando
-          escolhida). No wrapper Android o seletor pode derrubar o app, então
-          nunca pode ser porta obrigatória do cadastro. */}
+      {/* Foto de perfil — OBRIGATÓRIA desde 07/09/2026 (decisão do usuário:
+          nada no cadastro é opcional). O upload acontece no passo 3.
+
+          RISCO CONHECIDO, mitigado e não eliminado: no Android o seletor pode
+          derrubar o processo do app (foi por isso que a foto virou opcional
+          em 28/08). O que segura agora é o `onPersist` acima — o passo salva
+          o rascunho ANTES de abrir o seletor — mais a câmera como segundo
+          caminho. Se voltar a travar cadastro, é aqui que se olha. */}
       <div>
         <label
           className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]"
         >
-          Foto de perfil (opcional)
+          Foto de perfil
         </label>
         <div className="flex items-center gap-3">
           <div
@@ -257,6 +331,8 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           <label
             className="flex-1 text-center py-2.5 border-2 border-[color:var(--color-border)] text-[color:var(--color-ink)] rounded-xl font-bold text-sm cursor-pointer hover:bg-[color:var(--color-bg)] transition-colors"
             onClick={(e) => {
+              // Antes de sair pro seletor: guarda o que já foi digitado.
+              onPersist?.(getValues());
               // Picker nativo primeiro (só-imagem). Fallback: <input>.
               if (native.camera.isPickerAvailable()) {
                 e.preventDefault();
@@ -279,6 +355,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
             <button
               type="button"
               onClick={async () => {
+                onPersist?.(getValues());
                 // Câmera nativa primeiro; fallback CameraCapture web.
                 const r = await native.camera.takePhoto('CAMERA');
                 if (r.status === 'ok') {
@@ -303,9 +380,18 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           onCapture={aceitarFoto}
           ctx="signup"
         />
-        <p className="text-xs text-[color:var(--color-muted)] mt-1">
-          Aparece no seu story e perfil. Dá pra adicionar depois em Perfil →
-          Editar.
+        <p
+          className={
+            'text-xs mt-1 ' +
+            (fotoFaltando
+              ? 'text-[color:var(--color-danger)]'
+              : 'text-[color:var(--color-muted)]')
+          }
+          role={fotoFaltando ? 'alert' : undefined}
+        >
+          {fotoFaltando
+            ? 'Escolha uma foto para continuar.'
+            : 'Aparece no seu story e no seu perfil.'}
         </p>
       </div>
 
@@ -343,18 +429,6 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
         <p className="text-xs text-[color:var(--color-muted)] mt-1">
           Só letras — sem espaço, número ou símbolo.
         </p>
-        {tagSugerida && !tagValue && (
-          <button
-            type="button"
-            onClick={() => {
-              setTagTocada(true);
-              setValue('tag', tagSugerida, { shouldValidate: true });
-            }}
-            className="text-xs mt-1 font-semibold text-[color:var(--color-p1)] underline underline-offset-2"
-          >
-            Usar @{tagSugerida}
-          </button>
-        )}
         {!errors.tag && tagValue && (
           <p
             className={
@@ -388,11 +462,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
         />
       </Field>
 
-      <Field
-        id="phone"
-        label={isCliente ? 'WhatsApp (opcional)' : 'WhatsApp'}
-        error={errors.phone?.message}
-      >
+      <Field id="phone" label="Telefone" error={errors.phone?.message}>
         <input
           id="phone"
           type="tel"
@@ -404,9 +474,7 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
           aria-invalid={errors.phone ? 'true' : 'false'}
         />
         <p className="text-xs text-[color:var(--color-muted)] mt-1">
-          {isCliente
-            ? 'Opcional. Se informar, usamos só para contato sobre orçamentos e suporte.'
-            : 'Usado para contato sobre orçamentos e suporte.'}
+          Usado para contato sobre orçamentos e suporte.
         </p>
       </Field>
 
@@ -452,33 +520,44 @@ export function SignupStep2({ userType, initial, onNext, onBack }: Props) {
         )}
       </Field>
 
+      {/* ESTADO vem antes da CIDADE (07/09/2026): a lista de cidades é
+          carregada a partir da UF, então perguntar a cidade primeiro seria
+          pedir um dado que o app ainda não sabe validar. */}
+      <Field id="state" label="Estado" error={errors.state?.message}>
+        <ComboBox
+          id="state"
+          value={ufValue ?? ''}
+          onChange={(v) => {
+            setValue('state', v, { shouldValidate: true });
+            // Trocou de estado: a cidade anterior não vale mais.
+            setValue('city', '', { shouldValidate: false });
+          }}
+          options={UFS}
+          placeholder="Digite ou escolha o estado"
+          emptyMessage="Nenhum estado com esse nome"
+          className={inputClass}
+          aria-invalid={errors.state ? 'true' : 'false'}
+        />
+        <input type="hidden" {...register('state')} />
+      </Field>
+
       <Field id="city" label="Cidade" error={errors.city?.message}>
-        <input
+        <ComboBox
           id="city"
-          type="text"
-          autoComplete="address-level2"
-          placeholder="São Paulo"
-          {...register('city')}
+          value={cityValue ?? ''}
+          onChange={(v) => setValue('city', v, { shouldValidate: true })}
+          options={cidades.map((c) => ({ value: c, label: c }))}
+          disabled={!ufValue}
+          loading={carregandoCidades}
+          // Texto livre é a rede de segurança: se o IBGE não responder,
+          // bloquear o cadastro seria pior do que aceitar a cidade digitada.
+          allowFree
+          placeholder={ufValue ? 'Digite ou escolha a cidade' : 'Escolha o estado primeiro'}
+          emptyMessage="Nenhuma cidade com esse nome"
           className={inputClass}
           aria-invalid={errors.city ? 'true' : 'false'}
         />
-      </Field>
-
-      <Field id="state" label="Estado" error={errors.state?.message}>
-        <select
-          id="state"
-          autoComplete="address-level1"
-          {...register('state')}
-          className={inputClass}
-          aria-invalid={errors.state ? 'true' : 'false'}
-        >
-          <option value="">Selecione o estado</option>
-          {UFS.map((uf) => (
-            <option key={uf.value} value={uf.value}>
-              {uf.label}
-            </option>
-          ))}
-        </select>
+        <input type="hidden" {...register('city')} />
       </Field>
 
       <div className="flex gap-2 pt-2">
