@@ -24,6 +24,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase';
 import { reportFailure } from '@/lib/utils/reportFailure';
 
@@ -58,6 +59,7 @@ const SESSION_TIMEOUT_MS = 8000;
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -232,7 +234,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!res.error) {
               // Sessão já gravada no client; mesmo landing do fluxo web, que
               // decide entre /feed e onboarding.
-              window.location.assign('/completar-perfil');
+              //
+              // `router.replace`, não `location.assign`: navegação de
+              // DOCUMENTO que falhe ou seja cancelada faz o Capacitor pintar
+              // a errorPath (o offline.html). Aqui isso seria cruel — a
+              // pessoa acabou de concluir o login e veria "Sem conexão".
+              router.replace('/completar-perfil');
             }
             return res;
           }
@@ -294,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [],
+    [router],
   );
 
   const signInWithGoogle = useCallback(

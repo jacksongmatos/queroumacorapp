@@ -14,6 +14,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react';
 
+const replace = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace, push: vi.fn(), refresh: vi.fn() }),
+}));
+
 const signInWithOAuthSb = vi.fn();
 const signIn = vi.fn();
 const isAvailable = vi.fn();
@@ -146,5 +151,18 @@ describe('login social dentro da casca nativa', () => {
     // O fluxo web é justamente o que navega o browser — sem skipBrowserRedirect.
     expect(arg.options?.skipBrowserRedirect).toBeUndefined();
     expect(reportado).not.toContain('oauth-fail');
+  });
+
+  it('sucesso do fluxo nativo navega pelo router, não por navegação de documento', async () => {
+    isNative.mockReturnValue(true);
+    isAvailable.mockReturnValue(true);
+    signIn.mockResolvedValue({});
+
+    await tocarEntrar();
+
+    // Navegação de documento aqui pintaria a errorPath da casca ("Sem
+    // conexão") logo depois de a pessoa concluir o login.
+    expect(replace).toHaveBeenCalledWith('/completar-perfil');
+    expect(signInWithOAuthSb).not.toHaveBeenCalled();
   });
 });

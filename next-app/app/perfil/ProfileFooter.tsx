@@ -3,6 +3,9 @@
 // em laranja/vermelho com border. Replica.
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { useDialog } from '@/components/Dialog';
@@ -14,6 +17,8 @@ import { startTour } from '@/lib/tour/storage';
 export function ProfileFooter() {
   const { signOut } = useAuth();
   const dialog = useDialog();
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
   async function handleLogout() {
     const ok = await dialog.confirm('Deseja sair da conta?', {
@@ -23,7 +28,18 @@ export function ProfileFooter() {
     });
     if (!ok) return;
     await signOut();
-    window.location.href = '/login';
+    // NADA de `window.location.href` aqui. Duas razões, e a segunda é a que
+    // aparece na cara do usuário:
+    //  1. É navegação de DOCUMENTO — recarrega o app inteiro por uma troca de
+    //     tela que o router faz sem custo.
+    //  2. Na casca, qualquer navegação de documento que falhe OU seja
+    //     cancelada faz o Capacitor pintar a `errorPath` (o offline.html):
+    //     a pessoa vê "Sem conexão" com a internet funcionando. Foi assim que
+    //     a Apple rejeitou a build 17, e sair da conta caía no mesmo buraco.
+    // O `clear()` substitui o que a recarga garantia de graça: nenhum dado
+    // em cache do dono anterior sobrevive pro próximo login.
+    queryClient.clear();
+    router.replace('/login');
   }
 
   return (
