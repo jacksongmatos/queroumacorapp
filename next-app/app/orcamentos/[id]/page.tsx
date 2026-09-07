@@ -31,6 +31,7 @@ import {
 import type { Quote } from '@/lib/types';
 import { QuotePdfSheet } from './QuotePdfSheet';
 import { urlParaBaixar, waMeTarget } from '@/lib/pdf/quotePdf';
+import { abrirLinkExterno } from '@/lib/native';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -345,13 +346,13 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     if (!quote) return;
     const subj = encodeURIComponent(`Orçamento — ${quote.service_type || 'Pintura'}`);
     const body = encodeURIComponent(buildQuoteText(quote));
-    window.location.href = `mailto:?subject=${subj}&body=${body}`;
+    // `location.href` na casca vira a tela "Sem conexão" (ver abrirLinkExterno).
+    abrirLinkExterno(`mailto:?subject=${subj}&body=${body}`);
   }
 
   function abrirDestino(destino: string) {
     setEnviarPdf(null);
-    const aba = window.open(destino, '_blank', 'noopener,noreferrer');
-    if (!aba) window.location.href = destino;
+    abrirLinkExterno(destino);
   }
 
   async function handleShareNative() {

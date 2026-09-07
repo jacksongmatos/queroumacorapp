@@ -15,6 +15,7 @@
 
 import type { Quote } from '@/lib/types';
 import { reportFailure } from '@/lib/utils/reportFailure';
+import { abrirLinkExterno } from '@/lib/native';
 
 /**
  * Texto que a fonte embutida do jsPDF consegue DESENHAR. A Helvetica dele
@@ -528,10 +529,10 @@ export async function shareOrDownloadPdfBlob(
       const destino = alvo
         ? `https://wa.me/${alvo}?text=${encodeURIComponent(texto)}`
         : `https://wa.me/?text=${encodeURIComponent(texto)}`;
-      // window.open costuma ser barrado (já saímos do gesto do toque no
-      // await do upload); o wrapper intercepta o wa.me na navegação.
-      const aba = window.open(destino, '_blank', 'noopener,noreferrer');
-      if (!aba) window.location.href = destino;
+      // O fallback `location.href` daqui era um gerador de "Sem conexão" na
+      // casca: o Capacitor cancela a navegação de topo pro wa.me e carrega a
+      // errorPath. `abrirLinkExterno` cobre os dois mundos.
+      abrirLinkExterno(destino);
       return 'shared-link';
     }
 

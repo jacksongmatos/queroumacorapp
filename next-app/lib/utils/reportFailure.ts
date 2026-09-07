@@ -40,6 +40,7 @@ export const FAILURE_TYPE_LABELS = {
   'feed-extras-fail': '📰 Feed',
   'consent-fail': '✍️ Consentimento',
   'sw-status': '⚙️ Service worker',
+  'oauth-fail': '🔑 Login social',
 } as const satisfies Record<string, string>;
 
 export type FailureType = keyof typeof FAILURE_TYPE_LABELS;

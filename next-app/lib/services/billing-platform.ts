@@ -20,6 +20,7 @@
 // os endpoints atuais aceitam o token às cegas e são placeholders.
 
 import { showToast } from '@/lib/toast';
+import { abrirLinkExterno } from '@/lib/native';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────
 
@@ -176,8 +177,12 @@ async function startMercadoPagoCheckout(): Promise<void> {
   }
   const { init_point } = (await res.json()) as { init_point?: string };
   if (!init_point) throw new Error('init_point ausente na resposta');
-  // Redirect pro checkout MP.
-  window.location.href = init_point;
+  // Redirect pro checkout MP. Dentro da casca isto NÃO pode ser navegação
+  // de topo: o host do Mercado Pago está fora de `server.allowNavigation`, o
+  // Capacitor cancela e a WebView cai na errorPath ("Sem conexão"). Hoje esta
+  // função não tem call site de UI (o PRO é por troca de pontos), mas o
+  // caminho fica correto pro dia em que voltar.
+  abrirLinkExterno(init_point);
 }
 
 // ─── Apple StoreKit (iOS wrapper) ──────────────────────────────────────────
