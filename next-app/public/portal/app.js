@@ -5806,13 +5806,20 @@ const TEMPLATES_APROVADOS = [{
   rotulo: 'Com o nome da pessoa',
   precisaNome: true,
   titulo: null,
-  texto: null // espelho ainda nao cadastrado — ver comentario acima
+  texto: null,
+  // espelho ainda nao cadastrado — ver comentario acima
+  rodape: null,
+  botoes: [],
+  fonte: 'local'
 }, {
   nome: 'calicolors',
   rotulo: 'Sem nome (texto fixo)',
   precisaNome: false,
   titulo: 'O que a Calicolors pode fazer por você?',
-  texto: 'Oi, tudo bem? Somos a Calicolors Tintas, de Guarulhos.\n\n' + 'Estamos conversando com profissionais que trabalham com tintas, cores e ' + 'acabamentos para entender uma coisa: o que mais faz diferença no dia a ' + 'dia — preço, agilidade na entrega, disponibilidade de materiais ou ' + 'suporte para encontrar a solução certa?\n\n' + 'Dependendo da sua resposta, talvez a gente consiga ajudar.\n\n' + 'O que mais faria diferença para você hoje?'
+  texto: 'Oi, tudo bem? Somos a Calicolors Tintas, de Guarulhos.\n\n' + 'Estamos conversando com profissionais que trabalham com tintas, cores e ' + 'acabamentos para entender uma coisa: o que mais faz diferença no dia a ' + 'dia — preço, agilidade na entrega, disponibilidade de materiais ou ' + 'suporte para encontrar a solução certa?\n\n' + 'Dependendo da sua resposta, talvez a gente consiga ajudar.\n\n' + 'O que mais faria diferença para você hoje?',
+  rodape: null,
+  botoes: [],
+  fonte: 'local'
 }];
 const TEMPLATE_SEM_NOME = 'calicolors';
 const TEMPLATE_COM_NOME = 'calicolors_nome';
@@ -5985,11 +5992,109 @@ const textoDoTemplate = (nomeTemplate, nomePessoa) => {
   return t.texto.replace(/\{\{1\}\}/g, primeiroNome(nomePessoa) || '');
 };
 
+// Quebra o corpo do template em pedacos pra previa: texto solto, variavel
+// PREENCHIDA (mostra o valor) e variavel VAZIA.
+//
+// Por que existe: a previa antiga fazia um replace e, quando a variavel
+// estava vazia, deixava o `{{2}}` CRU na tela. Chave dupla nao e conteudo —
+// e notacao da Meta, e o operador nao tem por que aprender. Agora o buraco
+// aparece como buraco (chip tracejado com o exemplo do painel), e o que
+// esta preenchido aparece destacado, pra dar pra conferir num relance qual
+// campo caiu em qual lugar da frase.
+// [teste:previa-inicio] — extraido por __tests__/portalJanela24h.test.ts.
+// So JS puro entre este marcador e o de fim (JSX aqui quebra o `new
+// Function` e o arquivo de teste inteiro vira "skipped", que e verde na
+// contagem — foi o que aconteceu em 2026-09-05).
+const segmentosDoTemplate = (texto, valores, vars) => {
+  if (!texto) return null;
+  const exemploDe = n => {
+    const v = (vars || []).find(x => x.indice === n);
+    return v && v.exemplo ? String(v.exemplo) : null;
+  };
+  const partes = [];
+  const re = /\{\{\s*(\d+)\s*\}\}/g;
+  let ultimo = 0,
+    m;
+  while ((m = re.exec(texto)) !== null) {
+    if (m.index > ultimo) partes.push({
+      tipo: 'texto',
+      valor: texto.slice(ultimo, m.index)
+    });
+    const n = Number(m[1]);
+    const preenchido = String(valores && valores[n] || '').trim();
+    if (preenchido) {
+      partes.push({
+        tipo: 'valor',
+        indice: n,
+        valor: preenchido
+      });
+    } else {
+      const ex = exemploDe(n);
+      partes.push({
+        tipo: 'vazio',
+        indice: n,
+        valor: ex ? 'ex.: ' + ex : 'variável ' + n
+      });
+    }
+    ultimo = m.index + m[0].length;
+  }
+  if (ultimo < texto.length) partes.push({
+    tipo: 'texto',
+    valor: texto.slice(ultimo)
+  });
+  return partes;
+};
+
+// Rotulos de coisa que a pessoa VE mas que nao e texto: cabecalho de midia
+// e botao. Sem isso a previa mentia por omissao — um template com botao
+// aparecia como mensagem seca, e ninguem sabia que havia botao ate o
+// cliente responder por ele.
+const ROTULO_MIDIA = {
+  IMAGE: '🖼️ Imagem no topo',
+  VIDEO: '🎬 Vídeo no topo',
+  DOCUMENT: '📄 Documento no topo',
+  LOCATION: '📍 Localização no topo'
+};
+const ICONE_BOTAO = {
+  QUICK_REPLY: '↩',
+  URL: '↗',
+  PHONE_NUMBER: '📞',
+  COPY_CODE: '⧉'
+};
+
+// Nome do template como a Meta guarda (`calicolors_orcamento_pronto`) vira
+// frase legivel pro seletor. O nome CRU continua a vista embaixo do botao —
+// e ele que tem que bater com o painel quando o envio falhar com 132001 —,
+// mas ler `calicolors_orcamento_pronto` numa lista de dez e pior.
+//
+// O rotulo sai SEM ACENTO porque o nome na Meta e ASCII, e restaurar acento
+// exigiria um dicionario escrito a mao: a mesma doenca da lista de
+// templates que a rota /api/whatsapp/templates veio matar.
+const rotuloDeTemplate = t => {
+  if (t && t.rotulo && t.rotulo !== t.nome) return t.rotulo;
+  const cru = String(t && t.nome || '').replace(/^calicolors_/, '').replace(/_/g, ' ').trim();
+  if (!cru) return t && t.nome || '—';
+  return cru.charAt(0).toUpperCase() + cru.slice(1);
+};
+const CATEGORIA_ROTULO = {
+  MARKETING: 'Marketing',
+  UTILITY: 'Utility',
+  AUTHENTICATION: 'Autenticação'
+};
+
+// [teste:previa-fim]
+
 // Carrega a lista viva de templates uma vez por sessao do portal. Falha e
 // SILENCIOSA de proposito: a lista embutida cobre, e um alerta vermelho
 // sobre "nao consegui listar templates" assustaria sem dar o que fazer. O
 // motivo real vai pro console e pro log do Cloudflare.
 let _templatesPromise = null;
+// Por que o erro e guardado em vez de so logado: quando a consulta falha, a
+// tela cai na lista embutida — que tem DOIS templates e um deles sem texto
+// espelhado. Do lado de fora isso parece "o portal nao mostra o modelo", e
+// ninguem descobre que o motivo foi a Meta nao responder. Agora a tela diz,
+// e oferece tentar de novo.
+let _templatesErro = null;
 const carregarTemplates = async () => {
   if (_templatesPromise) return _templatesPromise;
   _templatesPromise = (async () => {
@@ -6009,28 +6114,214 @@ const carregarTemplates = async () => {
       });
       const res = await r.json().catch(() => ({}));
       if (!r.ok || !res.ok || !Array.isArray(res.templates)) {
-        console.warn('[templates] usando a lista embutida:', res.error || 'HTTP ' + r.status);
+        _templatesErro = res.error || 'HTTP ' + r.status;
+        console.warn('[templates] usando a lista embutida:', _templatesErro);
         return null;
       }
       // Normaliza pro formato que a tela usa. `texto` vem da Meta, entao
       // aqui o espelho deixa de ser copia manual — e o que a pessoa recebe.
+      _templatesErro = null;
       _templatesVivos = res.templates.map(t => ({
         nome: t.nome,
         rotulo: t.nome,
         categoria: t.categoria,
         idioma: t.idioma,
         titulo: t.cabecalho || null,
+        // `formatoCabecalho`/`rodape`/`botoes` chegavam da rota e eram
+        // JOGADOS FORA aqui — por isso a previa mostrava so o corpo, e
+        // template com rodape ou botao aparecia pela metade na tela.
+        formatoCabecalho: t.formatoCabecalho || null,
+        rodape: t.rodape || null,
+        botoes: Array.isArray(t.botoes) ? t.botoes : [],
         texto: t.corpo || null,
         variaveis: Array.isArray(t.variaveis) ? t.variaveis : [],
-        precisaNome: Array.isArray(t.variaveis) && t.variaveis.length > 0
+        precisaNome: Array.isArray(t.variaveis) && t.variaveis.length > 0,
+        // De onde saiu o texto da previa. O da Meta e o que a pessoa
+        // recebe; o embutido e copia nossa e pode ter envelhecido — a tela
+        // marca a diferenca em vez de apresentar os dois como iguais.
+        fonte: 'meta'
       }));
       return _templatesVivos;
     } catch (e) {
-      console.warn('[templates] usando a lista embutida:', e && e.message);
+      _templatesErro = e && e.message || 'falha de rede';
+      console.warn('[templates] usando a lista embutida:', _templatesErro);
       return null;
     }
   })();
   return _templatesPromise;
+};
+
+// Descarta o cache do portal e busca de novo. A rota tem cache proprio de
+// 5min, entao isto reconsulta a NOSSA copia — suficiente pro caso comum (a
+// primeira carga pegou a sessao antes do token existir).
+const recarregarTemplates = () => {
+  _templatesPromise = null;
+  return carregarTemplates();
+};
+
+// ── Previa do template: a bolha como a pessoa VE ────────────────────────
+// Antes isto era um bloco bege com o texto corrido dentro. Tres problemas,
+// e os tres foram relatados de uma vez:
+//
+//  1. Nao parecia mensagem. O operador estava conferindo o que o cliente
+//     vai receber no WhatsApp, e a tela mostrava um paragrafo num quadro.
+//  2. Nao mostrava o template inteiro. Rodape e botoes vinham da rota e
+//     eram descartados no meio do caminho, entao template com botao
+//     aparecia como mensagem seca — e ninguem descobria que havia botao
+//     ate o cliente responder por ele.
+//  3. Mostrava `{{2}}` cru quando a variavel estava vazia. Chave dupla e
+//     notacao da Meta, nao conteudo; quem opera nao tem por que aprender.
+//
+// Agora e uma bolha sobre fundo de conversa, com cabecalho, corpo, rodape,
+// botoes e horario — e o buraco de variavel aparece como buraco.
+const PreviaDeTemplate = ({
+  tpl,
+  valores
+}) => {
+  if (!tpl) return null;
+  const vars = tpl.variaveis || [];
+  const partes = segmentosDoTemplate(tpl.texto, valores, vars);
+  const botoes = tpl.botoes || [];
+  const midia = tpl.formatoCabecalho && tpl.formatoCabecalho !== 'TEXT' ? ROTULO_MIDIA[tpl.formatoCabecalho] || '📎 ' + tpl.formatoCabecalho + ' no topo' : null;
+  const agora = new Date();
+  const hora = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#e6ddd1',
+      borderRadius: 12,
+      padding: '14px 12px',
+      border: '1px solid ' + C.border
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      borderRadius: '12px 12px 12px 4px',
+      maxWidth: 460,
+      boxShadow: '0 1px 2px rgba(0,0,0,.12)',
+      overflow: 'hidden'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '9px 11px 6px'
+    }
+  }, midia ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#f0ebe3',
+      borderRadius: 8,
+      padding: '14px 10px',
+      marginBottom: 7,
+      fontSize: 12,
+      color: C.muted,
+      textAlign: 'center',
+      fontWeight: 600
+    }
+  }, midia) : null, tpl.titulo ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      fontWeight: 800,
+      color: C.ink,
+      marginBottom: 5,
+      lineHeight: 1.35
+    }
+  }, tpl.titulo) : null, partes ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      lineHeight: 1.55,
+      color: '#111b21',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word'
+    }
+  }, partes.map((seg, i) => seg.tipo === 'texto' ? /*#__PURE__*/React.createElement("span", {
+    key: i
+  }, seg.valor) : seg.tipo === 'valor' ?
+  /*#__PURE__*/
+  /* Preenchido: destacado pra dar pra conferir num relance
+     qual campo caiu em qual lugar da frase. */
+  React.createElement("span", {
+    key: i,
+    title: 'variável ' + seg.indice,
+    style: {
+      background: 'rgba(255,107,53,.16)',
+      borderRadius: 4,
+      padding: '0 3px',
+      fontWeight: 600
+    }
+  }, seg.valor) :
+  /*#__PURE__*/
+  /* Vazio: buraco com cara de buraco, nunca `{{2}}` cru. */
+  React.createElement("span", {
+    key: i,
+    title: 'falta preencher a variável ' + seg.indice,
+    style: {
+      border: '1px dashed #c9a08a',
+      borderRadius: 4,
+      padding: '0 5px',
+      color: '#a8654a',
+      fontStyle: 'italic',
+      fontSize: 12.5,
+      background: '#fff6f2'
+    }
+  }, seg.valor))) :
+  /*#__PURE__*/
+  /* Sem espelho do texto. Nao inventamos um: mostrar algo
+     diferente do que a pessoa recebe e pior do que assumir que
+     nao sabemos. Quem sabe e a Meta. */
+  React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: C.muted,
+      lineHeight: 1.5,
+      fontStyle: 'italic'
+    }
+  }, "O texto deste template est\xE1 cadastrado na Meta e n\xE3o veio na consulta \u2014 quem o guarda \xE9 o painel do Dualhook, em Templates \u2192", ' ', /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink,
+      fontStyle: 'normal'
+    }
+  }, tpl.nome), "."), tpl.rodape ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: '#8696a0',
+      marginTop: 6,
+      lineHeight: 1.4
+    }
+  }, tpl.rodape) : null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: '#8696a0',
+      textAlign: 'right',
+      marginTop: 3
+    }
+  }, hora)), botoes.length ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: '1px solid #e9edef'
+    }
+  }, botoes.map((b, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      padding: '9px 8px',
+      textAlign: 'center',
+      fontSize: 13,
+      fontWeight: 600,
+      color: '#0a7cbd',
+      borderTop: i ? '1px solid #e9edef' : 'none'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginRight: 6,
+      opacity: .8
+    }
+  }, ICONE_BOTAO[b.tipo] || '•'), b.texto))) : null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10.5,
+      color: '#7d7565',
+      marginTop: 8,
+      display: 'flex',
+      gap: 6,
+      flexWrap: 'wrap',
+      alignItems: 'center'
+    }
+  }, tpl.fonte === 'meta' ? /*#__PURE__*/React.createElement("span", null, "\u2713 texto lido da Meta agora \u2014 \xE9 exatamente o que a pessoa recebe") : /*#__PURE__*/React.createElement("span", null, "\u26A0\uFE0F espelho local: o texto de verdade vive na Meta e pode ter mudado")));
 };
 
 // ── Envio de template, com um campo por variavel ────────────────────────
@@ -6059,15 +6350,33 @@ const EnvioDeTemplate = ({
   const [valores, setValores] = useState({});
   // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
   const [confirmado, setConfirmado] = useState(false);
+  // Falha ao listar na Meta. Deixou de ser silenciosa porque, de fora, ela
+  // se parecia com "o portal nao mostra o modelo desse template".
+  const [erroLista, setErroLista] = useState(null);
+  const [recarregando, setRecarregando] = useState(false);
+  const aplicar = t => {
+    if (t) {
+      setLista(t);
+      setErroLista(null);
+    } else setErroLista(_templatesErro || 'não consegui falar com a Meta');
+  };
   useEffect(() => {
     let vivo = true;
     carregarTemplates().then(t => {
-      if (vivo && t) setLista(t);
+      if (vivo) aplicar(t);
     });
     return () => {
       vivo = false;
     };
   }, []);
+  const tentarDeNovo = async () => {
+    setRecarregando(true);
+    try {
+      aplicar(await recarregarTemplates());
+    } finally {
+      setRecarregando(false);
+    }
+  };
   const tpl = lista.find(t => t.nome === escolhido) || lista[0] || null;
   const vars = tpl && tpl.variaveis || (tpl && tpl.precisaNome ? [{
     indice: 1,
@@ -6100,12 +6409,23 @@ const EnvioDeTemplate = ({
   const faltando = vars.filter(v => !String(valores[v.indice] || '').trim());
   const aviso = tpl ? avisoMarketingEUA(waId, tpl.categoria) : null;
 
-  // Previa com os valores JA substituidos: o operador le exatamente o que
-  // vai sair, nao um molde com {{1}}.
-  const previa = (() => {
-    if (!tpl || !tpl.texto) return null;
-    return tpl.texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => String(valores[Number(n)] || '{{' + n + '}}'));
-  })();
+  // Agrupa o seletor por categoria. Marketing e Utility nao sao a mesma
+  // coisa pra quem opera — Utility passa pra numero dos EUA e e mais barato;
+  // Marketing e o que some sem avisar. Ver os dois grupos separados evita
+  // escolher o errado por distracao.
+  const grupos = [];
+  for (const t of lista) {
+    const cat = String(t.categoria || 'OUTROS').toUpperCase();
+    let g = grupos.find(x => x.cat === cat);
+    if (!g) {
+      g = {
+        cat,
+        itens: []
+      };
+      grupos.push(g);
+    }
+    g.itens.push(t);
+  }
   const enviar = () => {
     if (!tpl || faltando.length) return;
     // O aviso de marketing pra EUA NAO bloqueia: a Meta pode mudar a regra,
@@ -6137,7 +6457,7 @@ const EnvioDeTemplate = ({
       display: 'flex',
       alignItems: 'center',
       gap: 8,
-      marginBottom: 10,
+      marginBottom: 8,
       flexWrap: 'wrap'
     }
   }, /*#__PURE__*/React.createElement("label", {
@@ -6146,7 +6466,7 @@ const EnvioDeTemplate = ({
       fontWeight: 700,
       color: C.ink
     }
-  }, "Template:"), /*#__PURE__*/React.createElement("select", {
+  }, "Modelo:"), /*#__PURE__*/React.createElement("select", {
     value: tpl ? tpl.nome : '',
     onChange: e => {
       setEscolhido(e.target.value);
@@ -6154,7 +6474,7 @@ const EnvioDeTemplate = ({
       setConfirmado(false);
     },
     style: {
-      flex: '1 1 260px',
+      flex: '1 1 240px',
       padding: '8px 10px',
       borderRadius: 10,
       fontSize: 13,
@@ -6164,10 +6484,52 @@ const EnvioDeTemplate = ({
       outline: 'none',
       cursor: 'pointer'
     }
-  }, lista.map(t => /*#__PURE__*/React.createElement("option", {
+  }, grupos.map(g => /*#__PURE__*/React.createElement("optgroup", {
+    key: g.cat,
+    label: CATEGORIA_ROTULO[g.cat] || g.cat
+  }, g.itens.map(t => /*#__PURE__*/React.createElement("option", {
     key: t.nome,
     value: t.nome
-  }, t.nome, t.categoria ? ' · ' + String(t.categoria).charAt(0).toUpperCase() + String(t.categoria).slice(1).toLowerCase() : '', t.idioma ? ' · ' + t.idioma : '')))), aviso ? /*#__PURE__*/React.createElement("div", {
+  }, rotuloDeTemplate(t), t.variaveis && t.variaveis.length ? ' · ' + t.variaveis.length + (t.variaveis.length > 1 ? ' campos' : ' campo') : ' · texto fixo')))))), erroLista ?
+  /*#__PURE__*/
+  /* Este aviso E a resposta pra "esse template nao mostra o modelo":
+     quando a Meta nao responde, sobra a lista embutida, que tem dois
+     itens e um deles sem texto. Sem esta linha, o sintoma parecia bug
+     da tela. */
+  React.createElement("div", {
+    style: {
+      marginBottom: 10,
+      padding: '8px 11px',
+      background: '#fff7ed',
+      border: '1px solid #f0c98a',
+      borderRadius: 10,
+      fontSize: 11.5,
+      color: '#8a5300',
+      lineHeight: 1.5,
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center',
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      minWidth: 200
+    }
+  }, "N\xE3o consegui buscar os modelos na Meta (", erroLista, "); mostrando a lista embutida, que pode estar incompleta."), /*#__PURE__*/React.createElement("button", {
+    onClick: tentarDeNovo,
+    disabled: recarregando,
+    style: {
+      background: '#fff',
+      border: '1px solid #f0c98a',
+      borderRadius: 8,
+      padding: '5px 12px',
+      fontSize: 11.5,
+      fontWeight: 700,
+      color: '#8a5300',
+      cursor: recarregando ? 'wait' : 'pointer'
+    }
+  }, recarregando ? 'Buscando…' : '↻ Tentar de novo')) : null, aviso ? /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 10,
       padding: '9px 12px',
@@ -6190,68 +6552,55 @@ const EnvioDeTemplate = ({
       gap: 8,
       marginBottom: 10
     }
-  }, vars.map(v => /*#__PURE__*/React.createElement("div", {
-    key: v.indice,
+  }, vars.map(v => {
+    const preenchido = !!String(valores[v.indice] || '').trim();
+    return /*#__PURE__*/React.createElement("div", {
+      key: v.indice,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      title: 'variável ' + v.indice,
+      style: {
+        width: 22,
+        height: 22,
+        flex: '0 0 22px',
+        borderRadius: '50%',
+        background: preenchido ? 'rgba(255,107,53,.16)' : '#f1ece5',
+        color: preenchido ? '#b8431a' : C.muted,
+        fontSize: 11.5,
+        fontWeight: 800,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }
+    }, v.indice), /*#__PURE__*/React.createElement("input", {
+      value: valores[v.indice] || '',
+      onChange: e => setValores(x => ({
+        ...x,
+        [v.indice]: e.target.value
+      })),
+      placeholder: v.exemplo ? 'ex.: ' + v.exemplo : 'valor do campo ' + v.indice,
+      style: {
+        flex: 1,
+        minWidth: 0,
+        padding: '8px 10px',
+        borderRadius: 10,
+        fontSize: 13,
+        outline: 'none',
+        border: '1.5px solid ' + (preenchido ? C.border : '#e0a0a0')
+      }
+    }));
+  })) : null, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 700,
-      color: C.muted,
-      minWidth: 38
-    }
-  }, '{{' + v.indice + '}}'), /*#__PURE__*/React.createElement("input", {
-    value: valores[v.indice] || '',
-    onChange: e => setValores(x => ({
-      ...x,
-      [v.indice]: e.target.value
-    })),
-    placeholder: v.exemplo || 'valor da variável ' + v.indice,
-    style: {
-      flex: 1,
-      padding: '8px 10px',
-      borderRadius: 10,
-      fontSize: 13,
-      outline: 'none',
-      border: '1.5px solid ' + (String(valores[v.indice] || '').trim() ? C.border : '#e0a0a0')
-    }
-  })))) : null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      border: '1.5px solid ' + C.border,
-      borderRadius: 12,
-      padding: 14,
-      background: '#f7f4ef',
       marginBottom: 10
     }
-  }, tpl && tpl.titulo ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      fontWeight: 800,
-      color: C.ink,
-      marginBottom: 8
-    }
-  }, tpl.titulo) : null, previa ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      lineHeight: 1.55,
-      color: C.ink,
-      whiteSpace: 'pre-wrap'
-    }
-  }, previa) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: C.muted,
-      lineHeight: 1.5
-    }
-  }, "O texto deste template est\xE1 cadastrado na Meta (painel do Dualhook \u2192 Templates \u2192 ", /*#__PURE__*/React.createElement("strong", {
-    style: {
-      color: C.ink
-    }
-  }, tpl ? tpl.nome : '—'), ") e \xE9 ele que a pessoa recebe.")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(PreviaDeTemplate, {
+    tpl: tpl,
+    valores: valores
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -6261,7 +6610,7 @@ const EnvioDeTemplate = ({
   }, /*#__PURE__*/React.createElement("button", {
     onClick: enviar,
     disabled: enviando || !tpl || faltando.length > 0,
-    title: faltando.length ? 'Preencha todas as variáveis do template.' : '',
+    title: faltando.length ? 'Preencha todos os campos do modelo.' : '',
     style: {
       background: C.p1,
       color: '#fff',
@@ -6273,7 +6622,7 @@ const EnvioDeTemplate = ({
       cursor: enviando || faltando.length ? 'not-allowed' : 'pointer',
       opacity: enviando || faltando.length ? .5 : 1
     }
-  }, enviando ? estagio || 'Enviando…' : aviso && confirmado ? '📤 Enviar mesmo assim' : '📤 Enviar template'), /*#__PURE__*/React.createElement("span", {
+  }, enviando ? estagio || 'Enviando…' : aviso && confirmado ? '📤 Enviar mesmo assim' : '📤 Enviar'), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted
@@ -6284,7 +6633,7 @@ const EnvioDeTemplate = ({
       padding: '1px 5px',
       borderRadius: 4
     }
-  }, tpl.nome) : null, tpl && tpl.idioma ? ' · ' + tpl.idioma : '', faltando.length ? ' · preencha ' + faltando.map(v => '{{' + v.indice + '}}').join(', ') : '')));
+  }, tpl.nome) : null, tpl && tpl.idioma ? ' · ' + tpl.idioma : '', faltando.length ? ' · falta preencher ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') + faltando.map(v => v.indice).join(', ') : '')));
 };
 
 // ── Nova conversa: modal do portal, no lugar do prompt() do navegador ───
@@ -10582,9 +10931,13 @@ const textoDeTemplate = m => {
   // "{{2}}" cru na conversa.
   const t = templatePorNome(nomeTemplate);
   if (t && t.texto) {
-    return t.texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (bruto, n) => {
+    // Parametro que nao ficou no registro vira reticencia, NUNCA o `{{n}}`
+    // cru: chave dupla e notacao da Meta, e na conversa ela so faz parecer
+    // que a loja mandou uma mensagem quebrada pro cliente. Acontece com
+    // registro antigo, de quando guardavamos so a primeira variavel.
+    return t.texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (_bruto, n) => {
       const v = params[Number(n)];
-      return v != null && v !== '' ? v : bruto;
+      return v != null && v !== '' ? v : '…';
     });
   }
   const lista = Object.keys(params).sort((a, b) => a - b).map(k => params[k]).filter(Boolean);
@@ -10850,6 +11203,23 @@ const WhatsAppTab = () => {
   const [err, setErr] = useState('');
   const [busca, setBusca] = useState('');
   const endRef = React.useRef(null);
+
+  // Carrega a lista viva de templates JA na abertura da aba, nao so quando
+  // o bloco de envio aparece. A bolha de uma mensagem de template ja
+  // enviada tambem le dessa lista pra mostrar o texto — sem isso ela
+  // pintava com a lista embutida (dois itens) e ficava no
+  // "Template “calicolors”" seco, sem nunca redesenhar quando a lista de
+  // verdade chegava. E o `setTemplatesEm` que provoca esse redesenho.
+  const [, setTemplatesEm] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    carregarTemplates().then(t => {
+      if (vivo && t) setTemplatesEm(Date.now());
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   // `delivery_*` sao da Wave 58. Se a migration ainda nao rodou, o
   // PostgREST devolve 42703 e a lista NAO CARREGA — por isso o load tenta
@@ -12909,13 +13279,6 @@ const PAGES_DEF = [{
     emptyMsg: "Nenhum arquiteto ou engenheiro cadastrado."
   })
 }, {
-  id: 'leads',
-  icon: '🧲',
-  label: 'Leads',
-  section: 'PESSOAS',
-  badgeKey: 'leads',
-  component: /*#__PURE__*/React.createElement(Leads, null)
-}, {
   id: 'clientes',
   icon: '👥',
   label: 'Clientes',
@@ -12929,6 +13292,13 @@ const PAGES_DEF = [{
   section: 'PESSOAS',
   badgeKey: 'portalUsers',
   component: /*#__PURE__*/React.createElement(PortalUsersList, null)
+}, {
+  id: 'leads',
+  icon: '🧲',
+  label: 'Leads',
+  section: 'LOJA',
+  badgeKey: 'leads',
+  component: /*#__PURE__*/React.createElement(Leads, null)
 }, {
   id: 'pedidos-loja',
   icon: '🛒',

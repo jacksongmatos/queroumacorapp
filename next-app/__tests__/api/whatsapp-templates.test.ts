@@ -141,3 +141,81 @@ describe('filtro de APPROVED', () => {
     expect(aprovados.find((t) => t.nome === 'calicolors')?.variaveis).toEqual([]);
   });
 });
+
+// ── Botões e cabeçalho de mídia ──────────────────────────────────────────
+// A prévia do portal mostrava só o corpo: rodapé chegava aqui e era
+// descartado no caminho, e botão nem era lido. O efeito era a tela mentir
+// por omissão — um template com botão aparecia como mensagem seca, e
+// ninguém sabia que havia botão até o cliente responder por ele.
+
+describe('componentes que a pessoa vê mas não são o corpo', () => {
+  it('lê os botões, com tipo e rótulo', () => {
+    const t = normalizarTemplate({
+      name: 'calicolors_promo',
+      status: 'APPROVED',
+      components: [
+        { type: 'BODY', text: 'Chegou tinta nova.' },
+        {
+          type: 'BUTTONS',
+          buttons: [
+            { type: 'QUICK_REPLY', text: 'Quero saber mais' },
+            { type: 'URL', text: 'Ver catálogo', url: 'https://example.com' },
+          ],
+        },
+      ],
+    });
+    expect(t?.botoes).toEqual([
+      { tipo: 'QUICK_REPLY', texto: 'Quero saber mais' },
+      { tipo: 'URL', texto: 'Ver catálogo' },
+    ]);
+  });
+
+  it('botão sem rótulo é descartado (não vira linha vazia na prévia)', () => {
+    const t = normalizarTemplate({
+      name: 'x',
+      status: 'APPROVED',
+      components: [{ type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY' }] }],
+    });
+    expect(t?.botoes).toEqual([]);
+  });
+
+  // Cabeçalho de mídia não tem `text`. Sem o `format`, a prévia sumiria com
+  // o topo inteiro e o operador concluiria que o template não tem cabeçalho
+  // — quando na verdade a pessoa recebe uma foto.
+  it('cabeçalho de mídia é identificado mesmo sem texto', () => {
+    const t = normalizarTemplate({
+      name: 'x',
+      status: 'APPROVED',
+      components: [
+        { type: 'HEADER', format: 'IMAGE' },
+        { type: 'BODY', text: 'Olha só.' },
+      ],
+    });
+    expect(t?.formatoCabecalho).toBe('IMAGE');
+    expect(t?.cabecalho).toBeNull();
+  });
+
+  it('cabeçalho de texto continua vindo como texto', () => {
+    const t = normalizarTemplate({
+      name: 'x',
+      status: 'APPROVED',
+      components: [
+        { type: 'HEADER', format: 'TEXT', text: 'Orçamento pronto' },
+        { type: 'BODY', text: 'Oi.' },
+      ],
+    });
+    expect(t?.formatoCabecalho).toBe('TEXT');
+    expect(t?.cabecalho).toBe('Orçamento pronto');
+  });
+
+  it('template sem botão nem cabeçalho não inventa nada', () => {
+    const t = normalizarTemplate({
+      name: 'x',
+      status: 'APPROVED',
+      components: [{ type: 'BODY', text: 'Só corpo.' }],
+    });
+    expect(t?.botoes).toEqual([]);
+    expect(t?.formatoCabecalho).toBeNull();
+    expect(t?.rodape).toBeNull();
+  });
+});

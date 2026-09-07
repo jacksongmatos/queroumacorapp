@@ -232,8 +232,11 @@ describe('marcadores de extração do portal', () => {
     '// [teste:janela-fim]',
     '// [teste:template-inicio]',
     '// [teste:template-fim]',
+    '// [teste:previa-inicio]',
+    '// [teste:previa-fim]',
     'const JANELA_MS =',
     'const TEMPLATE_IDIOMA =',
+    'const segmentosDoTemplate =',
   ];
 
   let fonte = '';
@@ -251,6 +254,7 @@ describe('marcadores de extração do portal', () => {
     const blocos = [
       fonte.slice(fonte.indexOf('const JANELA_MS ='), fonte.indexOf('// [teste:janela-fim]')),
       fonte.slice(fonte.indexOf('const TEMPLATE_IDIOMA ='), fonte.indexOf('// [teste:template-fim]')),
+      fonte.slice(fonte.indexOf('const segmentosDoTemplate ='), fonte.indexOf('// [teste:previa-fim]')),
     ];
     for (const b of blocos) {
       expect(b.length).toBeGreaterThan(50);
@@ -398,5 +402,115 @@ describe('registro de template: ida e volta', () => {
   it('aceita nome com acento no parâmetro', () => {
     const lido = parseRegistroTemplate('[template calicolors_nome] {{1}}=Ângela');
     expect(lido?.param).toBe('Ângela');
+  });
+});
+
+// ── Prévia do template: o que a tela mostra antes de enviar ──────────────
+// Relato de 2026-09-07, três coisas de uma vez: a prévia estava feia, uns
+// templates não mostravam o modelo, e outros mostravam `{{2}}` cru. A
+// terceira é a que vira teste: chave dupla é notação da Meta, não conteúdo,
+// e não tem por que aparecer pra quem opera. Um buraco tem que parecer
+// buraco.
+
+interface Segmento {
+  tipo: 'texto' | 'valor' | 'vazio';
+  indice?: number;
+  valor: string;
+}
+
+let segmentosDoTemplate: (
+  texto: string | null,
+  valores: Record<number, string>,
+  vars: Array<{ indice: number; exemplo: string | null }>
+) => Segmento[] | null;
+let rotuloDeTemplate: (t: { nome?: string; rotulo?: string }) => string;
+
+describe('prévia do template (portal)', () => {
+  beforeAll(() => {
+    const src = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = src.indexOf('const segmentosDoTemplate =');
+    const fim = src.indexOf('// [teste:previa-fim]');
+    expect(inicio).toBeGreaterThan(-1);
+    expect(fim).toBeGreaterThan(inicio);
+    const fabrica = new Function(
+      `${src.slice(inicio, fim)}; return { segmentosDoTemplate, rotuloDeTemplate };`
+    ) as () => {
+      segmentosDoTemplate: typeof segmentosDoTemplate;
+      rotuloDeTemplate: typeof rotuloDeTemplate;
+    };
+    ({ segmentosDoTemplate, rotuloDeTemplate } = fabrica());
+  });
+
+  const CORPO = 'Oi {{1}}, seu orçamento {{2}} está pronto.';
+  const VARS = [
+    { indice: 1, exemplo: 'Bianca' },
+    { indice: 2, exemplo: '1042' },
+  ];
+
+  // O bug relatado: com {{2}} vazio, a prévia antiga imprimia o `{{2}}`
+  // literal no meio da frase.
+  it('variável vazia nunca vira `{{n}}` na tela', () => {
+    const segs = segmentosDoTemplate(CORPO, { 1: 'Beatris' }, VARS)!;
+    expect(segs.map((s) => s.valor).join('')).not.toContain('{{');
+    expect(segs.map((s) => s.valor).join('')).not.toContain('}}');
+  });
+
+  it('o buraco aparece como buraco, com o exemplo do painel', () => {
+    const segs = segmentosDoTemplate(CORPO, { 1: 'Beatris' }, VARS)!;
+    const vazio = segs.find((s) => s.tipo === 'vazio')!;
+    expect(vazio.indice).toBe(2);
+    expect(vazio.valor).toBe('ex.: 1042');
+  });
+
+  it('sem exemplo cadastrado, o buraco ainda se identifica', () => {
+    const segs = segmentosDoTemplate('Oi {{1}}', {}, [{ indice: 1, exemplo: null }])!;
+    expect(segs.find((s) => s.tipo === 'vazio')!.valor).toBe('variável 1');
+  });
+
+  it('preenchido vira segmento destacável, não texto solto', () => {
+    const segs = segmentosDoTemplate(CORPO, { 1: 'Beatris', 2: '1042' }, VARS)!;
+    expect(segs.filter((s) => s.tipo === 'vazio')).toHaveLength(0);
+    expect(segs.filter((s) => s.tipo === 'valor').map((s) => s.valor)).toEqual([
+      'Beatris',
+      '1042',
+    ]);
+    // O texto reconstruído é exatamente a mensagem que sai.
+    expect(segs.map((s) => s.valor).join('')).toBe(
+      'Oi Beatris, seu orçamento 1042 está pronto.'
+    );
+  });
+
+  it('espaço em branco não conta como preenchido', () => {
+    const segs = segmentosDoTemplate('Oi {{1}}', { 1: '   ' }, VARS)!;
+    expect(segs.find((s) => s.tipo === 'vazio')).toBeTruthy();
+  });
+
+  it('tolera espaço dentro das chaves, como a Meta permite', () => {
+    const segs = segmentosDoTemplate('Oi {{ 1 }}!', { 1: 'Ana' }, VARS)!;
+    expect(segs.map((s) => s.valor).join('')).toBe('Oi Ana!');
+  });
+
+  it('template sem corpo devolve null (a tela então diz onde o texto vive)', () => {
+    expect(segmentosDoTemplate(null, {}, [])).toBeNull();
+  });
+
+  // O nome cru da Meta continua à vista embaixo do botão — é ele que tem
+  // que bater com o painel quando o envio falha com 132001. O rótulo é só
+  // pra lista não virar uma coluna de `calicolors_orcamento_pronto`.
+  it('nome cru vira rótulo legível no seletor', () => {
+    // Sem cedilha de propósito: o nome na Meta é ASCII
+    // (`calicolors_orcamento_pronto`) e o rótulo é derivado DELE. Restaurar
+    // acento exigiria um dicionário escrito à mão — a mesma doença da lista
+    // de templates que esta rota veio matar.
+    expect(rotuloDeTemplate({ nome: 'calicolors_orcamento_pronto' })).toBe(
+      'Orcamento pronto'
+    );
+    expect(rotuloDeTemplate({ nome: 'calicolors' })).toBe('Calicolors');
+  });
+
+  it('rótulo próprio da lista embutida ganha do derivado', () => {
+    expect(
+      rotuloDeTemplate({ nome: 'calicolors_nome', rotulo: 'Com o nome da pessoa' })
+    ).toBe('Com o nome da pessoa');
   });
 });
