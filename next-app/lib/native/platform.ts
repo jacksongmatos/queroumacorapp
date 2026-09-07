@@ -52,3 +52,21 @@ export function getPlugin<T>(name: string): T | undefined {
     return undefined;
   }
 }
+
+/**
+ * Nomes dos plugins nativos VISÍVEIS pra esta página.
+ *
+ * Existe pra DIAGNÓSTICO, não pra lógica de feature (quem decide isso é o
+ * `getPlugin` de cada wrapper). O runtime do iOS/Android injeta um script por
+ * plugin registrado, então esta lista responde direto "o plugin X chegou
+ * nesta casca?" — pergunta que já custou uma rejeição da Apple sendo
+ * respondida por dedução em vez de por evidência.
+ */
+export function listNativePlugins(): string[] {
+  try {
+    const plugins = getCapacitor()?.Plugins;
+    return plugins ? Object.keys(plugins).sort() : [];
+  } catch {
+    return [];
+  }
+}

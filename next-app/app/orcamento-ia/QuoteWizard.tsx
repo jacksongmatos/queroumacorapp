@@ -25,6 +25,7 @@ import { canSeeProFeature } from '@/lib/policies';
 import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
 import { saveQuote } from '@/lib/services/pipeline';
 import { showToast } from '@/lib/toast';
+import { abrirLinkExterno } from '@/lib/native';
 import {
   suggestScope,
   suggestPrice,
@@ -333,7 +334,8 @@ export function QuoteWizard() {
   function handleSendEmail() {
     const subj = encodeURIComponent(`Orçamento — ${form.serviceType}`);
     const body = encodeURIComponent(buildPlainText());
-    window.location.href = `mailto:?subject=${subj}&body=${body}`;
+    // `location.href` na casca vira a tela "Sem conexão" (ver abrirLinkExterno).
+    abrirLinkExterno(`mailto:?subject=${subj}&body=${body}`);
   }
 
   // Enviar pelo chat interno do QueroUmaCor. Se o orçamento já foi gravado

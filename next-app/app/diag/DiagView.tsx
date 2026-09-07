@@ -83,6 +83,25 @@ export function DiagView() {
             { k: 'Versão do app', v: d.appVersion || '—' },
             { k: 'Build', v: d.appBuild || '—' },
           );
+          // A pergunta que custou a rejeição da Apple na build 17: o login
+          // social só funciona na casca se os plugins Browser e App estiverem
+          // VISÍVEIS pra esta página. Sem esta linha, a única forma de
+          // responder isso era por dedução.
+          const plugins = native.plugins();
+          const oauthOk =
+            plugins.includes('Browser') && plugins.includes('App');
+          nativeRows.push(
+            {
+              k: 'Login social nativo',
+              v: oauthOk ? 'disponível' : 'INDISPONÍVEL',
+              tone: oauthOk ? 'ok' : 'bad',
+            },
+            {
+              k: 'Plugins nativos',
+              v: plugins.length ? plugins.join(', ') : 'nenhum',
+              tone: plugins.length ? undefined : 'bad',
+            },
+          );
         }
         setRows([...out, ...nativeRows]);
       })

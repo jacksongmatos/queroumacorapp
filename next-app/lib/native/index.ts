@@ -12,6 +12,7 @@
 export {
   isNativePlatform,
   getNativePlatform,
+  listNativePlugins,
 } from './platform';
 export {
   isNativeOAuthAvailable,
@@ -49,12 +50,12 @@ export { initKeyboard } from './keyboard';
 export { onAppResume } from './appState';
 export { isOnlineNow, onNetworkChange } from './network';
 export { copyToClipboard } from './clipboard';
-export { openExternal } from './browser';
+export { openExternal, abrirLinkExterno } from './browser';
 export { getDeviceInfo } from './device';
 export type { NativeDeviceInfo } from './device';
 export { setAppBadge } from './badge';
 
-import { getNativePlatform, isNativePlatform } from './platform';
+import { getNativePlatform, isNativePlatform, listNativePlugins } from './platform';
 import { isNativeOAuthAvailable, nativeSignInWithOAuth } from './auth';
 import {
   isNativeCameraAvailable,
@@ -78,7 +79,7 @@ import { initKeyboard } from './keyboard';
 import { onAppResume } from './appState';
 import { isOnlineNow, onNetworkChange } from './network';
 import { copyToClipboard } from './clipboard';
-import { openExternal } from './browser';
+import { openExternal, abrirLinkExterno } from './browser';
 import { getDeviceInfo } from './device';
 import { setAppBadge } from './badge';
 
@@ -86,6 +87,7 @@ import { setAppBadge } from './badge';
 export const native = {
   isNative: isNativePlatform,
   platform: getNativePlatform,
+  plugins: listNativePlugins,
   oauth: { isAvailable: isNativeOAuthAvailable, signIn: nativeSignInWithOAuth },
   camera: {
     isAvailable: isNativeCameraAvailable,
@@ -114,6 +116,7 @@ export const native = {
   network: { isOnline: isOnlineNow, onChange: onNetworkChange },
   clipboard: { copy: copyToClipboard },
   openExternal,
+  abrirLinkExterno,
   device: { getInfo: getDeviceInfo },
   badge: { set: setAppBadge },
 };

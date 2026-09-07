@@ -251,6 +251,51 @@
     esses dois sem o usuário conferir — o que já se sabe é que a proteção da
     `main` EXISTE (push direto recusado com "protected branch hook declined").
 
+- **APPLE REJEITOU A BUILD 17 (2.1 App Completeness) — a tela "Sem conexão"
+  no login social (2026-09-07).** No iPad da revisão, tocar em "Continuar com
+  Apple" pintava o `offline.html` em tela cheia, com a internet funcionando.
+  Não era alerta nativo nem falha de rede: era a `errorPath` da casca.
+  - **O MECANISMO, lido no fonte do Capacitor (não deduzido):**
+    `WebViewDelegationHandler.swift` → `decidePolicyFor` vê navegação de TOPO
+    pra host fora de `server.allowNavigation`, entrega a URL ao sistema
+    (`UIApplication.shared.open`) **e CANCELA** a navegação. O cancelamento
+    chega em `didFailProvisionalNavigation`, e ali o Capacitor carrega a
+    `errorPath` — o nosso `offline.html`. Ou seja: **toda navegação de topo
+    pra fora do app vira "Sem conexão" na casca**, com internet perfeita.
+  - **REGRA: dentro da casca, `window.location.href = <url externa>` é
+    PROIBIDO.** O caminho seguro é `window.open(url,'_blank')`, que passa por
+    `createWebViewWith` e abre no sistema SEM cancelar navegação nenhuma.
+    Helper único: `abrirLinkExterno` em `lib/native/browser.ts`.
+    - **PEGADINHA: nesse caminho o `window.open` devolve `null` MESMO DANDO
+      CERTO** (o delegate abre no sistema e retorna `nil` pro WebKit). Ler
+      esse null como falha faz o app mostrar erro em cima de link que abriu —
+      por isso o helper ignora o retorno quando é casca, e só confia nele no
+      browser (onde null é bloqueio de pop-up de verdade).
+  - **O gatilho no login:** `signInWithOAuth` caía pro fluxo web do
+    supabase-js (que navega a própria WebView pro provedor) sempre que o
+    fluxo nativo dizia `unavailable` — comentado no código como "corrida
+    rara". Agora **não existe fallback dentro da casca**: ou o fluxo nativo
+    funciona, ou a pessoa recebe uma frase acionável. 4 testes em
+    `__tests__/components/AuthOAuthNativo.test.tsx`; 2 deles falham se o
+    fallback voltar.
+  - **A varredura achou o mesmo padrão em mais 4 lugares**, todos corrigidos:
+    `mailto:` do orçamento (2 telas), o `if (!aba) location.href = wa.me` do
+    PDF de orçamento e do `abrirDestino` — este último era gatilho GARANTIDO,
+    porque na casca o `window.open` sempre devolve null — e o redirect do
+    checkout do Mercado Pago (sem call site de UI hoje, corrigido do mesmo
+    jeito).
+  - **NÃO SABEMOS por que o fluxo nativo estava indisponível naquele iPad** —
+    os pods `@capacitor/browser` e `@capacitor/app` estão no Podfile. Por
+    isso a correção vem com evidência junto: `native.plugins()` lista os
+    plugins visíveis, o `/diag` mostra "Login social nativo: disponível /
+    INDISPONÍVEL" + a lista, e a falha grava `oauth-fail` no `/admin/errors`
+    com plataforma e plugins. **Antes de reenviar pra Apple, abrir `/diag` no
+    aparelho** — se disser INDISPONÍVEL, o login social ainda não funciona e
+    a Apple rejeita de novo, agora por causa da mensagem de erro.
+  - **A correção NÃO precisa de build nova**: o app carrega o site de
+    `server.url`, então o deploy do Cloudflare Pages já entrega. Build nova só
+    seria preciso se o defeito estivesse na casca.
+
 - **CORES DO ANO NA LOJA — modal de uma vez só (2026-09-06).** Ao abrir a
   `/loja`, um diálogo mostra as Cores do Ano das fabricantes (Sherwin-Williams
   **Universal Khaki SW 6150**; Suvinil **Tempestade D177** e **Cipó da Amazônia

@@ -25,6 +25,7 @@ import {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabase } from '@/lib/supabase';
+import { reportFailure } from '@/lib/utils/reportFailure';
 
 interface AuthContextValue {
   user: User | null;
@@ -222,14 +223,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Dentro da casca nativa (Capacitor), OAuth NÃO pode navegar a
         // WebView — Google recusa (`disallowed_useragent`) e o App-Bound
         // Domains do iOS bloqueia. O fluxo nativo abre o browser do sistema
-        // e volta por deep link (lib/native/auth.ts). Feature-detected: casca
-        // velha sem os plugins Browser/App cai no fluxo web de sempre.
+        // e volta por deep link (lib/native/auth.ts).
         const { native } = await import('@/lib/native');
+        const naCasca = native.isNative();
         if (native.oauth.isAvailable()) {
           const res = await native.oauth.signIn(provider);
-          if (res.error === 'unavailable') {
-            // corrida rara (plugin sumiu entre o check e a chamada) — segue web
-          } else {
+          if (res.error !== 'unavailable') {
             if (!res.error) {
               // Sessão já gravada no client; mesmo landing do fluxo web, que
               // decide entre /feed e onboarding.
@@ -237,7 +236,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
             return res;
           }
+          // 'unavailable' = o plugin sumiu entre o check e a chamada. Antes
+          // isto caía pro fluxo web — ver o bloco abaixo pra por que não cai
+          // mais.
         }
+
+        // DENTRO DA CASCA O FLUXO WEB É PROIBIDO — foi ele que derrubou a
+        // build 17 na App Review (Guideline 2.1, 06/09/2026).
+        //
+        // O `signInWithOAuth` sem `skipBrowserRedirect` navega a PRÓPRIA
+        // WebView pro provedor. `appleid.apple.com` não está em
+        // `server.allowNavigation`, então o Capacitor faz duas coisas
+        // (WebViewDelegationHandler.swift): entrega a URL ao sistema E
+        // CANCELA a navegação. O cancelamento chega como
+        // `didFailProvisionalNavigation`, e ali o Capacitor carrega a
+        // `errorPath` — o `offline.html`. Resultado: a tela "Sem conexão"
+        // ocupando o app inteiro, com a internet funcionando. Foi
+        // exatamente o print que a Apple anexou.
+        //
+        // Ou seja: aqui não existe fallback. Ou o fluxo nativo funciona, ou
+        // a pessoa recebe uma frase que diz o que fazer.
+        if (naCasca) {
+          reportFailure(
+            'oauth-fail',
+            new Error(`fluxo nativo indisponível (${provider})`),
+            {
+              ctx: `plataforma=${native.platform()} plugins=[${native
+                .plugins()
+                .join(',')}]`,
+            },
+          );
+          return {
+            error:
+              `Não foi possível iniciar o login com ${nome}. Feche e abra o ` +
+              `app de novo. Se continuar, entre com e-mail e senha.`,
+          };
+        }
+
         const sb = getSupabase();
         // redirectTo baseado no origin atual → funciona em produção e nos
         // previews (*.pages.dev). Precisa estar na allowlist de Redirect URLs

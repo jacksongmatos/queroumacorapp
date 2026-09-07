@@ -34,6 +34,8 @@ import {
   onNetworkChange,
   copyToClipboard,
   openExternal,
+  abrirLinkExterno,
+  listNativePlugins,
   getDeviceInfo,
   setAppBadge,
 } from '../lib/native';
@@ -396,5 +398,72 @@ describe('lib/native Onda C — dentro da casca', () => {
     setAppBadge(5);
     setAppBadge(0);
     expect(calls).toEqual(['set', 'clear']);
+  });
+});
+
+describe('abrirLinkExterno — nunca navega a WebView na casca', () => {
+  // Regra nascida da rejeição da App Review (06/09/2026): `location.href` pra
+  // fora do app é CANCELADO pelo Capacitor, e o cancelamento faz a WebView
+  // carregar a errorPath — a pessoa vê "Sem conexão" com internet.
+  const abertos: Array<string | undefined> = [];
+  let hrefEscrito = '';
+
+  function armar(nativo: boolean, janelaAbre: boolean) {
+    abertos.length = 0;
+    hrefEscrito = '';
+    setCapacitor(
+      nativo ? { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: {} } : undefined,
+    );
+    (window as unknown as { open: unknown }).open = (u?: string) => {
+      abertos.push(u);
+      return janelaAbre ? ({} as Window) : null;
+    };
+    // jsdom recusa navegação de verdade; interceptamos a escrita.
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        get href() {
+          return hrefEscrito;
+        },
+        set href(v: string) {
+          hrefEscrito = v;
+        },
+      },
+    });
+  }
+
+  it('na casca usa window.open e NUNCA location.href', () => {
+    armar(true, false); // o delegate do Capacitor devolve null mesmo dando certo
+    expect(abrirLinkExterno('https://wa.me/5511999999999')).toBe(true);
+    expect(abertos).toEqual(['https://wa.me/5511999999999']);
+    expect(hrefEscrito).toBe('');
+  });
+
+  it('mailto: também sai pelo window.open na casca', () => {
+    armar(true, false);
+    expect(abrirLinkExterno('mailto:x@y.com')).toBe(true);
+    expect(hrefEscrito).toBe('');
+  });
+
+  it('fora da casca, pop-up bloqueado cai pra location.href (comportamento web)', () => {
+    armar(false, false);
+    expect(abrirLinkExterno('https://exemplo.com')).toBe(true);
+    expect(hrefEscrito).toBe('https://exemplo.com');
+  });
+});
+
+describe('listNativePlugins — diagnóstico', () => {
+  it('devolve os nomes visíveis, ordenados', () => {
+    setCapacitor({
+      isNativePlatform: () => true,
+      getPlatform: () => 'ios',
+      Plugins: { Browser: {}, App: {} },
+    });
+    expect(listNativePlugins()).toEqual(['App', 'Browser']);
+  });
+
+  it('fora da casca é lista vazia, nunca throw', () => {
+    setCapacitor(undefined);
+    expect(listNativePlugins()).toEqual([]);
   });
 });
