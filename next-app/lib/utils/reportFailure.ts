@@ -41,6 +41,7 @@ export const FAILURE_TYPE_LABELS = {
   'consent-fail': '✍️ Consentimento',
   'sw-status': '⚙️ Service worker',
   'oauth-fail': '🔑 Login social',
+  'profile-incomplete': '🪪 Perfil incompleto',
 } as const satisfies Record<string, string>;
 
 export type FailureType = keyof typeof FAILURE_TYPE_LABELS;

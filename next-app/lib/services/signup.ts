@@ -11,6 +11,7 @@
 import { getSupabase } from '@/lib/supabase';
 import { ConflictError, ValidationError } from '@/lib/errors';
 import { calculateAge, MIN_AGE } from '@/lib/schemas';
+import { reportFailure } from '@/lib/utils/reportFailure';
 import type { UserType } from '@/lib/types';
 
 export interface SignupData {
@@ -167,12 +168,37 @@ export async function signUp(input: SignupData): Promise<SignupResult> {
   if (input.referrerId && input.referrerId !== data.user.id) {
     extras.invited_by = input.referrerId;
   }
-  if (Object.keys(extras).length > 0) {
-    try {
-      await sb.from('profiles').update(extras).eq('id', data.user.id);
-    } catch {
-      /* silent — conta já existe, user edita depois */
+  try {
+    // `.select('id')` porque UPDATE que não acha linha NÃO é erro: volta
+    // sucesso com zero linhas. Era esse silêncio que escondia o caso abaixo.
+    const { data: atingidas, error: upErr } = await sb
+      .from('profiles')
+      .update(extras as never)
+      .eq('id', data.user.id)
+      .select('id');
+
+    if (!upErr && (!atingidas || atingidas.length === 0)) {
+      // A LINHA DE PERFIL NÃO EXISTE. A trigger `handle_new_user` engole a
+      // própria exceção com RAISE WARNING, então quando ela falha (um CHECK
+      // recusando o user_type, por exemplo) a conta de auth nasce e o perfil
+      // não — e daí TUDO que escreve no perfil vira no-op silencioso: o app
+      // manda a pessoa pro /completar-perfil, ela preenche, o UPDATE não
+      // acha linha nenhuma e a tela volta. O "cadastro em duas etapas" que
+      // não acabava.
+      //
+      // A policy "Users can insert own profile" permite o dono criar a
+      // própria linha, então criamos aqui.
+      const { error: insErr } = await sb
+        .from('profiles')
+        .insert({ id: data.user.id, ...extras } as never);
+      reportFailure(
+        'profile-incomplete',
+        insErr ?? new Error('perfil não existia após o signup; criado pelo app'),
+        { userId: data.user.id, ctx: insErr ? 'signup/insert-falhou' : 'signup/insert-ok' },
+      );
     }
+  } catch {
+    /* best-effort — a conta já existe e o /completar-perfil é a rede de segurança */
   }
 
   // Registra a indicação em `referrals` — trigger no banco credita 1 pt
