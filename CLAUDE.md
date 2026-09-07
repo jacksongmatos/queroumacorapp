@@ -323,7 +323,7 @@
     continuava preso, e o loop era mudo dos dois lados.
   - **REGRA (a mesma do `signUp`, agora em toda escrita de perfil): onde a
     identidade importa, `update` sem `.select()` é escrita sem confirmação.**
-=======
+
 - **QUAL BUILD O APARELHO ESTÁ RODANDO — `/diag` responde (2026-09-07).** A
   pergunta apareceu em TRÊS investigações (o 500, a rejeição da Apple, o
   cadastro duplicado) e nunca teve resposta: testar depois de um deploy era
