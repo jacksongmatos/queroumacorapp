@@ -343,103 +343,12 @@ const setProfileVerified = async (id, value, after) => {
   if (await adminUsers({ action:'verify', userId:id, value }) && after) after();
 };
 
-// Edita a @tag pelo portal. REGRA DO APP: tag nunca fica vazia (busca e
-// link de perfil dependem dela) — o backend recusa vazio/duplicada.
-const editUserTag = async (profile, after) => {
-  let v = prompt(
-    'Nova @tag para ' + (profile.name || 'este perfil') +
-    '\n(3 a 24 caracteres: a-z, 0-9, _ — NAO pode ficar vazia)',
-    profile.tag || ''
-  );
-  if (v === null) return;
-  v = v.trim().replace(/^@+/, '').toLowerCase();
-  if (!v) { alert('A @tag nao pode ficar vazia — regra do app (busca e link do perfil dependem dela).'); return; }
-  if (!/^[a-z0-9_]{3,24}$/.test(v)) { alert('@tag invalida: use 3 a 24 caracteres (a-z, 0-9, _).'); return; }
-  if (v === profile.tag) return;
-  if (await adminUsers({ action:'set_tag', userId: profile.id, tag: v }) && after) after();
-};
 
-// Edita o nome de exibicao (2 a 60 caracteres).
-const editUserName = async (profile, after) => {
-  let v = prompt('Novo nome para ' + (profile.name || 'este perfil') + ':', profile.name || '');
-  if (v === null) return;
-  v = v.trim().replace(/\s+/g, ' ');
-  if (v.length < 2 || v.length > 60) { alert('Nome invalido: use de 2 a 60 caracteres.'); return; }
-  if (v === profile.name) return;
-  if (await adminUsers({ action:'set_name', userId: profile.id, name: v }) && after) after();
-};
 
-// Edita cidade (vazio limpa).
-const editUserCity = async (profile, after) => {
-  let v = prompt('Cidade de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.city || '');
-  if (v === null) return;
-  v = v.trim();
-  if (v.length > 60) { alert('Cidade muito longa (max 60 caracteres).'); return; }
-  if (v === (profile.city || '')) return;
-  if (await adminUsers({ action:'set_info', userId: profile.id, city: v }) && after) after();
-};
 
-// Edita a UF (2 letras; vazio limpa).
-const editUserState = async (profile, after) => {
-  let v = prompt('Estado (UF, 2 letras — ex.: SP) de ' + (profile.name || 'este perfil') + ' (vazio pra limpar):', profile.state || '');
-  if (v === null) return;
-  v = v.trim().toUpperCase();
-  if (v && !/^[A-Z]{2}$/.test(v)) { alert('UF invalida: use 2 letras (ex.: SP, RJ) ou vazio pra limpar.'); return; }
-  if (v === (profile.state || '')) return;
-  if (await adminUsers({ action:'set_info', userId: profile.id, state: v }) && after) after();
-};
 
-// Edita especialidades (texto livre, separadas por virgula; vazio limpa).
-const editUserSpecialties = async (profile, after) => {
-  let v = prompt(
-    'Especialidades de ' + (profile.name || 'este perfil') +
-    '\n(separadas por virgula — ex.: Residencial, Textura, Grafiato; vazio pra limpar)',
-    profile.specialties || ''
-  );
-  if (v === null) return;
-  v = v.trim();
-  if (v.length > 200) { alert('Especialidades muito longas (max 200 caracteres).'); return; }
-  if (v === (profile.specialties || '')) return;
-  if (await adminUsers({ action:'set_info', userId: profile.id, specialties: v }) && after) after();
-};
 
-// Edita o telefone (vazio limpa). O backend normaliza pro mesmo formato
-// que o app grava (digitos com o 55 na frente) — telefone com mascara nao
-// casaria com as conversas do WhatsApp nem com os leads, que comparam
-// digitos.
-const editUserPhone = async (profile, after) => {
-  let v = prompt(
-    'Telefone / WhatsApp de ' + (profile.name || 'este perfil') +
-    '\n(com DDD — ex.: 11 95976-5031; vazio pra limpar)',
-    fmtTelefonePerfil(profile.phone) || ''
-  );
-  if (v === null) return;
-  v = v.trim();
-  // 10 a 15 digitos: cobre fixo e celular BR e tambem numero estrangeiro
-  // (que o servidor guarda verbatim, sem colar o 55).
-  const so = v.replace(/\D/g, '');
-  if (v && !(so.length >= 10 && so.length <= 15)) {
-    alert('Telefone invalido: use DDD + numero (ex.: 11 95976-5031).');
-    return;
-  }
-  if (await adminUsers({ action:'set_info', userId: profile.id, phone: v }) && after) after();
-};
 
-// Edita o e-mail — TROCA O LOGIN no Auth (nao so a exibicao), por isso
-// pede confirmacao. O backend recusa formato invalido e e-mail em uso.
-const editUserEmail = async (profile, after) => {
-  let v = prompt(
-    'Novo e-mail para ' + (profile.name || 'este perfil') +
-    '\n\nATENCAO: troca tambem o E-MAIL DE LOGIN da conta.',
-    profile.email || ''
-  );
-  if (v === null) return;
-  v = v.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) { alert('E-mail invalido (esperado: nome@dominio.com).'); return; }
-  if (v === (profile.email || '').toLowerCase()) return;
-  if (!confirm('Confirmar a troca do e-mail de login para:\n\n' + v + '\n\nA pessoa passara a entrar com esse e-mail.')) return;
-  if (await adminUsers({ action:'set_email', userId: profile.id, email: v }) && after) after();
-};
 
 // Busca o e-mail de LOGIN no Auth e espelha em profiles.email. O portal
 // lista `profiles.email`, que e so um ESPELHO: perfil antigo (ou criado
@@ -510,27 +419,33 @@ const deleteUsersPermanently = async (profiles, after) => {
   if (after) after();
 };
 
-// Celula de @tag com lapis de edicao — compartilhada pelas tabelas.
+// Celula de @tag — compartilhada pelas tabelas. Edicao no modal.
 const TagCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.p3, fontWeight:600 }}>{profile.tag ? '@'+profile.tag : '—'}</span>
-    <button onClick={() => editUserTag(profile, after)} title="Editar @tag"
-      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
 
-// Nome com lapis (mesmo padrao da TagCell).
-const NameCell = ({ profile, after }) => (
-  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-    <span style={{ fontWeight:600 }}>{profile.name || 'Sem nome'}</span>
-    <button onClick={() => editUserName(profile, after)} title="Editar nome"
-      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
-  </span>
-);
+// Nome + o UNICO lapis da linha: abre o modal que edita tudo.
+//
+// Antes cada coluna tinha o seu lapis, e cada um abria um `prompt()` do
+// navegador — sete dialogos do Chrome pra editar uma pessoa. Agora e um so,
+// e a linha para de parecer um formulario disfarcado de tabela.
+const NameCell = ({ profile, after }) => {
+  const [editando, setEditando] = useState(false);
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+      <span style={{ fontWeight:600 }}>{profile.name || 'Sem nome'}</span>
+      <button onClick={() => setEditando(true)} title="Editar dados da pessoa"
+        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
+      {editando && <EditarPessoaModal profile={profile} onClose={() => setEditando(false)} after={after} />}
+    </span>
+  );
+};
 
-// E-mail com lapis — troca tambem o LOGIN (aviso no prompt). Quando o
-// espelho `profiles.email` esta vazio, o 🔄 busca o e-mail de login no
-// Auth (o portal sozinho nao enxerga `auth.users`) e preenche o espelho.
+// E-mail. A EDICAO vive no modal (o lapis do nome); aqui fica so o 🔄, que
+// busca o e-mail de LOGIN no Auth quando o espelho `profiles.email` esta
+// vazio — o portal sozinho nao enxerga `auth.users`.
 const EmailCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.muted }}>{profile.email || '—'}</span>
@@ -538,35 +453,27 @@ const EmailCell = ({ profile, after }) => (
       <button onClick={() => pullUserEmail(profile, after)} title="Buscar o e-mail de login no Auth"
         style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>🔄</button>
     )}
-    <button onClick={() => editUserEmail(profile, after)} title="Editar e-mail (troca o login)"
-      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
 
-// Cidade / UF / Especialidades com lapis (mesmo padrao).
+// Cidade / UF / Especialidades — so leitura na tabela; edicao no modal.
 const CityCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span>{profile.city || '—'}</span>
-    <button onClick={() => editUserCity(profile, after)} title="Editar cidade"
-      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
 const StateCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span>{profile.state || '—'}</span>
-    <button onClick={() => editUserState(profile, after)} title="Editar UF"
-      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
 const SpecialtiesCell = ({ profile, after }) => (
   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
     <span style={{ color:C.muted, fontSize:12 }}>{profile.specialties || '—'}</span>
-    <button onClick={() => editUserSpecialties(profile, after)} title="Editar especialidades"
-      style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
   </span>
 );
 
-// Telefone com lapis + atalho de WhatsApp. `profiles.phone` guarda digitos
+// Telefone + atalho de WhatsApp (edicao no modal). `profiles.phone` guarda digitos
 // ("5511959765031"), entao a exibicao passa pelo mesmo formatador das
 // conversas — sem ele a tabela mostrava a string crua.
 const fmtTelefonePerfil = (raw) => {
@@ -584,9 +491,212 @@ const PhoneCell = ({ profile, after }) => {
         <a href={'https://wa.me/' + alvo} target="_blank" rel="noopener noreferrer" title="Abrir no WhatsApp"
           style={{ textDecoration:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', fontSize:11 }}>📱</a>
       )}
-      <button onClick={() => editUserPhone(profile, after)} title="Editar telefone"
-        style={{ background:'none', border:'1px solid '+C.border, borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:11 }}>✏️</button>
     </span>
+  );
+};
+
+// Catalogo de especialidades — ESPELHO de next-app/lib/services/profile.ts
+// (ROLE_SPECS). O portal e um arquivo unico sem imports, entao a lista e
+// duplicada aqui de proposito; o teste __tests__/portalEspecialidades.test.ts
+// compara os dois e QUEBRA se divergirem.
+//
+// Por que checkbox e nao texto livre (pedido do usuario, 07/09/2026): digitado
+// a mao, a mesma especialidade entra como "Piso Epoxi", "piso epoxi" e "Piso
+// Epóxi" — tres valores diferentes pro filtro da busca do app, que compara
+// string. O catalogo fechado acaba com isso.
+const PERFIL_SPECS = {
+  pintor: ['Residencial','Comercial','Textura','Grafiato','Piso Epóxi','Fachada','Degradê','Stencil','Industrial','Caiação'],
+  grafiteiro: ['Grafite Artístico','Mural Decorativo','Painel Comercial','Arte Urbana','Lettering','Realismo','Abstrato','3D / Ilusão','Stencil Urbano','Lambe-lambe'],
+  automotivo: ['Pintura Automotiva','Funilaria','Envelopamento','Polimento','Cristalização','Customização','Aerografia','Restauração','Martelinho de Ouro','PPF / Película'],
+  arquiteto: ['Projeto Residencial','Projeto Comercial','Interiores','Reforma','Retrofit','Consultoria de Cores','Memorial Descritivo','Gerenciamento de Obra','Laudo Técnico','Fachada'],
+};
+
+// Papel -> catalogo. Sinonimos caem no papel canonico, igual no app.
+const specsDoPapel = (papel) => {
+  const r = String(papel || '').toLowerCase();
+  if (r === 'funileiro') return PERFIL_SPECS.automotivo;
+  if (r === 'engenheiro') return PERFIL_SPECS.arquiteto;
+  if (r === 'graffiti') return PERFIL_SPECS.grafiteiro;
+  return PERFIL_SPECS[r] || [];
+};
+
+const parseSpecs = (raw) => String(raw || '').split(',').map(x => x.trim()).filter(Boolean);
+
+// MODAL DE EDICAO — um lugar so pra todas as infos da pessoa.
+//
+// Substitui os sete `prompt()` do navegador (aquele "www.queroumacor.com.br
+// says"). Eles eram ruins por tres motivos, e o terceiro e o que doia:
+//  1. sao do Chrome, nao do portal — travam a aba e nao dao pra estilizar;
+//  2. um campo por vez: trocar nome, telefone e cidade era abrir tres;
+//  3. campo de texto livre em ESPECIALIDADES enchia o banco de variacao
+//     ("Piso Epoxi" x "Piso Epóxi"), que o filtro da busca nao casa.
+const EditarPessoaModal = ({ profile, onClose, after }) => {
+  const [nome, setNome] = useState(profile.name || '');
+  const [tag, setTag] = useState(profile.tag || '');
+  const [email, setEmail] = useState(profile.email || '');
+  const [tel, setTel] = useState(fmtTelefonePerfil(profile.phone) || '');
+  const [papel, setPapel] = useState(currentRoleKey(profile));
+  const [cidade, setCidade] = useState(profile.city || '');
+  const [uf, setUf] = useState(profile.state || '');
+  const [specs, setSpecs] = useState(parseSpecs(profile.specialties));
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const emailOriginal = (profile.email || '').toLowerCase();
+  const catalogo = specsDoPapel(papel);
+  // Valor ja gravado que nao esta no catalogo (veio do texto livre antigo).
+  // Aparece marcado pra dar pra LIMPAR — some se a pessoa desmarcar.
+  const fora = specs.filter(x => !catalogo.includes(x));
+
+  const alterna = (valor) => setSpecs(prev =>
+    prev.includes(valor) ? prev.filter(x => x !== valor) : prev.concat(valor));
+
+  const salvar = async () => {
+    setErro('');
+    const nm = nome.trim().replace(/\s+/g, ' ');
+    if (nm.length < 2 || nm.length > 60) { setErro('Nome: use de 2 a 60 caracteres.'); return; }
+    const tg = tag.trim().replace(/^@+/, '').toLowerCase();
+    if (!/^[a-z0-9_]{3,24}$/.test(tg)) { setErro('@tag invalida: 3 a 24 caracteres (a-z, 0-9, _). Nao pode ficar vazia.'); return; }
+    const em = email.trim().toLowerCase();
+    if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) { setErro('E-mail invalido (esperado: nome@dominio.com).'); return; }
+    const so = tel.replace(/\D/g, '');
+    if (tel.trim() && !(so.length >= 10 && so.length <= 15)) { setErro('Telefone invalido: use DDD + numero (ex.: 11 95976-5031).'); return; }
+    const estado = uf.trim().toUpperCase();
+    if (estado && !/^[A-Z]{2}$/.test(estado)) { setErro('UF invalida: 2 letras (ex.: SP) ou vazio.'); return; }
+    if (cidade.trim().length > 60) { setErro('Cidade muito longa (max 60).'); return; }
+    const especialidades = specs.join(', ');
+    if (especialidades.length > 200) { setErro('Especialidades passam de 200 caracteres — desmarque alguma.'); return; }
+
+    // Trocar o e-mail troca o LOGIN. Confirmacao a parte, como no fluxo antigo.
+    if (em && em !== emailOriginal &&
+        !confirm('Confirmar a troca do e-mail de LOGIN para:\n\n' + em + '\n\nA pessoa passara a entrar com esse e-mail.')) return;
+
+    setSalvando(true);
+    const falhas = [];
+    const passo = async (rotulo, req) => { if (!(await adminUsers(req))) falhas.push(rotulo); };
+
+    // Um pedido por campo alterado — a rota admin ja tem uma action por
+    // assunto, e mandar so o que mudou evita reescrever valor identico.
+    if (nm !== (profile.name || '')) await passo('nome', { action:'set_name', userId: profile.id, name: nm });
+    if (tg !== (profile.tag || '')) await passo('@tag', { action:'set_tag', userId: profile.id, tag: tg });
+    if (em && em !== emailOriginal) await passo('e-mail', { action:'set_email', userId: profile.id, email: em });
+    if (papel !== currentRoleKey(profile)) await passo('tipo', { action:'set_role', userId: profile.id, roleKey: papel });
+
+    const info = {};
+    if (tel.trim() !== (fmtTelefonePerfil(profile.phone) || '')) info.phone = tel.trim();
+    if (cidade.trim() !== (profile.city || '')) info.city = cidade.trim();
+    if (estado !== (profile.state || '')) info.state = estado;
+    if (especialidades !== (profile.specialties || '')) info.specialties = especialidades;
+    if (Object.keys(info).length) await passo('dados', Object.assign({ action:'set_info', userId: profile.id }, info));
+
+    setSalvando(false);
+    if (falhas.length) { setErro('Nao salvou: ' + falhas.join(', ') + '. O resto foi gravado.'); return; }
+    if (after) after();
+    onClose();
+  };
+
+  const campo = { width:'100%', padding:'9px 12px', borderRadius:8, border:'1px solid '+C.border, fontSize:13, outline:'none', background:C.white, color:C.ink };
+  const rotulo = { display:'block', fontSize:11, fontWeight:700, letterSpacing:.4, textTransform:'uppercase', color:C.muted, marginBottom:5 };
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(26,26,46,.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:C.white, borderRadius:16, width:'100%', maxWidth:620, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,.28)' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid '+C.border, display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, background:C.white, borderRadius:'16px 16px 0 0' }}>
+          <b style={{ fontSize:15 }}>Editar {profile.name || 'pessoa'}</b>
+          <button onClick={onClose} title="Fechar" style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:C.muted, lineHeight:1 }}>×</button>
+        </div>
+
+        <div style={{ padding:20, display:'grid', gap:14 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+            <div>
+              <label style={rotulo}>Nome</label>
+              <input value={nome} onChange={e => setNome(e.target.value)} style={campo} />
+            </div>
+            <div>
+              <label style={rotulo}>@tag</label>
+              <input value={tag} onChange={e => setTag(e.target.value)} placeholder="sem o @" style={campo} />
+            </div>
+          </div>
+
+          <div>
+            <label style={rotulo}>E-mail</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} style={campo} />
+            <p style={{ fontSize:11, color:C.muted, margin:'5px 0 0' }}>
+              Trocar aqui troca tambem o <b>e-mail de login</b> da conta.
+            </p>
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+            <div>
+              <label style={rotulo}>Telefone / WhatsApp</label>
+              <input value={tel} onChange={e => setTel(e.target.value)} placeholder="11 95976-5031" style={campo} />
+            </div>
+            <div>
+              <label style={rotulo}>Tipo</label>
+              <select value={papel} onChange={e => setPapel(e.target.value)} style={campo}>
+                {APP_ROLE_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:14 }}>
+            <div>
+              <label style={rotulo}>Cidade</label>
+              <input value={cidade} onChange={e => setCidade(e.target.value)} style={campo} />
+            </div>
+            <div>
+              <label style={rotulo}>UF</label>
+              <input value={uf} onChange={e => setUf(e.target.value.toUpperCase())} maxLength={2} placeholder="SP" style={campo} />
+            </div>
+          </div>
+
+          <div>
+            <label style={rotulo}>Especialidades</label>
+            {catalogo.length === 0 ? (
+              <p style={{ fontSize:12, color:C.muted, margin:0 }}>
+                Esse tipo de perfil nao tem catalogo de especialidades no app.
+              </p>
+            ) : (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                {catalogo.map(op => {
+                  const on = specs.includes(op);
+                  return (
+                    <label key={op} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 10px', borderRadius:999, cursor:'pointer', fontSize:12, border:'1px solid '+(on ? C.p1 : C.border), background:on ? 'rgba(255,107,53,.10)' : 'transparent', color:on ? C.ink : C.muted, fontWeight:on ? 600 : 400 }}>
+                      <input type="checkbox" checked={on} onChange={() => alterna(op)} style={{ margin:0 }} />
+                      {op}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {fora.length > 0 && (
+              <div style={{ marginTop:10 }}>
+                <p style={{ fontSize:11, color:C.muted, margin:'0 0 6px' }}>
+                  Fora do catalogo (digitado a mao antes) — desmarque pra limpar:
+                </p>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                  {fora.map(op => (
+                    <label key={op} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 10px', borderRadius:999, cursor:'pointer', fontSize:12, border:'1px dashed '+C.border, color:C.muted }}>
+                      <input type="checkbox" checked onChange={() => alterna(op)} style={{ margin:0 }} />
+                      {op}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {erro && <div style={{ background:'rgba(230,57,70,.08)', border:'1px solid rgba(230,57,70,.3)', color:C.danger, borderRadius:8, padding:'9px 12px', fontSize:12 }}>{erro}</div>}
+        </div>
+
+        <div style={{ padding:'14px 20px', borderTop:'1px solid '+C.border, display:'flex', justifyContent:'flex-end', gap:10, position:'sticky', bottom:0, background:C.white, borderRadius:'0 0 16px 16px' }}>
+          <button onClick={onClose} disabled={salvando} style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'9px 16px', cursor:'pointer', fontSize:13 }}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 18px', cursor: salvando ? 'default' : 'pointer', fontWeight:700, fontSize:13, opacity: salvando ? .7 : 1 }}>
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 

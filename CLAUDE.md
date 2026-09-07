@@ -251,6 +251,26 @@
     esses dois sem o usuário conferir — o que já se sabe é que a proteção da
     `main` EXISTE (push direto recusado com "protected branch hook declined").
 
+- **PORTAL: FIM DOS `prompt()` DO NAVEGADOR — um modal edita a pessoa inteira
+  (2026-09-07).** Editar alguém nas listas de Pessoas abria a caixa "www
+  .queroumacor.com.br says" do Chrome, **uma por campo**: sete diálogos pra
+  trocar nome, e-mail, telefone, tipo, @tag, cidade, UF e especialidades.
+  Agora é UM lápis por linha (no nome) que abre o `EditarPessoaModal`.
+  - **ESPECIALIDADE VIROU CHECKBOX, e esse é o ganho que não é estético.** O
+    `prompt()` era texto livre: o mesmo item entrava como "Piso Epoxi", "piso
+    epoxi" e "Piso Epóxi" — três valores distintos pro filtro da busca do app,
+    que compara string. O catálogo é o MESMO do app (`ROLE_SPECS`), por papel.
+  - **O portal é arquivo único sem imports, então o catálogo está duplicado
+    lá** (`PERFIL_SPECS`). `__tests__/portalEspecialidades.test.ts` lê o fonte
+    do portal e compara com o do app — mexeu num, tem que mexer no outro.
+  - **Valor fora do catálogo (o que o texto livre gravou antes) aparece
+    marcado, com borda tracejada, pra dar pra LIMPAR.** Esconder viraria dado
+    invisível que ninguém corrige.
+  - O modal manda **um pedido por campo alterado** (as actions da rota admin já
+    são por assunto) e, se algum falhar, diz qual — o resto fica gravado.
+  - As sete funções `editUser*` foram APAGADAS junto. Código morto que ninguém
+    chama é pior que arquivo a menos.
+
 - **PERFIL NOVO: ARQUITETO / ENGENHEIRO (2026-09-07) — SQL PENDENTE.**
   `/migrations/2026-09-07-role-arquiteto.sql` **precisa rodar**: sem ele o
   cadastro do papel novo falha de duas formas SILENCIOSAS — o

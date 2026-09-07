@@ -266,6 +266,9 @@ export async function getCidadesByUF(uf: string): Promise<string[]> {
 // Tabela hardcoded de especialidades por role. Espelho 1:1 de _roleSpecs em
 // app.js linha 575 + modules/signup-flow.js linha 19. Mantido aqui (não em
 // types.ts) pra que mudanças de catálogo passem pelos tests do service.
+// ESPELHADO no portal (`public/portal/app.jsx`, PERFIL_SPECS) — ele é um
+// arquivo único sem imports. `__tests__/portalEspecialidades.test.ts` compara
+// os dois e falha se divergirem: mexeu aqui, mexe lá.
 export const ROLE_SPECS: Record<string, readonly string[]> = {
   pintor: [
     'Residencial', 'Comercial', 'Textura', 'Grafiato', 'Piso Epóxi',
