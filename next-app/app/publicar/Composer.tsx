@@ -24,6 +24,12 @@ import { useAuth } from '@/components/AuthProvider';
 import { MediaUploader } from './MediaUploader';
 import { MediaPreview } from './MediaPreview';
 import { CaptionInput } from './CaptionInput';
+import { Enquadramento } from './Enquadramento';
+import {
+  DESLOCAMENTO_CENTRO,
+  ENQUADRAMENTO_PADRAO,
+  type Enquadramento as EnquadramentoState,
+} from '@/lib/enquadramento';
 import { usePublishPost } from '@/lib/hooks/usePublishPost';
 import { useAutosave, writeDraft } from '@/lib/hooks/useAutosave';
 import {
@@ -115,7 +121,9 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
   const [forSale, setForSale] = useState(initialForSale);
   const [priceText, setPriceText] = useState('');
   const [artType, setArtType] = useState<string>(ART_TYPES[0].value);
-  // S5: link externo opcional pra story (CTA "ver mais" no viewer).
+  // Enquadramento (2026-09-07): proporção + modo + posição por foto. Não
+  // entra no autosave — sem os arquivos, posição não significa nada.
+  const [enquadramento, setEnquadramento] = useState<EnquadramentoState>(ENQUADRAMENTO_PADRAO);
 
   const isStory = postType === 'story';
   // "Marcar como venda": só profissional (cliente não anuncia serviço) e
@@ -161,6 +169,11 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         return;
       }
       setFiles(result.files);
+      // Foto nova nasce centralizada; as que já estavam mantêm a posição.
+      setEnquadramento((prev) => ({
+        ...prev,
+        deslocamentos: result.files.map((_, i) => prev.deslocamentos[i] ?? DESLOCAMENTO_CENTRO),
+      }));
       // Se chegou vídeo, força mediaType=video; se voltou pra imagem, image.
       const hasVideo = result.files.some((f) => getMediaType(f) === 'video');
       if (hasVideo) {
@@ -174,6 +187,10 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
 
   const handleRemove = useCallback((index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+    setEnquadramento((prev) => ({
+      ...prev,
+      deslocamentos: prev.deslocamentos.filter((_, i) => i !== index),
+    }));
     setValidationError(null);
   }, []);
 
@@ -259,12 +276,16 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
       // `posts.link_url` e o CTA do StoryViewer continuam existindo pros
       // stories antigos — só não há mais como criar novos.
       linkUrl: null,
+      // Story é tela cheia e vídeo não passa pelo canvas: o enquadramento
+      // só vale pra publicação de foto.
+      enquadramento: mediaType === 'image' ? enquadramento : undefined,
     })
       .then(() => {
         // Limpa estado. Em embedded (modal), só chama onPublishSuccess pra
         // o caller fechar o sheet; em standalone, navega pro feed.
         setFiles([]);
         setCaption('');
+        setEnquadramento(ENQUADRAMENTO_PADRAO);
         setForSale(false);
         setPriceText('');
         // P6: faltavam os dois. No modo `embedded` (modal, sem navegação) o
@@ -290,6 +311,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
     canSell,
     priceText,
     artType,
+    enquadramento,
     router,
     autosave,
     embedded,
@@ -398,6 +420,17 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
       )}
 
       <MediaPreview files={files} onRemove={handleRemove} disabled={submitting} />
+
+      {/* Enquadramento: só pra publicação de FOTO. Story é tela cheia e o
+          vídeo não passa pelo canvas. */}
+      {!isStory && files.length > 0 && !isVideoMode ? (
+        <Enquadramento
+          files={files}
+          value={enquadramento}
+          onChange={setEnquadramento}
+          disabled={submitting}
+        />
+      ) : null}
 
       {validationError ? (
         <div

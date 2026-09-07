@@ -28,6 +28,11 @@ export interface PostMediaProps {
   // dimensões caem no aspect-ratio CSS 1/1 como hoje.
   mediaWidth?: number | null;
   mediaHeight?: number | null;
+  // Proporção IMPOSTA ao quadro (CSS `aspect-ratio`, ex.: "4 / 5"). O
+  // carrossel usa pra todas as fotos terem a MESMA altura (a da primeira);
+  // sem isto a segunda foto caía no quadrado 1:1 e saía cortada. Post de
+  // foto única não passa nada e segue na proporção natural.
+  aspectRatio?: string | null;
   // Controle do mute compartilhado entre todos os vídeos do feed (estilo IG:
   // mexeu no mute de um, mexeu em todos). Lifted state — FeedView mantém e
   // passa pra cá.
@@ -35,7 +40,7 @@ export interface PostMediaProps {
   onToggleMute: () => void;
 }
 
-export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onToggleMute }: PostMediaProps) {
+export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, aspectRatio, muted, onToggleMute }: PostMediaProps) {
   const isVideo = isVideoPost(url, mediaType);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // tocando: dirige o overlay de play. No WebView do wrapper (WebIntoApp) o
@@ -220,9 +225,9 @@ export function PostMedia({ url, mediaType, mediaWidth, mediaHeight, muted, onTo
       onError={handleImgError}
       className="w-full block object-cover"
       style={{
-        // hasDims: deixa o browser calcular aspect-ratio do W/H. Sem dims,
-        // fallback aspect-ratio 1/1 (compat posts antigos).
-        aspectRatio: hasDims ? undefined : '1 / 1',
+        // aspectRatio imposto (carrossel) ganha; senão hasDims deixa o
+        // browser calcular do W/H; sem dims, fallback 1/1 (posts antigos).
+        aspectRatio: aspectRatio ?? (hasDims ? undefined : '1 / 1'),
         // Placeholder com cor cream do brand enquanto image carrega — evita
         // flash branco e dá sensação de "tá vindo" em vez de "broken".
         background: 'linear-gradient(135deg, #f5e8da 0%, #e8d6c0 100%)',

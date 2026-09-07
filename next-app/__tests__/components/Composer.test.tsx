@@ -165,3 +165,50 @@ describe('Composer — legenda por IA', () => {
     expect(screen.queryByPlaceholderText(/Conte um pouco/i)).toBeTruthy();
   });
 });
+
+// Enquadramento (2026-09-07): a pessoa escolhe a proporção do post e o que
+// fica dentro dela. "Original" é o padrão — quem não mexe publica como
+// sempre, e o hook nem passa pelo canvas.
+describe('Composer — Enquadramento', () => {
+  it('aparece quando há foto na aba Publicação, com "Original" marcado', () => {
+    render(<Composer />);
+    expect(screen.queryByTestId('enquadramento')).toBeNull();
+    attachPhoto();
+    expect(screen.queryByTestId('enquadramento')).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Original' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('NÃO aparece na aba 24h (story é tela cheia)', () => {
+    render(<Composer />);
+    switchToStory();
+    attachPhoto();
+    expect(screen.queryByTestId('enquadramento')).toBeNull();
+  });
+
+  it('publica com a proporção escolhida e a posição centralizada por padrão', async () => {
+    render(<Composer />);
+    attachPhoto();
+    fireEvent.click(screen.getByRole('radio', { name: 'Quadrado' }));
+    fireEvent.click(screen.getByRole('radio', { name: /Ajustar/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Publicar'));
+    });
+    const payload = publishAsync.mock.calls[0][0] as {
+      enquadramento?: { proporcao: string; modo: string; deslocamentos: Array<{ x: number; y: number }> };
+    };
+    expect(payload.enquadramento?.proporcao).toBe('1:1');
+    expect(payload.enquadramento?.modo).toBe('ajustar');
+    expect(payload.enquadramento?.deslocamentos).toEqual([{ x: 0.5, y: 0.5 }]);
+  });
+
+  it('story publica SEM enquadramento', async () => {
+    render(<Composer />);
+    switchToStory();
+    attachPhoto();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Publicar'));
+    });
+    const payload = publishAsync.mock.calls[0][0];
+    expect(payload.enquadramento).toBeUndefined();
+  });
+});

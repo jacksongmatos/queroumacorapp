@@ -72,4 +72,32 @@ describe('PostCarousel', () => {
     expect(imgs[0].getAttribute('width')).toBe('1080');
     expect(imgs[1].getAttribute('width')).toBeNull();
   });
+
+  // 2026-09-07: a foto 2 de um quadro em pé caía no 1:1 e saía sem cabeça.
+  // Agora TODAS as fotos ficam no quadro da primeira (mesma altura), e como
+  // o composer enquadra todas iguais, nada é cortado.
+  it('todas as fotos ficam na proporção da primeira', () => {
+    const { container } = render(
+      <PostCarousel
+        urls={URLS}
+        mediaType="image"
+        mediaWidth={1080}
+        mediaHeight={1350}
+        muted
+        onToggleMute={vi.fn()}
+      />,
+    );
+    const imgs = Array.from(container.querySelectorAll('img'));
+    for (const img of imgs) {
+      expect(img.style.aspectRatio).toBe('1080 / 1350');
+    }
+  });
+
+  it('sem dimensões gravadas, segue no quadrado de sempre', () => {
+    const { container } = montar();
+    const imgs = Array.from(container.querySelectorAll('img'));
+    for (const img of imgs) {
+      expect(img.style.aspectRatio).toBe('1 / 1');
+    }
+  });
 });
