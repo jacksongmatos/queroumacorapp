@@ -45,7 +45,6 @@ import {
   areaTotal,
   descreverServico,
   detalhesDoServico,
-  novoServico,
   quantidadeDe,
   resumoDoServico,
   subtotalDoItem,
@@ -64,7 +63,7 @@ interface FormState {
   clientName: string;
   clientPhone: string;
   // Serviços — cada um com espaço, material e itens da Tabela ABRAPP.
-  // Gravados em quote_data.servicos; sempre há pelo menos um.
+  // Gravados em quote_data.servicos. Começa vazio; o Gravar exige ≥ 1.
   servicos: ServicoDoOrcamento[];
   // Logística
   city: string;
@@ -87,7 +86,7 @@ export function QuoteWizard() {
   const [form, setForm] = useState<FormState>({
     clientName: '',
     clientPhone: '',
-    servicos: [novoServico()],
+    servicos: [], // nasce vazio: o bloco aparece ao escolher um item da tabela
     city: '',
     durationDays: '',
     includeMaterial: true,
@@ -225,6 +224,10 @@ export function QuoteWizard() {
     }
     // Linha avulsa sem nome gravaria um item mudo no PDF; melhor avisar do
     // que descartar em silêncio o que a pessoa pode ter precificado.
+    if (form.servicos.length === 0) {
+      showToast('Adicione pelo menos um serviço da Tabela de Preços', 'error');
+      return null;
+    }
     if (temAvulsoSemNome(form.servicos)) {
       showToast('Dê um nome ao item avulso antes de gravar', 'error');
       return null;
