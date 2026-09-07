@@ -14,6 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { checkTagAvailability } from '@/lib/services/signup';
+import { getCidadesByUF } from '@/lib/services/profile';
 import {
   tagSchema,
   calculateAge,
