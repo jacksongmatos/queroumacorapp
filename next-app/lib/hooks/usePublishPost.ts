@@ -24,6 +24,8 @@ import {
   type CreatePostResult,
 } from '@/lib/services/posts';
 import { getMediaType } from '@/lib/utils';
+import { enquadrarImagem } from '@/lib/services/enquadrarImagem';
+import { DESLOCAMENTO_CENTRO, type Enquadramento } from '@/lib/enquadramento';
 import { AuthenticationError, ValidationError } from '@/lib/errors';
 import { hapticNotify } from '@/lib/native';
 import { reportFailure } from '@/lib/utils/reportFailure';
@@ -37,6 +39,9 @@ export interface PublishPostInput {
   artType?: string | null;
   // S5: CTA "ver mais" pra story. Só usado quando mediaType='story'.
   linkUrl?: string | null;
+  // Proporção/recorte escolhidos no composer (2026-09-07). Ausente ou
+  // 'original' = a foto sobe como está.
+  enquadramento?: Enquadramento;
 }
 
 export interface UsePublishPostResult {
@@ -78,11 +83,35 @@ export function usePublishPost(): UsePublishPostResult {
       // Falha ao comprimir NÃO impede publicar: HEIC que a WebView não
       // decodifica pelo <img> rejeitaria aqui, e hoje esse arquivo sobe cru
       // sem problema. Na dúvida, o original.
+      //
+      // ENQUADRAMENTO (2026-09-07) vem ANTES da compressão: a pessoa escolheu
+      // um quadro na tela e o arquivo tem que sair com ele. Aqui a regra é
+      // diferente da compressão: se o recorte falhar, NÃO sobe cru em
+      // silêncio — publicar a obra cortada no meio depois de a pessoa ter
+      // enquadrado é trair a escolha dela. Estoura com o nome do arquivo.
+      const enq = input.enquadramento;
+      const recortar = !!enq && enq.proporcao !== 'original' && input.mediaType === 'image';
       const paraSubir: File[] = [];
-      for (const f of input.files) {
+      for (let i = 0; i < input.files.length; i++) {
+        let f = input.files[i];
         if (input.mediaType === 'video' || getMediaType(f) === 'video') {
           paraSubir.push(f);
           continue;
+        }
+        if (recortar && enq) {
+          try {
+            f = await enquadrarImagem(f, {
+              proporcao: enq.proporcao,
+              modo: enq.modo,
+              deslocamento: enq.deslocamentos[i] ?? DESLOCAMENTO_CENTRO,
+            });
+          } catch (e) {
+            throw new ValidationError(
+              `Não foi possível enquadrar "${f.name || `foto ${i + 1}`}". ` +
+                'Escolha "Original" ou selecione a foto de novo.',
+              e,
+            );
+          }
         }
         if (f.size <= COMPRESS_THRESHOLD) {
           paraSubir.push(f);

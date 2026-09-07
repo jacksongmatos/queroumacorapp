@@ -568,6 +568,10 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
             // some — o `<main>` do AppShell tem overflow-x hidden, então o
             // efeito é texto CORTADO, não página rolando de lado.
             overflowWrap: 'anywhere',
+            // Quebra de linha e parágrafo da legenda valem (2026-09-07). Sem
+            // isto o HTML colapsa todo '\n' em espaço e a descrição de uma
+            // obra vira um bloco só.
+            whiteSpace: 'pre-wrap',
           }}
         >
           <b style={{ fontWeight: 600 }}>{captionByline}</b> {renderRichText(post.caption)}
@@ -608,7 +612,7 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
                 {/* `minWidth: 0` junto do `overflowWrap`: num flex item o
                     mínimo é o conteúdo, então sem ele a palavra longa empurra
                     o container e a quebra nunca chega a valer. */}
-                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
                   <b style={{ fontWeight: 600 }}>{authorLabel}</b> {renderRichText(c.text)}
                 </span>
                 {canDeleteComment ? (

@@ -1,5 +1,39 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **ENQUADRAMENTO DA FOTO AO PUBLICAR + LEGENDA COM QUEBRA DE LINHA
+  (2026-09-07).** Um pintor publicou um quadro em pé (80×120) e a obra saiu
+  cortada em cima e embaixo, e a descrição (Título/Artista/Dimensões em
+  linhas) virou um bloco só.
+  - **Legenda:** `whiteSpace: 'pre-wrap'` na legenda e nos comentários do
+    `PostCard` — o HTML colapsa `\n` em espaço a menos que o CSS peça pra
+    preservar. Nada muda no banco: o texto sempre foi gravado com as
+    quebras. Teste de fonte em `__tests__/legendaQuebraDeLinha.test.ts`.
+  - **Enquadramento:** seção nova no composer (`app/publicar/Enquadramento
+    .tsx`) — proporção Original / 1:1 / 4:5 / 16:9, modo **Preencher**
+    (corta a sobra; arrasta a foto pra escolher o que aparece) ou
+    **Ajustar** (foto inteira, sobra fundo desfocado). **"Original" é o
+    padrão e não passa pelo canvas**: quem não mexe publica como sempre.
+    - **O recorte é feito NO ARQUIVO antes do upload** (`lib/services/
+      enquadrarImagem.ts`), não em CSS: feed, perfil, carrossel e "Em alta"
+      renderizam a mesma URL de jeitos diferentes, e a primeira tela que
+      esquecesse um deslocamento gravado voltaria a cortar a obra.
+    - **A prévia e o recorte usam a MESMA conta** (`lib/enquadramento.ts`,
+      pura e testada): `estiloPreview` (CSS em %) e `recorteCover` (px do
+      canvas) descrevem a mesma janela. Se fossem duas contas, a prévia
+      mentiria.
+    - **Falha no recorte NÃO sobe cru em silêncio** — diferente da
+      compressão (que é otimização). A pessoa escolheu um quadro; publicar
+      a obra cortada no meio depois disso é trair a escolha. Estoura
+      `ValidationError` com o nome do arquivo.
+    - Story (tela cheia) e vídeo não têm enquadramento.
+  - **Carrossel: todas as fotos no quadro da PRIMEIRA.** Só a foto 1 tinha
+    dimensões gravadas; as outras caíam no 1:1 com `object-cover` — a foto
+    2 de um quadro em pé saía sem cabeça. `PostMedia` ganhou a prop
+    `aspectRatio` e o `PostCarousel` impõe a proporção da primeira a todas.
+    Post novo enquadra todas iguais no composer, então nada corta; post
+    antigo ganha altura constante (a foto 2 corta na proporção da 1, não
+    mais no quadrado).
+
 - **QUICK REPLY DE TEMPLATE CHEGAVA COMO BOLHA VAZIA (2026-09-06).** Quem
   tocava num botão do template de abordagem mandava `type='button'` com
   `{text, payload}` — e NADA em `text.body`. O `parseInboundMessages` só
