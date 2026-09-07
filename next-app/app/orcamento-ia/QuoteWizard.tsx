@@ -15,6 +15,8 @@
 
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
@@ -108,6 +110,7 @@ const PREP_OPTIONS = [
 ];
 
 export function QuoteWizard() {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { profile } = useProfile();
   const policyUser = usePolicyUser();
@@ -355,7 +358,11 @@ export function QuoteWizard() {
     } catch {
       /* ignore */
     }
-    window.location.href = '/chat';
+    // Navegação de documento na casca = chance de "Sem conexão" (a errorPath
+    // do Capacitor aparece quando a navegação falha ou é cancelada). O router
+    // troca de tela sem recarregar o app; o prefill vive no sessionStorage,
+    // que sobrevive igual.
+    router.push('/chat');
   }
 
   // PDF: usa window.print() escopado por @media print. O preview já tem

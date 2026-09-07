@@ -18,6 +18,7 @@ export const runtime = 'edge';
 
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useDialog } from '@/components/Dialog';
 import { usePipeline } from '@/lib/hooks/usePipeline';
@@ -70,6 +71,7 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
   const { id } = use(params);
   const { user, loading: authLoading } = useAuth();
   const dialog = useDialog();
+  const router = useRouter();
   const {
     quotes,
     send,
@@ -403,7 +405,11 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     } catch {
       /* ignore */
     }
-    window.location.href = '/chat';
+    // Navegação de documento na casca = chance de "Sem conexão" (a errorPath
+    // do Capacitor aparece quando a navegação falha ou é cancelada). O router
+    // troca de tela sem recarregar o app; o prefill vive no sessionStorage,
+    // que sobrevive igual.
+    router.push('/chat');
   }
 
   const handleApprove = async () => {

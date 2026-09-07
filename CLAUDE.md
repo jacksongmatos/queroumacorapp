@@ -292,6 +292,26 @@
     com plataforma e plugins. **Antes de reenviar pra Apple, abrir `/diag` no
     aparelho** — se disser INDISPONÍVEL, o login social ainda não funciona e
     a Apple rejeita de novo, agora por causa da mensagem de erro.
+  - **SAIR DA CONTA CAÍA NO MESMO BURACO (2026-09-07) — e a lição é maior que
+    o login.** O relato "acontece ao sair da conta também" MATOU a explicação
+    de que o problema era URL externa: `/login` é o MESMO domínio. O que os
+    dois casos têm em comum é serem **navegação de DOCUMENTO**, e na casca
+    qualquer navegação de documento que falhe OU seja cancelada faz o
+    Capacitor pintar a `errorPath`. Não é preciso saber POR QUE aquela
+    navegação falhou pra saber que não fazê-la resolve.
+    - Telas agora trocam de tela por `router.push/replace` (SPA, não
+      recarrega nada). Convertidos: os dois "Sair da conta", a exclusão de
+      conta, os dois "enviar pelo chat" e o pouso do OAuth nativo em
+      `/completar-perfil` (este era cruel: a pessoa concluía o login e via
+      "Sem conexão").
+    - **O `queryClient.clear()` no logout NÃO é enfeite**: a recarga garantia
+      de graça que nada em cache do dono anterior sobrevivia pro próximo
+      login. Tirar a recarga sem isso seria trocar um bug por um vazamento.
+    - **REGRA, com teste que varre `app/` e `components/`**
+      (`__tests__/lib/navegacao-documento.test.ts`): tela não escreve em
+      `window.location`. Os usos legítimos vivem em `lib/` (o `intent:` do
+      Android, o download do PDF por URL assinada, e o fallback web do
+      `abrirLinkExterno`).
   - **A correção NÃO precisa de build nova**: o app carrega o site de
     `server.url`, então o deploy do Cloudflare Pages já entrega. Build nova só
     seria preciso se o defeito estivesse na casca.

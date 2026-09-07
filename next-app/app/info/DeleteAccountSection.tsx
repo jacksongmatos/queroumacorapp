@@ -7,6 +7,9 @@
 
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
@@ -24,6 +27,8 @@ const waDeleteHref =
 export function DeleteAccountSection() {
   const { user, signOut } = useAuth();
   const dialog = useDialog();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
 
   async function handleDelete() {
@@ -68,7 +73,18 @@ export function DeleteAccountSection() {
       } catch {
         /* silent — endpoint já apagou o auth.user */
       }
-      window.location.href = '/login';
+      // NADA de `window.location.href` aqui. Duas razões, e a segunda é a que
+      // aparece na cara do usuário:
+      //  1. É navegação de DOCUMENTO — recarrega o app inteiro por uma troca de
+      //     tela que o router faz sem custo.
+      //  2. Na casca, qualquer navegação de documento que falhe OU seja
+      //     cancelada faz o Capacitor pintar a `errorPath` (o offline.html):
+      //     a pessoa vê "Sem conexão" com a internet funcionando. Foi assim que
+      //     a Apple rejeitou a build 17, e sair da conta caía no mesmo buraco.
+      // O `clear()` substitui o que a recarga garantia de graça: nenhum dado
+      // em cache do dono anterior sobrevive pro próximo login.
+      queryClient.clear();
+      router.replace('/login');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Erro ao excluir.', 'error');
       setSubmitting(false);
