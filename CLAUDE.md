@@ -284,14 +284,23 @@
     porque na casca o `window.open` sempre devolve null — e o redirect do
     checkout do Mercado Pago (sem call site de UI hoje, corrigido do mesmo
     jeito).
-  - **NÃO SABEMOS por que o fluxo nativo estava indisponível naquele iPad** —
-    os pods `@capacitor/browser` e `@capacitor/app` estão no Podfile. Por
-    isso a correção vem com evidência junto: `native.plugins()` lista os
-    plugins visíveis, o `/diag` mostra "Login social nativo: disponível /
-    INDISPONÍVEL" + a lista, e a falha grava `oauth-fail` no `/admin/errors`
-    com plataforma e plugins. **Antes de reenviar pra Apple, abrir `/diag` no
-    aparelho** — se disser INDISPONÍVEL, o login social ainda não funciona e
-    a Apple rejeita de novo, agora por causa da mensagem de erro.
+  - **CASO FECHADO EM 2026-09-07, confirmado NO APARELHO pelo usuário** ("já
+    funcionou"): login social entra e sair da conta não pinta mais a tela.
+  - **CORREÇÃO DO MEU PRÓPRIO DIAGNÓSTICO — quem consertou foi o #245, não o
+    #243.** Se o login agora completa, o fluxo NATIVO estava disponível
+    naquele iPad o tempo todo (com ele indisponível o app mostraria a frase
+    de erro, não a tela de "Sem conexão"). Logo o velho código nunca chegou
+    ao fallback web: o que quebrava era o PASSO SEGUINTE ao login dar certo —
+    o `window.location.assign('/completar-perfil')`, navegação de DOCUMENTO,
+    o mesmo buraco de sair da conta. **Uma causa só para os dois sintomas.**
+    A regra do #243 continua valendo (fluxo web na casca É um perigo real, e
+    o mecanismo foi lido no fonte do Capacitor), mas ela não era o gatilho
+    deste caso. Registrado porque a próxima sessão precisa saber qual dos
+    dois PRs carregou a correção de verdade.
+  - **A instrumentação FICA** (`native.plugins()`, a linha "Login social
+    nativo" no `/diag`, o tipo `oauth-fail` no `/admin/errors`): foi ela que
+    permitiria distinguir os dois casos em um print, em vez de dedução. Da
+    próxima rejeição, é o primeiro lugar a olhar.
   - **SAIR DA CONTA CAÍA NO MESMO BURACO (2026-09-07) — e a lição é maior que
     o login.** O relato "acontece ao sair da conta também" MATOU a explicação
     de que o problema era URL externa: `/login` é o MESMO domínio. O que os
