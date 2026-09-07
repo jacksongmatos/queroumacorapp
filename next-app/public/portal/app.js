@@ -13199,13 +13199,6 @@ const PAGES_DEF = [{
     emptyMsg: "Nenhum arquiteto ou engenheiro cadastrado."
   })
 }, {
-  id: 'leads',
-  icon: '🧲',
-  label: 'Leads',
-  section: 'PESSOAS',
-  badgeKey: 'leads',
-  component: /*#__PURE__*/React.createElement(Leads, null)
-}, {
   id: 'clientes',
   icon: '👥',
   label: 'Clientes',
@@ -13219,6 +13212,13 @@ const PAGES_DEF = [{
   section: 'PESSOAS',
   badgeKey: 'portalUsers',
   component: /*#__PURE__*/React.createElement(PortalUsersList, null)
+}, {
+  id: 'leads',
+  icon: '🧲',
+  label: 'Leads',
+  section: 'LOJA',
+  badgeKey: 'leads',
+  component: /*#__PURE__*/React.createElement(Leads, null)
 }, {
   id: 'pedidos-loja',
   icon: '🛒',
