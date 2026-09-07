@@ -1,5 +1,43 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **ADMIN APAGA POST DE OUTRA PESSOA (2026-09-07) — SEM SQL PENDENTE.** O
+  app já deixava o admin apagar COMENTÁRIO de qualquer um (Wave 9), mas não
+  POST: mesma tela, duas regras pro mesmo ato de moderar. O que impedia era
+  o `.eq('user_id', userId)` do UPDATE em `deletePost` — filtrando pelo
+  dono, o admin nunca casava linha. `comoAdmin` remove só esse filtro; **a
+  permissão continua sendo da RLS**, e cliente adulterado mandando a flag
+  sem ser admin bate na policy e volta zero linhas.
+  - **CONFERIDO NO BANCO (2026-09-07): `moderacao_ok = true`,
+    `update_restritivas = 0`.** A policy `posts_owner_update` viva JÁ aceita
+    `is_portal_admin()`. **Não pedir pra rodar
+    `/migrations/2026-09-07-posts-admin-moderation.sql`** — o arquivo é
+    conferência re-executável, e os passos de DROP/CREATE existem só pro caso
+    de a conferência voltar false.
+  - **`update` que não acha linha é SUCESSO com zero linhas** — a mesma
+    armadilha do `/completar-perfil`. Aqui seria pior: o post sumiria pelo
+    update otimista, voltaria no refetch, e o admin concluiria que o app está
+    quebrado. `deletePost`/`undoDeletePost` agora pedem `.select('id')` e
+    **estouram** em zero linhas, com mensagem que aponta pra policy
+    (moderação) ou pro post (dono). Conferido que isso não gera falso erro: a
+    policy de SELECT (`View posts active`) enxerga a linha depois do UPDATE
+    tanto pro dono quanto pro admin.
+  - **`SELECT public.is_portal_admin()` NO SQL EDITOR NÃO RESPONDE "minha
+    conta é admin?"** — ali a sessão é `postgres`/`service_role`, `auth.uid()`
+    é NULL e a função devolve **false mesmo com a conta sendo admin**.
+    Escrevi essa checagem, ela voltou false e não provou nada. Mesmo erro de
+    método do `profiles_role_check`: **checagem que responde false pra sempre
+    é pior que checagem nenhuma.** Pra valer: ler `prosrc` da função + a linha
+    do perfil por `to_jsonb` (coluna ausente vira 42703 num `select` direto).
+  - **Colar bloco de SQL com DROP+CREATE juntos faz o CREATE rodar sozinho**
+    (42710 aqui; 42601 na Wave 26). Postgres não tem `CREATE POLICY IF NOT
+    EXISTS`, então a ordem importa — **uma instrução por vez**. E, por sorte,
+    o DROP não passou: ele teria derrubado e recriado uma policy que já
+    estava certa. **Conferir SEMPRE antes de alterar RLS de produção.**
+  - **LACUNA CONHECIDA, não resolvida:** apagar post alheio **não deixa
+    rastro de quem apagou**. `audit_log` não tem policy de INSERT pra
+    `authenticated`, então gravar isso exigiria rota nova. O soft delete é
+    recuperável por 30 dias, mas hoje ninguém sabe qual admin agiu.
+
 - **ENQUADRAMENTO DA FOTO AO PUBLICAR + LEGENDA COM QUEBRA DE LINHA
   (2026-09-07).** Um pintor publicou um quadro em pé (80×120) e a obra saiu
   cortada em cima e embaixo, e a descrição (Título/Artista/Dimensões em

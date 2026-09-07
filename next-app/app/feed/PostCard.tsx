@@ -127,6 +127,11 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
   const visibleComments = commentsLoading ? post.comments : freshComments;
 
   const isOwn = !!user && user.id === post.user_id;
+  // Moderacao: admin apaga post de OUTRA pessoa. O comentario ja tinha isso
+  // (`canDeleteComment` mais abaixo aceita admin desde a Wave 9) e o post
+  // nao — mesma tela, duas regras diferentes pro mesmo ato de moderar.
+  // Quem autoriza de verdade e a RLS; isto aqui so decide o que aparece.
+  const podeModerar = !isOwn && userIsAdmin;
   // S11: post boost. NULL ou passado = sem destaque.
   const isBoosted =
     !!post.boosted_until && new Date(post.boosted_until).getTime() > Date.now();
@@ -266,11 +271,22 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
     }
   }
 
-  async function handleDelete() {
+  async function handleDelete(comoAdmin = false) {
     setOptsOpen(false);
+    // O texto muda porque o ato muda: apagar o proprio post e desfazer o que
+    // voce publicou; apagar o de outra pessoa e moderacao, e a tela tem que
+    // dizer de quem e o post — o menu abre igual nos dois casos, e um toque
+    // errado apagaria conteudo alheio sem o admin perceber.
+    const dono = post.profile.tag ? '@' + post.profile.tag : (post.profile.name || 'outra pessoa');
     const ok = await dialog.confirm(
-      'Apagar este post? Você pode desfazer em 30 dias.',
-      { title: 'Apagar post', okLabel: 'Apagar', danger: true },
+      comoAdmin
+        ? `Apagar o post de ${dono}? Ele sai do feed na hora. Como admin, dá pra restaurar no banco por 30 dias.`
+        : 'Apagar este post? Você pode desfazer em 30 dias.',
+      {
+        title: comoAdmin ? 'Apagar post de outra pessoa' : 'Apagar post',
+        okLabel: 'Apagar',
+        danger: true,
+      },
     );
     if (!ok) return;
     if (!user) return;
@@ -289,22 +305,26 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
         }),
       };
     });
+    // A grade de posts a limpar e a do AUTOR, nao a de quem clicou: moderando,
+    // esses dois sao pessoas diferentes e usar `user.id` deixaria o post na
+    // tela do perfil que o admin estava olhando.
+    const chavePerfil = ['profile-posts', post.user_id];
     qc.setQueriesData<{ id: string }[]>(
-      { queryKey: ['profile-posts', user.id] },
+      { queryKey: chavePerfil },
       (data) => (Array.isArray(data) ? data.filter((p) => p.id !== post.id) : data),
     );
 
     try {
       const { deletePost } = await import('@/lib/services/postInteractions');
-      await deletePost(user.id, post.id);
+      await deletePost(user.id, post.id, { comoAdmin });
       // Confirma com refetch (RLS pode rejeitar e queremos sincronizar).
       qc.invalidateQueries({ queryKey: ['feed'] });
-      qc.invalidateQueries({ queryKey: ['profile-posts', user.id] });
-      showToast('Post apagado', 'success');
+      qc.invalidateQueries({ queryKey: chavePerfil });
+      showToast(comoAdmin ? 'Post removido pela moderação' : 'Post apagado', 'success');
     } catch (e) {
       // Rollback: refetch traz o post de volta se o delete falhou.
       qc.invalidateQueries({ queryKey: ['feed'] });
-      qc.invalidateQueries({ queryKey: ['profile-posts', user.id] });
+      qc.invalidateQueries({ queryKey: chavePerfil });
       showToast((e as Error).message || 'Erro ao apagar', 'error');
     }
   }
@@ -714,7 +734,7 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
                   onClick={handleBoost}
                 />
               )}
-              <PostOptRow icon="🗑️" label="Apagar post" onClick={handleDelete} danger />
+              <PostOptRow icon="🗑️" label="Apagar post" onClick={() => handleDelete(false)} danger />
             </>
           ) : (
             <>
@@ -725,6 +745,18 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
                 danger
               />
               <PostOptRow icon="⚠️" label="Denunciar" onClick={handleOpenReport} danger />
+              {podeModerar ? (
+                /* Ultima da lista e rotulada como moderacao: e a acao mais
+                   destrutiva do menu e a unica que age sobre conteudo de
+                   outra pessoa. "Apagar post" seco, no meio das outras,
+                   convidaria ao toque errado. */
+                <PostOptRow
+                  icon="🛡️"
+                  label="Apagar post (moderação)"
+                  onClick={() => handleDelete(true)}
+                  danger
+                />
+              ) : null}
             </>
           )}
         </div>

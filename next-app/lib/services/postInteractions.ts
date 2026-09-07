@@ -452,6 +452,45 @@ export interface SoftDeleteResult {
 }
 
 /**
+ * Opções de moderação para o soft delete.
+ */
+export interface SoftDeleteOpts {
+  /**
+   * Admin apagando post de OUTRA pessoa (moderação).
+   *
+   * Quando true, o UPDATE deixa de filtrar por `user_id` — sem isso o
+   * filtro nunca casaria e o admin receberia zero linhas. Quem decide de
+   * verdade é a RLS (`posts_owner_update`, que aceita `is_portal_admin()`);
+   * aqui só paramos de amarrar a query ao dono.
+   *
+   * Quem passa `true` é a tela, depois de `isAdmin(policyUser)`. Isso NÃO é
+   * o controle de acesso — é a intenção. O controle está no banco, que é
+   * onde tem que estar: um cliente adulterado que mandasse `comoAdmin`
+   * sem ser admin continuaria batendo na policy e voltando zero linhas.
+   */
+  comoAdmin?: boolean;
+}
+
+/**
+ * Mensagem de "o banco não mexeu em nenhuma linha".
+ *
+ * Existe porque `update` no Supabase que não acha linha é SUCESSO com zero
+ * linhas, não erro — a armadilha que fez o /completar-perfil entrar em loop
+ * mudo por semanas em 2026-09. Num delete de moderação ela seria pior: o
+ * post sumiria da tela pelo update otimista, voltaria no refetch, e o admin
+ * concluiria que "o app está bugado".
+ */
+function erroDeZeroLinhas(comoAdmin: boolean): NetworkError {
+  return new NetworkError(
+    comoAdmin
+      ? 'O banco recusou a moderação: nenhuma linha foi alterada. A policy ' +
+        'de UPDATE em `posts` provavelmente não aceita `is_portal_admin()` ' +
+        '— rode /migrations/2026-09-07-posts-admin-moderation.sql.'
+      : 'Não foi possível apagar: o post não é seu ou já tinha sido removido.'
+  );
+}
+
+/**
  * Soft delete: marca `posts.deleted_at = now()` em vez de remover a row.
  *
  * Por que mudou (era hard delete antes):
@@ -466,43 +505,60 @@ export interface SoftDeleteResult {
  * de FK só dispara no hard delete (cleanup), aí limpa tudo de uma vez.
  *
  * O filtro `eq('user_id', userId)` no UPDATE garante que só o dono possa
- * soft-deletar — mesmo que RLS seja afrouxada no futuro.
+ * soft-deletar — mesmo que RLS seja afrouxada no futuro. Moderação de admin
+ * (`comoAdmin`) é a única exceção, e aí quem autoriza é só a RLS.
+ *
+ * O `.select('id')` NÃO é enfeite: sem ele, zero linhas afetadas volta como
+ * sucesso e o delete vira no-op silencioso.
  */
 export async function deletePost(
   userId: string,
   postId: string,
+  opts: SoftDeleteOpts = {},
 ): Promise<SoftDeleteResult> {
   if (!userId) throw new ValidationError('userId obrigatório');
   if (!postId) throw new ValidationError('postId obrigatório');
 
   const sb = getSupabase();
-  const { error } = await sb
+  let q = sb
     .from('posts')
     .update({ deleted_at: new Date().toISOString() })
-    .eq('id', postId)
-    .eq('user_id', userId);
+    .eq('id', postId);
+  if (!opts.comoAdmin) q = q.eq('user_id', userId);
+
+  const { data, error } = await q.select('id');
   if (error) throw new NetworkError(error.message, error);
+  if (Array.isArray(data) && data.length === 0) {
+    throw erroDeZeroLinhas(!!opts.comoAdmin);
+  }
   return { undoToken: postId };
 }
 
 /**
  * Reverte soft delete: limpa `deleted_at`. Idempotente (chamar 2x não
  * estoura erro). Retorna void — o caller já sabe qual postId restaurou.
+ *
+ * Aceita o mesmo `comoAdmin` do delete: quem apagou como moderador precisa
+ * conseguir desfazer, senão o "Desfazer" some justo no caso em que o erro
+ * dói mais (post de outra pessoa apagado por engano).
  */
 export async function undoDeletePost(
   userId: string,
   postId: string,
+  opts: SoftDeleteOpts = {},
 ): Promise<void> {
   if (!userId) throw new ValidationError('userId obrigatório');
   if (!postId) throw new ValidationError('postId obrigatório');
 
   const sb = getSupabase();
-  const { error } = await sb
-    .from('posts')
-    .update({ deleted_at: null })
-    .eq('id', postId)
-    .eq('user_id', userId);
+  let q = sb.from('posts').update({ deleted_at: null }).eq('id', postId);
+  if (!opts.comoAdmin) q = q.eq('user_id', userId);
+
+  const { data, error } = await q.select('id');
   if (error) throw new NetworkError(error.message, error);
+  if (Array.isArray(data) && data.length === 0) {
+    throw erroDeZeroLinhas(!!opts.comoAdmin);
+  }
 }
 
 // ─── DELETE COMMENT (soft delete + undo) ───────────────────────────────────
