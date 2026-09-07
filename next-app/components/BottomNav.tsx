@@ -157,7 +157,7 @@ export function BottomNav() {
             )}
             {showBadge && (
               <span
-                className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-[color:var(--color-white-fixed)]"
                 style={{ background: 'var(--color-p4)', lineHeight: 1 }}
               >
                 {badgeLabel}

@@ -221,7 +221,7 @@ export function ProfileHeader() {
             ) : null}
           </div>
           {subtitle && (
-            <div className="text-sm text-white/70">{subtitle}</div>
+            <div className="text-sm text-[color:var(--color-white-fixed)]/70">{subtitle}</div>
           )}
           <ProfileLinks
             instagramUrl={profile?.instagram_url ?? null}
@@ -326,11 +326,11 @@ export function ProfileHeader() {
                 >
                   Renove seu PRO em {graceDays} {graceDays === 1 ? 'dia' : 'dias'}
                 </div>
-                <div className="text-xs text-white/85 mt-0.5">
+                <div className="text-xs text-[color:var(--color-white-fixed)]/85 mt-0.5">
                   Pagamento não confirmado — atualize antes que as features sejam bloqueadas
                 </div>
               </div>
-              <div className="text-xl text-white/80">›</div>
+              <div className="text-xl text-[color:var(--color-white-fixed)]/80">›</div>
             </div>
           </Link>
         </div>
@@ -363,11 +363,11 @@ export function ProfileHeader() {
                 >
                   Ative o Plano PRO
                 </div>
-                <div className="text-xs text-white/75 mt-0.5">
+                <div className="text-xs text-[color:var(--color-white-fixed)]/75 mt-0.5">
                   Destaque-se e receba mais clientes · troque pontos por PRO
                 </div>
               </div>
-              <div className="text-xl text-white/60">›</div>
+              <div className="text-xl text-[color:var(--color-white-fixed)]/60">›</div>
             </div>
           </Link>
         </div>
@@ -394,7 +394,7 @@ function StatBlock({
       >
         {value}
       </div>
-      <div className="text-xs text-white/65 mt-1">{label}</div>
+      <div className="text-xs text-[color:var(--color-white-fixed)]/65 mt-1">{label}</div>
     </>
   );
   if (!href) return <div className="text-center">{content}</div>;

@@ -416,7 +416,7 @@ export function ProductsList() {
       >
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <div
-            className="font-extrabold text-white"
+            className="font-extrabold text-[color:var(--color-white-fixed)]"
             style={{
               fontFamily: 'var(--font-display)',
               fontSize: 18,
@@ -452,7 +452,7 @@ export function ProductsList() {
             </svg>
             {cartCount > 0 ? (
               <span
-                className="absolute font-bold text-white flex items-center justify-center"
+                className="absolute font-bold text-[color:var(--color-white-fixed)] flex items-center justify-center"
                 style={{
                   top: -4,
                   right: -4,
@@ -480,7 +480,7 @@ export function ProductsList() {
             aria-haspopup="listbox"
             aria-expanded={catMenuOpen}
             aria-label="Filtrar por categoria"
-            className="w-full text-white outline-none flex items-center justify-between gap-2"
+            className="w-full text-[color:var(--color-white-fixed)] outline-none flex items-center justify-between gap-2"
             style={{
               padding: '12px 16px',
               borderRadius: 26,
@@ -781,7 +781,7 @@ export function ProductsList() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar produto ou código..."
-            className="w-full text-white outline-none"
+            className="w-full text-[color:var(--color-white-fixed)] outline-none"
             aria-label="Buscar produtos"
             style={{
               padding: '12px 16px 12px 42px',

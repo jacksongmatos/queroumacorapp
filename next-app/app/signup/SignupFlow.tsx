@@ -253,6 +253,7 @@ export function SignupFlow() {
       )}
       {step === 2 && (
         <SignupStep2
+          onPersist={(parcial) => setDraft((d) => ({ ...d, ...parcial }))}
           userType={draft.userType}
           initial={{
             name: draft.name,

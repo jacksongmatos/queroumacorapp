@@ -312,6 +312,44 @@
     **REGRA: conferência de constraint LISTA (`pg_constraint` da tabela), não
     pergunta por nome.** Nome só cobre o que você já sabe que existe.
 
+- **CADASTRO: NADA É OPCIONAL, e o passo 2 mudou (2026-09-07, pedido do
+  usuário).** Telefone, cidade, estado e **foto** viraram obrigatórios; o
+  rótulo "WhatsApp" virou **"Telefone"**.
+  - **Nome sai em Maiúscula Inicial sozinho** (`formatarNomeProprio`), com
+    conectivo minúsculo ("João da Silva") — menos no começo ("Da Costa").
+    `limparNome` agora aceita **só letra e espaço**: hífen e apóstrofo saíram
+    junto com número e ponto. Custo conhecido e testado: "Maria-José" vira
+    "MariaJosé". Se incomodar, é uma linha.
+  - **A sugestão de @tag ENTRA no campo**, em vez do botão "Usar @fulano"
+    embaixo, que quase ninguém tocava — e tag vazia era o começo do loop do
+    /completar-perfil. Só escreve enquanto a pessoa não mexeu no campo.
+  - **Estado ANTES de cidade**, os dois em `<ComboBox>` (digitar filtra,
+    clique escolhe). `<select>` no celular abre a roleta do sistema: achar
+    uma cidade entre as 645 de SP é rolagem. Cidade carrega do IBGE pela UF
+    escolhida, e trocar de estado LIMPA a cidade.
+    - **Não é `<datalist>`**: o suporte no Safari do iPhone é irregular e o
+      app roda em WebView.
+    - **Cidade aceita texto livre de propósito** (`allowFree`): se o IBGE não
+      responder, travar o cadastro é pior que aceitar o nome digitado.
+  - **A FOTO OBRIGATÓRIA REABRE UM RISCO CONHECIDO** — ela virou opcional em
+    28/08 porque, no Android, abrir a galeria manda o app pro fundo e o
+    sistema pode MATAR o processo: com a foto obrigatória, quem perdesse o
+    processo não conseguia terminar a conta. Mitigado, não eliminado: o passo
+    2 agora **salva o rascunho ANTES de abrir o seletor** (`onPersist`), e a
+    câmera é o segundo caminho. Se voltar a travar cadastro, é o primeiro
+    lugar a olhar.
+
+- **MODO ESCURO: `text-white` era texto ESCURO (2026-09-07).** No dark, o logo
+  "QueroUmaCor" e o "Loja Cali Colors" sumiam. Causa: o Tailwind compila
+  `text-white` pra `var(--color-white)` — e esse token **inverte**, porque
+  também é a superfície dos cards. Sobre a barra (que segue escura de
+  propósito, via `--color-ink-fixed`), virava escuro no escuro.
+  - Token novo **`--color-white-fixed`**, par do `--color-ink-fixed`: não
+    inverte. Chrome fixo (TopNav, BottomNav, topo da Loja, ProfileHeader) usa
+    ele no texto e nos fundos translúcidos.
+  - `__tests__/temaEscuroChrome.test.ts` falha se `text-white` ou `bg-white/N`
+    voltarem a esses quatro arquivos, ou se alguém redefinir o token no dark.
+
 - **CADASTRO CONSERTADO E CONFIRMADO NO APARELHO (2026-09-07).** Cadastro
   novo entra direto no feed, sem passar pelo `/completar-perfil`, e o
   `contas_sem_perfil` do backfill foi a **0** — todas as contas que ficaram
