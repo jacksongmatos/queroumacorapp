@@ -105,10 +105,13 @@ export interface ItemDoOrcamento {
   sugestao: SugestaoDePreco | null;
 }
 
-/** Um serviço do orçamento: espaço + material + itens. */
+/**
+ * Um serviço do orçamento: itens + (opcionalmente) espaço e material. Campo
+ * de texto vazio = não informado; nada é inventado no PDF.
+ */
 export interface ServicoDoOrcamento {
   id: string;
-  // Espaço
+  // Espaço (opcional)
   tipo: string;
   areaM2: string;
   peDireito: string;
@@ -133,20 +136,25 @@ export function novoId(prefixo = 'srv'): string {
   return `${prefixo}-${Date.now().toString(36)}-${seq}`;
 }
 
-/** Serviço em branco com os defaults do formulário antigo (um só serviço). */
+/**
+ * Serviço em branco. TUDO vazio de propósito (3ª rodada, 2026-09-07): o
+ * serviço nasce de um item da tabela, e o pintor só abre "Detalhes" se quiser
+ * dizer tipo, área, tinta… Um default como "Pintura interna" apareceria no
+ * PDF como se a pessoa tivesse escolhido — e ela não escolheu.
+ */
 export function novoServico(over: Partial<ServicoDoOrcamento> = {}, id: string = novoId('srv')): ServicoDoOrcamento {
   return {
     id,
-    tipo: TIPOS_DE_SERVICO[0],
+    tipo: '',
     areaM2: '',
-    peDireito: '2.8',
+    peDireito: '',
     comodos: '',
-    superficie: ESTADOS_DA_SUPERFICIE[1],
-    acesso: OPCOES_DE_ACESSO[0],
-    tinta: TIPOS_DE_TINTA[0],
+    superficie: '',
+    acesso: '',
+    tinta: '',
     cor: '',
-    demaos: '2',
-    preparacao: ['Massa corrida', 'Lixamento'],
+    demaos: '',
+    preparacao: [],
     itens: [],
     ...over,
   };
@@ -327,15 +335,24 @@ export function areaTotal(servicos: readonly ServicoDoOrcamento[]): number | nul
  * que o pipeline e o PDF mostram.
  */
 export function tituloDosServicos(servicos: readonly ServicoDoOrcamento[]): string {
-  const tipos = Array.from(new Set(servicos.map((s) => s.tipo.trim()).filter(Boolean)));
-  return tipos.length > 0 ? tipos.join(' + ') : 'Orçamento';
+  // Sem tipo escolhido, o nome do serviço é o do PRIMEIRO item da tabela.
+  const nomes = servicos.map((s) => s.tipo.trim() || s.itens[0]?.servico.trim() || '').filter(Boolean);
+  const distintos = Array.from(new Set(nomes));
+  return distintos.length > 0 ? distintos.join(' + ') : 'Orçamento';
 }
 
-/** "Pintura interna · 80 m² · 3 cômodos" — cabeçalho curto do serviço. */
+/**
+ * "Pintura interna · 80 m² · 3 cômodos" — cabeçalho curto do serviço. Sem
+ * tipo escolhido, vale o nome do primeiro item da tabela.
+ */
+export function nomeDoServico(s: ServicoDoOrcamento): string {
+  return s.tipo.trim() || s.itens[0]?.servico.trim() || 'Serviço';
+}
+
 export function resumoDoServico(s: ServicoDoOrcamento): string {
   const area = areaDoServico(s);
   const partes = [
-    s.tipo.trim() || 'Serviço',
+    nomeDoServico(s),
     area !== null ? `${fmtNum(area)} m²` : null,
     s.comodos.trim() ? `${s.comodos.trim()} ${s.comodos.trim() === '1' ? 'cômodo' : 'cômodos'}` : null,
   ].filter(Boolean);
@@ -353,7 +370,7 @@ export function detalhesDoServico(s: ServicoDoOrcamento): Array<[string, string]
   push('Cômodos', s.comodos);
   push('Superfície', s.superficie);
   push('Acesso', s.acesso);
-  push('Tinta', s.tinta + (s.cor.trim() ? ` · ${s.cor.trim()}` : ''));
+  push('Tinta', [s.tinta.trim(), s.cor.trim()].filter(Boolean).join(' · '));
   push('Demãos', s.demaos);
   push('Preparação', s.preparacao.join(', '));
   return linhas;

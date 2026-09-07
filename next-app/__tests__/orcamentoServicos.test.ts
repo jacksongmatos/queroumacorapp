@@ -17,6 +17,7 @@ import {
   itemDaTabela,
   novoServico,
   quantidadeDe,
+  nomeDoServico,
   resumoDoServico,
   servicoComItem,
   servicosDoQuoteData,
@@ -154,13 +155,14 @@ describe('descreverItem', () => {
 });
 
 describe('serviços (vários por orçamento)', () => {
-  it('novoServico traz os defaults do formulário antigo e aceita sobrescrita', () => {
+  it('novoServico nasce TODO vazio (nada pré-escolhido) e aceita sobrescrita', () => {
     const s = novoServico({}, 'x');
-    expect(s.tipo).toBe('Pintura interna');
-    expect(s.peDireito).toBe('2.8');
-    expect(s.demaos).toBe('2');
-    expect(s.preparacao).toEqual(['Massa corrida', 'Lixamento']);
+    expect(s.tipo).toBe('');
+    expect(s.peDireito).toBe('');
+    expect(s.demaos).toBe('');
+    expect(s.preparacao).toEqual([]);
     expect(s.itens).toEqual([]);
+    expect(detalhesDoServico(s)).toEqual([]); // nada inventado no PDF
     expect(novoServico({ tipo: 'Piso epóxi', acesso: 'Andaime (3-6m)' }, 'y')).toMatchObject({
       tipo: 'Piso epóxi',
       acesso: 'Andaime (3-6m)',
@@ -170,7 +172,10 @@ describe('serviços (vários por orçamento)', () => {
   it('servicoComItem nasce em volta do item e herda acesso/tinta do anterior', () => {
     const primeiro = servicoComItem(itemDaTabela(item(), 'i1'), null, 'a');
     expect(primeiro.itens).toHaveLength(1);
-    expect(primeiro.acesso).toBe('Térreo / sem altura');
+    expect(primeiro.acesso).toBe('');
+    // Sem tipo escolhido, o nome do serviço é o do item.
+    expect(nomeDoServico(primeiro)).toBe('Premium Fosco 3 demãos (m²)');
+    expect(tituloDosServicos([primeiro])).toBe('Premium Fosco 3 demãos (m²)');
     const anterior = { ...primeiro, acesso: 'Andaime (3-6m)', tinta: 'Elastomérica (fachada)', areaM2: '80' };
     const segundo = servicoComItem(itemAvulso('Retoque', 'i2'), anterior, 'b');
     expect(segundo.acesso).toBe('Andaime (3-6m)');
@@ -194,12 +199,17 @@ describe('serviços (vários por orçamento)', () => {
   });
 
   it('resumo e detalhes só trazem o que está preenchido', () => {
-    const s = novoServico({ tipo: 'Pintura interna', areaM2: '80', comodos: '3', cor: 'branco gelo' }, 'a');
+    const s = novoServico(
+      { tipo: 'Pintura interna', areaM2: '80', comodos: '3', tinta: 'PVA (interna)', cor: 'branco gelo', preparacao: ['Selador'] },
+      'a',
+    );
     expect(resumoDoServico(s)).toBe('Pintura interna · 80 m² · 3 cômodos');
     const d = Object.fromEntries(detalhesDoServico(s));
-    expect(d['Tinta']).toBe('Acrílica (interna/externa) · branco gelo');
-    expect(d['Preparação']).toBe('Massa corrida, Lixamento');
+    expect(d['Tinta']).toBe('PVA (interna) · branco gelo');
+    expect(d['Preparação']).toBe('Selador');
     expect(d['Cômodos']).toBe('3');
+    // Só a cor, sem tinta: não sai " · branco gelo" solto.
+    expect(Object.fromEntries(detalhesDoServico(novoServico({ cor: 'areia' }, 'c')))['Tinta']).toBe('areia');
     // Sem cômodos e sem área, as linhas não aparecem.
     const vazio = Object.fromEntries(detalhesDoServico(novoServico({ comodos: '', areaM2: '' }, 'b')));
     expect(vazio['Cômodos']).toBeUndefined();
@@ -208,7 +218,7 @@ describe('serviços (vários por orçamento)', () => {
 
   it('descreverServico lista o resumo, os detalhes e os itens', () => {
     const s = novoServico(
-      { tipo: 'Pintura interna', areaM2: '80', itens: [{ ...itemDaTabela(item(), 'i'), quantidade: '80' }] },
+      { tipo: 'Pintura interna', areaM2: '80', acesso: 'Térreo / sem altura', itens: [{ ...itemDaTabela(item(), 'i'), quantidade: '80' }] },
       'a',
     );
     const txt = descreverServico(s);

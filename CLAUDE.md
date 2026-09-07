@@ -14,6 +14,13 @@
     escolher uma linha na tabela (ou "+ Avulso") cria o serviço em volta dela
     (`servicoComItem`, herdando acesso e tinta do anterior). Gravar com zero
     serviços bloqueia com toast.
+  - **O BLOCO MOSTRA SÓ O ITEM (4ª rodada: "veio esse Serviço 1 de pintura
+    interna que nem pedi").** Espaço e material ficam atrás de "▸ Detalhes do
+    serviço" (fechado; abre sozinho só se já tem algo preenchido) e
+    `novoServico` nasce TODO vazio — sem "Pintura interna", "2.8", "2 demãos"
+    nem "Massa corrida" pré-escolhidos, porque default vira afirmação no PDF.
+    Sem tipo, o nome do serviço (cabeçalho, `service_type`, PDF) é o do
+    primeiro item da tabela (`nomeDoServico`). Os selects têm "Selecione…".
   - **A 1ª rodada tinha UMA lista de itens pro orçamento inteiro** e o
     usuário corrigiu no mesmo dia: "pode ter múltiplos serviços" — sala e
     fachada têm tinta, acesso e área diferentes; um Espaço só não descreve
