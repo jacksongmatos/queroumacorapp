@@ -1,12 +1,18 @@
-// orcamentoServicos — os itens de serviço de um orçamento (tile "Orçamento ·
-// Crie e envie"), com a sugestão de preço vinda da Tabela ABRAPP.
+// orcamentoServicos — os serviços de um orçamento (tile "Orçamento · Crie e
+// envie"), cada um com o seu espaço, material e itens da Tabela ABRAPP.
+//
+// Um orçamento tem VÁRIOS serviços (pintura interna da sala + fachada, por
+// exemplo), e cada serviço carrega o próprio espaço (tipo, área, pé direito,
+// cômodos, superfície, acesso), o próprio material (tinta, cor, demãos,
+// preparação) e a própria lista de ITENS — linhas escolhidas na Tabela de
+// Preços da ABRAPP ou avulsas, com quantidade e valor por unidade.
 //
 // Decisões que valem registro:
 //
-//  1. O VALOR NASCE VAZIO, a sugestão fica do lado. A tabela é sugestão de
-//     mão de obra; quem assina o orçamento é o pintor. Preencher o campo
-//     sozinho faria a pessoa mandar preço de tabela sem ter decidido nada —
-//     e "Usar sugestão" é um toque.
+//  1. O VALOR DO ITEM NASCE VAZIO, a sugestão fica do lado. A tabela é
+//     sugestão de mão de obra; quem assina o orçamento é o pintor. Preencher
+//     o campo sozinho faria a pessoa mandar preço de tabela sem ter decidido
+//     nada — e "Usar média" é um toque.
 //
 //  2. Quantidade e valor são TEXTO no estado (o que a pessoa digitou). A
 //     conversão pra número acontece só nas contas, aqui, num lugar só —
@@ -25,16 +31,67 @@ import {
   type PriceItem,
 } from '@/lib/services/priceTable';
 
+// ─── Opções dos campos (fonte única — tela e defaults) ────────────────────
+
+export const TIPOS_DE_SERVICO = [
+  'Pintura interna',
+  'Pintura externa / fachada',
+  'Textura (grafiato/marmorato)',
+  'Piso epóxi',
+  'Microcimento',
+  'Esmalte (portas/grades)',
+  'Pintura automotiva',
+  'Grafite / mural',
+] as const;
+
+export const ESTADOS_DA_SUPERFICIE = [
+  'Nova (alvenaria recém-feita)',
+  'Boa (só limpeza)',
+  'Pintura antiga em bom estado',
+  'Descascando / mofo / infiltração',
+  'Concreto ou tijolo aparente',
+] as const;
+
+export const OPCOES_DE_ACESSO = [
+  'Térreo / sem altura',
+  'Escada (até 3m)',
+  'Andaime (3-6m)',
+  'Andaime alto / cadeira suspensa (acima 6m)',
+] as const;
+
+export const TIPOS_DE_TINTA = [
+  'Acrílica (interna/externa)',
+  'PVA (interna)',
+  'Esmalte sintético (madeira/metal)',
+  'Esmalte aquoso',
+  'Epóxi (piso/banheiro)',
+  'Elastomérica (fachada)',
+  'Textura/grafiato',
+  'Outra',
+] as const;
+
+export const OPCOES_DE_PREPARACAO = [
+  'Massa corrida',
+  'Lixamento',
+  'Selador',
+  'Fundo preparador',
+  'Fungicida (mofo)',
+  'Tratamento de trincas',
+] as const;
+
+// ─── Tipos ────────────────────────────────────────────────────────────────
+
 export interface SugestaoDePreco {
   min: number | null;
   medio: number;
   max: number | null;
 }
 
-export interface ServicoDoOrcamento {
+/** Uma linha da Tabela ABRAPP (ou avulsa) dentro de um serviço. */
+export interface ItemDoOrcamento {
   /** id local (só pra React/remoção) */
   id: string;
-  /** `price_table_items.id`; null = serviço avulso digitado pelo pintor */
+  /** `price_table_items.id`; null = item avulso digitado pelo pintor */
   priceItemId: string | null;
   servico: string;
   /** "Látex · Acrílico Premium · até 3 m" — só pra tela */
@@ -48,17 +105,55 @@ export interface ServicoDoOrcamento {
   sugestao: SugestaoDePreco | null;
 }
 
+/** Um serviço do orçamento: espaço + material + itens. */
+export interface ServicoDoOrcamento {
+  id: string;
+  // Espaço
+  tipo: string;
+  areaM2: string;
+  peDireito: string;
+  comodos: string;
+  superficie: string;
+  acesso: string;
+  // Material e técnica
+  tinta: string;
+  cor: string;
+  demaos: string;
+  preparacao: string[];
+  // Itens da Tabela ABRAPP / avulsos
+  itens: ItemDoOrcamento[];
+}
+
 /** Chave onde a lista vive dentro de `quotes.quote_data`. */
 export const QUOTE_DATA_SERVICOS_KEY = 'servicos';
 
 let seq = 0;
-export function novoIdDeServico(): string {
+export function novoId(prefixo = 'srv'): string {
   seq += 1;
-  return `srv-${Date.now().toString(36)}-${seq}`;
+  return `${prefixo}-${Date.now().toString(36)}-${seq}`;
 }
 
-/** Monta uma linha a partir de um item da Tabela ABRAPP. */
-export function servicoDoItemDaTabela(item: PriceItem, id: string = novoIdDeServico()): ServicoDoOrcamento {
+/** Serviço em branco com os defaults do formulário antigo (um só serviço). */
+export function novoServico(over: Partial<ServicoDoOrcamento> = {}, id: string = novoId('srv')): ServicoDoOrcamento {
+  return {
+    id,
+    tipo: TIPOS_DE_SERVICO[0],
+    areaM2: '',
+    peDireito: '2.8',
+    comodos: '',
+    superficie: ESTADOS_DA_SUPERFICIE[1],
+    acesso: OPCOES_DE_ACESSO[0],
+    tinta: TIPOS_DE_TINTA[0],
+    cor: '',
+    demaos: '2',
+    preparacao: ['Massa corrida', 'Lixamento'],
+    itens: [],
+    ...over,
+  };
+}
+
+/** Monta um item a partir de uma linha da Tabela ABRAPP. */
+export function itemDaTabela(item: PriceItem, id: string = novoId('item')): ItemDoOrcamento {
   const detalhe = [item.grupo, item.tipo, rotuloAltura(item.altura)].filter(Boolean).join(' · ');
   return {
     id,
@@ -76,7 +171,7 @@ export function servicoDoItemDaTabela(item: PriceItem, id: string = novoIdDeServ
 }
 
 /** Linha livre — serviço que não está na tabela (grafite, automotivo…). */
-export function servicoAvulso(nome = '', id: string = novoIdDeServico()): ServicoDoOrcamento {
+export function itemAvulso(nome = '', id: string = novoId('item')): ItemDoOrcamento {
   return {
     id,
     priceItemId: null,
@@ -90,7 +185,7 @@ export function servicoAvulso(nome = '', id: string = novoIdDeServico()): Servic
 }
 
 /**
- * Deduz o eixo de altura da tabela a partir do campo "Acesso" do orçamento.
+ * Deduz o eixo de altura da tabela a partir do campo "Acesso" do serviço.
  * "Andaime (3-6m)" e "cadeira suspensa (acima 6m)" → acima de 3 m; térreo e
  * escada → até 3 m. Serve só pra PRÉ-selecionar o filtro do seletor — a
  * pessoa troca se quiser.
@@ -102,14 +197,16 @@ export function alturaDoAcesso(access: string | null | undefined): PriceAltura |
   return 'ate_3m';
 }
 
+// ─── Contas por item ──────────────────────────────────────────────────────
+
 /** Quantidade numérica; vazio, inválido ou ≤ 0 vale 1 (mesma regra de `totalPara`). */
-export function quantidadeDe(s: ServicoDoOrcamento): number {
+export function quantidadeDe(s: ItemDoOrcamento): number {
   const q = Number(String(s.quantidade ?? '').replace(',', '.'));
   return Number.isFinite(q) && q > 0 ? q : 1;
 }
 
 /** Valor unitário digitado; vazio ou ≤ 0 → null ("ainda não decidido"). */
-export function valorUnitarioDe(s: ServicoDoOrcamento): number | null {
+export function valorUnitarioDe(s: ItemDoOrcamento): number | null {
   const raw = String(s.valorUnitario ?? '').trim();
   if (!raw) return null;
   const v = parseBRL(raw);
@@ -117,19 +214,19 @@ export function valorUnitarioDe(s: ServicoDoOrcamento): number | null {
 }
 
 /** valor digitado × quantidade; null enquanto o valor estiver vazio. */
-export function subtotalDoServico(s: ServicoDoOrcamento): number | null {
+export function subtotalDoItem(s: ItemDoOrcamento): number | null {
   const v = valorUnitarioDe(s);
   if (v === null) return null;
   return arredondar(v * quantidadeDe(s));
 }
 
 /** média da tabela × quantidade; null sem sugestão. */
-export function subtotalSugerido(s: ServicoDoOrcamento): number | null {
+export function subtotalSugerido(s: ItemDoOrcamento): number | null {
   if (!s.sugestao || s.sugestao.medio <= 0) return null;
   return arredondar(s.sugestao.medio * quantidadeDe(s));
 }
 
-export interface TotaisDosServicos {
+export interface Totais {
   /** soma só do que a pessoa já preencheu */
   preenchido: number;
   /** soma usando o valor digitado e, onde falta, a média da tabela */
@@ -140,13 +237,13 @@ export interface TotaisDosServicos {
   semSugestao: number;
 }
 
-export function totaisDosServicos(lista: readonly ServicoDoOrcamento[]): TotaisDosServicos {
+export function totaisDosItens(lista: readonly ItemDoOrcamento[]): Totais {
   let preenchido = 0;
   let sugerido = 0;
   let semValor = 0;
   let semSugestao = 0;
   for (const s of lista) {
-    const sub = subtotalDoServico(s);
+    const sub = subtotalDoItem(s);
     if (sub !== null) {
       preenchido += sub;
       sugerido += sub;
@@ -165,56 +262,200 @@ export function totaisDosServicos(lista: readonly ServicoDoOrcamento[]): TotaisD
   };
 }
 
-/** Uma linha de texto por serviço — WhatsApp, e-mail, descrição pra IA. */
-export function descreverServico(s: ServicoDoOrcamento): string {
+/** Totais do orçamento inteiro = itens de todos os serviços. */
+export function totaisDoOrcamento(servicos: readonly ServicoDoOrcamento[]): Totais {
+  return totaisDosItens(servicos.flatMap((s) => s.itens));
+}
+
+/** Uma linha de texto por item — WhatsApp, e-mail, descrição pra IA. */
+export function descreverItem(s: ItemDoOrcamento): string {
   const nome = s.servico.trim() || 'Serviço';
   const qtd = quantidadeDe(s);
   const unid = unidadeCurta(s.unidade);
   const v = valorUnitarioDe(s);
-  const sub = subtotalDoServico(s);
+  const sub = subtotalDoItem(s);
   const base = `${nome} — ${fmtNum(qtd)} ${unid}`;
   if (v === null || sub === null) return `${base} (valor a definir)`;
   return `${base} × R$ ${fmtBRL(v)} = R$ ${fmtBRL(sub)}`;
 }
 
+// ─── Contas por serviço / orçamento ───────────────────────────────────────
+
+/** Área numérica do serviço; vazio/inválido → null. */
+export function areaDoServico(s: ServicoDoOrcamento): number | null {
+  const n = Number(String(s.areaM2 ?? '').replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Soma das áreas informadas; null se nenhum serviço tem área. */
+export function areaTotal(servicos: readonly ServicoDoOrcamento[]): number | null {
+  let soma = 0;
+  let algum = false;
+  for (const s of servicos) {
+    const a = areaDoServico(s);
+    if (a !== null) {
+      soma += a;
+      algum = true;
+    }
+  }
+  return algum ? arredondar(soma) : null;
+}
+
+/**
+ * Título do orçamento a partir dos serviços: um só → o tipo dele; vários →
+ * tipos distintos unidos por " + ". Vai pra `quotes.service_type`/`title`,
+ * que o pipeline e o PDF mostram.
+ */
+export function tituloDosServicos(servicos: readonly ServicoDoOrcamento[]): string {
+  const tipos = Array.from(new Set(servicos.map((s) => s.tipo.trim()).filter(Boolean)));
+  return tipos.length > 0 ? tipos.join(' + ') : 'Orçamento';
+}
+
+/** "Pintura interna · 80 m² · 3 cômodos" — cabeçalho curto do serviço. */
+export function resumoDoServico(s: ServicoDoOrcamento): string {
+  const area = areaDoServico(s);
+  const partes = [
+    s.tipo.trim() || 'Serviço',
+    area !== null ? `${fmtNum(area)} m²` : null,
+    s.comodos.trim() ? `${s.comodos.trim()} ${s.comodos.trim() === '1' ? 'cômodo' : 'cômodos'}` : null,
+  ].filter(Boolean);
+  return partes.join(' · ');
+}
+
+/** Pares rótulo/valor do espaço + material, só os preenchidos (tela e PDF). */
+export function detalhesDoServico(s: ServicoDoOrcamento): Array<[string, string]> {
+  const linhas: Array<[string, string]> = [];
+  const push = (k: string, v: string | null | undefined) => {
+    if (v && v.trim()) linhas.push([k, v.trim()]);
+  };
+  push('Área', areaDoServico(s) !== null ? `${s.areaM2.trim()} m²` : '');
+  push('Pé direito', s.peDireito ? `${s.peDireito} m` : '');
+  push('Cômodos', s.comodos);
+  push('Superfície', s.superficie);
+  push('Acesso', s.acesso);
+  push('Tinta', s.tinta + (s.cor.trim() ? ` · ${s.cor.trim()}` : ''));
+  push('Demãos', s.demaos);
+  push('Preparação', s.preparacao.join(', '));
+  return linhas;
+}
+
+/** Bloco de texto de um serviço — WhatsApp, e-mail, descrição pra IA. */
+export function descreverServico(s: ServicoDoOrcamento, opts: { marcador?: string } = {}): string {
+  const m = opts.marcador ?? '•';
+  const linhas = [
+    resumoDoServico(s),
+    ...detalhesDoServico(s)
+      .filter(([k]) => k !== 'Área' && k !== 'Cômodos') // já estão no resumo
+      .map(([k, v]) => `  ${k}: ${v}`),
+    ...s.itens.map((i) => `  ${m} ${descreverItem(i)}`),
+  ];
+  return linhas.join('\n');
+}
+
+/** Um item avulso sem nome gravaria uma linha muda no PDF. */
+export function temAvulsoSemNome(servicos: readonly ServicoDoOrcamento[]): boolean {
+  return servicos.some((s) => s.itens.some((i) => i.priceItemId === null && !i.servico.trim()));
+}
+
+// ─── Leitura do jsonb ─────────────────────────────────────────────────────
+
 /**
  * Lê a lista gravada em `quote_data` (jsonb) sem confiar no formato: linha
  * malformada é descartada em vez de derrubar o PDF inteiro. Aceita o objeto
  * `quote_data` ou a própria lista.
+ *
+ * Tolera o formato da 1ª versão (2026-09-07, mesmo dia), em que `servicos`
+ * era a lista de ITENS direto: vira um serviço único com os campos de
+ * espaço/material que viviam no topo do `quote_data`.
  */
 export function servicosDoQuoteData(qd: unknown): ServicoDoOrcamento[] {
-  const bruto = Array.isArray(qd)
-    ? qd
-    : qd && typeof qd === 'object'
-      ? (qd as Record<string, unknown>)[QUOTE_DATA_SERVICOS_KEY]
-      : null;
+  const topo = qd && typeof qd === 'object' && !Array.isArray(qd) ? (qd as Record<string, unknown>) : null;
+  const bruto = Array.isArray(qd) ? qd : topo ? topo[QUOTE_DATA_SERVICOS_KEY] : null;
   if (!Array.isArray(bruto)) return [];
-  const out: ServicoDoOrcamento[] = [];
+
+  const servicos: ServicoDoOrcamento[] = [];
+  const itensSoltos: ItemDoOrcamento[] = [];
   bruto.forEach((raw, i) => {
     if (!raw || typeof raw !== 'object') return;
     const r = raw as Record<string, unknown>;
-    if (typeof r.servico !== 'string' || !r.servico.trim()) return;
-    const sug = r.sugestao;
-    let sugestao: SugestaoDePreco | null = null;
-    if (sug && typeof sug === 'object') {
-      const so = sug as Record<string, unknown>;
-      const medio = numOuNull(so.medio);
-      if (medio !== null && medio > 0) {
-        sugestao = { min: numOuNull(so.min), medio, max: numOuNull(so.max) };
-      }
+    if (Array.isArray(r.itens) || typeof r.tipo === 'string') {
+      servicos.push(servicoDeLinha(r, i));
+      return;
     }
-    out.push({
-      id: typeof r.id === 'string' && r.id ? r.id : `srv-${i}`,
-      priceItemId: typeof r.priceItemId === 'string' ? r.priceItemId : null,
-      servico: r.servico,
-      detalhe: typeof r.detalhe === 'string' && r.detalhe ? r.detalhe : null,
-      unidade: typeof r.unidade === 'string' && r.unidade ? r.unidade : 'unidade',
-      quantidade: textoOuVazio(r.quantidade) || '1',
-      valorUnitario: textoOuVazio(r.valorUnitario),
-      sugestao,
-    });
+    // Formato antigo: item de tabela direto na lista.
+    const item = itemDeLinha(r, i);
+    if (item) itensSoltos.push(item);
   });
-  return out;
+
+  if (itensSoltos.length > 0) {
+    servicos.push(
+      novoServico(
+        {
+          tipo: texto(topo?.serviceType) || 'Serviço',
+          areaM2: texto(topo?.areaM2),
+          peDireito: texto(topo?.ceilingHeight),
+          comodos: texto(topo?.rooms),
+          superficie: texto(topo?.surfaceState),
+          acesso: texto(topo?.access),
+          tinta: texto(topo?.paintType),
+          cor: texto(topo?.colorWant),
+          demaos: texto(topo?.coats),
+          preparacao: listaDeTexto(topo?.prep),
+          itens: itensSoltos,
+        },
+        'srv-legado',
+      ),
+    );
+  }
+  return servicos;
+}
+
+function servicoDeLinha(r: Record<string, unknown>, i: number): ServicoDoOrcamento {
+  const itens: ItemDoOrcamento[] = [];
+  if (Array.isArray(r.itens)) {
+    r.itens.forEach((raw, j) => {
+      if (!raw || typeof raw !== 'object') return;
+      const item = itemDeLinha(raw as Record<string, unknown>, j);
+      if (item) itens.push(item);
+    });
+  }
+  return {
+    id: texto(r.id) || `srv-${i}`,
+    tipo: texto(r.tipo),
+    areaM2: texto(r.areaM2),
+    peDireito: texto(r.peDireito),
+    comodos: texto(r.comodos),
+    superficie: texto(r.superficie),
+    acesso: texto(r.acesso),
+    tinta: texto(r.tinta),
+    cor: texto(r.cor),
+    demaos: texto(r.demaos),
+    preparacao: listaDeTexto(r.preparacao),
+    itens,
+  };
+}
+
+function itemDeLinha(r: Record<string, unknown>, i: number): ItemDoOrcamento | null {
+  if (typeof r.servico !== 'string' || !r.servico.trim()) return null;
+  const sug = r.sugestao;
+  let sugestao: SugestaoDePreco | null = null;
+  if (sug && typeof sug === 'object') {
+    const so = sug as Record<string, unknown>;
+    const medio = numOuNull(so.medio);
+    if (medio !== null && medio > 0) {
+      sugestao = { min: numOuNull(so.min), medio, max: numOuNull(so.max) };
+    }
+  }
+  return {
+    id: texto(r.id) || `item-${i}`,
+    priceItemId: typeof r.priceItemId === 'string' ? r.priceItemId : null,
+    servico: r.servico,
+    detalhe: texto(r.detalhe) || null,
+    unidade: texto(r.unidade) || 'unidade',
+    quantidade: texto(r.quantidade) || '1',
+    valorUnitario: texto(r.valorUnitario),
+    sugestao,
+  };
 }
 
 // ─── privados ─────────────────────────────────────────────────────────────
@@ -232,10 +473,14 @@ function numOuNull(v: unknown): number | null {
   return null;
 }
 
-function textoOuVazio(v: unknown): string {
+function texto(v: unknown): string {
   if (typeof v === 'string') return v;
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   return '';
+}
+
+function listaDeTexto(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
 function fmtNum(n: number): string {

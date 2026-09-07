@@ -1,11 +1,12 @@
 'use client';
 // ServicosDoOrcamento — a seção "Serviços" do tile Orçamento (Crie e envie).
 //
-// O pintor monta o orçamento como uma lista de serviços: escolhe cada um na
-// Tabela de Preços da ABRAPP (o mesmo catálogo do tile "Tabela de Preços"),
-// informa quantidade e VALOR — que nasce vazio, com a sugestão da tabela do
-// lado (mín/média/máx). Também dá pra incluir um serviço avulso, pra quem
-// faz o que a tabela não cobre (grafite, automotivo).
+// Um orçamento tem VÁRIOS serviços (sala + fachada, por exemplo). Cada bloco
+// carrega o próprio espaço (tipo, área, pé direito, cômodos, superfície,
+// acesso), o próprio material (tinta, cor, demãos, preparação) e os próprios
+// ITENS: linhas escolhidas na Tabela de Preços da ABRAPP (o mesmo catálogo do
+// tile "Tabela de Preços") ou avulsas, com quantidade e VALOR — que nasce
+// vazio, com a sugestão da tabela do lado (mín/média/máx).
 //
 // Por que o seletor é um modal em portal e não uma lista inline: o wizard já
 // abre dentro de um BottomSheet (z-[1000]); uma lista de 328 itens dentro
@@ -26,12 +27,20 @@ import {
   type PriceItem,
 } from '@/lib/services/priceTable';
 import {
+  ESTADOS_DA_SUPERFICIE,
+  OPCOES_DE_ACESSO,
+  OPCOES_DE_PREPARACAO,
+  TIPOS_DE_SERVICO,
+  TIPOS_DE_TINTA,
   alturaDoAcesso,
-  servicoAvulso,
-  servicoDoItemDaTabela,
-  subtotalDoServico,
+  itemAvulso,
+  itemDaTabela,
+  novoServico,
+  resumoDoServico,
+  subtotalDoItem,
   subtotalSugerido,
-  totaisDosServicos,
+  totaisDosItens,
+  type ItemDoOrcamento,
   type ServicoDoOrcamento,
 } from '@/lib/orcamentoServicos';
 import { fmtBRL } from '@/lib/utils';
@@ -39,41 +48,344 @@ import { fmtBRL } from '@/lib/utils';
 export interface ServicosDoOrcamentoProps {
   servicos: ServicoDoOrcamento[];
   onChange: (next: ServicoDoOrcamento[]) => void;
-  /** campo "Acesso" do orçamento — só pra pré-selecionar o filtro de altura */
-  access?: string;
 }
 
-export function ServicosDoOrcamento({ servicos, onChange, access }: ServicosDoOrcamentoProps) {
-  const [seletorAberto, setSeletorAberto] = useState(false);
-  const totais = useMemo(() => totaisDosServicos(servicos), [servicos]);
-
+export function ServicosDoOrcamento({ servicos, onChange }: ServicosDoOrcamentoProps) {
   function atualizar(id: string, patch: Partial<ServicoDoOrcamento>) {
     onChange(servicos.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
   function remover(id: string) {
     onChange(servicos.filter((s) => s.id !== id));
   }
-  function adicionarDaTabela(item: PriceItem) {
-    onChange([...servicos, servicoDoItemDaTabela(item)]);
-    setSeletorAberto(false);
-  }
-  function adicionarAvulso() {
-    onChange([...servicos, servicoAvulso()]);
+  function adicionar() {
+    // O serviço novo herda acesso/tinta do último: obra do mesmo lugar
+    // costuma repetir esses dois, e trocar é um toque.
+    const ultimo = servicos[servicos.length - 1];
+    onChange([
+      ...servicos,
+      novoServico(ultimo ? { acesso: ultimo.acesso, tinta: ultimo.tinta } : {}),
+    ]);
   }
 
   return (
     <div className="space-y-3">
-      {servicos.length === 0 ? (
+      {servicos.map((s, idx) => (
+        <BlocoDeServico
+          key={s.id}
+          servico={s}
+          indice={idx}
+          podeRemover={servicos.length > 1}
+          onChange={(patch) => atualizar(s.id, patch)}
+          onRemove={() => remover(s.id)}
+        />
+      ))}
+
+      <button
+        type="button"
+        onClick={adicionar}
+        className="w-full font-bold text-sm"
+        style={{
+          padding: '11px 12px',
+          borderRadius: 12,
+          border: '1.5px dashed var(--color-p1)',
+          background: 'rgba(255,107,53,.06)',
+          color: 'var(--color-p1)',
+          cursor: 'pointer',
+        }}
+      >
+        + Adicionar outro serviço
+      </button>
+    </div>
+  );
+}
+
+// ─── Bloco de serviço (espaço + material + itens) ─────────────────────────
+
+function BlocoDeServico({
+  servico: s,
+  indice,
+  podeRemover,
+  onChange,
+  onRemove,
+}: {
+  servico: ServicoDoOrcamento;
+  indice: number;
+  podeRemover: boolean;
+  onChange: (patch: Partial<ServicoDoOrcamento>) => void;
+  onRemove: () => void;
+}) {
+  const totais = useMemo(() => totaisDosItens(s.itens), [s.itens]);
+
+  function togglePrep(item: string) {
+    onChange({
+      preparacao: s.preparacao.includes(item)
+        ? s.preparacao.filter((p) => p !== item)
+        : [...s.preparacao, item],
+    });
+  }
+
+  return (
+    <section
+      aria-label={`Serviço ${indice + 1}`}
+      style={{
+        border: '1.5px solid var(--color-border)',
+        borderRadius: 14,
+        padding: 12,
+        background: 'var(--color-cream)',
+      }}
+    >
+      <header className="flex items-start justify-between gap-2" style={{ marginBottom: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div
+            className="font-extrabold"
+            style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--color-p1)' }}
+          >
+            Serviço {indice + 1}
+          </div>
+          <div className="font-bold" style={{ fontSize: 13, color: 'var(--color-ink)', overflowWrap: 'anywhere' }}>
+            {resumoDoServico(s)}
+          </div>
+        </div>
+        {podeRemover ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remover serviço ${indice + 1}`}
+            className="text-xs font-bold"
+            style={{
+              flexShrink: 0,
+              padding: '5px 10px',
+              borderRadius: 999,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-white)',
+              color: 'var(--color-ink)',
+              cursor: 'pointer',
+            }}
+          >
+            ✕ Remover
+          </button>
+        ) : null}
+      </header>
+
+      {/* Espaço */}
+      <div className="space-y-2.5">
+        <Campo label="Tipo de serviço">
+          <select value={s.tipo} onChange={(e) => onChange({ tipo: e.target.value })} className={inputCls}>
+            {TIPOS_DE_SERVICO.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </Campo>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Campo label="Área (m²)">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={s.areaM2}
+              onChange={(e) => onChange({ areaM2: e.target.value })}
+              placeholder="ex: 80"
+              className={inputCls}
+            />
+          </Campo>
+          <Campo label="Pé direito (m)">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={s.peDireito}
+              onChange={(e) => onChange({ peDireito: e.target.value })}
+              placeholder="ex: 2.8"
+              className={inputCls}
+            />
+          </Campo>
+          <Campo label="Cômodos">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={s.comodos}
+              onChange={(e) => onChange({ comodos: e.target.value })}
+              placeholder="ex: 3"
+              className={inputCls}
+            />
+          </Campo>
+        </div>
+
+        <Campo label="Estado da superfície">
+          <select value={s.superficie} onChange={(e) => onChange({ superficie: e.target.value })} className={inputCls}>
+            {ESTADOS_DA_SUPERFICIE.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo label="Acesso">
+          <select value={s.acesso} onChange={(e) => onChange({ acesso: e.target.value })} className={inputCls}>
+            {OPCOES_DE_ACESSO.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </Campo>
+
+        {/* Material e técnica */}
+        <Campo label="Tipo de tinta">
+          <select value={s.tinta} onChange={(e) => onChange({ tinta: e.target.value })} className={inputCls}>
+            {TIPOS_DE_TINTA.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo label="Cor desejada">
+          <input
+            type="text"
+            value={s.cor}
+            onChange={(e) => onChange({ cor: e.target.value })}
+            placeholder="ex: branco gelo, areia, ref. Suvinil A123"
+            className={inputCls}
+          />
+        </Campo>
+
+        <Campo label="Nº de demãos">
+          <div className="flex gap-2">
+            {(['1', '2', '3'] as const).map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onChange({ demaos: n })}
+                className="flex-1 font-bold"
+                style={{
+                  padding: '8px 0',
+                  borderRadius: 10,
+                  fontSize: 13,
+                  border: '1.5px solid ' + (s.demaos === n ? 'var(--color-p1)' : 'var(--color-border)'),
+                  background: s.demaos === n ? 'var(--color-p1)' : 'var(--color-white)',
+                  color: s.demaos === n ? '#fff' : 'var(--color-ink)',
+                  cursor: 'pointer',
+                }}
+              >
+                {n} demão{n !== '1' ? 's' : ''}
+              </button>
+            ))}
+          </div>
+        </Campo>
+
+        <Campo label="Preparação (marque o que precisa)">
+          <div className="flex flex-wrap gap-2">
+            {OPCOES_DE_PREPARACAO.map((opt) => {
+              const on = s.preparacao.includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => togglePrep(opt)}
+                  className="font-semibold text-xs"
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 999,
+                    border: '1.5px solid ' + (on ? 'var(--color-p1)' : 'var(--color-border)'),
+                    background: on ? 'rgba(255,107,53,.12)' : 'var(--color-white)',
+                    color: on ? 'var(--color-p1)' : 'var(--color-ink)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {on ? '✓ ' : ''}{opt}
+                </button>
+              );
+            })}
+          </div>
+        </Campo>
+      </div>
+
+      {/* Itens da Tabela ABRAPP */}
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}>
+        <div className={rotuloCls} style={{ marginBottom: 8 }}>
+          Itens da Tabela de Preços
+        </div>
+        <ItensDoServico
+          itens={s.itens}
+          onChange={(itens) => onChange({ itens })}
+          acesso={s.acesso}
+        />
+        {s.itens.length > 0 ? (
+          <div
+            style={{
+              borderTop: '1px solid var(--color-border)',
+              marginTop: 10,
+              paddingTop: 8,
+              fontSize: 12,
+              color: 'var(--color-muted)',
+              lineHeight: 1.7,
+            }}
+          >
+            <div className="flex justify-between gap-3">
+              <span>Subtotal do serviço {indice + 1}</span>
+              <strong style={{ color: 'var(--color-ink)' }}>
+                {totais.preenchido > 0 ? `R$ ${fmtBRL(totais.preenchido)}` : '—'}
+              </strong>
+            </div>
+            {totais.semValor > 0 && totais.sugerido > 0 ? (
+              <div className="flex justify-between gap-3">
+                <span>
+                  Com a sugestão da tabela {totais.semValor === 1 ? 'no que falta' : `nos ${totais.semValor} que faltam`}
+                </span>
+                <span style={{ whiteSpace: 'nowrap' }}>R$ {fmtBRL(totais.sugerido)}</span>
+              </div>
+            ) : null}
+            {totais.semSugestao > 0 ? (
+              <div style={{ fontSize: 11 }}>
+                {totais.semSugestao === 1
+                  ? '1 item sem valor e sem sugestão na tabela.'
+                  : `${totais.semSugestao} itens sem valor e sem sugestão na tabela.`}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+// ─── Itens de um serviço ──────────────────────────────────────────────────
+
+function ItensDoServico({
+  itens,
+  onChange,
+  acesso,
+}: {
+  itens: ItemDoOrcamento[];
+  onChange: (next: ItemDoOrcamento[]) => void;
+  /** campo "Acesso" do serviço — só pra pré-selecionar o filtro de altura */
+  acesso: string;
+}) {
+  const [seletorAberto, setSeletorAberto] = useState(false);
+
+  function atualizar(id: string, patch: Partial<ItemDoOrcamento>) {
+    onChange(itens.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
+  function remover(id: string) {
+    onChange(itens.filter((s) => s.id !== id));
+  }
+  function adicionarDaTabela(item: PriceItem) {
+    onChange([...itens, itemDaTabela(item)]);
+    setSeletorAberto(false);
+  }
+  function adicionarAvulso() {
+    onChange([...itens, itemAvulso()]);
+  }
+
+  return (
+    <div className="space-y-2">
+      {itens.length === 0 ? (
         <p style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.6 }}>
-          Adicione os serviços do orçamento. O valor de cada um fica em branco pra você
-          decidir — a sugestão da Tabela ABRAPP (mão de obra) aparece do lado.
+          Adicione os itens deste serviço. O valor de cada um fica em branco pra você decidir —
+          a sugestão da Tabela ABRAPP (mão de obra) aparece do lado.
         </p>
       ) : (
-        <ul className="space-y-2" aria-label="Serviços do orçamento">
-          {servicos.map((s) => (
-            <LinhaDeServico
+        <ul className="space-y-2" aria-label="Itens do serviço">
+          {itens.map((s) => (
+            <LinhaDeItem
               key={s.id}
-              servico={s}
+              item={s}
               onChange={(patch) => atualizar(s.id, patch)}
               onRemove={() => remover(s.id)}
             />
@@ -115,63 +427,29 @@ export function ServicosDoOrcamento({ servicos, onChange, access }: ServicosDoOr
         </button>
       </div>
 
-      {servicos.length > 0 ? (
-        <div
-          style={{
-            borderTop: '1px solid var(--color-border)',
-            paddingTop: 10,
-            fontSize: 12,
-            color: 'var(--color-muted)',
-            lineHeight: 1.7,
-          }}
-        >
-          <div className="flex justify-between gap-3">
-            <span>Soma dos serviços preenchidos</span>
-            <strong style={{ color: 'var(--color-ink)' }}>
-              {totais.preenchido > 0 ? `R$ ${fmtBRL(totais.preenchido)}` : '—'}
-            </strong>
-          </div>
-          {totais.semValor > 0 && totais.sugerido > 0 ? (
-            <div className="flex justify-between gap-3">
-              <span>
-                Com a sugestão da tabela nos {totais.semValor === 1 ? 'que falta' : `${totais.semValor} que faltam`}
-              </span>
-              <span style={{ whiteSpace: 'nowrap' }}>R$ {fmtBRL(totais.sugerido)}</span>
-            </div>
-          ) : null}
-          {totais.semSugestao > 0 ? (
-            <div style={{ fontSize: 11 }}>
-              {totais.semSugestao === 1
-                ? '1 serviço sem valor e sem sugestão na tabela.'
-                : `${totais.semSugestao} serviços sem valor e sem sugestão na tabela.`}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
       {seletorAberto ? (
-        <SeletorDeServicos
+        <SeletorDeItens
           onClose={() => setSeletorAberto(false)}
           onEscolher={adicionarDaTabela}
-          alturaInicial={alturaDoAcesso(access)}
+          alturaInicial={alturaDoAcesso(acesso)}
         />
       ) : null}
     </div>
   );
 }
 
-// ─── Linha ────────────────────────────────────────────────────────────────
+// ─── Linha de item ────────────────────────────────────────────────────────
 
-function LinhaDeServico({
-  servico: s,
+function LinhaDeItem({
+  item: s,
   onChange,
   onRemove,
 }: {
-  servico: ServicoDoOrcamento;
-  onChange: (patch: Partial<ServicoDoOrcamento>) => void;
+  item: ItemDoOrcamento;
+  onChange: (patch: Partial<ItemDoOrcamento>) => void;
   onRemove: () => void;
 }) {
-  const sub = subtotalDoServico(s);
+  const sub = subtotalDoItem(s);
   const sugerido = subtotalSugerido(s);
   const unid = unidadeCurta(s.unidade);
   const avulso = s.priceItemId === null;
@@ -193,8 +471,8 @@ function LinhaDeServico({
               type="text"
               value={s.servico}
               onChange={(e) => onChange({ servico: e.target.value })}
-              placeholder="Nome do serviço (ex: grafite no muro)"
-              aria-label="Nome do serviço avulso"
+              placeholder="Nome do item (ex: grafite no muro)"
+              aria-label="Nome do item avulso"
               className={inputCls}
             />
           ) : (
@@ -214,7 +492,7 @@ function LinhaDeServico({
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remover ${s.servico || 'serviço'}`}
+          aria-label={`Remover ${s.servico || 'item'}`}
           style={{
             flexShrink: 0,
             width: 32,
@@ -249,7 +527,7 @@ function LinhaDeServico({
             inputMode="decimal"
             value={s.valorUnitario}
             onChange={(e) => onChange({ valorUnitario: e.target.value })}
-            placeholder={s.sugestao ? `sugestão: ${fmtBRL(s.sugestao.medio)}` : 'ex: 25,00'}
+            placeholder={sug ? `sugestão: ${fmtBRL(sug.medio)}` : 'ex: 25,00'}
             className={inputCls}
           />
         </label>
@@ -315,7 +593,7 @@ const ALTURAS: ReadonlyArray<{ valor: PriceAltura | null; rotulo: string }> = [
   { valor: 'acima_3m', rotulo: 'Acima de 3 m' },
 ];
 
-function SeletorDeServicos({
+function SeletorDeItens({
   onClose,
   onEscolher,
   alturaInicial,
@@ -355,7 +633,7 @@ function SeletorDeServicos({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Escolher serviço da Tabela de Preços"
+      aria-label="Escolher item da Tabela de Preços"
       className="fixed inset-0 flex items-end justify-center"
       style={{ background: 'rgba(0,0,0,.55)', zIndex: 1100 }}
       onClick={onClose}
@@ -451,7 +729,7 @@ function SeletorDeServicos({
           ) : error ? (
             <Aviso>Não deu para carregar a tabela agora. Verifique a conexão e tente de novo.</Aviso>
           ) : vazio ? (
-            <Aviso>A tabela ainda não foi carregada no banco. Use um serviço avulso por enquanto.</Aviso>
+            <Aviso>A tabela ainda não foi carregada no banco. Use um item avulso por enquanto.</Aviso>
           ) : filtrados.length === 0 ? (
             <Aviso>Nada encontrado com esses filtros. Tente uma palavra mais curta.</Aviso>
           ) : (
@@ -525,6 +803,17 @@ function ItemDaTabela({ item, onClick }: { item: PriceItem; onClick: () => void 
         </span>
       </button>
     </li>
+  );
+}
+
+// ─── Átomos ───────────────────────────────────────────────────────────────
+
+function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className={rotuloCls}>{label}</label>
+      {children}
+    </div>
   );
 }
 

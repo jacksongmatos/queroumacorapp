@@ -17,9 +17,11 @@ import type { Quote } from '@/lib/types';
 import { reportFailure } from '@/lib/utils/reportFailure';
 import { abrirLinkExterno } from '@/lib/native';
 import {
+  detalhesDoServico,
   quantidadeDe,
+  resumoDoServico,
   servicosDoQuoteData,
-  subtotalDoServico,
+  subtotalDoItem,
   valorUnitarioDe,
 } from '@/lib/orcamentoServicos';
 import { unidadeCurta } from '@/lib/services/priceTable';
@@ -290,44 +292,63 @@ export async function generateQuotePdfBlob(
     cursorY += lines * 3.5 + 3;
   }
 
-  // ── SERVIÇOS (itens da Tabela ABRAPP / avulsos, do tile Orçamento) ────
+  // ── SERVIÇOS (do tile Orçamento: espaço/material + itens da ABRAPP) ──
   const servicos = servicosDoQuoteData(qd);
-  if (servicos.length > 0) {
-    cursorY += 4;
-    if (cursorY > 250) {
+  const quebraSePrecisar = (limite: number) => {
+    if (cursorY > limite) {
       doc.addPage();
       cursorY = margin;
     }
+  };
+  servicos.forEach((s, i) => {
+    cursorY += 4;
+    quebraSePrecisar(250);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(MUTED);
-    doc.text('SERVIÇOS', margin, cursorY);
+    doc.text(servicos.length > 1 ? `SERVIÇO ${i + 1}` : 'SERVIÇO', margin, cursorY);
     cursorY += 5;
+    doc.setFontSize(10);
+    doc.setTextColor(INK);
+    const resumo = doc.splitTextToSize(textoPdfSeguro(resumoDoServico(s)), contentW) as string[];
+    doc.text(resumo, margin, cursorY);
+    cursorY += resumo.length * 4 + 1;
+
+    // Espaço + material — só o que está preenchido, sem repetir área/cômodos.
+    doc.setFontSize(9);
+    for (const [k, v] of detalhesDoServico(s).filter(([key]) => key !== 'Área' && key !== 'Cômodos')) {
+      quebraSePrecisar(270);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(MUTED);
+      doc.text(k, margin, cursorY);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(INK);
+      const wrapped = doc.splitTextToSize(textoPdfSeguro(v), contentW - labelW - 2) as string[];
+      doc.text(wrapped, valueX, cursorY);
+      cursorY += wrapped.length * 3.5 + 1.5;
+    }
+
+    // Itens da tabela (nome + qtd × valor, subtotal à direita).
     const valorW = 32;
-    for (const s of servicos) {
-      if (cursorY > 270) {
-        doc.addPage();
-        cursorY = margin;
-      }
-      const v = valorUnitarioDe(s);
-      const sub = subtotalDoServico(s);
+    for (const it of s.itens) {
+      quebraSePrecisar(270);
+      const v = valorUnitarioDe(it);
+      const sub = subtotalDoItem(it);
       const nome = doc.splitTextToSize(
-        textoPdfSeguro(s.servico) || 'Serviço',
+        textoPdfSeguro(it.servico) || 'Item',
         contentW - valorW - 2,
       ) as string[];
       const detalhe = textoPdfSeguro(
-        `${quantidadeDe(s)} ${unidadeCurta(s.unidade)}${v !== null ? ` × R$ ${fmtBRL(v)}` : ''}`,
+        `${quantidadeDe(it)} ${unidadeCurta(it.unidade)}${v !== null ? ` × R$ ${fmtBRL(v)}` : ''}`,
       );
+      cursorY += 1.5;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(INK);
       doc.text(nome, margin, cursorY);
-      doc.text(
-        sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir',
-        pageW - margin,
-        cursorY,
-        { align: 'right' },
-      );
+      doc.text(sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir', pageW - margin, cursorY, {
+        align: 'right',
+      });
       const yDetalhe = cursorY + nome.length * 3.5;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
@@ -336,9 +357,9 @@ export async function generateQuotePdfBlob(
       doc.setDrawColor(238, 238, 238);
       doc.setLineWidth(0.15);
       doc.line(margin, yDetalhe + 1.5, pageW - margin, yDetalhe + 1.5);
-      cursorY = yDetalhe + 4.5;
+      cursorY = yDetalhe + 4;
     }
-  }
+  });
 
   // ── ESCOPO TÉCNICO ────────────────────────────────────────────────────
   if (quote.description) {

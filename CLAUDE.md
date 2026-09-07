@@ -1,34 +1,51 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
-- **ORÇAMENTO (Crie e envie) VIROU LISTA DE SERVIÇOS DA TABELA ABRAPP
-  (2026-09-07, pedido do usuário). SEM SQL.** O `QuoteWizard` ganhou a seção
-  **🧾 Serviços**: o pintor adiciona quantos itens quiser da Tabela de Preços
-  (o MESMO catálogo do tile, via `usePriceTable`/`price_table_items`) ou um
-  avulso, com quantidade e valor por unidade. **O valor NASCE VAZIO e a
-  sugestão da tabela (mín/média/máx) fica do lado, com "Usar média"** — a
-  tabela sugere, quem assina é o pintor; preencher sozinho mandaria preço de
-  tabela sem decisão.
-  - **Valor final: digitado > soma dos serviços preenchidos > IA.** A soma
-    "com a sugestão da tabela nos que faltam" aparece como dica com botão
-    "Usar", nunca entra sozinha no campo. O campo passou a ler por `parseBRL`
-    (o botão escreve "1.616,00"; `parseFloat` leria 1,616 — regra P1).
+- **ORÇAMENTO (Crie e envie) = VÁRIOS SERVIÇOS, cada um com espaço, material
+  e itens da TABELA ABRAPP (2026-09-07, pedido do usuário, em duas rodadas).
+  SEM SQL.** O `QuoteWizard` perdeu os cards únicos "Espaço" e "Material e
+  técnica": eles viraram campos DE CADA SERVIÇO. A seção **🧾 Serviços** tem
+  um bloco por serviço (tipo, área, pé direito, cômodos, superfície, acesso,
+  tinta, cor, demãos, preparação) + os **itens** daquele serviço escolhidos na
+  Tabela de Preços (o MESMO catálogo do tile, via `usePriceTable`/
+  `price_table_items`) ou avulsos, com quantidade e valor por unidade; botão
+  "+ Adicionar outro serviço" (o novo herda acesso e tinta do anterior).
+  Logística, observações, escopo e valor final seguem únicos por orçamento.
+  - **A 1ª rodada tinha UMA lista de itens pro orçamento inteiro** e o
+    usuário corrigiu no mesmo dia: "pode ter múltiplos serviços" — sala e
+    fachada têm tinta, acesso e área diferentes; um Espaço só não descreve
+    a obra. `servicosDoQuoteData` ainda LÊ aquele formato (itens direto na
+    lista → vira um serviço único com os campos do topo do `quote_data`),
+    porque a versão ficou ~1h em produção.
+  - **O valor do item NASCE VAZIO e a sugestão da tabela (mín/média/máx)
+    fica do lado, com "Usar média"** — a tabela sugere, quem assina é o
+    pintor; preencher sozinho mandaria preço de tabela sem decisão.
+  - **Valor final: digitado > soma dos itens preenchidos (de todos os
+    serviços) > IA.** A soma "com a sugestão da tabela nos que faltam" aparece
+    como dica com botão "Usar", nunca entra sozinha no campo. O campo lê por
+    `parseBRL` (o botão escreve "1.616,00"; `parseFloat` leria 1,616 — P1).
+  - **`quotes.service_type`/`title` = `tituloDosServicos`** (um serviço → o
+    tipo; vários → tipos distintos com " + "); `area_m2` = soma das áreas.
   - **Lógica pura em `lib/orcamentoServicos.ts`** (testada em
-    `__tests__/orcamentoServicos.test.ts`): quantidade vazia vale 1, valor
-    vazio é `null` (não zero), subtotal a centavo, `totaisDosServicos` separa
-    `preenchido` × `sugerido`, e `servicosDoQuoteData` lê o jsonb descartando
+    `__tests__/orcamentoServicos.test.ts`): opções dos campos (fonte única),
+    `novoServico`, `itemDaTabela`/`itemAvulso`, quantidade vazia vale 1,
+    valor vazio é `null` (não zero), subtotal a centavo, `totaisDosItens`/
+    `totaisDoOrcamento` separam `preenchido` × `sugerido`, `resumoDoServico`/
+    `detalhesDoServico`/`descreverServico` (tela, PDF, WhatsApp e prompt da
+    IA usam o MESMO texto), `servicosDoQuoteData` lê o jsonb descartando
     linha malformada. **Tela, PDF e pipeline usam a MESMA conta.**
   - Gravado em **`quotes.quote_data.servicos`** (jsonb já existente — por
     isso sem SQL). Aparece no preview do wizard, no `QuotePdfSheet`, no
-    `quotePdf.ts` (jsPDF) e no detalhe `/orcamentos/[id]`. O `itens`
-    legado (`{desc, valor}`) do vanilla continua sendo renderizado à parte.
+    `quotePdf.ts` (jsPDF) e no detalhe `/orcamentos/[id]`, um bloco por
+    serviço. Orçamento antigo (sem `servicos`) segue renderizando a tabela
+    plana de antes; o `itens` legado (`{desc, valor}`) do vanilla também.
   - **O seletor é modal em portal com `zIndex: 1100`**, não lista inline: o
     wizard vive dentro de um BottomSheet (z-1000) e 328 itens ali seria
-    rolagem dentro de rolagem. O campo "Acesso" do Espaço PRÉ-seleciona o
-    filtro de altura (`alturaDoAcesso`: andaime/suspensa → acima de 3 m).
+    rolagem dentro de rolagem. O "Acesso" DO SERVIÇO pré-seleciona o filtro
+    de altura (`alturaDoAcesso`: andaime/suspensa → acima de 3 m).
   - A tabela é de pintura, mas a seção aparece pra TODO papel que vê o tile
     (grafiteiro, automotivo, arquiteto): pra eles serve o **"+ Avulso"**, e a
     tabela segue sendo `SELECT` liberado pra `authenticated`.
-  - Serviço avulso sem nome BLOQUEIA o Gravar com toast, em vez de sumir em
+  - Item avulso sem nome BLOQUEIA o Gravar com toast, em vez de sumir em
     silêncio (poderia estar precificado).
 
 - **ADMIN APAGA POST DE OUTRA PESSOA (2026-09-07) — SEM SQL PENDENTE.** O
