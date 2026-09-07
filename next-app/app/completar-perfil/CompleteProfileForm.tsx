@@ -234,12 +234,40 @@ export function CompleteProfileForm() {
           value={name}
           // Só letras: número e símbolo não chegam a aparecer. Mesma regra do
           // cadastro por email (personNameSchema).
-          onChange={(e) => setName(limparNome(e.target.value))}
+          onChange={(e) => {
+            const cleaned = limparNome(e.target.value);
+            setName(cleaned);
+            // Auto-suggest tag based on name if user hasn't manually edited tag yet
+            if (!tagTocada && cleaned) {
+              const suggested = sugerirTagDeNome(cleaned);
+              if (suggested) {
+                setTag(suggested);
+              }
+            }
+          }}
           placeholder="Seu nome"
           className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
         />
         <p className="text-xs text-[color:var(--color-muted)] mt-1">
           Só letras — sem números ou símbolos.
+        </p>
+      </div>
+
+      {/* Telefone (obrigatório) */}
+      <div>
+        <label htmlFor="cp-phone" className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]">
+          Telefone
+        </label>
+        <input
+          id="cp-phone"
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="(11) 9XXXX-XXXX"
+          className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
+        />
+        <p className="text-xs text-[color:var(--color-muted)] mt-1">
+          Número de telefone (obrigatório).
         </p>
       </div>
 
@@ -319,14 +347,31 @@ export function CompleteProfileForm() {
           <label htmlFor="cp-city" className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]">
             Cidade <span className="font-normal text-[color:var(--color-muted)]">(opcional)</span>
           </label>
-          <input
-            id="cp-city"
-            type="text"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder="Sua cidade"
-            className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
-          />
+          {cities.length > 0 ? (
+            <select
+              id="cp-city"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors"
+            >
+              <option value="">Selecione uma cidade</option>
+              {cities.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="cp-city"
+              type="text"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="Selecione um estado primeiro"
+              disabled={!uf}
+              className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          )}
         </div>
         <div>
           <label htmlFor="cp-uf" className="block text-sm font-semibold mb-1 text-[color:var(--color-ink)]">
@@ -337,7 +382,17 @@ export function CompleteProfileForm() {
             type="text"
             value={uf}
             maxLength={2}
-            onChange={(e) => setUf(e.target.value.toUpperCase())}
+            onChange={async (e) => {
+              const newUf = e.target.value.toUpperCase();
+              setUf(newUf);
+              if (newUf.length === 2) {
+                const cidadesLista = await getCidadesByUF(newUf);
+                setCities(cidadesLista);
+                setCity('');
+              } else {
+                setCities([]);
+              }
+            }}
             placeholder="SP"
             className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-[color:var(--color-border)] focus:border-[color:var(--color-p1)] rounded-xl outline-none transition-colors uppercase"
           />
