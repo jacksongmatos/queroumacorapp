@@ -63,6 +63,10 @@ export function DiagView() {
       { k: 'Densidade de tela', v: String(window.devicePixelRatio || 1) },
       { k: 'Idioma', v: navigator.language || '—' },
       { k: 'Endereço', v: window.location.href },
+      // Qual build do SITE está rodando neste aparelho. O app carrega o site
+      // ao vivo, então "já fiz o deploy" e "o aparelho já pegou" são coisas
+      // diferentes — e o service worker guarda `/_next/static/` cache-first.
+      { k: 'Build do site', v: process.env.NEXT_PUBLIC_BUILD || '—' },
     ];
     setRows(out);
 
@@ -104,6 +108,59 @@ export function DiagView() {
           );
         }
         setRows([...out, ...nativeRows]);
+      })
+      .catch(() => {});
+
+    // ESTADO DO PERFIL — a resposta pro "o cadastro pede tudo de novo".
+    //
+    // O app manda pro /completar-perfil quando `isProfileComplete` diz não, e
+    // isso tem TRÊS causas possíveis, cada uma com conserto diferente: a
+    // linha de perfil não existe (a trigger do banco falhou e engoliu a
+    // exceção), existe sem categoria, ou existe sem @tag. Dedução já custou
+    // três tentativas — aqui a resposta aparece escrita, no aparelho.
+    import('@/lib/supabase')
+      .then(async ({ getSupabase }) => {
+        const sb = getSupabase();
+        const { data: sess } = await sb.auth.getSession();
+        const uid = sess?.session?.user?.id;
+        const perfilRows: Row[] = [
+          { k: 'Sessão (logado)', v: uid ? 'sim' : 'não', tone: uid ? 'ok' : 'bad' },
+        ];
+        if (!uid) {
+          setRows((r) => [...(r ?? out), ...perfilRows]);
+          return;
+        }
+        const { data, error } = await sb
+          .from('profiles')
+          .select('id, name, tag, username, user_type, role, phone, city, state, birth_date')
+          .eq('id', uid)
+          .maybeSingle();
+        const p = data as Record<string, unknown> | null;
+        const cheio = (v: unknown) => (typeof v === 'string' ? v.trim().length > 0 : !!v);
+        perfilRows.push({
+          k: 'Linha de perfil no banco',
+          v: error ? 'ERRO: ' + error.message : p ? 'existe' : 'NÃO EXISTE',
+          tone: p && !error ? 'ok' : 'bad',
+        });
+        if (p) {
+          perfilRows.push(
+            { k: '· categoria (user_type)', v: String(p.user_type ?? '—'), tone: cheio(p.user_type) ? 'ok' : 'bad' },
+            { k: '· papel (role)', v: String(p.role ?? '—'), tone: cheio(p.role) ? 'ok' : 'bad' },
+            { k: '· @tag', v: String(p.tag ?? '—'), tone: cheio(p.tag) ? 'ok' : 'bad' },
+            { k: '· username', v: String(p.username ?? '—') },
+            { k: '· nome', v: String(p.name ?? '—') },
+            { k: '· telefone', v: cheio(p.phone) ? 'preenchido' : 'vazio' },
+            { k: '· cidade / UF', v: (String(p.city ?? '—')) + ' / ' + String(p.state ?? '—') },
+            { k: '· nascimento', v: cheio(p.birth_date) ? 'preenchido' : 'vazio' },
+            {
+              // A conta do "isProfileComplete": categoria E @tag.
+              k: 'App considera o perfil completo?',
+              v: (cheio(p.user_type) || cheio(p.role)) && (cheio(p.tag) || cheio(p.username)) ? 'sim' : 'NÃO — é por isso que pede de novo',
+              tone: (cheio(p.user_type) || cheio(p.role)) && (cheio(p.tag) || cheio(p.username)) ? 'ok' : 'bad',
+            },
+          );
+        }
+        setRows((r) => [...(r ?? out), ...perfilRows]);
       })
       .catch(() => {});
 
