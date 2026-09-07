@@ -1,5 +1,19 @@
 -- Moderação: admin apaga post de outra pessoa (2026-09-07)
 --
+-- ✅ NADA A RODAR. CONFERIDO NO BANCO EM 2026-09-07: o passo 1 devolveu
+--    `moderacao_ok = true` e `update_restritivas = 0` — a policy viva JÁ
+--    aceita `is_portal_admin()`, e nenhuma policy de UPDATE em `posts` é
+--    RESTRICTIVE. Os passos 3 e 4 (DROP + CREATE) NÃO devem ser rodados.
+--
+--    O arquivo fica como registro e como conferência re-executável: se
+--    alguém mexer nas policies de `posts`, o passo 1 diz na hora.
+--
+--    Deu certo por acidente, e vale anotar: a colagem do bloco inteiro fez
+--    o CREATE rodar SEM o DROP e devolveu 42710. Se o DROP tivesse passado,
+--    eu teria derrubado e recriado uma policy que já estava correta — mexer
+--    em RLS de produção sem precisar. A ordem certa é sempre conferir
+--    primeiro; foi só depois do erro que ela foi invertida aqui.
+--
 -- O app já deixava o admin apagar COMENTÁRIO de qualquer um (Wave 9), mas
 -- não POST: mesma tela, duas regras diferentes pro mesmo ato de moderar.
 --
