@@ -301,6 +301,35 @@
   - O portal duplica a lista (é JSX sem imports) e o `?v=`/SRI foram
     refeitos. Aba nova "Arquitetos / Engenheiros".
 
+- **CAUSA RAIZ DO CADASTRO QUEBRADO: `profiles.username` era NOT NULL
+  (2026-09-07). SQL em `/migrations/2026-09-07-username-not-null.sql`.**
+  Provado no SQL Editor, DUAS vezes (a segunda com a @tag preenchida):
+  `ERROR 23502: null value in column "username" of relation "profiles"
+  violates not-null constraint`.
+  - **A corrente inteira, e é uma corrente de silêncios:** a
+    `handle_new_user` grava `tag` e NÃO grava `username`; o gatilho que
+    deveria espelhar tag→username não roda no INSERT; a coluna é NOT NULL, o
+    INSERT estoura, e a trigger **engole a exceção com RAISE WARNING**. A
+    conta de auth nasce e o perfil NÃO. Depois, `update` que não acha linha é
+    SUCESSO com zero linhas — o app "salvava" o formulário, nada era gravado,
+    a tela voltava. Nenhum erro em lugar nenhum, dos dois lados.
+  - **NENHUM cadastro conseguia criar perfil** — nem por e-mail, nem por
+    Google/Apple. Explica também o "cadastro pela metade (OAuth)" que este
+    arquivo registrava como coisa de redirect.
+  - **O NOT NULL foi SOLTO, e não preenchido automático.** `username` é
+    sinônimo de `tag`, e `isProfileComplete` aceita qualquer um dos dois:
+    inventar um username faria o perfil de quem entra por Google/Apple
+    PARECER completo sem ter @tag — a pessoa nunca mais veria a tela que pede
+    a @tag, sumiria da busca e ficaria sem link de perfil, calada. Trocar um
+    bug barulhento por um silencioso é o pior negócio possível.
+  - **LIÇÃO DE MÉTODO (a maior do dia):** três correções minhas no lado do
+    app erraram o alvo porque eu estava deduzindo. O que fechou o caso foi
+    (1) o usuário relatar o sintoma exato — "clica em Concluir e VOLTA" —,
+    (2) o `/diag` mostrando `Linha de perfil no banco: NÃO EXISTE`, e (3)
+    rodar À MÃO o INSERT que a trigger faz, pra o Postgres cuspir o erro que
+    ela engole. **Trigger que engole a própria exceção transforma erro de
+    schema em bug de produto que sobrevive a três correções.**
+
 - **O LOOP DO /completar-perfil: "clica em Concluir e volta" (2026-09-07) —
   a peça que FECHOU o caso.** Depois de três correções erradas, o sintoma que
   resolveu a investigação foi este: o botão salva e a tela volta. Isso só
