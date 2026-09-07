@@ -6,13 +6,20 @@
 // sobre o vídeo com transform translate/scale/rotate. Touch handlers:
 //   - 1 finger: drag (translate)
 //   - 2 fingers: pinch (scale) + rotate (twist)
-// Slider de opacidade controla o alpha global da imagem.
-// Botão "Capturar" composita vídeo + imagem num canvas e dispara
-// download da PNG.
+// Slider de opacidade controla o alpha global da imagem. Botões de Espelhar
+// (↔ / ↕) e Girar 90° pra ajuste fino — pinça+giro é bom pra alinhar, ruim
+// pra "virar do avesso".
+// Botão "Capturar" composita vídeo + imagem num canvas e entrega a PNG por
+// `shareOrDownloadImage` (share nativo → Filesystem da casca → download).
+// Era um `<a download>` de blob: — funciona no navegador do PC e NÃO FAZ NADA
+// na WebView do app Android (o mesmo buraco que o Arte pra IG já tinha
+// fechado). Visto no aparelho em 2026-09-07.
 
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { showToast } from '@/lib/toast';
+import { shareOrDownloadImage } from '@/lib/utils/shareOrDownloadImage';
 
 interface Props {
   open: boolean;
@@ -26,9 +33,18 @@ interface Transform {
   y: number;       // translate Y
   scale: number;   // multiplicador (1 = tamanho natural responsivo)
   rotation: number; // graus
+  flipX: boolean;  // espelhado na horizontal
+  flipY: boolean;  // espelhado na vertical
 }
 
-const INITIAL_TRANSFORM: Transform = { x: 0, y: 0, scale: 1, rotation: 0 };
+const INITIAL_TRANSFORM: Transform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false, flipY: false };
+
+/** CSS e canvas usam a MESMA ordem: translate → rotate → scale (com espelho). */
+function cssTransform(t: Transform): string {
+  const sx = t.flipX ? -t.scale : t.scale;
+  const sy = t.flipY ? -t.scale : t.scale;
+  return `translate(-50%, -50%) translate(${t.x}px, ${t.y}px) rotate(${t.rotation}deg) scale(${sx}, ${sy})`;
+}
 
 // Type comum entre React.Touch e DOM Touch — só usamos clientX/clientY.
 interface XYTouch {
@@ -165,6 +181,7 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
       const cxDelta = newCx - g.cx;
       const cyDelta = newCy - g.cy;
       setTransform({
+        ...g.transform, // preserva flipX/flipY
         x: g.transform.x + cxDelta,
         y: g.transform.y + cyDelta,
         // Cap pra não inverter ou ficar gigante: [0.2, 8]
@@ -183,9 +200,26 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
     }
   }, [transform]);
 
-  // ─── capturar: composita vídeo + imagem num canvas e baixa PNG ────────────
+  // ─── capturar: composita vídeo + imagem num canvas e entrega a PNG ───────
+  const [capturing, setCapturing] = useState(false);
   async function handleCapture() {
-    if (!videoRef.current || !containerRef.current) return;
+    if (capturing) return;
+    setCapturing(true);
+    try {
+      const status = await capturar();
+      if (status === 'shared') showToast('Imagem compartilhada', 'success');
+      else if (status === 'downloaded') showToast('Imagem salva no aparelho', 'success');
+      else if (status === 'failed') showToast('Não deu para salvar a imagem', 'error');
+      // 'cancelled': a pessoa fechou o compartilhar — silêncio.
+    } catch (e) {
+      showToast((e as Error).message || 'Não deu para capturar', 'error');
+    } finally {
+      setCapturing(false);
+    }
+  }
+
+  async function capturar(): Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'> {
+    if (!videoRef.current || !containerRef.current) return 'failed';
     const video = videoRef.current;
     const cont = containerRef.current;
     const W = video.videoWidth || 1280;
@@ -195,7 +229,7 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return 'failed';
     ctx.drawImage(video, 0, 0, W, H);
 
     // Renderiza a imagem com o MESMO transform mas em coords do video.
@@ -222,22 +256,30 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
     ctx.save();
     ctx.translate(cx * sx, cy * sy);
     ctx.rotate((transform.rotation * Math.PI) / 180);
-    ctx.scale(transform.scale, transform.scale);
+    // Mesma ordem do CSS (cssTransform): rotate e depois scale com espelho.
+    ctx.scale(
+      transform.flipX ? -transform.scale : transform.scale,
+      transform.flipY ? -transform.scale : transform.scale,
+    );
     ctx.globalAlpha = opacity;
     ctx.drawImage(img, -baseW * sx / 2, -baseH * sy / 2, baseW * sx, baseH * sy);
     ctx.restore();
 
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ar-${(title || 'arte').replace(/[^a-z0-9]/gi, '-')}-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
-    }, 'image/png');
+    // toDataURL estoura SecurityError se a imagem taintou o canvas (CORS) —
+    // vira toast em vez de silêncio.
+    const dataUrl = canvas.toDataURL('image/png');
+    const nome = `ar-${(title || 'arte').replace(/[^a-z0-9]/gi, '-')}-${Date.now()}.png`;
+    return shareOrDownloadImage(dataUrl, nome);
+  }
+
+  function girar90() {
+    setTransform((t) => ({ ...t, rotation: (t.rotation + 90) % 360 }));
+  }
+  function espelharX() {
+    setTransform((t) => ({ ...t, flipX: !t.flipX }));
+  }
+  function espelharY() {
+    setTransform((t) => ({ ...t, flipY: !t.flipY }));
   }
 
   if (!open) return null;
@@ -395,7 +437,7 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
               top: '50%',
               left: '50%',
               width: '60%',  // base — pinch escala daqui
-              transform: `translate(-50%, -50%) translate(${transform.x}px, ${transform.y}px) scale(${transform.scale}) rotate(${transform.rotation}deg)`,
+              transform: cssTransform(transform),
               transformOrigin: 'center',
               opacity,
               pointerEvents: 'none',
@@ -405,14 +447,19 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
         ) : null}
       </div>
 
-      {/* Bottom bar: slider opacidade + capturar */}
+      {/* Bottom bar: espelhar/girar + slider opacidade + capturar */}
       <div
         style={{
-          padding: '14px 16px calc(14px + env(safe-area-inset-bottom))',
+          padding: '12px 16px calc(14px + env(safe-area-inset-bottom))',
           background: 'rgba(0,0,0,.85)',
           color: '#fff',
         }}
       >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <BotaoAjuste onClick={espelharX} ativo={transform.flipX} rotulo="↔ Espelhar" aria="Espelhar na horizontal" />
+          <BotaoAjuste onClick={espelharY} ativo={transform.flipY} rotulo="↕ Espelhar" aria="Espelhar na vertical" />
+          <BotaoAjuste onClick={girar90} ativo={false} rotulo="↻ Girar 90°" aria="Girar 90 graus" />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 700, minWidth: 64 }}>Opacidade</span>
           <input
@@ -432,7 +479,7 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
         <button
           type="button"
           onClick={handleCapture}
-          disabled={status !== 'ready'}
+          disabled={status !== 'ready' || capturing}
           style={{
             width: '100%',
             padding: 14,
@@ -442,15 +489,51 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
             borderRadius: 14,
             fontSize: 14,
             fontWeight: 700,
-            cursor: 'pointer',
+            cursor: capturing ? 'wait' : 'pointer',
+            opacity: capturing ? 0.7 : 1,
           }}
         >
-          📸 Capturar
+          {capturing ? 'Salvando…' : '📸 Capturar'}
         </button>
         <p style={{ fontSize: 10, opacity: 0.7, marginTop: 8, textAlign: 'center' }}>
           1 dedo: mover · 2 dedos: zoom + girar
         </p>
       </div>
     </div>
+  );
+}
+
+function BotaoAjuste({
+  onClick,
+  ativo,
+  rotulo,
+  aria,
+}: {
+  onClick: () => void;
+  ativo: boolean;
+  rotulo: string;
+  aria: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={aria}
+      aria-pressed={ativo}
+      style={{
+        flex: 1,
+        padding: '9px 6px',
+        background: ativo ? 'var(--color-p1, #ff6b35)' : 'rgba(255,255,255,.14)',
+        color: '#fff',
+        border: 'none',
+        borderRadius: 12,
+        fontSize: 12,
+        fontWeight: 700,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {rotulo}
+    </button>
   );
 }

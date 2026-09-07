@@ -1,5 +1,20 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **AR GRAFITE: "Capturar" NÃO FAZIA NADA NO APP ANDROID (2026-09-07).** O
+  `ArtAROverlay` compositava vídeo + arte no canvas e disparava um
+  `<a download>` de `blob:` — funciona no navegador do PC e a WebView do
+  Capacitor ignora em silêncio. Agora entrega por `shareOrDownloadImage`
+  (share nativo → Filesystem da casca → download), o mesmo caminho que o
+  Arte pra IG já usava, com toast de resultado e erro visível (CORS que
+  tainta o canvas virava exceção muda).
+  - **REGRA: salvar imagem gerada no cliente = `shareOrDownloadImage`, nunca
+    `<a download>` direto.** É a 2ª vez que o anchor cru passa (Arte pra IG
+    foi a 1ª).
+  - Junto: botões **↔ Espelhar / ↕ Espelhar / ↻ Girar 90°** (nunca existiram
+    nessa tela; o usuário lembrava deles). `Transform` ganhou `flipX/flipY`, e
+    CSS e canvas usam a MESMA ordem (`cssTransform`: translate → rotate →
+    scale com sinal) — senão a prévia mente sobre a captura.
+
 - **ORÇAMENTO (Crie e envie) = VÁRIOS SERVIÇOS, cada um com espaço, material
   e itens da TABELA ABRAPP (2026-09-07, pedido do usuário, em duas rodadas).
   SEM SQL.** O `QuoteWizard` perdeu os cards únicos "Espaço" e "Material e
