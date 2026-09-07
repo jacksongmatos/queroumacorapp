@@ -13,6 +13,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { isProfileComplete } from '@/lib/profileCompletion';
+import { reportFailure } from '@/lib/utils/reportFailure';
 import { useNoPullToRefresh } from '@/lib/hooks/useNoPullToRefresh';
 import { hasStoredSession } from '@/lib/sessionStorageHybrid';
 import { TopNav } from './TopNav';
@@ -114,7 +115,35 @@ export function AppShell({
   useEffect(() => {
     if (!incomplete) return;
     if (pathname === '/completar-perfil') return;
+    // DIZ POR QUE mandou pra cá (07/09/2026). O relato "o cadastro pede tudo
+    // de novo" já sobreviveu a duas correções, e a causa continua sendo
+    // dedução: pode ser perfil que não existe (a trigger falhou e engoliu a
+    // exceção com RAISE WARNING), pode ser perfil sem @tag, pode ser
+    // categoria vazia. Cada um pede um conserto diferente. Uma linha no
+    // /admin/errors por redirecionamento responde isso na próxima tentativa,
+    // em vez de mais um palpite.
+    const p = profile as Record<string, unknown> | null | undefined;
+    const preenchido = (v: unknown) =>
+      typeof v === 'string' ? v.trim().length > 0 : !!v;
+    reportFailure(
+      'profile-incomplete',
+      new Error('mandado pro /completar-perfil'),
+      {
+        userId: user?.id,
+        ctx:
+          `perfil=${p ? 'existe' : 'NAO EXISTE'}` +
+          ` user_type=${preenchido(p?.user_type) ? 'ok' : 'vazio'}` +
+          ` role=${preenchido(p?.role) ? 'ok' : 'vazio'}` +
+          ` tag=${preenchido(p?.tag) ? 'ok' : 'vazio'}` +
+          ` username=${preenchido(p?.username) ? 'ok' : 'vazio'}` +
+          ` de=${pathname}`,
+      },
+    );
     router.replace('/completar-perfil');
+    // `profile`/`user` fora das deps de propósito: o efeito dispara pela
+    // TRANSIÇÃO pra incompleto, e relê os dois no momento do disparo. Pô-los
+    // aqui faria a linha ser gravada de novo a cada refetch do perfil.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomplete, pathname, router]);
 
   // Enquanto resolve auth ou enquanto o redirect dispara, não renderiza o

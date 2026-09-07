@@ -301,6 +301,30 @@
   - O portal duplica a lista (é JSX sem imports) e o `?v=`/SRI foram
     refeitos. Aba nova "Arquitetos / Engenheiros".
 
+- **CADASTRO DUPLICADO — 3ª TENTATIVA, AGORA COM INSTRUMENTO (2026-09-07).**
+  Depois de duas correções (reafirmar a identidade no UPDATE pós-signup e
+  preencher o formulário), o usuário testou com app reinstalado e o problema
+  CONTINUA. Ou seja: as duas causas que eu tinha eram reais mas não eram A
+  causa. **Não escrever uma 4ª correção às cegas** — o app agora responde.
+  - **A HIPÓTESE que sobrou, e o que ela explica:** a linha de `profiles` pode
+    NÃO EXISTIR. A `handle_new_user` engole a própria exceção com
+    `RAISE WARNING`, então quando ela falha a conta de auth nasce e o perfil
+    não. E aí **todo UPDATE no perfil vira no-op silencioso** — `update` que
+    não acha linha não é erro, volta sucesso com zero linhas. O app manda pro
+    `/completar-perfil`, a pessoa preenche, nada é gravado, a tela volta. É
+    também a explicação do "loop infinito no /completar-perfil" que outra
+    sessão tentou corrigir.
+  - **O signUp passou a CONFERIR:** `update(...).select('id')` — zero linhas
+    significa perfil ausente, e aí ele cria a linha (a policy "Users can
+    insert own profile" permite). Grava `profile-incomplete` no
+    `/admin/errors` dizendo se o insert funcionou.
+  - **O AppShell diz POR QUE redirecionou:** perfil existe?, user_type/role/
+    tag preenchidos? Uma linha por redirecionamento no `/admin/errors`. Na
+    próxima tentativa a causa aparece escrita, em vez de deduzida.
+  - **REGRA: `update` no Supabase não avisa quando não acha a linha.** Onde
+    isso importa (identidade, dinheiro, permissão), pedir `.select()` e olhar
+    quantas linhas voltaram.
+
 - **CADASTRO PEDIA TUDO DE NOVO (2026-09-07).** Quem terminava o cadastro por
   e-mail caía no `/completar-perfil` e redigitava nome, telefone, cidade e
   data. Duas causas, as duas corrigidas:

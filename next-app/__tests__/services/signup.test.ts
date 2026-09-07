@@ -24,8 +24,13 @@ beforeEach(() => {
 interface FakeTable {
   // Resultado do SELECT final (após .eq/.limit/.is).
   selectResult?: { data: unknown[] | null; error: { message: string } | null };
+  // Linhas que o UPDATE "atinge". `[]` simula perfil INEXISTENTE — que é o
+  // caso que o supabase-js reporta como sucesso com zero linhas, e que o
+  // signUp usa pra decidir criar a linha na mão.
+  updateResult?: { data: unknown[] | null; error: { message: string } | null };
   // Capturados pra asserção.
   lastUpdate?: { table: string; payload: unknown; eq?: [string, unknown] };
+  lastInsert?: Record<string, unknown>;
 }
 
 interface FakeOpts {
@@ -47,12 +52,24 @@ function makeFakeClient(opts: FakeOpts = {}): SupabaseClient {
       eq: () => chain,
       is: () => chain,
       limit: () => Promise.resolve(result),
+      insert: (row: Record<string, unknown>) => {
+        tbl.lastInsert = row;
+        return Promise.resolve({ data: null, error: null });
+      },
       update: (payload: unknown) => {
         tbl.lastUpdate = { table: tableName, payload };
+        const upd = tbl.updateResult ?? { data: [{ id: 'user-xyz' }], error: null };
+        const after = {
+          // `.eq(...)` sozinho resolve (paths antigos) e também aceita
+          // `.select()` depois — que é como o signUp descobre se o UPDATE
+          // achou alguma linha.
+          select: () => Promise.resolve(upd),
+          then: (fn: (v: unknown) => unknown) => Promise.resolve(upd).then(fn),
+        };
         return {
           eq: (col: string, val: unknown) => {
             if (tbl.lastUpdate) tbl.lastUpdate.eq = [col, val];
-            return Promise.resolve({ data: null, error: null });
+            return after;
           },
         };
       },
@@ -192,6 +209,74 @@ describe('signUp', () => {
     expect(payload.tag).toBe('anaarq');
     expect(payload.user_type).toBe('arquiteto');
     expect(payload.phone).toBe('5511959765031');
+  });
+
+  it('cria a linha de perfil quando a trigger do banco nao criou', async () => {
+    // A `handle_new_user` engole a propria excecao com RAISE WARNING: quando
+    // ela falha, a conta de auth nasce e o PERFIL NAO. Dai todo UPDATE vira
+    // no-op silencioso (update sem linha nao e erro), o app manda a pessoa
+    // pro /completar-perfil, ela preenche, nada e gravado e a tela volta —
+    // o "cadastro em duas etapas" que nao acabava.
+    const profiles = {
+      selectResult: { data: [], error: null },
+      updateResult: { data: [], error: null }, // zero linhas = perfil ausente
+    } as {
+      selectResult: { data: unknown[] | null; error: null };
+      updateResult: { data: unknown[] | null; error: null };
+      lastInsert?: Record<string, unknown>;
+    };
+    const client = makeFakeClient({
+      tables: {
+        profiles_public: { selectResult: { data: [], error: null } },
+        profiles,
+      },
+      signUp: { data: { user: { id: 'user-xyz' } } },
+    });
+    __setSupabaseForTests(client);
+
+    await signUp({
+      email: 'a@b.co',
+      password: 'senha1234',
+      name: 'Ana Arquiteta',
+      tag: 'anaarq',
+      phone: '5511959765031',
+      userType: 'arquiteto',
+    });
+
+    expect(profiles.lastInsert).toBeTruthy();
+    expect(profiles.lastInsert?.id).toBe('user-xyz');
+    expect(profiles.lastInsert?.tag).toBe('anaarq');
+    expect(profiles.lastInsert?.user_type).toBe('arquiteto');
+  });
+
+  it('NAO insere quando o UPDATE achou a linha (a trigger fez o trabalho)', async () => {
+    const profiles = {
+      selectResult: { data: [], error: null },
+      updateResult: { data: [{ id: 'user-xyz' }], error: null },
+    } as {
+      selectResult: { data: unknown[] | null; error: null };
+      updateResult: { data: unknown[] | null; error: null };
+      lastInsert?: Record<string, unknown>;
+    };
+    const client = makeFakeClient({
+      tables: {
+        profiles_public: { selectResult: { data: [], error: null } },
+        profiles,
+      },
+      signUp: { data: { user: { id: 'user-xyz' } } },
+    });
+    __setSupabaseForTests(client);
+
+    await signUp({
+      email: 'a@b.co',
+      password: 'senha1234',
+      name: 'Ana',
+      tag: 'ana',
+      phone: '',
+      userType: 'pintor',
+    });
+
+    expect(profiles.lastInsert).toBeUndefined();
   });
 
   it('tag duplicada → ConflictError, sem chamar auth.signUp', async () => {
