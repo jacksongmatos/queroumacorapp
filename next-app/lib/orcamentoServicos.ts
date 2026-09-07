@@ -152,6 +152,26 @@ export function novoServico(over: Partial<ServicoDoOrcamento> = {}, id: string =
   };
 }
 
+/**
+ * Serviço novo JÁ COM o primeiro item — é assim que um serviço nasce na tela:
+ * a pessoa escolhe uma linha da tabela (ou cria um avulso) e o bloco aparece
+ * em volta dela. Herda acesso e tinta do serviço anterior, porque obra do
+ * mesmo lugar costuma repetir os dois (trocar é um toque).
+ */
+export function servicoComItem(
+  item: ItemDoOrcamento,
+  anterior?: ServicoDoOrcamento | null,
+  id: string = novoId('srv'),
+): ServicoDoOrcamento {
+  return novoServico(
+    {
+      ...(anterior ? { acesso: anterior.acesso, tinta: anterior.tinta } : {}),
+      itens: [item],
+    },
+    id,
+  );
+}
+
 /** Monta um item a partir de uma linha da Tabela ABRAPP. */
 export function itemDaTabela(item: PriceItem, id: string = novoId('item')): ItemDoOrcamento {
   const detalhe = [item.grupo, item.tipo, rotuloAltura(item.altura)].filter(Boolean).join(' · ');

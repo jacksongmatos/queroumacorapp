@@ -1,6 +1,10 @@
 'use client';
 // ServicosDoOrcamento — a seção "Serviços" do tile Orçamento (Crie e envie).
 //
+// A seção começa VAZIA: o bloco de serviço nasce quando a pessoa escolhe um
+// item na Tabela de Preços (ou cria um avulso) — não há "Serviço 1" pré-montado
+// pra preencher (decisão do usuário, 2026-09-07).
+//
 // Um orçamento tem VÁRIOS serviços (sala + fachada, por exemplo). Cada bloco
 // carrega o próprio espaço (tipo, área, pé direito, cômodos, superfície,
 // acesso), o próprio material (tinta, cor, demãos, preparação) e os próprios
@@ -35,8 +39,8 @@ import {
   alturaDoAcesso,
   itemAvulso,
   itemDaTabela,
-  novoServico,
   resumoDoServico,
+  servicoComItem,
   subtotalDoItem,
   subtotalSugerido,
   totaisDosItens,
@@ -51,50 +55,87 @@ export interface ServicosDoOrcamentoProps {
 }
 
 export function ServicosDoOrcamento({ servicos, onChange }: ServicosDoOrcamentoProps) {
+  const [seletorAberto, setSeletorAberto] = useState(false);
+  const ultimo = servicos[servicos.length - 1] ?? null;
+
   function atualizar(id: string, patch: Partial<ServicoDoOrcamento>) {
     onChange(servicos.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
   function remover(id: string) {
     onChange(servicos.filter((s) => s.id !== id));
   }
-  function adicionar() {
-    // O serviço novo herda acesso/tinta do último: obra do mesmo lugar
-    // costuma repetir esses dois, e trocar é um toque.
-    const ultimo = servicos[servicos.length - 1];
-    onChange([
-      ...servicos,
-      novoServico(ultimo ? { acesso: ultimo.acesso, tinta: ultimo.tinta } : {}),
-    ]);
+  // O serviço NASCE do item: escolher uma linha da tabela (ou um avulso) cria
+  // o bloco em volta dela. Não existe bloco vazio pré-montado — a seção começa
+  // limpa e cresce conforme a obra.
+  function novoServicoDaTabela(item: PriceItem) {
+    onChange([...servicos, servicoComItem(itemDaTabela(item), ultimo)]);
+    setSeletorAberto(false);
+  }
+  function novoServicoAvulso() {
+    onChange([...servicos, servicoComItem(itemAvulso(), ultimo)]);
   }
 
   return (
     <div className="space-y-3">
+      {servicos.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.6 }}>
+          Escolha um serviço na Tabela de Preços pra começar. Cada serviço tem o próprio
+          espaço, tinta e itens; o valor fica em branco pra você decidir, com a sugestão da
+          Tabela ABRAPP (mão de obra) do lado.
+        </p>
+      ) : null}
+
       {servicos.map((s, idx) => (
         <BlocoDeServico
           key={s.id}
           servico={s}
           indice={idx}
-          podeRemover={servicos.length > 1}
           onChange={(patch) => atualizar(s.id, patch)}
           onRemove={() => remover(s.id)}
         />
       ))}
 
-      <button
-        type="button"
-        onClick={adicionar}
-        className="w-full font-bold text-sm"
-        style={{
-          padding: '11px 12px',
-          borderRadius: 12,
-          border: '1.5px dashed var(--color-p1)',
-          background: 'rgba(255,107,53,.06)',
-          color: 'var(--color-p1)',
-          cursor: 'pointer',
-        }}
-      >
-        + Adicionar outro serviço
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setSeletorAberto(true)}
+          className="font-bold text-sm"
+          style={{
+            flex: '1 1 auto',
+            padding: '11px 12px',
+            borderRadius: 12,
+            border: 'none',
+            background: 'var(--color-p1)',
+            color: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          📊 {servicos.length === 0 ? 'Adicionar da Tabela de Preços' : 'Outro serviço da tabela'}
+        </button>
+        <button
+          type="button"
+          onClick={novoServicoAvulso}
+          className="font-bold text-sm"
+          style={{
+            padding: '11px 12px',
+            borderRadius: 12,
+            border: '1.5px solid var(--color-border)',
+            background: 'var(--color-white)',
+            color: 'var(--color-ink)',
+            cursor: 'pointer',
+          }}
+        >
+          + Avulso
+        </button>
+      </div>
+
+      {seletorAberto ? (
+        <SeletorDeItens
+          onClose={() => setSeletorAberto(false)}
+          onEscolher={novoServicoDaTabela}
+          alturaInicial={alturaDoAcesso(ultimo?.acesso)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -104,13 +145,11 @@ export function ServicosDoOrcamento({ servicos, onChange }: ServicosDoOrcamentoP
 function BlocoDeServico({
   servico: s,
   indice,
-  podeRemover,
   onChange,
   onRemove,
 }: {
   servico: ServicoDoOrcamento;
   indice: number;
-  podeRemover: boolean;
   onChange: (patch: Partial<ServicoDoOrcamento>) => void;
   onRemove: () => void;
 }) {
@@ -146,25 +185,23 @@ function BlocoDeServico({
             {resumoDoServico(s)}
           </div>
         </div>
-        {podeRemover ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label={`Remover serviço ${indice + 1}`}
-            className="text-xs font-bold"
-            style={{
-              flexShrink: 0,
-              padding: '5px 10px',
-              borderRadius: 999,
-              border: '1px solid var(--color-border)',
-              background: 'var(--color-white)',
-              color: 'var(--color-ink)',
-              cursor: 'pointer',
-            }}
-          >
-            ✕ Remover
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remover serviço ${indice + 1}`}
+          className="text-xs font-bold"
+          style={{
+            flexShrink: 0,
+            padding: '5px 10px',
+            borderRadius: 999,
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-white)',
+            color: 'var(--color-ink)',
+            cursor: 'pointer',
+          }}
+        >
+          ✕ Remover
+        </button>
       </header>
 
       {/* Espaço */}

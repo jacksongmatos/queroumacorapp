@@ -7,9 +7,13 @@
   um bloco por serviço (tipo, área, pé direito, cômodos, superfície, acesso,
   tinta, cor, demãos, preparação) + os **itens** daquele serviço escolhidos na
   Tabela de Preços (o MESMO catálogo do tile, via `usePriceTable`/
-  `price_table_items`) ou avulsos, com quantidade e valor por unidade; botão
-  "+ Adicionar outro serviço" (o novo herda acesso e tinta do anterior).
+  `price_table_items`) ou avulsos, com quantidade e valor por unidade.
   Logística, observações, escopo e valor final seguem únicos por orçamento.
+  - **A SEÇÃO COMEÇA VAZIA — o bloco NASCE do item (3ª rodada, decisão do
+    usuário: "não precisa esse Serviço 1 aqui").** Não há bloco pré-montado:
+    escolher uma linha na tabela (ou "+ Avulso") cria o serviço em volta dela
+    (`servicoComItem`, herdando acesso e tinta do anterior). Gravar com zero
+    serviços bloqueia com toast.
   - **A 1ª rodada tinha UMA lista de itens pro orçamento inteiro** e o
     usuário corrigiu no mesmo dia: "pode ter múltiplos serviços" — sala e
     fachada têm tinta, acesso e área diferentes; um Espaço só não descreve

@@ -18,6 +18,7 @@ import {
   novoServico,
   quantidadeDe,
   resumoDoServico,
+  servicoComItem,
   servicosDoQuoteData,
   subtotalDoItem,
   subtotalSugerido,
@@ -164,6 +165,18 @@ describe('serviços (vários por orçamento)', () => {
       tipo: 'Piso epóxi',
       acesso: 'Andaime (3-6m)',
     });
+  });
+
+  it('servicoComItem nasce em volta do item e herda acesso/tinta do anterior', () => {
+    const primeiro = servicoComItem(itemDaTabela(item(), 'i1'), null, 'a');
+    expect(primeiro.itens).toHaveLength(1);
+    expect(primeiro.acesso).toBe('Térreo / sem altura');
+    const anterior = { ...primeiro, acesso: 'Andaime (3-6m)', tinta: 'Elastomérica (fachada)', areaM2: '80' };
+    const segundo = servicoComItem(itemAvulso('Retoque', 'i2'), anterior, 'b');
+    expect(segundo.acesso).toBe('Andaime (3-6m)');
+    expect(segundo.tinta).toBe('Elastomérica (fachada)');
+    expect(segundo.areaM2).toBe(''); // só acesso e tinta são herdados
+    expect(segundo.itens[0]!.servico).toBe('Retoque');
   });
 
   it('título: um serviço → o tipo; vários → tipos distintos com " + "', () => {
