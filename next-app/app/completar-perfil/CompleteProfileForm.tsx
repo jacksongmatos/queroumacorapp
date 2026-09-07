@@ -11,6 +11,7 @@ import { ROLE_OPTIONS } from '@/lib/roles';
 // nasce sem user_type nem tag). Aqui esses campos são editáveis uma vez.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
@@ -452,6 +453,20 @@ export function CompleteProfileForm() {
       >
         {isUpdating || checkingTag ? 'Salvando…' : 'Concluir cadastro'}
       </button>
+
+      {/* Saída pro diagnóstico. Existe porque o link do /diag mora no rodapé
+          do PERFIL — que fica atrás do mesmo guarda que traz a pessoa pra cá.
+          Ou seja: no estado exato que precisa ser diagnosticado, o
+          diagnóstico era inalcançável dentro do app. */}
+      <p className="text-center" style={{ fontSize: 12 }}>
+        <Link
+          href="/diag"
+          className="underline"
+          style={{ color: 'var(--color-muted)' }}
+        >
+          Caiu aqui de novo? Abrir diagnóstico
+        </Link>
+      </p>
     </form>
   );
 }
