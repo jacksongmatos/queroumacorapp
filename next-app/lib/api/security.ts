@@ -343,9 +343,21 @@ export async function requireAuthStrict(
 /**
  * Throw ServiceError 403 se email não for admin. Equivalente ao vanilla
  * `_admin.ensureAdminEmail`.
+ *
+ * A mensagem DIZ QUAL email o servidor viu. Sem isso ("não autorizado
+ * (email não admin)") o operador não tem como consertar: o portal admite
+ * quem tem `portal_access`, mas estas rotas só aceitam `ADMIN_EMAILS` — e
+ * quem está logado na loja com outra conta vê um 403 sem saber por quê
+ * (2026-09-07, a lista de templates caiu na embutida por isso). O email é
+ * o do próprio caller autenticado, então dizer não vaza nada.
  */
 export function ensureAdminEmail(email: string | null | undefined): void {
-  if (!isAdminEmail(email)) throw new ServiceError('não autorizado', 403);
+  if (isAdminEmail(email)) return;
+  throw new ServiceError(
+    `não autorizado: o email "${email || '(sem email no login)'}" não está na lista ADMIN_EMAILS do servidor. ` +
+      'Adicione esse email na env ADMIN_EMAILS (Cloudflare Pages → Settings → Environment variables → Production) e refaça o deploy.',
+    403,
+  );
 }
 
 export interface RateLimitResult {

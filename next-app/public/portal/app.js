@@ -5598,6 +5598,15 @@ const tipoDeLinha = raw => {
 // Mapa CATEGORIA DO LEAD → o que oferecer + palavras que acham o produto no
 // catalogo (busca no NOME, que e mais confiavel que a taxonomia). Ajustar
 // aqui quando a loja quiser mudar o que oferece pra cada tipo de cliente.
+//
+// `ramo` = como a pessoa descreveria o proprio trabalho, no formato que o
+// template de abordagem espera em "{{3}}" ("trabalha com {{3}}"). E frase
+// pra ler numa mensagem, nao o rotulo da tabela: "trabalha com
+// Funilaria/Auto" soa como planilha, "trabalha com funilaria e pintura
+// automotiva" soa como gente. Minusculo de proposito — entra no meio da
+// frase.
+// [teste:ramo-inicio] — extraido por __tests__/portalRamoDoLead.test.ts.
+// So JS puro entre os marcadores.
 const LEAD_PITCH = {
   // `oferta` = o que a loja diz que TEM pra esse publico. Frase generica de
   // proposito (2026-08-29): antes a mensagem listava SKU com volume, e saia
@@ -5607,6 +5616,7 @@ const LEAD_PITCH = {
   // linha que aquele profissional usa.
   'Funilaria/Auto': {
     funil: 'fornece',
+    ramo: 'funilaria e pintura automotiva',
     linha: 'linha automotiva',
     fecho: 'Quer ver como funciona a tinta preparada na hora aqui na loja?',
     oferta: 'linha automotiva completa: tinta pronta e tinta preparada na hora, primer, verniz, massa plástica, e os materiais de acabamento e detalhamento (polimento, cera)',
@@ -5614,6 +5624,7 @@ const LEAD_PITCH = {
   },
   'Auto Center': {
     funil: 'fornece',
+    ramo: 'pintura automotiva',
     linha: 'linha automotiva',
     fecho: 'Quer ver como funciona a tinta preparada na hora aqui na loja?',
     oferta: 'linha automotiva completa: tinta pronta e preparada na hora, primer, verniz e material de polimento e cera',
@@ -5621,6 +5632,7 @@ const LEAD_PITCH = {
   },
   'Pintor': {
     funil: 'fornece',
+    ramo: 'pintura residencial',
     linha: 'linha residencial e comercial',
     fecho: 'Quer saber qual linha rende mais por lata? Tem uma que costuma surpreender quem testa.',
     oferta: 'tintas de várias marcas, da econômica à premium, incluindo linhas de alto rendimento que fecham parede com menos demão — além de massa corrida, selador e textura',
@@ -5628,6 +5640,7 @@ const LEAD_PITCH = {
   },
   'Graffiti/Arte': {
     funil: 'fornece',
+    ramo: 'graffiti e arte urbana',
     linha: 'linha de spray e arte',
     fecho: 'Quer ver a cartela de cores que temos em spray?',
     oferta: 'spray Colorgin e Arte Urbana, com a cartela de cores completa, além de tinta acrílica pra mural e base de parede',
@@ -5635,6 +5648,7 @@ const LEAD_PITCH = {
   },
   'Construtora': {
     funil: 'fornece',
+    ramo: 'construção civil',
     linha: 'linha de obra em grande volume',
     fecho: 'Quer ver como a gente atende obra em volume?',
     oferta: 'linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante, em lata de 18L',
@@ -5642,6 +5656,7 @@ const LEAD_PITCH = {
   },
   'Reforma': {
     funil: 'fornece',
+    ramo: 'reformas',
     linha: 'linha de reforma',
     fecho: 'Quer ver o que costuma poupar tempo numa reforma?',
     oferta: 'tinta econômica e premium, massa corrida, selador e textura — tudo o que a reforma pede',
@@ -5649,6 +5664,7 @@ const LEAD_PITCH = {
   },
   'Materiais': {
     funil: 'fornece',
+    ramo: 'materiais de construção',
     linha: 'linha completa pra revenda',
     fecho: 'Quer conhecer a nossa lista pra revenda?',
     oferta: 'linha completa pra revenda, de várias marcas: acrílico, esmalte, solvente e complementos',
@@ -5656,6 +5672,7 @@ const LEAD_PITCH = {
   },
   'Marmoraria': {
     funil: 'fornece',
+    ramo: 'marmoraria',
     linha: 'impermeabilizantes e vernizes',
     fecho: 'Quer ver o que a gente indica pra proteger pedra?',
     oferta: 'impermeabilizantes, vernizes e resinas pra pedra',
@@ -5663,6 +5680,7 @@ const LEAD_PITCH = {
   },
   'Limpeza': {
     funil: 'fornece',
+    ramo: 'limpeza e manutenção predial',
     linha: 'linha de manutencao predial',
     fecho: 'Quer ver a linha que a gente indica pra manutenção predial?',
     oferta: 'linha de manutenção predial: acrílico, esmalte e solventes',
@@ -5670,6 +5688,7 @@ const LEAD_PITCH = {
   },
   'Engenharia': {
     funil: 'fornece',
+    ramo: 'engenharia civil',
     linha: 'linha de obra e manutencao predial',
     fecho: 'Quer receber a nossa cartela de cores e as fichas técnicas?',
     oferta: 'linhas premium de acabamento e a linha de obra em grande volume: acrílico, fundo preparador, textura e impermeabilizante',
@@ -5677,42 +5696,49 @@ const LEAD_PITCH = {
   },
   'Imobiliária': {
     funil: 'demanda',
+    ramo: 'imóveis',
     linha: 'pintura de imoveis pra locacao e venda',
     oferta: 'tinta pra imóvel de locação e venda, do custo-benefício ao acabamento premium',
     termos: ['acrilic', 'latex', 'massa corrida']
   },
   'Condomínio': {
     funil: 'demanda',
+    ramo: 'administração de condomínio',
     linha: 'pintura de fachada e areas comuns',
     oferta: 'linha de fachada e áreas comuns: acrílico, textura e impermeabilizante',
     termos: ['fachada', 'acrilic', 'textura', 'impermeab']
   },
   'Bares': {
     funil: 'demanda',
+    ramo: 'bares e restaurantes',
     linha: 'pintura de salao e fachada',
     oferta: 'tinta pra salão e fachada, com acabamento lavável',
     termos: ['acrilic', 'esmalte', 'epoxi']
   },
   'Academia': {
     funil: 'demanda',
+    ramo: 'academia',
     linha: 'pintura de salao e piso',
     oferta: 'tinta de piso e de parede pra área de treino',
     termos: ['epoxi', 'piso', 'acrilic']
   },
   'Supermercado': {
     funil: 'demanda',
+    ramo: 'supermercado',
     linha: 'pintura de loja, piso e fachada',
     oferta: 'tinta de piso, parede e fachada pra loja',
     termos: ['epoxi', 'piso', 'acrilic', 'fachada']
   },
   'Pousada': {
     funil: 'demanda',
+    ramo: 'hospedagem',
     linha: 'pintura de quartos e fachada',
     oferta: 'tinta pra quarto, área comum e fachada',
     termos: ['acrilic', 'latex', 'fachada']
   },
   'Arquitetura': {
     funil: 'demanda',
+    ramo: 'arquitetura',
     linha: 'especificacao de cores e acabamentos',
     oferta: 'linhas premium de acabamento — acetinado, fosco, efeitos e texturas — com cartela de cores completa pra especificação',
     termos: ['acrilic', 'textura', 'efeito']
@@ -5725,6 +5751,31 @@ const pitchDoLead = l => LEAD_PITCH[l.category] || {
   fecho: 'Quer ver o que temos pra sua linha de trabalho?',
   termos: ['acrilic', 'latex']
 };
+
+// Segmento por SEGMENTO do lead (COMERCIAL/AUTOMOTIVO/...), pra quando a
+// categoria nao esta no mapa acima. Mais grosso que o `ramo`, mas ainda e
+// frase de gente — e melhor que deixar o operador digitar do zero.
+const RAMO_POR_SEGMENTO = {
+  RESIDENCIAL: 'pintura residencial',
+  COMERCIAL: 'pintura comercial',
+  AUTOMOTIVO: 'pintura automotiva',
+  GRAFFITI: 'graffiti e arte urbana'
+};
+
+// O que vai no {{3}} ("trabalha com {{3}}") pra este lead, ou null.
+// Ordem: `ramo` da categoria > segmento > categoria em minusculo. Null quando
+// nao ha pista nenhuma — o campo fica vazio e o botao trava ate o operador
+// preencher, em vez de inventar um ramo que a pessoa nao tem.
+const ramoDoLead = l => {
+  if (!l) return null;
+  const p = LEAD_PITCH[l.category];
+  if (p && p.ramo) return p.ramo;
+  const seg = RAMO_POR_SEGMENTO[String(l.segment || '').trim().toUpperCase()];
+  if (seg) return seg;
+  const cat = String(l.category || '').trim();
+  return cat ? cat.toLowerCase() : null;
+};
+// [teste:ramo-fim]
 
 // ── Templates aprovados pela Meta (primeira mensagem) ───────────────────
 // Numero que nunca escreveu pra loja NAO tem janela de 24h aberta: a Cloud
@@ -5772,11 +5823,14 @@ const TEMPLATES_APROVADOS = [{
 }];
 const TEMPLATE_SEM_NOME = 'calicolors';
 const TEMPLATE_COM_NOME = 'calicolors_nome';
-// {{1}} nome, {{2}} bairro, {{3}} segmento. Mensagem que diz o bairro e o
-// ramo da pessoa e a que menos parece disparo em massa — mas depende de
-// dado que boa parte da base nao tem, entao o fallback pro de nome e
-// obrigatorio, nao opcional.
-const TEMPLATE_COM_BAIRRO = 'calicolors_bairro';
+// {{1}} nome, {{2}} CIDADE, {{3}} segmento ("Vi que você atende em {{2}} e
+// trabalha com {{3}}"). Mensagem que diz a cidade e o ramo da pessoa e a
+// que menos parece disparo em massa — mas depende de dado que parte da
+// base nao tem, entao o fallback pro de nome e obrigatorio, nao opcional.
+// Era "bairro" ate 2026-09-07; a decisao do usuario e CIDADE — e cidade
+// quase todo lead tem (696 vieram do termo de busca do Maps, que e por
+// cidade), enquanto bairro faltava na maioria.
+const TEMPLATE_COM_CIDADE = 'calicolors_abordagem_v2';
 
 // Lista VIVA, carregada de /api/whatsapp/templates (que consulta a Meta via
 // Dualhook). A lista embutida acima fica de fallback: se a consulta falhar
@@ -5814,12 +5868,12 @@ const valorDeVariavel = bruto => {
   const limpo = String(bruto || '').trim().replace(/\s+/g, ' ');
   if (limpo.length < 2) return null;
   if (!/\p{L}/u.test(limpo)) return null;
-  if (/^(n\/?a|nao informado|não informado|sem (bairro|segmento)|indefinido)$/i.test(limpo)) return null;
+  if (/^(n\/?a|nao informado|não informado|sem (cidade|bairro|segmento)|indefinido)$/i.test(limpo)) return null;
   return limpo.slice(0, 60);
 };
 
 // Monta o que vai no corpo do POST. Sem nome utilizavel -> template fixo,
-// nunca o de variavel com {{1}} vazio. Com nome + bairro + segmento sobe
+// nunca o de variavel com {{1}} vazio. Com nome + cidade + segmento sobe
 // pro de tres variaveis; falta UM e desce pro de nome, porque meia
 // personalizacao nao existe.
 const escolherTemplate = (nomeBruto, preferido, dados) => {
@@ -5833,17 +5887,17 @@ const escolherTemplate = (nomeBruto, preferido, dados) => {
     template: TEMPLATE_SEM_NOME,
     nome: null
   };
-  const bairro = valorDeVariavel(dados && dados.bairro);
+  const cidade = valorDeVariavel(dados && dados.cidade);
   const segmento = valorDeVariavel(dados && dados.segmento);
   // So usa o de tres variaveis se a Meta disser que ele existe (a lista
   // viva vem de /api/whatsapp/templates). Template nao aprovado volta
   // 132001, e chutar que existe quebraria a abordagem de todo lead com
-  // bairro e segmento. O servidor faz a mesma coisa por env — fontes de
+  // cidade e segmento. O servidor faz a mesma coisa por env — fontes de
   // prova diferentes, mesma regra: so uso se me disserem que existe.
-  const temBairro = !!templatePorNome(TEMPLATE_COM_BAIRRO);
-  if (!preferido && temBairro && bairro && segmento) {
+  const temCidade = !!templatePorNome(TEMPLATE_COM_CIDADE);
+  if (!preferido && temCidade && cidade && segmento) {
     return {
-      template: TEMPLATE_COM_BAIRRO,
+      template: TEMPLATE_COM_CIDADE,
       nome,
       components: [{
         type: 'body',
@@ -5852,7 +5906,7 @@ const escolherTemplate = (nomeBruto, preferido, dados) => {
           text: nome
         }, {
           type: 'text',
-          text: bairro
+          text: cidade
         }, {
           type: 'text',
           text: segmento
@@ -6277,9 +6331,16 @@ const PreviaDeTemplate = ({
 // Regra que nao pode ser burlada pela tela: variavel VAZIA nao envia. Um
 // {{1}} vazio faz a Meta entregar "Oi ," ou recusar; o botao fica
 // desabilitado com o motivo a vista, em vez de deixar mandar e falhar.
+//
+// `dadosContato` = { cidade, segmento } de quem recebe, quando a tela sabe
+// (lead da lista, ou conversa cujo numero casa com um lead). Preenche
+// {{2}} e {{3}} — a convencao dos templates de abordagem e {{1}} nome,
+// {{2}} cidade, {{3}} segmento (decisao de 2026-09-07). Os campos seguem
+// editaveis: o operador corrige o que a base trouxe errado antes de enviar.
 const EnvioDeTemplate = ({
   waId,
   nomeContato,
+  dadosContato,
   enviando,
   estagio,
   onEnviar
@@ -6322,8 +6383,15 @@ const EnvioDeTemplate = ({
     exemplo: null
   }] : []);
 
-  // {{1}} ja vem com o primeiro nome do contato — e o caso mais comum, e
-  // digitar de novo o que a tela ja sabe e trabalho a toa.
+  // As variaveis ja vem preenchidas com o que a tela sabe — digitar de novo
+  // o que esta na linha do lead e trabalho a toa, e era o que acontecia
+  // com {{2}} e {{3}}: o operador via "Pimentas"/"pintura residencial" de
+  // placeholder e tinha que copiar a cidade da tabela a mao.
+  //   {{1}} primeiro nome · {{2}} cidade · {{3}} segmento
+  // Passa pelo `valorDeVariavel`: "n/a" da base importada nao entra no
+  // campo como se fosse cidade. Sem dado, o campo fica vazio e o botao trava.
+  const cidade = valorDeVariavel(dadosContato && dadosContato.cidade) || '';
+  const segmento = valorDeVariavel(dadosContato && dadosContato.segmento) || '';
   useEffect(() => {
     if (!tpl) return;
     setValores(v => {
@@ -6332,12 +6400,12 @@ const EnvioDeTemplate = ({
       };
       for (const va of vars) {
         if (novo[va.indice] == null) {
-          novo[va.indice] = va.indice === 1 ? primeiroNome(nomeContato) || '' : '';
+          novo[va.indice] = va.indice === 1 ? primeiroNome(nomeContato) || '' : va.indice === 2 ? cidade : va.indice === 3 ? segmento : '';
         }
       }
       return novo;
     });
-  }, [escolhido, nomeContato]);
+  }, [escolhido, nomeContato, cidade, segmento]);
   const faltando = vars.filter(v => !String(valores[v.indice] || '').trim());
   const aviso = tpl ? avisoMarketingEUA(waId, tpl.categoria) : null;
 
@@ -7192,6 +7260,10 @@ const AbordagemModal = ({
   }, " WhatsApp"), ", que tem o hist\xF3rico e a sugest\xE3o da IA."), /*#__PURE__*/React.createElement(EnvioDeTemplate, {
     waId: alvo,
     nomeContato: lead.name,
+    dadosContato: {
+      cidade: lead.city,
+      segmento: ramoDoLead(lead)
+    },
     enviando: enviando,
     estagio: estagio,
     onEnviar: enviarPara
@@ -11460,7 +11532,7 @@ const WhatsAppTab = () => {
     }).eq('id', id);
   };
   const loadProfiles = async () => {
-    const [profRes, leadRes] = await Promise.all([supa.from('profiles').select('id, name, tag, phone').not('phone', 'is', null).limit(3000), supa.from('leads').select('id, name, phone, category, status').not('phone', 'is', null).limit(3000)]);
+    const [profRes, leadRes] = await Promise.all([supa.from('profiles').select('id, name, tag, phone').not('phone', 'is', null).limit(3000), supa.from('leads').select('id, name, phone, category, segment, city, status').not('phone', 'is', null).limit(3000)]);
     const mapP = {};
     (profRes.data || []).forEach(p => {
       const dig = String(p.phone || '').replace(/\D/g, '');
@@ -11665,7 +11737,14 @@ const WhatsAppTab = () => {
 
   // Nome de quem esta do outro lado, pro {{1}}. Ordem: perfil do app > lead
   // > pushName do WhatsApp — a mesma que a lista de conversas ja usa.
-  const nomeDoContatoAberto = openWa ? leadByPhone[openWa.slice(-8)]?.name || (aberta ? nomeDe(aberta) : null) : null;
+  const leadDoContatoAberto = openWa ? leadByPhone[openWa.slice(-8)] || null : null;
+  const nomeDoContatoAberto = openWa ? leadDoContatoAberto?.name || (aberta ? nomeDe(aberta) : null) : null;
+  // {{2}}/{{3}} so quando o numero casa com um lead — perfil do app e
+  // pushName nao trazem cidade nem ramo, e chutar seria mandar dado errado.
+  const dadosDoContatoAberto = leadDoContatoAberto ? {
+    cidade: leadDoContatoAberto.city,
+    segmento: ramoDoLead(leadDoContatoAberto)
+  } : null;
   const enviar = async () => {
     const body = text.trim();
     if (!body || !openWa || sending) return;
@@ -12383,6 +12462,7 @@ const WhatsAppTab = () => {
   }, "responder"), ", o campo de escrever volta sozinho por 24h."), /*#__PURE__*/React.createElement(EnvioDeTemplate, {
     waId: openWa,
     nomeContato: nomeDoContatoAberto,
+    dadosContato: dadosDoContatoAberto,
     enviando: sending,
     estagio: sendStage,
     onEnviar: enviarTemplate

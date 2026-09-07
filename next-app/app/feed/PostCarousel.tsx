@@ -15,6 +15,7 @@
 
 import { useRef, useState, type UIEvent } from 'react';
 import { PostMedia } from './PostMedia';
+import { aspectRatioCss } from '@/lib/enquadramento';
 
 export interface PostCarouselProps {
   urls: string[];
@@ -35,6 +36,11 @@ export function PostCarousel({
 }: PostCarouselProps) {
   const trilhoRef = useRef<HTMLDivElement | null>(null);
   const [atual, setAtual] = useState(0);
+  // Todas as fotos no quadro da PRIMEIRA (2026-09-07). Antes só a primeira
+  // tinha proporção e as outras caíam no 1:1 com corte — a foto 2 de um
+  // quadro em pé saía sem cabeça. Post novo enquadra todas iguais no
+  // composer, então aqui nada corta; post antigo ganha altura constante.
+  const quadro = aspectRatioCss(mediaWidth, mediaHeight);
 
   function aoRolar(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
@@ -74,11 +80,12 @@ export function PostCarousel({
             <PostMedia
               url={u}
               mediaType={mediaType}
-              // As dimensões gravadas são as da PRIMEIRA foto; usá-las nas
-              // outras reservaria o espaço errado e causaria salto. Só a
-              // primeira aproveita o CLS zero.
+              // As dimensões gravadas são as da PRIMEIRA foto; nas outras
+              // entram só como PROPORÇÃO do quadro (aspectRatio), não como
+              // width/height do <img>.
               mediaWidth={i === 0 ? mediaWidth : null}
               mediaHeight={i === 0 ? mediaHeight : null}
+              aspectRatio={quadro}
               muted={muted}
               onToggleMute={onToggleMute}
             />

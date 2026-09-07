@@ -38,6 +38,40 @@
     `authenticated`, então gravar isso exigiria rota nova. O soft delete é
     recuperável por 30 dias, mas hoje ninguém sabe qual admin agiu.
 
+- **ENQUADRAMENTO DA FOTO AO PUBLICAR + LEGENDA COM QUEBRA DE LINHA
+  (2026-09-07).** Um pintor publicou um quadro em pé (80×120) e a obra saiu
+  cortada em cima e embaixo, e a descrição (Título/Artista/Dimensões em
+  linhas) virou um bloco só.
+  - **Legenda:** `whiteSpace: 'pre-wrap'` na legenda e nos comentários do
+    `PostCard` — o HTML colapsa `\n` em espaço a menos que o CSS peça pra
+    preservar. Nada muda no banco: o texto sempre foi gravado com as
+    quebras. Teste de fonte em `__tests__/legendaQuebraDeLinha.test.ts`.
+  - **Enquadramento:** seção nova no composer (`app/publicar/Enquadramento
+    .tsx`) — proporção Original / 1:1 / 4:5 / 16:9, modo **Preencher**
+    (corta a sobra; arrasta a foto pra escolher o que aparece) ou
+    **Ajustar** (foto inteira, sobra fundo desfocado). **"Original" é o
+    padrão e não passa pelo canvas**: quem não mexe publica como sempre.
+    - **O recorte é feito NO ARQUIVO antes do upload** (`lib/services/
+      enquadrarImagem.ts`), não em CSS: feed, perfil, carrossel e "Em alta"
+      renderizam a mesma URL de jeitos diferentes, e a primeira tela que
+      esquecesse um deslocamento gravado voltaria a cortar a obra.
+    - **A prévia e o recorte usam a MESMA conta** (`lib/enquadramento.ts`,
+      pura e testada): `estiloPreview` (CSS em %) e `recorteCover` (px do
+      canvas) descrevem a mesma janela. Se fossem duas contas, a prévia
+      mentiria.
+    - **Falha no recorte NÃO sobe cru em silêncio** — diferente da
+      compressão (que é otimização). A pessoa escolheu um quadro; publicar
+      a obra cortada no meio depois disso é trair a escolha. Estoura
+      `ValidationError` com o nome do arquivo.
+    - Story (tela cheia) e vídeo não têm enquadramento.
+  - **Carrossel: todas as fotos no quadro da PRIMEIRA.** Só a foto 1 tinha
+    dimensões gravadas; as outras caíam no 1:1 com `object-cover` — a foto
+    2 de um quadro em pé saía sem cabeça. `PostMedia` ganhou a prop
+    `aspectRatio` e o `PostCarousel` impõe a proporção da primeira a todas.
+    Post novo enquadra todas iguais no composer, então nada corta; post
+    antigo ganha altura constante (a foto 2 corta na proporção da 1, não
+    mais no quadrado).
+
 - **QUICK REPLY DE TEMPLATE CHEGAVA COMO BOLHA VAZIA (2026-09-06).** Quem
   tocava num botão do template de abordagem mandava `type='button'` com
   `{text, payload}` — e NADA em `text.body`. O `parseInboundMessages` só
@@ -63,15 +97,34 @@
     não derruba o que funciona por SQL pendente. Coluna nova em vez de
     `status='perdido'`: "perdido" quer dizer "não fechou", e sobrescrever o
     status apagaria o funil de um lead talvez já qualificado.
-  - **Template de 3 variáveis (`{{2}}` bairro, `{{3}}` segmento) é OPT-IN.**
-    `escolherTemplate` só sobe pra ele com PROVA de que existe: o servidor
-    pela env `WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO`, o portal pela lista viva
-    que vem da Meta. Ligar por padrão faria todo lead com os dois dados
-    falhar com 132001 (template não aprovado). **Faltando UM dos dois, desce
-    pro `calicolors_nome`** — meia personalização não existe: `{{2}}` vazio
-    é envio recusado ou frase quebrada na tela do cliente. `valorDeVariavel`
-    recusa também os marcadores da base importada ("n/a", "não informado"),
-    que chegariam como texto literal.
+  - **Template de 3 variáveis (`{{1}}` nome, `{{2}}` CIDADE, `{{3}}`
+    segmento) é OPT-IN.** `escolherTemplate` só sobe pra ele com PROVA de
+    que existe: o servidor pela env `WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE`, o
+    portal pela lista viva que vem da Meta. Ligar por padrão faria todo lead
+    com os dois dados falhar com 132001 (template não aprovado). **Faltando
+    UM dos dois, desce pro `calicolors_nome`** — meia personalização não
+    existe: `{{2}}` vazio é envio recusado ou frase quebrada na tela do
+    cliente. `valorDeVariavel` recusa também os marcadores da base importada
+    ("n/a", "não informado"), que chegariam como texto literal.
+    - **`{{2}}` ERA BAIRRO e virou CIDADE (2026-09-07, decisão do usuário)**
+      — o template aprovado na Meta é `calicolors_abordagem_v2` ("Vi que
+      você atende em {{2}} e trabalha com {{3}}"), e cidade quase todo lead
+      tem; bairro faltava na maioria. A env também mudou de nome
+      (`..._BAIRRO` → `..._CIDADE`; a antiga nunca foi setada).
+    - **O modal de abordagem PREENCHE as três sozinho.** Antes só `{{1}}`
+      vinha com o nome; `{{2}}`/`{{3}}` mostravam o exemplo da Meta como
+      placeholder e o operador copiava a cidade da tabela à mão.
+      `<EnvioDeTemplate dadosContato={{cidade, segmento}}>` — a abordagem
+      passa `lead.city` + `ramoDoLead(lead)`; a aba WhatsApp passa quando o
+      número casa com um lead (perfil do app/pushName não têm cidade nem
+      ramo, e chutar seria dado errado). Campos seguem editáveis.
+    - **`{{3}}` NÃO é o rótulo da tabela.** "trabalha com Funilaria/Auto"
+      soa como planilha. `LEAD_PITCH[cat].ramo` guarda a frase ("funilaria
+      e pintura automotiva", "engenharia civil"); categoria fora do mapa cai
+      no segmento (`RAMO_POR_SEGMENTO`) e, por fim, na categoria em
+      minúsculo. Sem pista nenhuma → null, campo vazio, botão travado.
+      `__tests__/portalRamoDoLead.test.ts` obriga toda categoria nova a ter
+      `ramo`.
 
 - **UPLOAD DE MÍDIA SEM SEGUNDA CHANCE — "Falha de rede ao enviar a mídia
   (1,3 MB)" (2026-09-06).** Um pintor levou esse erro publicando um story com

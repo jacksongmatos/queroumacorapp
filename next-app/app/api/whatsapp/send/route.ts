@@ -16,7 +16,7 @@ import { type NextRequest } from 'next/server';
 import {
   checkRateLimit,
   getToken,
-  isAdminEmail,
+  ensureAdminEmail,
   jsonResponse,
   rateLimitResponse,
   readBody,
@@ -122,7 +122,7 @@ async function handle(request: NextRequest): Promise<Response> {
     const token = getToken(request, body);
     const { callerId, email } = await verifyAdminToken(token);
     if (!callerId) throw new ServiceError('token inválido', 401);
-    if (!isAdminEmail(email)) throw new ServiceError('não autorizado (email não admin)', 403);
+    ensureAdminEmail(email);
 
     const rl = await checkRateLimit({
       userId: callerId || email,

@@ -23,7 +23,7 @@ import { type NextRequest } from 'next/server';
 import { getRuntimeEnv } from '@/lib/api/env';
 import {
   getToken,
-  isAdminEmail,
+  ensureAdminEmail,
   jsonResponse,
   ServiceError,
   serviceErrorResponse,
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     const token = getToken(request, {});
     const { callerId, email } = await verifyAdminToken(token);
     if (!callerId) throw new ServiceError('token inválido', 401);
-    if (!isAdminEmail(email)) throw new ServiceError('não autorizado (email não admin)', 403);
+    ensureAdminEmail(email);
   } catch (e) {
     if (e instanceof ServiceError) return serviceErrorResponse(e);
     return jsonResponse({ error: 'não autorizado' }, 401);
