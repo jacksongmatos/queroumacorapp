@@ -3,7 +3,9 @@
 //
 // A seção começa VAZIA: o bloco de serviço nasce quando a pessoa escolhe um
 // item na Tabela de Preços (ou cria um avulso) — não há "Serviço 1" pré-montado
-// pra preencher (decisão do usuário, 2026-09-07).
+// pra preencher, e o bloco mostra SÓ O ITEM: espaço e material ficam atrás de
+// "Detalhes", fechados e sem nenhum valor pré-escolhido (decisões do usuário,
+// 2026-09-07, 3ª e 4ª rodadas).
 //
 // Um orçamento tem VÁRIOS serviços (sala + fachada, por exemplo). Cada bloco
 // carrega o próprio espaço (tipo, área, pé direito, cômodos, superfície,
@@ -37,6 +39,7 @@ import {
   TIPOS_DE_SERVICO,
   TIPOS_DE_TINTA,
   alturaDoAcesso,
+  detalhesDoServico,
   itemAvulso,
   itemDaTabela,
   resumoDoServico,
@@ -79,9 +82,9 @@ export function ServicosDoOrcamento({ servicos, onChange }: ServicosDoOrcamentoP
     <div className="space-y-3">
       {servicos.length === 0 ? (
         <p style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.6 }}>
-          Escolha um serviço na Tabela de Preços pra começar. Cada serviço tem o próprio
-          espaço, tinta e itens; o valor fica em branco pra você decidir, com a sugestão da
-          Tabela ABRAPP (mão de obra) do lado.
+          Escolha um serviço na Tabela de Preços pra começar. O valor fica em branco pra
+          você decidir, com a sugestão da Tabela ABRAPP (mão de obra) do lado. Área, tinta e
+          preparação são opcionais, em “Detalhes”.
         </p>
       ) : null}
 
@@ -154,6 +157,10 @@ function BlocoDeServico({
   onRemove: () => void;
 }) {
   const totais = useMemo(() => totaisDosItens(s.itens), [s.itens]);
+  // Espaço/material começam FECHADOS: quem adicionou um item da tabela quer
+  // ver o item, não dez campos. Abre se já tem algo preenchido (edição).
+  const temDetalhe = detalhesDoServico(s).length > 0 || !!s.tipo;
+  const [detalhesAbertos, setDetalhesAbertos] = useState(temDetalhe);
 
   function togglePrep(item: string) {
     onChange({
@@ -204,177 +211,199 @@ function BlocoDeServico({
         </button>
       </header>
 
-      {/* Espaço */}
-      <div className="space-y-2.5">
-        <Campo label="Tipo de serviço">
-          <select value={s.tipo} onChange={(e) => onChange({ tipo: e.target.value })} className={inputCls}>
-            {TIPOS_DE_SERVICO.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Campo>
-
-        <div className="grid grid-cols-3 gap-2">
-          <Campo label="Área (m²)">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={s.areaM2}
-              onChange={(e) => onChange({ areaM2: e.target.value })}
-              placeholder="ex: 80"
-              className={inputCls}
-            />
-          </Campo>
-          <Campo label="Pé direito (m)">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={s.peDireito}
-              onChange={(e) => onChange({ peDireito: e.target.value })}
-              placeholder="ex: 2.8"
-              className={inputCls}
-            />
-          </Campo>
-          <Campo label="Cômodos">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={s.comodos}
-              onChange={(e) => onChange({ comodos: e.target.value })}
-              placeholder="ex: 3"
-              className={inputCls}
-            />
-          </Campo>
-        </div>
-
-        <Campo label="Estado da superfície">
-          <select value={s.superficie} onChange={(e) => onChange({ superficie: e.target.value })} className={inputCls}>
-            {ESTADOS_DA_SUPERFICIE.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Campo>
-
-        <Campo label="Acesso">
-          <select value={s.acesso} onChange={(e) => onChange({ acesso: e.target.value })} className={inputCls}>
-            {OPCOES_DE_ACESSO.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Campo>
-
-        {/* Material e técnica */}
-        <Campo label="Tipo de tinta">
-          <select value={s.tinta} onChange={(e) => onChange({ tinta: e.target.value })} className={inputCls}>
-            {TIPOS_DE_TINTA.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Campo>
-
-        <Campo label="Cor desejada">
-          <input
-            type="text"
-            value={s.cor}
-            onChange={(e) => onChange({ cor: e.target.value })}
-            placeholder="ex: branco gelo, areia, ref. Suvinil A123"
-            className={inputCls}
-          />
-        </Campo>
-
-        <Campo label="Nº de demãos">
-          <div className="flex gap-2">
-            {(['1', '2', '3'] as const).map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => onChange({ demaos: n })}
-                className="flex-1 font-bold"
-                style={{
-                  padding: '8px 0',
-                  borderRadius: 10,
-                  fontSize: 13,
-                  border: '1.5px solid ' + (s.demaos === n ? 'var(--color-p1)' : 'var(--color-border)'),
-                  background: s.demaos === n ? 'var(--color-p1)' : 'var(--color-white)',
-                  color: s.demaos === n ? '#fff' : 'var(--color-ink)',
-                  cursor: 'pointer',
-                }}
-              >
-                {n} demão{n !== '1' ? 's' : ''}
-              </button>
-            ))}
+      {/* Itens da Tabela ABRAPP — o que a pessoa pediu ver */}
+      <ItensDoServico
+        itens={s.itens}
+        onChange={(itens) => onChange({ itens })}
+        acesso={s.acesso}
+      />
+      {s.itens.length > 0 ? (
+        <div
+          style={{
+            borderTop: '1px solid var(--color-border)',
+            marginTop: 10,
+            paddingTop: 8,
+            fontSize: 12,
+            color: 'var(--color-muted)',
+            lineHeight: 1.7,
+          }}
+        >
+          <div className="flex justify-between gap-3">
+            <span>Subtotal do serviço {indice + 1}</span>
+            <strong style={{ color: 'var(--color-ink)' }}>
+              {totais.preenchido > 0 ? `R$ ${fmtBRL(totais.preenchido)}` : '—'}
+            </strong>
           </div>
-        </Campo>
-
-        <Campo label="Preparação (marque o que precisa)">
-          <div className="flex flex-wrap gap-2">
-            {OPCOES_DE_PREPARACAO.map((opt) => {
-              const on = s.preparacao.includes(opt);
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => togglePrep(opt)}
-                  className="font-semibold text-xs"
-                  style={{
-                    padding: '6px 11px',
-                    borderRadius: 999,
-                    border: '1.5px solid ' + (on ? 'var(--color-p1)' : 'var(--color-border)'),
-                    background: on ? 'rgba(255,107,53,.12)' : 'var(--color-white)',
-                    color: on ? 'var(--color-p1)' : 'var(--color-ink)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {on ? '✓ ' : ''}{opt}
-                </button>
-              );
-            })}
-          </div>
-        </Campo>
-      </div>
-
-      {/* Itens da Tabela ABRAPP */}
-      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}>
-        <div className={rotuloCls} style={{ marginBottom: 8 }}>
-          Itens da Tabela de Preços
-        </div>
-        <ItensDoServico
-          itens={s.itens}
-          onChange={(itens) => onChange({ itens })}
-          acesso={s.acesso}
-        />
-        {s.itens.length > 0 ? (
-          <div
-            style={{
-              borderTop: '1px solid var(--color-border)',
-              marginTop: 10,
-              paddingTop: 8,
-              fontSize: 12,
-              color: 'var(--color-muted)',
-              lineHeight: 1.7,
-            }}
-          >
+          {totais.semValor > 0 && totais.sugerido > 0 ? (
             <div className="flex justify-between gap-3">
-              <span>Subtotal do serviço {indice + 1}</span>
-              <strong style={{ color: 'var(--color-ink)' }}>
-                {totais.preenchido > 0 ? `R$ ${fmtBRL(totais.preenchido)}` : '—'}
-              </strong>
+              <span>
+                Com a sugestão da tabela {totais.semValor === 1 ? 'no que falta' : `nos ${totais.semValor} que faltam`}
+              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>R$ {fmtBRL(totais.sugerido)}</span>
             </div>
-            {totais.semValor > 0 && totais.sugerido > 0 ? (
-              <div className="flex justify-between gap-3">
-                <span>
-                  Com a sugestão da tabela {totais.semValor === 1 ? 'no que falta' : `nos ${totais.semValor} que faltam`}
-                </span>
-                <span style={{ whiteSpace: 'nowrap' }}>R$ {fmtBRL(totais.sugerido)}</span>
+          ) : null}
+          {totais.semSugestao > 0 ? (
+            <div style={{ fontSize: 11 }}>
+              {totais.semSugestao === 1
+                ? '1 item sem valor e sem sugestão na tabela.'
+                : `${totais.semSugestao} itens sem valor e sem sugestão na tabela.`}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Espaço + material — opcionais, fechados por padrão */}
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
+        <button
+          type="button"
+          onClick={() => setDetalhesAbertos((v) => !v)}
+          aria-expanded={detalhesAbertos}
+          className="w-full text-left text-xs font-bold"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--color-p1)',
+            cursor: 'pointer',
+          }}
+        >
+          {detalhesAbertos ? '▾' : '▸'} Detalhes do serviço (tipo, área, tinta, preparação…)
+          {!detalhesAbertos ? (
+            <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}> · opcional</span>
+          ) : null}
+        </button>
+
+        {detalhesAbertos ? (
+          <div className="space-y-2.5" style={{ marginTop: 10 }}>
+            <Campo label="Tipo de serviço">
+              <select value={s.tipo} onChange={(e) => onChange({ tipo: e.target.value })} className={inputCls}>
+                <option value="">Selecione…</option>
+                {TIPOS_DE_SERVICO.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </Campo>
+
+            <div className="grid grid-cols-3 gap-2">
+              <Campo label="Área (m²)">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={s.areaM2}
+                  onChange={(e) => onChange({ areaM2: e.target.value })}
+                  placeholder="ex: 80"
+                  className={inputCls}
+                />
+              </Campo>
+              <Campo label="Pé direito (m)">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={s.peDireito}
+                  onChange={(e) => onChange({ peDireito: e.target.value })}
+                  placeholder="ex: 2.8"
+                  className={inputCls}
+                />
+              </Campo>
+              <Campo label="Cômodos">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={s.comodos}
+                  onChange={(e) => onChange({ comodos: e.target.value })}
+                  placeholder="ex: 3"
+                  className={inputCls}
+                />
+              </Campo>
+            </div>
+
+            <Campo label="Estado da superfície">
+              <select value={s.superficie} onChange={(e) => onChange({ superficie: e.target.value })} className={inputCls}>
+                <option value="">Selecione…</option>
+                {ESTADOS_DA_SUPERFICIE.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </Campo>
+
+            <Campo label="Acesso">
+              <select value={s.acesso} onChange={(e) => onChange({ acesso: e.target.value })} className={inputCls}>
+                <option value="">Selecione…</option>
+                {OPCOES_DE_ACESSO.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </Campo>
+
+            <Campo label="Tipo de tinta">
+              <select value={s.tinta} onChange={(e) => onChange({ tinta: e.target.value })} className={inputCls}>
+                <option value="">Selecione…</option>
+                {TIPOS_DE_TINTA.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </Campo>
+
+            <Campo label="Cor desejada">
+              <input
+                type="text"
+                value={s.cor}
+                onChange={(e) => onChange({ cor: e.target.value })}
+                placeholder="ex: branco gelo, areia, ref. Suvinil A123"
+                className={inputCls}
+              />
+            </Campo>
+
+            <Campo label="Nº de demãos">
+              <div className="flex gap-2">
+                {(['1', '2', '3'] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => onChange({ demaos: s.demaos === n ? '' : n })}
+                    aria-pressed={s.demaos === n}
+                    className="flex-1 font-bold"
+                    style={{
+                      padding: '8px 0',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      border: '1.5px solid ' + (s.demaos === n ? 'var(--color-p1)' : 'var(--color-border)'),
+                      background: s.demaos === n ? 'var(--color-p1)' : 'var(--color-white)',
+                      color: s.demaos === n ? '#fff' : 'var(--color-ink)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {n} demão{n !== '1' ? 's' : ''}
+                  </button>
+                ))}
               </div>
-            ) : null}
-            {totais.semSugestao > 0 ? (
-              <div style={{ fontSize: 11 }}>
-                {totais.semSugestao === 1
-                  ? '1 item sem valor e sem sugestão na tabela.'
-                  : `${totais.semSugestao} itens sem valor e sem sugestão na tabela.`}
+            </Campo>
+
+            <Campo label="Preparação (marque o que precisa)">
+              <div className="flex flex-wrap gap-2">
+                {OPCOES_DE_PREPARACAO.map((opt) => {
+                  const on = s.preparacao.includes(opt);
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => togglePrep(opt)}
+                      className="font-semibold text-xs"
+                      style={{
+                        padding: '6px 11px',
+                        borderRadius: 999,
+                        border: '1.5px solid ' + (on ? 'var(--color-p1)' : 'var(--color-border)'),
+                        background: on ? 'rgba(255,107,53,.12)' : 'var(--color-white)',
+                        color: on ? 'var(--color-p1)' : 'var(--color-ink)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {on ? '✓ ' : ''}{opt}
+                    </button>
+                  );
+                })}
               </div>
-            ) : null}
+            </Campo>
           </div>
         ) : null}
       </div>
@@ -414,8 +443,7 @@ function ItensDoServico({
     <div className="space-y-2">
       {itens.length === 0 ? (
         <p style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.6 }}>
-          Adicione os itens deste serviço. O valor de cada um fica em branco pra você decidir —
-          a sugestão da Tabela ABRAPP (mão de obra) aparece do lado.
+          Este serviço ficou sem item. Adicione um da tabela ou remova o serviço.
         </p>
       ) : (
         <ul className="space-y-2" aria-label="Itens do serviço">
