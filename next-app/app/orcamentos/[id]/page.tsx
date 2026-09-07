@@ -34,9 +34,11 @@ import { QuotePdfSheet } from './QuotePdfSheet';
 import { urlParaBaixar, waMeTarget } from '@/lib/pdf/quotePdf';
 import { abrirLinkExterno } from '@/lib/native';
 import {
+  detalhesDoServico,
   quantidadeDe,
+  resumoDoServico,
   servicosDoQuoteData,
-  subtotalDoServico,
+  subtotalDoItem,
   valorUnitarioDe,
 } from '@/lib/orcamentoServicos';
 import { unidadeCurta } from '@/lib/services/priceTable';
@@ -274,7 +276,7 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     | { itens?: Array<{ desc?: string; valor?: string }>; pagamento?: string[] }
     | null
     | undefined;
-  // Itens escolhidos na Tabela ABRAPP (ou avulsos) pelo tile Orçamento.
+  // Serviços do tile Orçamento (espaço/material + itens da Tabela ABRAPP).
   const servicos = servicosDoQuoteData(data.quote_data);
 
   // ─── action handlers ──────────────────────────────────────────────
@@ -562,32 +564,49 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
         </div>
 
         {servicos.length > 0 ? (
-          <div className="mt-4">
-            <h3 className="text-xs font-bold uppercase text-[color:var(--color-muted)] mb-2">
-              Serviços
-            </h3>
-            <ul className="text-sm divide-y divide-[color:var(--color-border)]">
-              {servicos.map((s) => {
-                const v = valorUnitarioDe(s);
-                const sub = subtotalDoServico(s);
-                return (
-                  <li key={s.id} className="flex justify-between gap-3 py-1.5">
-                    <span className="min-w-0">
-                      <span className="block font-semibold">{s.servico}</span>
-                      <span className="block text-xs text-[color:var(--color-muted)]">
-                        {quantidadeDe(s)} {unidadeCurta(s.unidade)}
-                        {v !== null ? ` × ${formatBRL(v)}` : ''}
-                      </span>
-                    </span>
-                    <span className="whitespace-nowrap font-semibold">
-                      {sub !== null ? formatBRL(sub) : (
-                        <span className="text-[color:var(--color-muted)] font-normal">a definir</span>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+          <div className="mt-4 space-y-4">
+            {servicos.map((s, i) => (
+              <div key={s.id}>
+                <h3 className="text-xs font-bold uppercase text-[color:var(--color-muted)] mb-1">
+                  {servicos.length > 1 ? `Serviço ${i + 1}` : 'Serviço'}
+                </h3>
+                <p className="text-sm font-bold">{resumoDoServico(s)}</p>
+                <dl className="text-xs text-[color:var(--color-muted)] mt-1 space-y-0.5">
+                  {detalhesDoServico(s)
+                    .filter(([k]) => k !== 'Área' && k !== 'Cômodos')
+                    .map(([k, v]) => (
+                      <div key={k} className="flex justify-between gap-3">
+                        <dt>{k}</dt>
+                        <dd className="text-right text-[color:var(--color-ink)]">{v}</dd>
+                      </div>
+                    ))}
+                </dl>
+                {s.itens.length > 0 ? (
+                  <ul className="text-sm divide-y divide-[color:var(--color-border)] mt-2 border-t border-[color:var(--color-border)]">
+                    {s.itens.map((it) => {
+                      const v = valorUnitarioDe(it);
+                      const sub = subtotalDoItem(it);
+                      return (
+                        <li key={it.id} className="flex justify-between gap-3 py-1.5">
+                          <span className="min-w-0">
+                            <span className="block font-semibold">{it.servico}</span>
+                            <span className="block text-xs text-[color:var(--color-muted)]">
+                              {quantidadeDe(it)} {unidadeCurta(it.unidade)}
+                              {v !== null ? ` × ${formatBRL(v)}` : ''}
+                            </span>
+                          </span>
+                          <span className="whitespace-nowrap font-semibold">
+                            {sub !== null ? formatBRL(sub) : (
+                              <span className="text-[color:var(--color-muted)] font-normal">a definir</span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
           </div>
         ) : null}
 

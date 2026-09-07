@@ -13,9 +13,11 @@ import { useState } from 'react';
 import { showToast } from '@/lib/toast';
 import type { Quote } from '@/lib/types';
 import {
+  detalhesDoServico,
   quantidadeDe,
+  resumoDoServico,
   servicosDoQuoteData,
-  subtotalDoServico,
+  subtotalDoItem,
   valorUnitarioDe,
 } from '@/lib/orcamentoServicos';
 import { unidadeCurta } from '@/lib/services/priceTable';
@@ -90,7 +92,8 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
   const includeLabor = qd ? !!qd['includeLabor'] : null;
   const surfaceState = qd && typeof qd['surfaceState'] === 'string' ? (qd['surfaceState'] as string) : '';
   const access = qd && typeof qd['access'] === 'string' ? (qd['access'] as string) : '';
-  // Itens escolhidos na Tabela ABRAPP (ou avulsos) pelo tile Orçamento.
+  // Serviços do tile Orçamento: cada um com espaço/material + itens da
+  // Tabela ABRAPP (ou avulsos). Orçamento antigo não tem → lista vazia.
   const servicos = servicosDoQuoteData(qd);
 
   // Prioridade: name (pessoal) > business_name (dirty data legado pode estar
@@ -398,60 +401,76 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
               </table>
             </section>
 
-            {/* BLOCO 2b — SERVIÇOS (itens da Tabela ABRAPP / avulsos) */}
-            {servicos.length > 0 ? (
-              <section style={{ marginBottom: 18 }}>
-                <h3
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 800,
-                    color: '#999',
-                    textTransform: 'uppercase',
-                    letterSpacing: '.06em',
-                    marginBottom: 8,
-                  }}
-                >
-                  Serviços
-                </h3>
-                <table
-                  style={{
-                    width: '100%',
-                    fontSize: 12,
-                    color: '#1a1a2e',
-                    borderCollapse: 'collapse',
-                  }}
-                >
-                  <tbody>
-                    {servicos.map((s) => {
-                      const v = valorUnitarioDe(s);
-                      const sub = subtotalDoServico(s);
-                      return (
-                        <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: '6px 8px 6px 0', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 600 }}>{s.servico}</div>
-                            <div style={{ fontSize: 11, color: '#666' }}>
-                              {quantidadeDe(s)} {unidadeCurta(s.unidade)}
-                              {v !== null ? ` × ${BRL.format(v)}` : ''}
-                            </div>
-                          </td>
-                          <td
-                            style={{
-                              padding: '6px 0',
-                              textAlign: 'right',
-                              whiteSpace: 'nowrap',
-                              fontWeight: 700,
-                              verticalAlign: 'top',
-                            }}
-                          >
-                            {sub !== null ? BRL.format(sub) : 'a definir'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            ) : null}
+            {/* BLOCO 2b — SERVIÇOS (um por bloco: espaço/material + itens) */}
+            {servicos.map((s, i) => {
+              const detalhes = detalhesDoServico(s).filter(([k]) => k !== 'Área' && k !== 'Cômodos');
+              return (
+                <section key={s.id} style={{ marginBottom: 18 }}>
+                  <h3
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      color: '#999',
+                      textTransform: 'uppercase',
+                      letterSpacing: '.06em',
+                      marginBottom: 6,
+                    }}
+                  >
+                    {servicos.length > 1 ? `Serviço ${i + 1}` : 'Serviço'}
+                  </h3>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', margin: '0 0 6px' }}>
+                    {resumoDoServico(s)}
+                  </p>
+                  {detalhes.length > 0 ? (
+                    <table style={{ width: '100%', fontSize: 12, color: '#1a1a2e', borderCollapse: 'collapse' }}>
+                      <tbody>
+                        {detalhes.map(([k, v]) => <Row key={k} k={k} v={v} />)}
+                      </tbody>
+                    </table>
+                  ) : null}
+                  {s.itens.length > 0 ? (
+                    <table
+                      style={{
+                        width: '100%',
+                        fontSize: 12,
+                        color: '#1a1a2e',
+                        borderCollapse: 'collapse',
+                        marginTop: 6,
+                      }}
+                    >
+                      <tbody>
+                        {s.itens.map((it) => {
+                          const v = valorUnitarioDe(it);
+                          const sub = subtotalDoItem(it);
+                          return (
+                            <tr key={it.id} style={{ borderTop: '1px solid #eee' }}>
+                              <td style={{ padding: '6px 8px 6px 0', verticalAlign: 'top' }}>
+                                <div style={{ fontWeight: 600 }}>{it.servico}</div>
+                                <div style={{ fontSize: 11, color: '#666' }}>
+                                  {quantidadeDe(it)} {unidadeCurta(it.unidade)}
+                                  {v !== null ? ` × ${BRL.format(v)}` : ''}
+                                </div>
+                              </td>
+                              <td
+                                style={{
+                                  padding: '6px 0',
+                                  textAlign: 'right',
+                                  whiteSpace: 'nowrap',
+                                  fontWeight: 700,
+                                  verticalAlign: 'top',
+                                }}
+                              >
+                                {sub !== null ? BRL.format(sub) : 'a definir'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </section>
+              );
+            })}
 
             {/* BLOCO 3 — ESCOPO TÉCNICO */}
             {quote.description ? (

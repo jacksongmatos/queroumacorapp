@@ -2,17 +2,17 @@
 // que um pintor precisa pra um projeto completo. Sections agrupadas pra
 // UX não ficar overwhelming:
 //
-//  1. **Espaço** — tipo, área, pé direito, cômodos, estado da superfície,
-//     acesso (escada/andaime)
-//  2. **Material e técnica** — tipo de tinta, cor desejada, demãos,
-//     preparação (massa/lixa/selador/primer), EPI
-//  3. **Serviços** — lista de itens escolhidos na Tabela de Preços da ABRAPP
-//     (o mesmo catálogo do tile "Tabela de Preços") ou avulsos; quantidade +
-//     valor por unidade, que NASCE VAZIO com a sugestão da tabela do lado.
-//     Lógica pura em `lib/orcamentoServicos.ts`; UI em `ServicosDoOrcamento`.
-//  4. **Logística** — cidade/endereço, prazo em dias, incluir material?,
-//     incluir mão de obra?, garantia (% retoques)
-//  5. **IA** — Sugerir escopo (escreve técnico) + Sugerir preço (R$)
+//  1. **Cliente** — nome e telefone.
+//  2. **Serviços** — UM BLOCO POR SERVIÇO (um orçamento tem vários: sala +
+//     fachada, por exemplo). Cada bloco tem o próprio espaço (tipo, área, pé
+//     direito, cômodos, superfície, acesso), o próprio material (tinta, cor,
+//     demãos, preparação) e os próprios itens da Tabela de Preços da ABRAPP
+//     (o mesmo catálogo do tile) ou avulsos — quantidade + valor por unidade,
+//     que NASCE VAZIO com a sugestão da tabela do lado. Lógica pura em
+//     `lib/orcamentoServicos.ts`; UI em `ServicosDoOrcamento`.
+//  3. **Logística** — cidade/endereço, prazo em dias, incluir material?,
+//     incluir mão de obra?, garantia (% retoques) — únicos por orçamento.
+//  4. **IA** — Sugerir escopo (escreve técnico) + Sugerir preço (R$)
 //
 // Tudo isso vira o `description` enviado pro /api/chat-ai (Seu Zé escopo) e
 // /api/pricing-suggest. Quanto mais campos preenchidos, melhor a sugestão.
@@ -42,10 +42,16 @@ import {
   type SuggestPriceResult,
 } from '@/lib/services/aiChat';
 import {
+  areaTotal,
   descreverServico,
+  detalhesDoServico,
+  novoServico,
   quantidadeDe,
-  subtotalDoServico,
-  totaisDosServicos,
+  resumoDoServico,
+  subtotalDoItem,
+  temAvulsoSemNome,
+  tituloDosServicos,
+  totaisDoOrcamento,
   valorUnitarioDe,
   type ServicoDoOrcamento,
 } from '@/lib/orcamentoServicos';
@@ -57,19 +63,8 @@ interface FormState {
   // Cliente
   clientName: string;
   clientPhone: string;
-  // Espaço
-  serviceType: string;
-  areaM2: string;
-  ceilingHeight: string; // pé direito em metros
-  rooms: string; // nº de cômodos
-  surfaceState: string; // boa, com mofo, descascando, nova
-  access: string; // térreo, escada, andaime
-  // Material e técnica
-  paintType: string; // acrílica, esmalte, PVA, epóxi, textura
-  colorWant: string; // cor/paleta desejada
-  coats: string; // 1/2/3 demãos
-  prep: string[]; // multiselect: massa, lixa, selador, primer
-  // Serviços (itens da Tabela ABRAPP ou avulsos) — gravados em quote_data.servicos
+  // Serviços — cada um com espaço, material e itens da Tabela ABRAPP.
+  // Gravados em quote_data.servicos; sempre há pelo menos um.
   servicos: ServicoDoOrcamento[];
   // Logística
   city: string;
@@ -84,52 +79,6 @@ interface FormState {
   scope: string;
 }
 
-const SERVICE_OPTIONS = [
-  'Pintura interna',
-  'Pintura externa / fachada',
-  'Textura (grafiato/marmorato)',
-  'Piso epóxi',
-  'Microcimento',
-  'Esmalte (portas/grades)',
-  'Pintura automotiva',
-  'Grafite / mural',
-];
-
-const SURFACE_STATES = [
-  'Nova (alvenaria recém-feita)',
-  'Boa (só limpeza)',
-  'Pintura antiga em bom estado',
-  'Descascando / mofo / infiltração',
-  'Concreto ou tijolo aparente',
-];
-
-const ACCESS_OPTIONS = [
-  'Térreo / sem altura',
-  'Escada (até 3m)',
-  'Andaime (3-6m)',
-  'Andaime alto / cadeira suspensa (acima 6m)',
-];
-
-const PAINT_TYPES = [
-  'Acrílica (interna/externa)',
-  'PVA (interna)',
-  'Esmalte sintético (madeira/metal)',
-  'Esmalte aquoso',
-  'Epóxi (piso/banheiro)',
-  'Elastomérica (fachada)',
-  'Textura/grafiato',
-  'Outra',
-];
-
-const PREP_OPTIONS = [
-  'Massa corrida',
-  'Lixamento',
-  'Selador',
-  'Fundo preparador',
-  'Fungicida (mofo)',
-  'Tratamento de trincas',
-];
-
 export function QuoteWizard() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -138,17 +87,7 @@ export function QuoteWizard() {
   const [form, setForm] = useState<FormState>({
     clientName: '',
     clientPhone: '',
-    serviceType: SERVICE_OPTIONS[0],
-    areaM2: '',
-    ceilingHeight: '2.8',
-    rooms: '',
-    surfaceState: SURFACE_STATES[1],
-    access: ACCESS_OPTIONS[0],
-    paintType: PAINT_TYPES[0],
-    colorWant: '',
-    coats: '2',
-    prep: ['Massa corrida', 'Lixamento'],
-    servicos: [],
+    servicos: [novoServico()],
     city: '',
     durationDays: '',
     includeMaterial: true,
@@ -167,18 +106,9 @@ export function QuoteWizard() {
   // preenchidos. Quanto mais info, mais preciso o escopo/preço.
   const richDescription = useMemo(() => {
     const lines = [
-      `Serviço: ${form.serviceType}`,
-      form.areaM2 && `Área: ${form.areaM2} m²`,
-      form.ceilingHeight && `Pé direito: ${form.ceilingHeight} m`,
-      form.rooms && `Cômodos: ${form.rooms}`,
-      `Superfície: ${form.surfaceState}`,
-      `Acesso: ${form.access}`,
-      `Tipo de tinta: ${form.paintType}`,
-      form.colorWant && `Cor desejada: ${form.colorWant}`,
-      `Demãos: ${form.coats}`,
-      form.prep.length > 0 && `Preparação: ${form.prep.join(', ')}`,
-      form.servicos.length > 0 &&
-        `Serviços:\n${form.servicos.map((s) => `- ${descreverServico(s)}`).join('\n')}`,
+      `Orçamento: ${tituloDosServicos(form.servicos)}`,
+      `Serviços (${form.servicos.length}):`,
+      ...form.servicos.map((s, i) => `${i + 1}) ${descreverServico(s, { marcador: '-' })}`),
       form.city && `Cidade: ${form.city}`,
       form.durationDays && `Prazo: ${form.durationDays} dias`,
       `Inclui material: ${form.includeMaterial ? 'sim' : 'não (só mão de obra)'}`,
@@ -197,16 +127,16 @@ export function QuoteWizard() {
   const priceMutation = useMutation<SuggestPriceResult, Error, void>({
     mutationFn: () =>
       suggestPrice({
-        service_type: form.serviceType,
+        service_type: tituloDosServicos(form.servicos),
         description: richDescription,
-        area_m2: parseFloat(form.areaM2) || undefined,
+        area_m2: areaTotal(form.servicos) ?? undefined,
       }),
     onSuccess: (res) => setPriceResult(res),
   });
 
-  // Somas dos serviços: `preenchido` (só o que a pessoa digitou) e `sugerido`
-  // (média da tabela onde falta valor). A segunda é só dica.
-  const totaisServicos = useMemo(() => totaisDosServicos(form.servicos), [form.servicos]);
+  // Somas dos itens de TODOS os serviços: `preenchido` (só o que a pessoa
+  // digitou) e `sugerido` (média da tabela onde falta valor). A segunda é só dica.
+  const totaisServicos = useMemo(() => totaisDoOrcamento(form.servicos), [form.servicos]);
 
   // M8 fix: useMemo precisa rodar ANTES dos early returns (rules-of-hooks).
   // Valor numérico atual — manual > soma dos serviços preenchidos > IA.
@@ -268,15 +198,6 @@ export function QuoteWizard() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function togglePrep(item: string) {
-    setForm((f) => ({
-      ...f,
-      prep: f.prep.includes(item)
-        ? f.prep.filter((p) => p !== item)
-        : [...f.prep, item],
-    }));
-  }
-
   function handleSuggestScope() {
     scopeMutation.mutate(richDescription);
   }
@@ -304,17 +225,18 @@ export function QuoteWizard() {
     }
     // Linha avulsa sem nome gravaria um item mudo no PDF; melhor avisar do
     // que descartar em silêncio o que a pessoa pode ter precificado.
-    if (form.servicos.some((s) => s.priceItemId === null && !s.servico.trim())) {
-      showToast('Dê um nome ao serviço avulso antes de gravar', 'error');
+    if (temAvulsoSemNome(form.servicos)) {
+      showToast('Dê um nome ao item avulso antes de gravar', 'error');
       return null;
     }
     setSaving(true);
     try {
+      const titulo = tituloDosServicos(form.servicos);
       const { quoteId } = await saveQuote({
         client_name: form.clientName || 'Cliente',
-        service_type: form.serviceType,
-        title: form.serviceType,
-        area_m2: parseFloat(form.areaM2) || null,
+        service_type: titulo,
+        title: titulo,
+        area_m2: areaTotal(form.servicos),
         price: effectivePrice,
         quote_data: {
           ...form,
@@ -345,15 +267,11 @@ export function QuoteWizard() {
       form.clientName ? `Cliente: ${form.clientName}` : null,
       form.clientPhone ? `Telefone: ${form.clientPhone}` : null,
       '',
-      `Serviço: ${form.serviceType}`,
-      form.areaM2 ? `Área: ${form.areaM2} m²` : null,
-      form.rooms ? `Cômodos: ${form.rooms}` : null,
-      `Tinta: ${form.paintType}${form.colorWant ? ' · ' + form.colorWant : ''}`,
-      `Demãos: ${form.coats}`,
-      form.prep.length > 0 ? `Preparação: ${form.prep.join(', ')}` : null,
-      form.servicos.length > 0
-        ? '\n*Serviços:*\n' + form.servicos.map((s) => `• ${descreverServico(s)}`).join('\n')
-        : null,
+      form.servicos.length === 1 ? '*Serviço:*' : '*Serviços:*',
+      ...form.servicos.map((s, i) =>
+        (form.servicos.length > 1 ? `${i + 1}) ` : '') + descreverServico(s),
+      ),
+      '',
       form.durationDays ? `Prazo: ${form.durationDays} dias` : null,
       `Inclui material: ${form.includeMaterial ? 'sim' : 'não'} · Inclui mão de obra: ${form.includeLabor ? 'sim' : 'não'}`,
       form.warranty ? `Garantia: ${form.warranty}` : null,
@@ -375,7 +293,7 @@ export function QuoteWizard() {
   }
 
   function handleSendEmail() {
-    const subj = encodeURIComponent(`Orçamento — ${form.serviceType}`);
+    const subj = encodeURIComponent(`Orçamento — ${tituloDosServicos(form.servicos)}`);
     const body = encodeURIComponent(buildPlainText());
     // `location.href` na casca vira a tela "Sem conexão" (ver abrirLinkExterno).
     abrirLinkExterno(`mailto:?subject=${subj}&body=${body}`);
@@ -423,7 +341,7 @@ export function QuoteWizard() {
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
-          title: `Orçamento — ${form.serviceType}`,
+          title: `Orçamento — ${tituloDosServicos(form.servicos)}`,
           text,
         });
         return;
@@ -465,168 +383,13 @@ export function QuoteWizard() {
         </Row>
       </Card>
 
-      {/* ── 1. ESPAÇO ── */}
-      <Card title="🏠 Espaço">
-        <Row label="Tipo de serviço">
-          <select
-            value={form.serviceType}
-            onChange={(e) => update('serviceType', e.target.value)}
-            className={inputCls}
-          >
-            {SERVICE_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Row>
-
-        <Row label="Área aproximada (m²)">
-          <input
-            type="number"
-            min={0}
-            value={form.areaM2}
-            onChange={(e) => update('areaM2', e.target.value)}
-            placeholder="ex: 80"
-            className={inputCls}
-          />
-        </Row>
-
-        <Row label="Pé direito (m)">
-          <input
-            type="number"
-            step="0.1"
-            min={0}
-            value={form.ceilingHeight}
-            onChange={(e) => update('ceilingHeight', e.target.value)}
-            placeholder="ex: 2.8"
-            className={inputCls}
-          />
-        </Row>
-
-        <Row label="Cômodos / divisões">
-          <input
-            type="number"
-            min={0}
-            value={form.rooms}
-            onChange={(e) => update('rooms', e.target.value)}
-            placeholder="ex: 3"
-            className={inputCls}
-          />
-        </Row>
-
-        <Row label="Estado da superfície">
-          <select
-            value={form.surfaceState}
-            onChange={(e) => update('surfaceState', e.target.value)}
-            className={inputCls}
-          >
-            {SURFACE_STATES.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Row>
-
-        <Row label="Acesso">
-          <select
-            value={form.access}
-            onChange={(e) => update('access', e.target.value)}
-            className={inputCls}
-          >
-            {ACCESS_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Row>
-      </Card>
-
-      {/* ── 1b. SERVIÇOS (Tabela ABRAPP) — depois do Espaço porque o campo
-          "Acesso" pré-seleciona o filtro de altura do seletor ── */}
+      {/* ── 1. SERVIÇOS — um bloco por serviço (espaço + material + itens
+          da Tabela ABRAPP). Logística e valor final seguem únicos. ── */}
       <Card title="🧾 Serviços">
         <ServicosDoOrcamento
           servicos={form.servicos}
           onChange={(next) => update('servicos', next)}
-          access={form.access}
         />
-      </Card>
-
-      {/* ── 2. MATERIAL E TÉCNICA ── */}
-      <Card title="🪣 Material e técnica">
-        <Row label="Tipo de tinta">
-          <select
-            value={form.paintType}
-            onChange={(e) => update('paintType', e.target.value)}
-            className={inputCls}
-          >
-            {PAINT_TYPES.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </Row>
-
-        <Row label="Cor desejada">
-          <input
-            type="text"
-            value={form.colorWant}
-            onChange={(e) => update('colorWant', e.target.value)}
-            placeholder="ex: branco gelo, areia, ref. Suvinil A123"
-            className={inputCls}
-          />
-        </Row>
-
-        <Row label="Nº de demãos">
-          <div className="flex gap-2">
-            {(['1', '2', '3'] as const).map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => update('coats', n)}
-                className="flex-1 font-bold"
-                style={{
-                  padding: '8px 0',
-                  borderRadius: 10,
-                  fontSize: 13,
-                  border: '1.5px solid ' + (form.coats === n
-                    ? 'var(--color-p1)'
-                    : 'var(--color-border)'),
-                  background: form.coats === n
-                    ? 'var(--color-p1)'
-                    : '#fff',
-                  color: form.coats === n ? '#fff' : 'var(--color-ink)',
-                  cursor: 'pointer',
-                }}
-              >
-                {n} demão{n !== '1' ? 's' : ''}
-              </button>
-            ))}
-          </div>
-        </Row>
-
-        <Row label="Preparação (marque o que precisa)">
-          <div className="flex flex-wrap gap-2">
-            {PREP_OPTIONS.map((opt) => {
-              const on = form.prep.includes(opt);
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => togglePrep(opt)}
-                  className="font-semibold text-xs"
-                  style={{
-                    padding: '6px 11px',
-                    borderRadius: 999,
-                    border: '1.5px solid ' + (on
-                      ? 'var(--color-p1)'
-                      : 'var(--color-border)'),
-                    background: on ? 'rgba(255,107,53,.12)' : '#fff',
-                    color: on ? 'var(--color-p1)' : 'var(--color-ink)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {on ? '✓ ' : ''}{opt}
-                </button>
-              );
-            })}
-          </div>
-        </Row>
       </Card>
 
       {/* ── 3. LOGÍSTICA ── */}
@@ -804,7 +567,7 @@ export function QuoteWizard() {
             {totaisServicos.preenchido > 0 ? (
               <div className="flex items-center justify-between gap-2">
                 <span>
-                  Soma dos serviços preenchidos:{' '}
+                  Soma dos itens preenchidos:{' '}
                   <b style={{ color: 'var(--color-ink)' }}>R$ {fmtBRL(totaisServicos.preenchido)}</b>
                   {!form.price ? ' (vale se você não digitar outro)' : ''}
                 </span>
@@ -1108,22 +871,57 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
               </section>
             )}
 
-            {/* Detalhes */}
+            {/* Serviços — um bloco por serviço */}
+            {form.servicos.map((s, i) => {
+              const detalhes = detalhesDoServico(s).filter(([k]) => k !== 'Área' && k !== 'Cômodos');
+              return (
+                <section key={s.id} style={{ marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>
+                    {form.servicos.length > 1 ? `Serviço ${i + 1}` : 'Serviço'}
+                  </h3>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#222', margin: '0 0 6px' }}>
+                    {resumoDoServico(s)}
+                  </p>
+                  <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse' }}>
+                    <tbody>
+                      {detalhes.map(([k, v]) => <Cell key={k} k={k} v={v} />)}
+                    </tbody>
+                  </table>
+                  {s.itens.length > 0 ? (
+                    <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse', marginTop: 6 }}>
+                      <tbody>
+                        {s.itens.map((it) => {
+                          const v = valorUnitarioDe(it);
+                          const sub = subtotalDoItem(it);
+                          return (
+                            <tr key={it.id} style={{ borderTop: '1px solid #eee' }}>
+                              <td style={{ padding: '5px 8px 5px 0', verticalAlign: 'top' }}>
+                                <div style={{ fontWeight: 600 }}>{it.servico || 'Item'}</div>
+                                <div style={{ fontSize: 11, color: '#666' }}>
+                                  {quantidadeDe(it)} {unidadeCurta(it.unidade)}
+                                  {v !== null ? ` × R$ ${fmtBRL(v)}` : ''}
+                                </div>
+                              </td>
+                              <td style={{ padding: '5px 0', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, verticalAlign: 'top' }}>
+                                {sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </section>
+              );
+            })}
+
+            {/* Logística */}
             <section style={{ marginBottom: 16 }}>
               <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>
-                Detalhes do serviço
+                Condições
               </h3>
               <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse' }}>
                 <tbody>
-                  <Cell k="Serviço" v={form.serviceType} />
-                  {form.areaM2 ? <Cell k="Área" v={`${form.areaM2} m²`} /> : null}
-                  {form.rooms ? <Cell k="Cômodos" v={form.rooms} /> : null}
-                  <Cell k="Pé direito" v={`${form.ceilingHeight} m`} />
-                  <Cell k="Superfície" v={form.surfaceState} />
-                  <Cell k="Acesso" v={form.access} />
-                  <Cell k="Tinta" v={form.paintType + (form.colorWant ? ' · ' + form.colorWant : '')} />
-                  <Cell k="Demãos" v={form.coats} />
-                  {form.prep.length > 0 ? <Cell k="Preparação" v={form.prep.join(', ')} /> : null}
                   {form.city ? <Cell k="Cidade" v={form.city} /> : null}
                   {form.durationDays ? <Cell k="Prazo" v={`${form.durationDays} dias úteis`} /> : null}
                   <Cell k="Inclui material" v={form.includeMaterial ? 'sim' : 'não'} />
@@ -1132,37 +930,6 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
                 </tbody>
               </table>
             </section>
-
-            {/* Serviços */}
-            {form.servicos.length > 0 ? (
-              <section style={{ marginBottom: 16 }}>
-                <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>
-                  Serviços
-                </h3>
-                <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse' }}>
-                  <tbody>
-                    {form.servicos.map((s) => {
-                      const v = valorUnitarioDe(s);
-                      const sub = subtotalDoServico(s);
-                      return (
-                        <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: '5px 8px 5px 0', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 600 }}>{s.servico || 'Serviço'}</div>
-                            <div style={{ fontSize: 11, color: '#666' }}>
-                              {quantidadeDe(s)} {unidadeCurta(s.unidade)}
-                              {v !== null ? ` × R$ ${fmtBRL(v)}` : ''}
-                            </div>
-                          </td>
-                          <td style={{ padding: '5px 0', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, verticalAlign: 'top' }}>
-                            {sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            ) : null}
 
             {/* Escopo */}
             {form.scope ? (
