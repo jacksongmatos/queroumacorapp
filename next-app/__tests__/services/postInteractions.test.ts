@@ -561,7 +561,11 @@ describe('deletePost (soft delete)', () => {
   });
 
   it('happy: UPDATE posts SET deleted_at = ISO; eq id/user_id; retorna undoToken', async () => {
-    const { client, spies } = makeFakeClient();
+    // `data` com uma linha de propósito: o service agora pede `.select('id')`
+    // e trata lista vazia como falha. Com o default `null` do fake, o ramo
+    // novo passaria sem ser exercido — foi assim que um teste de regressão
+    // já passou com a correção revertida (2026-09-04).
+    const { client, spies } = makeFakeClient({ data: [{ id: 'p1' }] });
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     const out = await deletePost('u1', 'p1');
     // Bate em posts uma única vez agora (sem mais cleanup paralelo).
@@ -603,7 +607,7 @@ describe('undoDeletePost', () => {
   });
 
   it('happy: UPDATE posts SET deleted_at = null com filtros id/user_id', async () => {
-    const { client, spies } = makeFakeClient();
+    const { client, spies } = makeFakeClient({ data: [{ id: 'p1' }] });
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     await undoDeletePost('u1', 'p1');
     expect(spies.from).toHaveBeenCalledWith('posts');
@@ -618,6 +622,83 @@ describe('undoDeletePost', () => {
     });
     __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
     await expect(undoDeletePost('u1', 'p1')).rejects.toBeInstanceOf(NetworkError);
+  });
+});
+
+// ─── Moderação: admin apaga post de outra pessoa ───────────────────────────
+// O app já deixava o admin apagar COMENTÁRIO de qualquer um (Wave 9) e não
+// POST. O `eq('user_id', userId)` do UPDATE é o que impedia: filtrando pelo
+// dono, o admin nunca casava linha nenhuma.
+//
+// Quem autoriza continua sendo a RLS. O `comoAdmin` não dá permissão — ele
+// só para de amarrar a query ao dono. Cliente adulterado mandando
+// `comoAdmin` sem ser admin bate na policy e volta zero linhas.
+
+describe('deletePost — moderação de admin', () => {
+  it('comoAdmin NÃO filtra por user_id (é o que destravou a moderação)', async () => {
+    const { client, spies } = makeFakeClient({ data: [{ id: 'p1' }] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await deletePost('admin1', 'p1', { comoAdmin: true });
+    expect(spies.eq).toHaveBeenCalledWith('id', 'p1');
+    expect(spies.eq).not.toHaveBeenCalledWith('user_id', 'admin1');
+  });
+
+  it('sem comoAdmin, o filtro do dono continua lá', async () => {
+    const { client, spies } = makeFakeClient({ data: [{ id: 'p1' }] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await deletePost('u1', 'p1');
+    expect(spies.eq).toHaveBeenCalledWith('user_id', 'u1');
+  });
+
+  it('undoDeletePost também aceita moderação (quem apaga tem que desfazer)', async () => {
+    const { client, spies } = makeFakeClient({ data: [{ id: 'p1' }] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await undoDeletePost('admin1', 'p1', { comoAdmin: true });
+    expect(spies.update).toHaveBeenCalledWith({ deleted_at: null });
+    expect(spies.eq).not.toHaveBeenCalledWith('user_id', 'admin1');
+  });
+});
+
+// ─── Zero linhas não pode passar por sucesso ───────────────────────────────
+// `update` no Supabase que não acha linha volta SUCESSO com zero linhas, não
+// erro. Foi o que fez o /completar-perfil entrar em loop mudo por semanas.
+// Num delete de moderação seria pior: o post sumiria pelo update otimista,
+// voltaria no refetch, e o admin concluiria que o app está quebrado.
+
+describe('delete que não altera linha nenhuma', () => {
+  it('pede `.select` — sem isso não dá pra saber que foram zero linhas', async () => {
+    const { client, spies } = makeFakeClient({ data: [{ id: 'p1' }] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await deletePost('u1', 'p1');
+    expect(spies.select.mock.calls[0]?.[0]).toBe('id');
+  });
+
+  it('lista vazia vira NetworkError, não sucesso silencioso', async () => {
+    const { client } = makeFakeClient({ data: [] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(deletePost('u1', 'p1')).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it('zero linhas no undo também estoura', async () => {
+    const { client } = makeFakeClient({ data: [] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(undoDeletePost('u1', 'p1')).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  // A mensagem é o que o admin vai ler às 22h de um sábado. Ela precisa
+  // apontar pra policy, senão a conclusão vira "o app está bugado".
+  it('na moderação, a mensagem aponta pra policy que falta', async () => {
+    const { client } = makeFakeClient({ data: [] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(
+      deletePost('admin1', 'p1', { comoAdmin: true })
+    ).rejects.toThrow(/is_portal_admin/);
+  });
+
+  it('pro dono, a mensagem fala do post — não de policy', async () => {
+    const { client } = makeFakeClient({ data: [] });
+    __setSupabaseForTests(client as Parameters<typeof __setSupabaseForTests>[0]);
+    await expect(deletePost('u1', 'p1')).rejects.toThrow(/não é seu/);
   });
 });
 
