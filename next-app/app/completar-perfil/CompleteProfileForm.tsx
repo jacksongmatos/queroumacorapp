@@ -1,4 +1,6 @@
 'use client';
+
+import { ROLE_OPTIONS } from '@/lib/roles';
 // CompleteProfileForm — onboarding pós-OAuth (Google/Apple). Quem loga social
 // cai aqui (redirectTo do signInWithOAuth). Se o perfil já está completo
 // (tem categoria + @tag), manda direto pro /feed. Senão, pede o mínimo pra
@@ -8,7 +10,7 @@
 // categoria — então não serve pra completar uma conta criada via OAuth (que
 // nasce sem user_type nem tag). Aqui esses campos são editáveis uma vez.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
@@ -35,13 +37,14 @@ interface RoleOption {
   label: string;
 }
 
-// Mesmas categorias do SignupStep1.
-const ROLES: RoleOption[] = [
-  { value: 'pintor', icon: '🖌️', label: 'Pintor' },
-  { value: 'grafiteiro', icon: '🎨', label: 'Grafiteiro / Muralista' },
-  { value: 'automotivo', icon: '🚗', label: 'Estética Automotiva' },
-  { value: 'cliente', icon: '🏠', label: 'Cliente' },
-];
+// Mesmas categorias do SignupStep1 — as duas telas leem de `lib/roles`.
+// Escritas à mão, elas já tinham divergido: aqui o automotivo aparecia como
+// "Estética Automotiva" e lá como "Funileiro / Estética Automotiva".
+const ROLES: RoleOption[] = ROLE_OPTIONS.map((o) => ({
+  value: o.value as UserRole,
+  icon: o.icon,
+  label: o.label,
+}));
 
 export function CompleteProfileForm() {
   const router = useRouter();
@@ -77,14 +80,46 @@ export function CompleteProfileForm() {
   const ready = !authLoading && !profileLoading;
   const complete = useMemo(() => isProfileComplete(profile), [profile]);
 
-  // Prefill do nome (do perfil ou dos metadados do provedor) uma vez.
+  // Prefill de TUDO que já sabemos — uma vez, e sem sobrescrever o que a
+  // pessoa já digitou.
+  //
+  // Por que isso importa (07/09/2026): quem se cadastrou por e-mail já
+  // informou nome, telefone, cidade/UF e data de nascimento no passo 2. Se
+  // cair aqui (perfil sem @tag, por exemplo), pedir tudo de novo é o relato
+  // de "cadastro em duas etapas com informação repetida". Pior: a categoria
+  // nascia sempre em 'pintor', então quem se cadastrou como grafiteiro e não
+  // reparasse trocava o próprio papel sem querer.
+  const preenchido = useRef(false);
   useEffect(() => {
-    if (ready && !name) {
-      const initial = (profile?.name || metaName || '').toString();
-      if (initial) setName(initial);
+    if (!ready || preenchido.current) return;
+    preenchido.current = true;
+    const p = profile as Record<string, unknown> | null | undefined;
+    const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+
+    const inicialNome = texto(p?.name) || metaName;
+    if (inicialNome) setName(inicialNome);
+
+    const papel = texto(p?.user_type) || texto(p?.role);
+    if (papel && ROLES.some((r) => r.value === papel)) {
+      setCategory(papel as UserRole);
+    }
+
+    const tel = texto(p?.phone);
+    if (tel) setPhone(tel);
+
+    const estado = texto(p?.state).toUpperCase();
+    if (estado) setUf(estado);
+    const cidade = texto(p?.city);
+    if (cidade) setCity(cidade);
+
+    const nasc = texto(p?.birth_date).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(nasc)) {
+      setBirthDate(nasc);
+      const [a, m, d] = nasc.split('-');
+      setDataTexto(`${d}/${m}/${a}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, profile?.name, metaName]);
+  }, [ready]);
 
   // Roteamento: sem sessão → login; perfil já completo → feed.
   useEffect(() => {

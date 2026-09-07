@@ -40,6 +40,11 @@ export function personaForRole(role?: string | null): AiPersona {
     case 'cliente':
       return PERSONAS.alice;
     case 'pintor':
+    // Arquiteto/engenheiro fica com o Seu Zé (decisão de 07/09/2026): ele já
+    // é o parceiro de quem especifica e orça pintura. Explícito, e não pelo
+    // `default`, pra que trocar de persona um dia seja uma linha visível.
+    case 'arquiteto':
+    case 'engenheiro':
     default:
       return PERSONAS['seu-ze'];
   }

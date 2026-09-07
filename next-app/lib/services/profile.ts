@@ -281,6 +281,11 @@ export const ROLE_SPECS: Record<string, readonly string[]> = {
     'Cristalização', 'Customização', 'Aerografia', 'Restauração',
     'Martelinho de Ouro', 'PPF / Película',
   ],
+  arquiteto: [
+    'Projeto Residencial', 'Projeto Comercial', 'Interiores', 'Reforma',
+    'Retrofit', 'Consultoria de Cores', 'Memorial Descritivo',
+    'Gerenciamento de Obra', 'Laudo Técnico', 'Fachada',
+  ],
 };
 
 /**
@@ -298,6 +303,7 @@ export function getEspecialidadesByRole(
   let key: string | null = null;
   if (r === 'grafiteiro' || r === 'graffiti') key = 'grafiteiro';
   else if (r === 'automotivo' || r === 'funileiro') key = 'automotivo';
+  else if (r === 'arquiteto' || r === 'engenheiro') key = 'arquiteto';
   else if (r === 'pintor') key = 'pintor';
   if (!key) return [];
   return [...(ROLE_SPECS[key] ?? [])];

@@ -251,6 +251,41 @@
     esses dois sem o usuário conferir — o que já se sabe é que a proteção da
     `main` EXISTE (push direto recusado com "protected branch hook declined").
 
+- **PERFIL NOVO: ARQUITETO / ENGENHEIRO (2026-09-07) — SQL PENDENTE.**
+  `/migrations/2026-09-07-role-arquiteto.sql` **precisa rodar**: sem ele o
+  cadastro do papel novo falha de duas formas SILENCIOSAS — o
+  `profiles_user_type_check` recusa o valor (a trigger engole a exceção com
+  RAISE WARNING e a conta nasce SEM perfil) e a `handle_new_user` tem uma
+  lista branca própria que **rebaixa o desconhecido pra 'cliente'** (a pessoa
+  escolhe Arquiteto e vira Cliente, sem aviso). O arquivo termina com uma
+  consulta de conferência de 2 linhas.
+  - **É os DOIS lados (decisão do usuário):** presta serviço (busca,
+    portfólio, orçamento, avaliação) E contrata (avalia obra, tabela ABRAPP,
+    lista na loja). Persona = **Seu Zé**.
+  - **`engenheiro` é sinônimo de `arquiteto`**, igual `funileiro` é de
+    `automotivo`: mesmo papel, `profession` diferente.
+  - **`lib/roles.ts` virou a FONTE ÚNICA dos papéis.** A lista de "quem é
+    profissional" estava copiada à mão em NOVE arquivos e as cópias já
+    divergiam (umas sem `funileiro` — quem era funileiro perdia o CTA de
+    orçamento no próprio perfil; o rótulo do automotivo era um no cadastro e
+    outro no onboarding do OAuth). Papel novo = uma entrada lá.
+  - O portal duplica a lista (é JSX sem imports) e o `?v=`/SRI foram
+    refeitos. Aba nova "Arquitetos / Engenheiros".
+
+- **CADASTRO PEDIA TUDO DE NOVO (2026-09-07).** Quem terminava o cadastro por
+  e-mail caía no `/completar-perfil` e redigitava nome, telefone, cidade e
+  data. Duas causas, as duas corrigidas:
+  - **A trigger pode ser a versão velha.** `isProfileComplete` exige categoria
+    E @tag; a `handle_new_user` anterior a 18/06/2026 gravava só
+    name/user_type/role, então o perfil nascia SEM tag e o guarda do AppShell
+    mandava a pessoa recém-cadastrada pro formulário. Não dá pra saber daqui
+    qual versão está viva — então o `signUp` **reafirma** name/tag/user_type/
+    phone no UPDATE pós-signup: no-op se a trigger gravou, conserto se não.
+  - **O formulário só preenchia o nome.** Agora preenche telefone, UF, cidade,
+    data e **a categoria** — esta era a pior: nascia sempre em "pintor", então
+    quem se cadastrou como grafiteiro e não reparasse **trocava o próprio
+    papel** ao salvar.
+
 - **APPLE REJEITOU A BUILD 17 (2.1 App Completeness) — a tela "Sem conexão"
   no login social (2026-09-07).** No iPad da revisão, tocar em "Continuar com
   Apple" pintava o `offline.html` em tela cheia, com a internet funcionando.

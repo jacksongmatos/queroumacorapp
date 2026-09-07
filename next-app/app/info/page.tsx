@@ -108,7 +108,7 @@ const ITEMS: InfoItem[] = [
   {
     icon: 'ℹ️',
     title: 'Sobre o QueroUmaCor',
-    body: 'Conectamos clientes aos melhores profissionais de pintura — pintores, grafiteiros, muralistas, pintores automotivos e funileiros.',
+    body: 'Conectamos clientes aos melhores profissionais de pintura — pintores, grafiteiros, muralistas, pintores automotivos, funileiros, arquitetos e engenheiros.',
     actions: [{ label: 'Saiba mais', href: '/info/sobre' }],
   },
   // Card "Excluir minha conta" agora é o componente client

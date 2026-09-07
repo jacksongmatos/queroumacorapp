@@ -156,6 +156,44 @@ describe('signUp', () => {
     expect(r).toEqual({ userId: 'user-xyz' });
   });
 
+  it('reafirma nome, @tag e categoria no perfil depois de criar a conta', async () => {
+    // 07/09/2026 — o "cadastro em duas etapas": quem terminava o cadastro caía
+    // no /completar-perfil e digitava tudo de novo. Acontece quando o perfil
+    // nasce sem @tag, e nasce sem @tag quando a `handle_new_user` viva no
+    // banco é a versão anterior a 18/06 (que só gravava name/user_type/role).
+    // Não dá pra checar daqui qual versão está no ar — então o cliente
+    // reafirma a identidade, que é no-op quando a trigger já gravou.
+    const profiles = { selectResult: { data: [], error: null } } as {
+      selectResult: { data: unknown[] | null; error: null };
+      lastUpdate?: { table: string; payload: Record<string, unknown> };
+    };
+    const client = makeFakeClient({
+      tables: {
+        profiles_public: { selectResult: { data: [], error: null } },
+        profiles,
+      },
+      signUp: { data: { user: { id: 'user-xyz' } } },
+    });
+    __setSupabaseForTests(client);
+
+    await signUp({
+      email: 'a@b.co',
+      password: 'senha1234',
+      name: 'Ana Arquiteta',
+      tag: 'AnaArq',
+      phone: '5511959765031',
+      userType: 'arquiteto',
+    });
+
+    const payload = profiles.lastUpdate?.payload as Record<string, unknown>;
+    expect(payload).toBeTruthy();
+    expect(payload.name).toBe('Ana Arquiteta');
+    // @tag vai normalizada — é assim que a busca e o link de perfil comparam.
+    expect(payload.tag).toBe('anaarq');
+    expect(payload.user_type).toBe('arquiteto');
+    expect(payload.phone).toBe('5511959765031');
+  });
+
   it('tag duplicada → ConflictError, sem chamar auth.signUp', async () => {
     const client = makeFakeClient({
       tables: {

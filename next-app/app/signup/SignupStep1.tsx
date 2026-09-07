@@ -8,6 +8,7 @@
 // 'automotivo', mas o vanilla expõe a opção; mantemos paridade.
 import { useState } from 'react';
 import type { UserRole } from '@/lib/types';
+import { ROLE_OPTIONS } from '@/lib/roles';
 
 export interface Step1Data {
   userType: UserRole;
@@ -20,12 +21,14 @@ interface RoleOption {
   description: string;
 }
 
-const ROLES: RoleOption[] = [
-  { value: 'pintor', icon: '🖌️', label: 'Pintor', description: 'Pintura residencial e comercial' },
-  { value: 'grafiteiro', icon: '🎨', label: 'Grafiteiro / Muralista', description: 'Arte urbana, murais, painéis e arte pra venda' },
-  { value: 'automotivo', icon: '🚗', label: 'Funileiro / Estética Automotiva', description: 'Funilaria, pintura, envelopamento, polimento' },
-  { value: 'cliente', icon: '🏠', label: 'Cliente', description: 'Encontrar profissionais e pedir orçamentos' },
-];
+// Derivado de `lib/roles` — papel novo entra lá, e aparece aqui sozinho.
+// Antes esta lista era escrita à mão e envelhecia junto com outras oito.
+const ROLES: RoleOption[] = ROLE_OPTIONS.map((o) => ({
+  value: o.value as UserRole,
+  icon: o.icon,
+  label: o.label,
+  description: o.descricao,
+}));
 
 interface Props {
   initialValue?: UserRole;

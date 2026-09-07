@@ -26,6 +26,7 @@ import { CommentForm } from '@/components/CommentForm';
 import { useAuth } from '@/components/AuthProvider';
 import { useDialog } from '@/components/Dialog';
 import { useLike, useSavedPosts, useComments } from '@/lib/hooks/usePostInteractions';
+import { roleBadge } from '@/lib/roles';
 import { useBlockMutations } from '@/lib/hooks/useBlocks';
 import { useAuthGate } from '@/components/AuthGate';
 import { renderRichText } from '@/lib/utils/richText';
@@ -55,12 +56,7 @@ const BRL_FMT = new Intl.NumberFormat('pt-BR', {
 
 // Área de atuação exibida embaixo do nome no card (pedido do QA). Só pra
 // roles profissionais — cliente/admin/vazio não mostra.
-const ROLE_LABEL: Record<string, string> = {
-  pintor: 'Pintor',
-  grafiteiro: 'Grafiteiro',
-  automotivo: 'Funileiro / Automotivo',
-  funileiro: 'Funileiro / Automotivo',
-};
+// O rótulo vem de `lib/roles` (roleBadge) — fonte única dos papéis.
 
 function displayName(profile: FeedPost['profile']): string {
   const raw = (profile.name || '').trim();
@@ -96,7 +92,7 @@ function PostCardInner({ post, muted, onToggleMute }: PostCardProps) {
   const profileHref = post.profile.tag
     ? `/perfil/${post.profile.tag}`
     : `/perfil/${post.user_id}`;
-  const roleText = ROLE_LABEL[String(post.profile.role ?? '').toLowerCase()] ?? null;
+  const roleText = roleBadge(post.profile.role) || null;
 
   // Hidrata useLike com `{liked, count}` que já veio do feed (RPC get_feed_v2
   // ou enrichment legacy). Evita 2 round-trips extra (hasLiked + countLikes)

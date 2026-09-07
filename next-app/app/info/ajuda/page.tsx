@@ -14,7 +14,7 @@ export default function AjudaPage() {
     <InfoSubPage title="Central de Ajuda">
       <FaqItem
         q="O que é o QueroUmaCor?"
-        a="É um aplicativo que conecta clientes a profissionais de pintura — pintores residenciais e comerciais, grafiteiros e muralistas, pintores automotivos e funileiros. Você encontra profissionais perto de você, vê portfólios, pede orçamentos e conversa pelo chat."
+        a="É um aplicativo que conecta clientes a profissionais de pintura — pintores residenciais e comerciais, grafiteiros e muralistas, pintores automotivos, funileiros, arquitetos e engenheiros. Você encontra profissionais perto de você, vê portfólios, pede orçamentos e conversa pelo chat."
       />
       <FaqItem
         q="Como faço meu cadastro?"
