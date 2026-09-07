@@ -19,7 +19,7 @@ import {
 
 afterEach(() => {
   delete process.env.WHATSAPP_TEMPLATE_ABORDAGEM;
-  delete process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO;
+  delete process.env.WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE;
 });
 
 describe('primeiroNome', () => {
@@ -99,16 +99,16 @@ describe('escolherTemplate', () => {
   });
 });
 
-describe('valorDeVariavel ({{2}} bairro, {{3}} segmento)', () => {
+describe('valorDeVariavel ({{2}} cidade, {{3}} segmento)', () => {
   it('aceita o dado normal, normalizando espaço', () => {
-    expect(valorDeVariavel('  Jardim   dos Pimentas ')).toBe('Jardim dos Pimentas');
+    expect(valorDeVariavel('  São   Paulo ')).toBe('São Paulo');
   });
 
-  it('recusa vazio e valor curto demais pra ser bairro', () => {
+  it('recusa vazio e valor curto demais pra ser cidade', () => {
     for (const v of ['', '   ', 'a', null, undefined]) expect(valorDeVariavel(v)).toBeNull();
   });
 
-  // A base importada usa marcador no lugar do dado. "aqui no n/a" chega
+  // A base importada usa marcador no lugar do dado. "atende em n/a" chega
   // assim mesmo na tela do cliente.
   it('recusa os marcadores de "sem dado"', () => {
     for (const v of ['n/a', 'N/A', 'não informado', 'nao informado', 'indefinido', '—', '-']) {
@@ -117,27 +117,27 @@ describe('valorDeVariavel ({{2}} bairro, {{3}} segmento)', () => {
   });
 });
 
-describe('escolherTemplate com bairro e segmento', () => {
+describe('escolherTemplate com cidade e segmento', () => {
   it('sem a env, NÃO usa o de 3 variáveis (template não aprovado = 132001)', () => {
-    const e = escolherTemplate('Beatris', undefined, { bairro: 'Centro', segmento: 'Pintura' });
+    const e = escolherTemplate('Beatris', undefined, { cidade: 'Guarulhos', segmento: 'pintura residencial' });
     expect(e.template).toBe(TEMPLATE_COM_NOME);
     expect(e.components?.[0]?.parameters).toHaveLength(1);
   });
 
-  it('com a env e os dois dados, manda nome + bairro + segmento', () => {
-    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+  it('com a env e os dois dados, manda nome + cidade + segmento', () => {
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE = 'calicolors_abordagem_v2';
     const e = escolherTemplate('Beatris Porsebon', undefined, {
-      bairro: 'Jardim dos Pimentas',
-      segmento: 'Pintura',
+      cidade: 'Guarulhos',
+      segmento: 'pintura residencial',
     });
-    expect(e.template).toBe('calicolors_bairro');
+    expect(e.template).toBe('calicolors_abordagem_v2');
     expect(e.components).toEqual([
       {
         type: 'body',
         parameters: [
           { type: 'text', text: 'Beatris' },
-          { type: 'text', text: 'Jardim dos Pimentas' },
-          { type: 'text', text: 'Pintura' },
+          { type: 'text', text: 'Guarulhos' },
+          { type: 'text', text: 'pintura residencial' },
         ],
       },
     ]);
@@ -146,11 +146,11 @@ describe('escolherTemplate com bairro e segmento', () => {
   // Meia personalização não existe: {{2}} vazio é envio recusado ou frase
   // quebrada na tela de quem recebe.
   it('faltando UM dos dois, desce pro de nome', () => {
-    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE = 'calicolors_abordagem_v2';
     for (const dados of [
-      { bairro: 'Centro', segmento: '' },
-      { bairro: null, segmento: 'Pintura' },
-      { bairro: 'Centro', segmento: 'n/a' },
+      { cidade: 'Guarulhos', segmento: '' },
+      { cidade: null, segmento: 'pintura residencial' },
+      { cidade: 'Guarulhos', segmento: 'n/a' },
       {},
     ]) {
       const e = escolherTemplate('Beatris', undefined, dados);
@@ -160,22 +160,22 @@ describe('escolherTemplate com bairro e segmento', () => {
   });
 
   it('sem nome, os outros dois não salvam — vai o fixo', () => {
-    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
-    const e = escolherTemplate(null, undefined, { bairro: 'Centro', segmento: 'Pintura' });
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE = 'calicolors_abordagem_v2';
+    const e = escolherTemplate(null, undefined, { cidade: 'Guarulhos', segmento: 'pintura residencial' });
     expect(e.template).toBe(TEMPLATE_SEM_NOME);
     expect(e.components).toBeUndefined();
   });
 
   it('template escolhido na tela manda mais que o degrau automático', () => {
-    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
-    const e = escolherTemplate('Beatris', 'outro', { bairro: 'Centro', segmento: 'Pintura' });
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE = 'calicolors_abordagem_v2';
+    const e = escolherTemplate('Beatris', 'outro', { cidade: 'Guarulhos', segmento: 'pintura residencial' });
     expect(e.template).toBe('outro');
     expect(e.components?.[0]?.parameters).toHaveLength(1);
   });
 
   it('nunca monta parameters com texto vazio, nem no de 3 variáveis', () => {
-    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_BAIRRO = 'calicolors_bairro';
-    const e = escolherTemplate('Beatris', undefined, { bairro: 'Centro', segmento: 'Pintura' });
+    process.env.WHATSAPP_TEMPLATE_ABORDAGEM_CIDADE = 'calicolors_abordagem_v2';
+    const e = escolherTemplate('Beatris', undefined, { cidade: 'Guarulhos', segmento: 'pintura residencial' });
     for (const p of e.components?.[0]?.parameters ?? []) {
       expect(String((p as { text?: string }).text ?? '')).not.toBe('');
     }
