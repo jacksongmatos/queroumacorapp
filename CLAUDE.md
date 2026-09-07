@@ -301,6 +301,17 @@
   - O portal duplica a lista (é JSX sem imports) e o `?v=`/SRI foram
     refeitos. Aba nova "Arquitetos / Engenheiros".
 
+- **SÃO DOIS CHECKs DE PAPEL, e eu só corrigi um (2026-09-07).**
+  `public.profiles` tem `profiles_user_type_check` **e**
+  `profiles_role_check`. A migration do arquiteto arrumou o primeiro; o
+  segundo barrava `role='arquiteto'` com 23514 e — como a trigger engole a
+  exceção — o cadastro de arquiteto nascia SEM PERFIL, calado. Complemento em
+  `/migrations/2026-09-07-role-check-arquiteto.sql`.
+  - **A conferência que eu escrevi perguntava por UM nome conhecido e voltou
+    `true`** enquanto o cadastro seguia quebrado — confiança falsa.
+    **REGRA: conferência de constraint LISTA (`pg_constraint` da tabela), não
+    pergunta por nome.** Nome só cobre o que você já sabe que existe.
+
 - **CAUSA RAIZ DO CADASTRO QUEBRADO: `profiles.username` era NOT NULL
   (2026-09-07). SQL em `/migrations/2026-09-07-username-not-null.sql`.**
   Provado no SQL Editor, DUAS vezes (a segunda com a @tag preenchida):
