@@ -14,7 +14,7 @@ import {
   getServiceKey,
   getSupabaseUrl,
   getToken,
-  isAdminEmail,
+  ensureAdminEmail,
   jsonResponse,
   rateLimitResponse,
   readBody,
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     const token = getToken(request, body);
     const { callerId, email } = await verifyAdminToken(token);
     if (!callerId) throw new ServiceError('token inválido', 401);
-    if (!isAdminEmail(email)) throw new ServiceError('não autorizado (email não admin)', 403);
+    ensureAdminEmail(email);
 
     const rl = await checkRateLimit({ userId: callerId, endpoint: 'wa-suggest', limit: 60 });
     if (!rl.allowed) return rateLimitResponse(rl);
