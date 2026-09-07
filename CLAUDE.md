@@ -271,14 +271,23 @@
   - As sete funções `editUser*` foram APAGADAS junto. Código morto que ninguém
     chama é pior que arquivo a menos.
 
-- **PERFIL NOVO: ARQUITETO / ENGENHEIRO (2026-09-07) — SQL PENDENTE.**
-  `/migrations/2026-09-07-role-arquiteto.sql` **precisa rodar**: sem ele o
-  cadastro do papel novo falha de duas formas SILENCIOSAS — o
-  `profiles_user_type_check` recusa o valor (a trigger engole a exceção com
-  RAISE WARNING e a conta nasce SEM perfil) e a `handle_new_user` tem uma
-  lista branca própria que **rebaixa o desconhecido pra 'cliente'** (a pessoa
-  escolhe Arquiteto e vira Cliente, sem aviso). O arquivo termina com uma
-  consulta de conferência de 2 linhas.
+- **PERFIL NOVO: ARQUITETO / ENGENHEIRO (2026-09-07) — SQL JÁ EXECUTADO no
+  Supabase (2026-09-07, informado pelo usuário). Não pedir pra rodar de novo.**
+  `/migrations/2026-09-07-role-arquiteto.sql` fazia duas coisas, e as duas
+  eram obrigatórias porque falhavam em SILÊNCIO: o `profiles_user_type_check`
+  recusava o valor (a trigger engole a exceção com RAISE WARNING e a conta
+  nascia SEM perfil) e a `handle_new_user` tem lista branca própria que
+  **rebaixa o papel desconhecido pra 'cliente'** (a pessoa escolhia Arquiteto
+  e virava Cliente, sem aviso).
+  - **O bloco 2 recriou a `handle_new_user`, que atende TODO cadastro** — não
+    só o do papel novo. É superconjunto da versão de 18/06 (mesmos campos,
+    mais os sinônimos e o `LOWER` na @tag). Reconferir por
+    `/migrations/2026-09-05-conferencia-pendencias.sql` antes de afirmar
+    qualquer coisa sobre ela.
+  - **Falta a prova de aparelho:** ninguém cadastrou um arquiteto de verdade
+    ainda. O que fecha isso é um cadastro ponta a ponta escolhendo
+    "Arquiteto / Engenheiro" e conferindo que o perfil sai com esse papel (e
+    não 'cliente').
   - **É os DOIS lados (decisão do usuário):** presta serviço (busca,
     portfólio, orçamento, avaliação) E contrata (avalia obra, tabela ABRAPP,
     lista na loja). Persona = **Seu Zé**.
