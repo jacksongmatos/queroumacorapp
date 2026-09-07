@@ -301,6 +301,29 @@
   - O portal duplica a lista (é JSX sem imports) e o `?v=`/SRI foram
     refeitos. Aba nova "Arquitetos / Engenheiros".
 
+- **O LOOP DO /completar-perfil: "clica em Concluir e volta" (2026-09-07) —
+  a peça que FECHOU o caso.** Depois de três correções erradas, o sintoma que
+  resolveu a investigação foi este: o botão salva e a tela volta. Isso só
+  acontece de um jeito — **a linha de `profiles` não existe**.
+  - **`update` no Supabase que não acha linha é SUCESSO com zero linhas**, não
+    erro. Então: a pessoa preenche, o `update` "dá certo", nada é gravado,
+    `isProfileComplete` continua falso e o guarda do AppShell traz de volta.
+    Para sempre, e sem uma única mensagem de erro.
+  - **Por que a linha some:** a `handle_new_user` engole a própria exceção com
+    `RAISE WARNING`. Qualquer coisa que faça o INSERT dela falhar (um CHECK, a
+    UNIQUE da @tag, uma coluna que sumiu) deixa a conta de auth criada e o
+    perfil não. O app nunca fica sabendo.
+  - **`updateProfile` agora CRIA a linha** quando o UPDATE não acha nenhuma (a
+    policy "Users can insert own profile" permite o dono criar a própria). Se
+    o INSERT também falhar, **ESTOURA** — erro visível é melhor que loop mudo.
+    Isso cobre quem se cadastra agora E as contas que já ficaram presas.
+  - **As três "correções" anteriores não eram inúteis, mas nenhuma era A
+    causa**: reafirmar a identidade no signup, preencher o formulário e criar
+    a linha no signup só ajudam quem passa PELO signup — quem já estava preso
+    continuava preso, e o loop era mudo dos dois lados.
+  - **REGRA (a mesma do `signUp`, agora em toda escrita de perfil): onde a
+    identidade importa, `update` sem `.select()` é escrita sem confirmação.**
+
 - **QUAL BUILD O APARELHO ESTÁ RODANDO — `/diag` responde (2026-09-07).** A
   pergunta apareceu em TRÊS investigações (o 500, a rejeição da Apple, o
   cadastro duplicado) e nunca teve resposta: testar depois de um deploy era
