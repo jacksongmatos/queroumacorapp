@@ -35,9 +35,25 @@ CREATE POLICY posts_owner_update ON public.posts FOR UPDATE TO authenticated USI
 
 -- ── PASSO 5 — reconferir: rode o PASSO 1 de novo, tem que vir true ─────
 
--- ── PASSO 6 — opcional: a sua conta é admin PRO BANCO? ─────────────────
--- O app decide o que mostrar por is_admin/role/portal_access do profile; o
--- banco decide por is_portal_admin(). Divergindo, o botão aparece e o
--- delete devolve zero linhas — que agora é erro visível na tela, não
+-- ── PASSO 6 — a sua conta é admin PRO BANCO? ───────────────────────────
+-- O app decide o que MOSTRAR por is_admin/role/portal_access do profile; o
+-- banco decide quem PODE por is_portal_admin(). Divergindo, o botão aparece
+-- e o delete devolve zero linhas — que agora é erro visível na tela, não
 -- silêncio, mas o motivo é este.
-SELECT public.is_portal_admin() AS sou_admin_pro_banco;
+--
+-- ⚠️ NÃO rode `SELECT public.is_portal_admin();` aqui pra responder isso.
+-- Foi o que escrevi na 1ª versão e é CHECAGEM ERRADA: no SQL Editor a
+-- sessão é `postgres`/`service_role`, `auth.uid()` é NULL, e a função
+-- devolve false MESMO com a conta sendo admin. Voltou false em 07/09 e não
+-- provou nada. Checagem que responde false pra sempre é pior que checagem
+-- nenhuma — ensina a ignorar a checagem (a lição do profiles_role_check).
+--
+-- O jeito certo é olhar o que a função exige e depois a linha do perfil.
+-- `to_jsonb` porque `profiles.is_admin` pode não existir na tabela real, e
+-- selecionar coluna ausente aborta com 42703 em vez de devolver NULL.
+SELECT prosrc FROM pg_proc WHERE proname = 'is_portal_admin';
+
+SELECT id, to_jsonb(p)->>'email' AS email, to_jsonb(p)->>'role' AS role, to_jsonb(p)->>'user_type' AS user_type, to_jsonb(p)->>'is_admin' AS is_admin, to_jsonb(p)->>'portal_access' AS portal_access FROM public.profiles p WHERE to_jsonb(p)->>'email' = 'jackson.guerra@gmail.com';
+
+-- A prova final, essa sim, é no APARELHO: entrar como admin, abrir o menu
+-- de um post de outra pessoa e apagar. Passou = a corrente inteira funciona.
