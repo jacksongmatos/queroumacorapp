@@ -15,6 +15,17 @@ export interface VariavelDeTemplate {
   exemplo: string | null;
 }
 
+/**
+ * Um botao do template. A Meta so aceita botao CADASTRADO — nao da pra
+ * inventar na hora do envio —, entao aqui ele e so leitura: existe pra
+ * previa mostrar o que a pessoa realmente ve embaixo da mensagem.
+ */
+export interface BotaoDeTemplate {
+  /** QUICK_REPLY | URL | PHONE_NUMBER | COPY_CODE | ... */
+  tipo: string;
+  texto: string;
+}
+
 export interface TemplateAprovado {
   nome: string;
   idioma: string;
@@ -23,8 +34,16 @@ export interface TemplateAprovado {
   /** Corpo com os `{{n}}` ainda no lugar — o portal substitui pra prévia. */
   corpo: string | null;
   cabecalho: string | null;
+  /**
+   * Formato do cabecalho: TEXT quando ha texto, IMAGE/VIDEO/DOCUMENT/LOCATION
+   * quando o topo e midia. Sem isso a previa some com o topo inteiro num
+   * template de imagem — e o operador acha que o template nao tem cabecalho,
+   * quando na verdade a pessoa recebe uma foto que a tela nunca mostrou.
+   */
+  formatoCabecalho: string | null;
   rodape: string | null;
   variaveis: VariavelDeTemplate[];
+  botoes: BotaoDeTemplate[];
 }
 
 /**
@@ -65,8 +84,10 @@ export function normalizarTemplate(bruto: unknown): TemplateAprovado | null {
 
   let corpo: string | null = null;
   let cabecalho: string | null = null;
+  let formatoCabecalho: string | null = null;
   let rodape: string | null = null;
   let exemplos: string[] = [];
+  let botoes: BotaoDeTemplate[] = [];
 
   if (Array.isArray(t.components)) {
     for (const c of t.components as Array<Record<string, unknown>>) {
@@ -79,10 +100,19 @@ export function normalizarTemplate(bruto: unknown): TemplateAprovado | null {
         if (Array.isArray(ex) && Array.isArray(ex[0])) {
           exemplos = (ex[0] as unknown[]).map((v) => String(v));
         }
-      } else if (tipo === 'HEADER' && texto) {
-        cabecalho = texto;
+      } else if (tipo === 'HEADER') {
+        // O `format` vem mesmo quando o cabecalho e midia (sem `text`).
+        formatoCabecalho = String(c?.format ?? (texto ? 'TEXT' : '')).toUpperCase() || null;
+        if (texto) cabecalho = texto;
       } else if (tipo === 'FOOTER' && texto) {
         rodape = texto;
+      } else if (tipo === 'BUTTONS' && Array.isArray(c?.buttons)) {
+        botoes = (c.buttons as Array<Record<string, unknown>>)
+          .map((b) => ({
+            tipo: String(b?.type ?? '').toUpperCase(),
+            texto: typeof b?.text === 'string' ? b.text : '',
+          }))
+          .filter((b) => b.texto);
       }
     }
   }
@@ -94,8 +124,10 @@ export function normalizarTemplate(bruto: unknown): TemplateAprovado | null {
     status: typeof t.status === 'string' ? t.status : 'UNKNOWN',
     corpo,
     cabecalho,
+    formatoCabecalho,
     rodape,
     variaveis: extrairVariaveis(corpo, exemplos),
+    botoes,
   };
 }
 
