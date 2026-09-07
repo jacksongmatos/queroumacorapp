@@ -284,10 +284,10 @@
     mais os sinônimos e o `LOWER` na @tag). Reconferir por
     `/migrations/2026-09-05-conferencia-pendencias.sql` antes de afirmar
     qualquer coisa sobre ela.
-  - **Falta a prova de aparelho:** ninguém cadastrou um arquiteto de verdade
-    ainda. O que fecha isso é um cadastro ponta a ponta escolhendo
-    "Arquiteto / Engenheiro" e conferindo que o perfil sai com esse papel (e
-    não 'cliente').
+  - **PROVADO NO APARELHO (2026-09-07):** cadastro ponta a ponta escolhendo
+    "Arquiteto / Engenheiro" funcionou. Só passou a funcionar depois dos DOIS
+    CHECKs e do NOT NULL do `username` — ou seja, quando eu dei o perfil como
+    pronto na primeira vez, ele não estava.
   - **É os DOIS lados (decisão do usuário):** presta serviço (busca,
     portfólio, orçamento, avaliação) E contrata (avalia obra, tabela ABRAPP,
     lista na loja). Persona = **Seu Zé**.
@@ -311,6 +311,14 @@
     `true`** enquanto o cadastro seguia quebrado — confiança falsa.
     **REGRA: conferência de constraint LISTA (`pg_constraint` da tabela), não
     pergunta por nome.** Nome só cobre o que você já sabe que existe.
+
+- **CADASTRO CONSERTADO E CONFIRMADO NO APARELHO (2026-09-07).** Cadastro
+  novo entra direto no feed, sem passar pelo `/completar-perfil`, e o
+  `contas_sem_perfil` do backfill foi a **0** — todas as contas que ficaram
+  presas no loop voltaram. Foram TRÊS defeitos de schema empilhados, cada um
+  descoberto só depois de derrubar o anterior: `username` NOT NULL,
+  `profiles_role_check` sem 'arquiteto' e `profiles_user_type_check` sem
+  'arquiteto'.
 
 - **CAUSA RAIZ DO CADASTRO QUEBRADO: `profiles.username` era NOT NULL
   (2026-09-07). SQL em `/migrations/2026-09-07-username-not-null.sql`.**
