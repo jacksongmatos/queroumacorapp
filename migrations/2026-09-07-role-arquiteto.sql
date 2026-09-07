@@ -71,7 +71,16 @@ BEGIN
   RETURN NEW;
 END $$;
 
+-- ATENÇÃO (07/09/2026): ESTE ARQUIVO FICOU PELA METADE. A tabela tem DOIS
+-- CHECKs de papel — `profiles_user_type_check` (corrigido aqui) e
+-- `profiles_role_check` (esquecido). O segundo barrava `role='arquiteto'` e,
+-- como a trigger engole a exceção, o cadastro de arquiteto nascia sem perfil.
+-- O complemento está em `/migrations/2026-09-07-role-check-arquiteto.sql`.
+--
 -- 3) Conferência (só lê). `ok` true nas duas linhas = pode cadastrar.
+--    NOTA: esta conferência pergunta por UM nome de constraint e por isso
+--    voltou `true` enquanto o cadastro continuava quebrado. Preferir a
+--    listagem completa do arquivo complementar.
 SELECT 'constraint aceita arquiteto' AS item,
        EXISTS (SELECT 1 FROM pg_constraint
                 WHERE conname='profiles_user_type_check'
