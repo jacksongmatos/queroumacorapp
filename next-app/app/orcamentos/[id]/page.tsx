@@ -33,6 +33,13 @@ import type { Quote } from '@/lib/types';
 import { QuotePdfSheet } from './QuotePdfSheet';
 import { urlParaBaixar, waMeTarget } from '@/lib/pdf/quotePdf';
 import { abrirLinkExterno } from '@/lib/native';
+import {
+  quantidadeDe,
+  servicosDoQuoteData,
+  subtotalDoServico,
+  valorUnitarioDe,
+} from '@/lib/orcamentoServicos';
+import { unidadeCurta } from '@/lib/services/priceTable';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -267,6 +274,8 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
     | { itens?: Array<{ desc?: string; valor?: string }>; pagamento?: string[] }
     | null
     | undefined;
+  // Itens escolhidos na Tabela ABRAPP (ou avulsos) pelo tile Orçamento.
+  const servicos = servicosDoQuoteData(data.quote_data);
 
   // ─── action handlers ──────────────────────────────────────────────
 
@@ -551,6 +560,36 @@ export default function OrcamentoDetailPage({ params }: PageProps) {
             {formatBRL(data.price)}
           </span>
         </div>
+
+        {servicos.length > 0 ? (
+          <div className="mt-4">
+            <h3 className="text-xs font-bold uppercase text-[color:var(--color-muted)] mb-2">
+              Serviços
+            </h3>
+            <ul className="text-sm divide-y divide-[color:var(--color-border)]">
+              {servicos.map((s) => {
+                const v = valorUnitarioDe(s);
+                const sub = subtotalDoServico(s);
+                return (
+                  <li key={s.id} className="flex justify-between gap-3 py-1.5">
+                    <span className="min-w-0">
+                      <span className="block font-semibold">{s.servico}</span>
+                      <span className="block text-xs text-[color:var(--color-muted)]">
+                        {quantidadeDe(s)} {unidadeCurta(s.unidade)}
+                        {v !== null ? ` × ${formatBRL(v)}` : ''}
+                      </span>
+                    </span>
+                    <span className="whitespace-nowrap font-semibold">
+                      {sub !== null ? formatBRL(sub) : (
+                        <span className="text-[color:var(--color-muted)] font-normal">a definir</span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
 
         {qd && Array.isArray(qd.itens) && qd.itens.length > 0 ? (
           <div className="mt-4">

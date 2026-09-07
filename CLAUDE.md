@@ -1,5 +1,36 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **ORÇAMENTO (Crie e envie) VIROU LISTA DE SERVIÇOS DA TABELA ABRAPP
+  (2026-09-07, pedido do usuário). SEM SQL.** O `QuoteWizard` ganhou a seção
+  **🧾 Serviços**: o pintor adiciona quantos itens quiser da Tabela de Preços
+  (o MESMO catálogo do tile, via `usePriceTable`/`price_table_items`) ou um
+  avulso, com quantidade e valor por unidade. **O valor NASCE VAZIO e a
+  sugestão da tabela (mín/média/máx) fica do lado, com "Usar média"** — a
+  tabela sugere, quem assina é o pintor; preencher sozinho mandaria preço de
+  tabela sem decisão.
+  - **Valor final: digitado > soma dos serviços preenchidos > IA.** A soma
+    "com a sugestão da tabela nos que faltam" aparece como dica com botão
+    "Usar", nunca entra sozinha no campo. O campo passou a ler por `parseBRL`
+    (o botão escreve "1.616,00"; `parseFloat` leria 1,616 — regra P1).
+  - **Lógica pura em `lib/orcamentoServicos.ts`** (testada em
+    `__tests__/orcamentoServicos.test.ts`): quantidade vazia vale 1, valor
+    vazio é `null` (não zero), subtotal a centavo, `totaisDosServicos` separa
+    `preenchido` × `sugerido`, e `servicosDoQuoteData` lê o jsonb descartando
+    linha malformada. **Tela, PDF e pipeline usam a MESMA conta.**
+  - Gravado em **`quotes.quote_data.servicos`** (jsonb já existente — por
+    isso sem SQL). Aparece no preview do wizard, no `QuotePdfSheet`, no
+    `quotePdf.ts` (jsPDF) e no detalhe `/orcamentos/[id]`. O `itens`
+    legado (`{desc, valor}`) do vanilla continua sendo renderizado à parte.
+  - **O seletor é modal em portal com `zIndex: 1100`**, não lista inline: o
+    wizard vive dentro de um BottomSheet (z-1000) e 328 itens ali seria
+    rolagem dentro de rolagem. O campo "Acesso" do Espaço PRÉ-seleciona o
+    filtro de altura (`alturaDoAcesso`: andaime/suspensa → acima de 3 m).
+  - A tabela é de pintura, mas a seção aparece pra TODO papel que vê o tile
+    (grafiteiro, automotivo, arquiteto): pra eles serve o **"+ Avulso"**, e a
+    tabela segue sendo `SELECT` liberado pra `authenticated`.
+  - Serviço avulso sem nome BLOQUEIA o Gravar com toast, em vez de sumir em
+    silêncio (poderia estar precificado).
+
 - **ADMIN APAGA POST DE OUTRA PESSOA (2026-09-07) — SEM SQL PENDENTE.** O
   app já deixava o admin apagar COMENTÁRIO de qualquer um (Wave 9), mas não
   POST: mesma tela, duas regras pro mesmo ato de moderar. O que impedia era

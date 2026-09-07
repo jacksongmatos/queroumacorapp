@@ -16,6 +16,14 @@
 import type { Quote } from '@/lib/types';
 import { reportFailure } from '@/lib/utils/reportFailure';
 import { abrirLinkExterno } from '@/lib/native';
+import {
+  quantidadeDe,
+  servicosDoQuoteData,
+  subtotalDoServico,
+  valorUnitarioDe,
+} from '@/lib/orcamentoServicos';
+import { unidadeCurta } from '@/lib/services/priceTable';
+import { fmtBRL } from '@/lib/utils';
 
 /**
  * Texto que a fonte embutida do jsPDF consegue DESENHAR. A Helvetica dele
@@ -280,6 +288,56 @@ export async function generateQuotePdfBlob(
     doc.setLineWidth(0.15);
     doc.line(margin, cursorY + lines * 3.5 + 1, pageW - margin, cursorY + lines * 3.5 + 1);
     cursorY += lines * 3.5 + 3;
+  }
+
+  // ── SERVIÇOS (itens da Tabela ABRAPP / avulsos, do tile Orçamento) ────
+  const servicos = servicosDoQuoteData(qd);
+  if (servicos.length > 0) {
+    cursorY += 4;
+    if (cursorY > 250) {
+      doc.addPage();
+      cursorY = margin;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(MUTED);
+    doc.text('SERVIÇOS', margin, cursorY);
+    cursorY += 5;
+    const valorW = 32;
+    for (const s of servicos) {
+      if (cursorY > 270) {
+        doc.addPage();
+        cursorY = margin;
+      }
+      const v = valorUnitarioDe(s);
+      const sub = subtotalDoServico(s);
+      const nome = doc.splitTextToSize(
+        textoPdfSeguro(s.servico) || 'Serviço',
+        contentW - valorW - 2,
+      ) as string[];
+      const detalhe = textoPdfSeguro(
+        `${quantidadeDe(s)} ${unidadeCurta(s.unidade)}${v !== null ? ` × R$ ${fmtBRL(v)}` : ''}`,
+      );
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(INK);
+      doc.text(nome, margin, cursorY);
+      doc.text(
+        sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir',
+        pageW - margin,
+        cursorY,
+        { align: 'right' },
+      );
+      const yDetalhe = cursorY + nome.length * 3.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(MUTED);
+      doc.text(detalhe, margin, yDetalhe);
+      doc.setDrawColor(238, 238, 238);
+      doc.setLineWidth(0.15);
+      doc.line(margin, yDetalhe + 1.5, pageW - margin, yDetalhe + 1.5);
+      cursorY = yDetalhe + 4.5;
+    }
   }
 
   // ── ESCOPO TÉCNICO ────────────────────────────────────────────────────
