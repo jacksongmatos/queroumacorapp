@@ -6,12 +6,20 @@
 //     acesso (escada/andaime)
 //  2. **Material e técnica** — tipo de tinta, cor desejada, demãos,
 //     preparação (massa/lixa/selador/primer), EPI
-//  3. **Logística** — cidade/endereço, prazo em dias, incluir material?,
+//  3. **Serviços** — lista de itens escolhidos na Tabela de Preços da ABRAPP
+//     (o mesmo catálogo do tile "Tabela de Preços") ou avulsos; quantidade +
+//     valor por unidade, que NASCE VAZIO com a sugestão da tabela do lado.
+//     Lógica pura em `lib/orcamentoServicos.ts`; UI em `ServicosDoOrcamento`.
+//  4. **Logística** — cidade/endereço, prazo em dias, incluir material?,
 //     incluir mão de obra?, garantia (% retoques)
-//  4. **IA** — Sugerir escopo (escreve técnico) + Sugerir preço (R$)
+//  5. **IA** — Sugerir escopo (escreve técnico) + Sugerir preço (R$)
 //
 // Tudo isso vira o `description` enviado pro /api/chat-ai (Seu Zé escopo) e
 // /api/pricing-suggest. Quanto mais campos preenchidos, melhor a sugestão.
+//
+// Valor final: o que a pessoa digitou vence; sem digitar, vale a soma dos
+// serviços preenchidos; sem nada disso, a sugestão da IA. A soma com a
+// sugestão da tabela aparece como dica, nunca entra sozinha no campo.
 
 'use client';
 
@@ -33,6 +41,17 @@ import {
   suggestPrice,
   type SuggestPriceResult,
 } from '@/lib/services/aiChat';
+import {
+  descreverServico,
+  quantidadeDe,
+  subtotalDoServico,
+  totaisDosServicos,
+  valorUnitarioDe,
+  type ServicoDoOrcamento,
+} from '@/lib/orcamentoServicos';
+import { unidadeCurta } from '@/lib/services/priceTable';
+import { fmtBRL, parseBRL } from '@/lib/utils';
+import { ServicosDoOrcamento } from './ServicosDoOrcamento';
 
 interface FormState {
   // Cliente
@@ -50,6 +69,8 @@ interface FormState {
   colorWant: string; // cor/paleta desejada
   coats: string; // 1/2/3 demãos
   prep: string[]; // multiselect: massa, lixa, selador, primer
+  // Serviços (itens da Tabela ABRAPP ou avulsos) — gravados em quote_data.servicos
+  servicos: ServicoDoOrcamento[];
   // Logística
   city: string;
   durationDays: string;
@@ -127,6 +148,7 @@ export function QuoteWizard() {
     colorWant: '',
     coats: '2',
     prep: ['Massa corrida', 'Lixamento'],
+    servicos: [],
     city: '',
     durationDays: '',
     includeMaterial: true,
@@ -155,6 +177,8 @@ export function QuoteWizard() {
       form.colorWant && `Cor desejada: ${form.colorWant}`,
       `Demãos: ${form.coats}`,
       form.prep.length > 0 && `Preparação: ${form.prep.join(', ')}`,
+      form.servicos.length > 0 &&
+        `Serviços:\n${form.servicos.map((s) => `- ${descreverServico(s)}`).join('\n')}`,
       form.city && `Cidade: ${form.city}`,
       form.durationDays && `Prazo: ${form.durationDays} dias`,
       `Inclui material: ${form.includeMaterial ? 'sim' : 'não (só mão de obra)'}`,
@@ -180,14 +204,21 @@ export function QuoteWizard() {
     onSuccess: (res) => setPriceResult(res),
   });
 
+  // Somas dos serviços: `preenchido` (só o que a pessoa digitou) e `sugerido`
+  // (média da tabela onde falta valor). A segunda é só dica.
+  const totaisServicos = useMemo(() => totaisDosServicos(form.servicos), [form.servicos]);
+
   // M8 fix: useMemo precisa rodar ANTES dos early returns (rules-of-hooks).
-  // Valor numérico atual — manual sobrescreve IA. priceResult.price serve de
-  // pré-preencho quando o user clica "Sugerir preço".
+  // Valor numérico atual — manual > soma dos serviços preenchidos > IA.
+  // priceResult.price serve de pré-preencho quando o user clica "Sugerir preço".
   const effectivePrice = useMemo(() => {
-    const manual = parseFloat(form.price.replace(',', '.'));
+    // parseBRL, não parseFloat: o botão "Usar" escreve "1.616,00" e o
+    // teclado do Android oferece ponto — parseFloat leria 1.616 (regra P1).
+    const manual = parseBRL(form.price);
     if (Number.isFinite(manual) && manual > 0) return manual;
+    if (totaisServicos.preenchido > 0) return totaisServicos.preenchido;
     return priceResult?.price ?? 0;
-  }, [form.price, priceResult]);
+  }, [form.price, totaisServicos.preenchido, priceResult]);
 
   if (authLoading) {
     return (
@@ -271,6 +302,12 @@ export function QuoteWizard() {
       showToast('Informe um valor pro orçamento', 'error');
       return null;
     }
+    // Linha avulsa sem nome gravaria um item mudo no PDF; melhor avisar do
+    // que descartar em silêncio o que a pessoa pode ter precificado.
+    if (form.servicos.some((s) => s.priceItemId === null && !s.servico.trim())) {
+      showToast('Dê um nome ao serviço avulso antes de gravar', 'error');
+      return null;
+    }
     setSaving(true);
     try {
       const { quoteId } = await saveQuote({
@@ -314,6 +351,9 @@ export function QuoteWizard() {
       `Tinta: ${form.paintType}${form.colorWant ? ' · ' + form.colorWant : ''}`,
       `Demãos: ${form.coats}`,
       form.prep.length > 0 ? `Preparação: ${form.prep.join(', ')}` : null,
+      form.servicos.length > 0
+        ? '\n*Serviços:*\n' + form.servicos.map((s) => `• ${descreverServico(s)}`).join('\n')
+        : null,
       form.durationDays ? `Prazo: ${form.durationDays} dias` : null,
       `Inclui material: ${form.includeMaterial ? 'sim' : 'não'} · Inclui mão de obra: ${form.includeLabor ? 'sim' : 'não'}`,
       form.warranty ? `Garantia: ${form.warranty}` : null,
@@ -496,6 +536,16 @@ export function QuoteWizard() {
             ))}
           </select>
         </Row>
+      </Card>
+
+      {/* ── 1b. SERVIÇOS (Tabela ABRAPP) — depois do Espaço porque o campo
+          "Acesso" pré-seleciona o filtro de altura do seletor ── */}
+      <Card title="🧾 Serviços">
+        <ServicosDoOrcamento
+          servicos={form.servicos}
+          onChange={(next) => update('servicos', next)}
+          access={form.access}
+        />
       </Card>
 
       {/* ── 2. MATERIAL E TÉCNICA ── */}
@@ -741,10 +791,39 @@ export function QuoteWizard() {
             inputMode="decimal"
             value={form.price}
             onChange={(e) => update('price', e.target.value)}
-            placeholder="ex: 2500"
+            placeholder={
+              totaisServicos.preenchido > 0
+                ? `soma dos serviços: ${fmtBRL(totaisServicos.preenchido)}`
+                : 'ex: 2500'
+            }
             className={inputCls}
           />
         </Row>
+        {form.servicos.length > 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.7 }}>
+            {totaisServicos.preenchido > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  Soma dos serviços preenchidos:{' '}
+                  <b style={{ color: 'var(--color-ink)' }}>R$ {fmtBRL(totaisServicos.preenchido)}</b>
+                  {!form.price ? ' (vale se você não digitar outro)' : ''}
+                </span>
+                {form.price ? (
+                  <BotaoUsar onClick={() => update('price', fmtBRL(totaisServicos.preenchido))} />
+                ) : null}
+              </div>
+            ) : null}
+            {totaisServicos.semValor > 0 && totaisServicos.sugerido > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  Sugestão pela Tabela ABRAPP: <b>R$ {fmtBRL(totaisServicos.sugerido)}</b>
+                  {totaisServicos.semSugestao > 0 ? ' (parcial)' : ''}
+                </span>
+                <BotaoUsar onClick={() => update('price', fmtBRL(totaisServicos.sugerido))} />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </Card>
 
       {/* ── 7. AÇÕES ── */}
@@ -1054,6 +1133,37 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
               </table>
             </section>
 
+            {/* Serviços */}
+            {form.servicos.length > 0 ? (
+              <section style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>
+                  Serviços
+                </h3>
+                <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse' }}>
+                  <tbody>
+                    {form.servicos.map((s) => {
+                      const v = valorUnitarioDe(s);
+                      const sub = subtotalDoServico(s);
+                      return (
+                        <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '5px 8px 5px 0', verticalAlign: 'top' }}>
+                            <div style={{ fontWeight: 600 }}>{s.servico || 'Serviço'}</div>
+                            <div style={{ fontSize: 11, color: '#666' }}>
+                              {quantidadeDe(s)} {unidadeCurta(s.unidade)}
+                              {v !== null ? ` × R$ ${fmtBRL(v)}` : ''}
+                            </div>
+                          </td>
+                          <td style={{ padding: '5px 0', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, verticalAlign: 'top' }}>
+                            {sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </section>
+            ) : null}
+
             {/* Escopo */}
             {form.scope ? (
               <section style={{ marginBottom: 16 }}>
@@ -1179,6 +1289,28 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
       </h3>
       {children}
     </section>
+  );
+}
+
+function BotaoUsar({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="font-bold"
+      style={{
+        flexShrink: 0,
+        padding: '4px 10px',
+        borderRadius: 999,
+        border: '1px solid var(--color-p1)',
+        background: 'transparent',
+        color: 'var(--color-p1)',
+        cursor: 'pointer',
+        fontSize: 11,
+      }}
+    >
+      Usar
+    </button>
   );
 }
 

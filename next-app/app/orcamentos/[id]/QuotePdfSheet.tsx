@@ -12,6 +12,13 @@
 import { useState } from 'react';
 import { showToast } from '@/lib/toast';
 import type { Quote } from '@/lib/types';
+import {
+  quantidadeDe,
+  servicosDoQuoteData,
+  subtotalDoServico,
+  valorUnitarioDe,
+} from '@/lib/orcamentoServicos';
+import { unidadeCurta } from '@/lib/services/priceTable';
 
 interface PainterProfile {
   name?: string | null;
@@ -83,6 +90,8 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
   const includeLabor = qd ? !!qd['includeLabor'] : null;
   const surfaceState = qd && typeof qd['surfaceState'] === 'string' ? (qd['surfaceState'] as string) : '';
   const access = qd && typeof qd['access'] === 'string' ? (qd['access'] as string) : '';
+  // Itens escolhidos na Tabela ABRAPP (ou avulsos) pelo tile Orçamento.
+  const servicos = servicosDoQuoteData(qd);
 
   // Prioridade: name (pessoal) > business_name (dirty data legado pode estar
   // em business_name de quando o user testou logo de camisa). Antes invertido,
@@ -388,6 +397,61 @@ export function QuotePdfSheet({ open, onClose, quote, painter }: QuotePdfSheetPr
                 </tbody>
               </table>
             </section>
+
+            {/* BLOCO 2b — SERVIÇOS (itens da Tabela ABRAPP / avulsos) */}
+            {servicos.length > 0 ? (
+              <section style={{ marginBottom: 18 }}>
+                <h3
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: '#999',
+                    textTransform: 'uppercase',
+                    letterSpacing: '.06em',
+                    marginBottom: 8,
+                  }}
+                >
+                  Serviços
+                </h3>
+                <table
+                  style={{
+                    width: '100%',
+                    fontSize: 12,
+                    color: '#1a1a2e',
+                    borderCollapse: 'collapse',
+                  }}
+                >
+                  <tbody>
+                    {servicos.map((s) => {
+                      const v = valorUnitarioDe(s);
+                      const sub = subtotalDoServico(s);
+                      return (
+                        <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '6px 8px 6px 0', verticalAlign: 'top' }}>
+                            <div style={{ fontWeight: 600 }}>{s.servico}</div>
+                            <div style={{ fontSize: 11, color: '#666' }}>
+                              {quantidadeDe(s)} {unidadeCurta(s.unidade)}
+                              {v !== null ? ` × ${BRL.format(v)}` : ''}
+                            </div>
+                          </td>
+                          <td
+                            style={{
+                              padding: '6px 0',
+                              textAlign: 'right',
+                              whiteSpace: 'nowrap',
+                              fontWeight: 700,
+                              verticalAlign: 'top',
+                            }}
+                          >
+                            {sub !== null ? BRL.format(sub) : 'a definir'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </section>
+            ) : null}
 
             {/* BLOCO 3 — ESCOPO TÉCNICO */}
             {quote.description ? (
