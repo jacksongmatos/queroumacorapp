@@ -313,7 +313,8 @@
     pergunta por nome.** Nome só cobre o que você já sabe que existe.
 
 - **CADASTRO: NADA É OPCIONAL, e o passo 2 mudou (2026-09-07, pedido do
-  usuário).** Telefone, cidade, estado e **foto** viraram obrigatórios; o
+  usuário).** Telefone, cidade e estado viraram obrigatórios (a **foto** é a
+  única exceção — ver abaixo); o
   rótulo "WhatsApp" virou **"Telefone"**.
   - **Nome sai em Maiúscula Inicial sozinho** (`formatarNomeProprio`), com
     conectivo minúsculo ("João da Silva") — menos no começo ("Da Costa").
