@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { checkTagAvailability } from '@/lib/services/signup';
@@ -43,14 +44,17 @@ const ROLES: RoleOption[] = [
 
 export function CompleteProfileForm() {
   const router = useRouter();
+  const qc = useQueryClient();
   const { user, loading: authLoading } = useAuth();
   const { profile, loading: profileLoading, update, isUpdating } = useProfile();
 
   const [category, setCategory] = useState<UserRole>('pintor');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [tag, setTag] = useState('');
-  const [city, setCity] = useState('');
   const [uf, setUf] = useState('');
+  const [city, setCity] = useState('');
+  const [cities, setCities] = useState<string[]>([]);
   const [birthDate, setBirthDate] = useState('');
   // Texto na tela (DD/MM/AAAA); `birthDate` segue guardando ISO.
   const [dataTexto, setDataTexto] = useState('');
@@ -102,6 +106,13 @@ export function CompleteProfileForm() {
       setError('Informe seu nome.');
       return;
     }
+
+    // Phone é obrigatório
+    if (!phone.trim()) {
+      setError('Informe seu telefone.');
+      return;
+    }
+
     const parsed = tagSchema.safeParse(tag);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message || '@ inválido.');
@@ -133,6 +144,7 @@ export function CompleteProfileForm() {
       await update({
         user_type: category,
         name: nm,
+        phone: phone.trim(),
         tag: normalizedTag,
         birth_date: birthDate,
         ...(city.trim() ? { city: city.trim() } : {}),
@@ -140,6 +152,9 @@ export function CompleteProfileForm() {
         // Aproveita o avatar do provedor se o perfil ainda não tem um.
         ...(metaAvatar && !profile?.avatar_url ? { avatar_url: metaAvatar } : {}),
       });
+      // Aguarda o cache refetch completar antes de navegar — senão o AppShell
+      // vê perfil ainda incompleto (stale cache) e redireciona de volta
+      await qc.refetchQueries({ queryKey: ['profile', user?.id] });
       router.replace('/feed');
       router.refresh();
     } catch (err) {
