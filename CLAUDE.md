@@ -323,6 +323,20 @@
     continuava preso, e o loop era mudo dos dois lados.
   - **REGRA (a mesma do `signUp`, agora em toda escrita de perfil): onde a
     identidade importa, `update` sem `.select()` é escrita sem confirmação.**
+=======
+- **QUAL BUILD O APARELHO ESTÁ RODANDO — `/diag` responde (2026-09-07).** A
+  pergunta apareceu em TRÊS investigações (o 500, a rejeição da Apple, o
+  cadastro duplicado) e nunca teve resposta: testar depois de um deploy era
+  ato de fé. O app carrega o site ao vivo, então "fiz o deploy" e "o aparelho
+  pegou" são coisas diferentes — e o `sw.js` serve `/_next/static/`
+  **cache-first**, então um aparelho PODE ficar preso numa build anterior.
+  `NEXT_PUBLIC_BUILD` (SHA do Cloudflare Pages, ou o horário do build fora
+  dele) aparece como "Build do site" no `/diag`. **Antes de concluir que uma
+  correção não funcionou, conferir essa linha.**
+  - O `/diag` também mostra agora o ESTADO DO PERFIL no banco (linha existe?,
+    user_type, role, tag, username, e a conta final do `isProfileComplete`).
+    É a resposta direta pro "o cadastro pede tudo de novo", no aparelho, sem
+    depender de acesso ao banco nem ao `/admin/errors`.
 
 - **CADASTRO DUPLICADO — 3ª TENTATIVA, AGORA COM INSTRUMENTO (2026-09-07).**
   Depois de duas correções (reafirmar a identidade no UPDATE pós-signup e

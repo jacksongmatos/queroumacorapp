@@ -22,6 +22,15 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_SENTRY_DSN ||
       process.env.SENTRY_DSN ||
       '',
+    // Marca da build, mostrada no /diag. Existe por causa de uma pergunta que
+    // já apareceu em três investigações e nunca teve resposta: "o aparelho
+    // está rodando a correção ou o bundle velho?". Sem isso, testar depois de
+    // um deploy é ato de fé — e o service worker serve `/_next/static/`
+    // cache-first, então um aparelho PODE ficar preso numa build anterior.
+    // O SHA vem do Cloudflare Pages; local/preview cai pro horário do build.
+    NEXT_PUBLIC_BUILD:
+      (process.env.CF_PAGES_COMMIT_SHA || '').slice(0, 7) ||
+      new Date().toISOString().slice(0, 16).replace('T', ' '),
   },
 
   eslint: {
