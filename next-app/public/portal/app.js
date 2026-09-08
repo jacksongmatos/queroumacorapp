@@ -8013,82 +8013,69 @@ const Leads = () => {
   }, "\uD83D\uDCE5 Importar planilha")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      gap: 8,
+      gap: 12,
       flexWrap: 'wrap',
-      marginBottom: 10
+      alignItems: 'center'
     }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setFiltroSegmento('TODOS'),
+  }, /*#__PURE__*/React.createElement("label", {
     style: {
-      padding: '6px 14px',
-      borderRadius: 20,
-      border: '1px solid ' + (filtroSegmento === 'TODOS' ? C.p1 : C.border),
-      background: filtroSegmento === 'TODOS' ? C.p1 : 'transparent',
-      color: filtroSegmento === 'TODOS' ? '#fff' : C.ink,
-      cursor: 'pointer',
-      fontSize: 12,
-      fontWeight: 600
-    }
-  }, "TODOS ", leads.length), sortedSegments.map(([seg, count]) => /*#__PURE__*/React.createElement("button", {
-    key: seg,
-    onClick: () => setFiltroSegmento(seg === filtroSegmento ? 'TODOS' : seg),
-    style: {
-      padding: '6px 14px',
-      borderRadius: 20,
-      border: '1px solid ' + (filtroSegmento === seg ? C.p1 : C.border),
-      background: filtroSegmento === seg ? 'rgba(255,107,53,0.1)' : 'transparent',
-      color: filtroSegmento === seg ? C.p1 : C.ink,
-      cursor: 'pointer',
-      fontSize: 12,
       display: 'flex',
       alignItems: 'center',
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", null, segIcons[seg] || '📌'), /*#__PURE__*/React.createElement("span", null, seg), /*#__PURE__*/React.createElement("span", {
-    style: {
-      background: 'rgba(0,0,0,0.08)',
-      borderRadius: 10,
-      padding: '1px 6px',
-      fontSize: 10,
-      fontWeight: 700
-    }
-  }, count)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
       gap: 8,
-      flexWrap: 'wrap'
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink
     }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setFiltroCategoria('Todas'),
+  }, "Segmento", /*#__PURE__*/React.createElement("select", {
+    value: filtroSegmento,
+    onChange: e => setFiltroSegmento(e.target.value),
     style: {
-      padding: '4px 12px',
-      borderRadius: 16,
-      border: '1px solid ' + (filtroCategoria === 'Todas' ? C.p1 : C.border),
-      background: filtroCategoria === 'Todas' ? C.p1 : 'transparent',
-      color: filtroCategoria === 'Todas' ? '#fff' : C.muted,
+      padding: '8px 10px',
+      borderRadius: 10,
+      border: '1.5px solid ' + (filtroSegmento !== 'TODOS' ? C.p1 : C.border),
+      background: '#fff',
+      color: C.ink,
+      fontSize: 13,
+      fontWeight: 500,
+      outline: 'none',
       cursor: 'pointer',
-      fontSize: 11
+      minWidth: 220
     }
-  }, "Todas ", leads.length), sortedCategories.map(([cat, count]) => /*#__PURE__*/React.createElement("button", {
-    key: cat,
-    onClick: () => setFiltroCategoria(cat === filtroCategoria ? 'Todas' : cat),
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "TODOS"
+  }, "Todos os segmentos (", leads.length, ")"), sortedSegments.map(([seg, count]) => /*#__PURE__*/React.createElement("option", {
+    key: seg,
+    value: seg
+  }, (segIcons[seg] ? segIcons[seg] + ' ' : '') + seg + ' (' + count + ')')))), /*#__PURE__*/React.createElement("label", {
     style: {
-      padding: '4px 12px',
-      borderRadius: 16,
-      border: '1px solid ' + (filtroCategoria === cat ? C.p1 : C.border),
-      background: filtroCategoria === cat ? 'rgba(255,107,53,0.08)' : 'transparent',
-      color: filtroCategoria === cat ? C.p1 : C.muted,
-      cursor: 'pointer',
-      fontSize: 11,
       display: 'flex',
       alignItems: 'center',
-      gap: 4
+      gap: 8,
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink
     }
-  }, /*#__PURE__*/React.createElement("span", null, catIcons[cat] || '🔹'), /*#__PURE__*/React.createElement("span", null, cat), /*#__PURE__*/React.createElement("span", {
+  }, "Categoria", /*#__PURE__*/React.createElement("select", {
+    value: filtroCategoria,
+    onChange: e => setFiltroCategoria(e.target.value),
     style: {
-      fontWeight: 700
+      padding: '8px 10px',
+      borderRadius: 10,
+      border: '1.5px solid ' + (filtroCategoria !== 'Todas' ? C.p1 : C.border),
+      background: '#fff',
+      color: C.ink,
+      fontSize: 13,
+      fontWeight: 500,
+      outline: 'none',
+      cursor: 'pointer',
+      minWidth: 220
     }
-  }, count))))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "Todas"
+  }, "Todas as categorias (", leads.length, ")"), sortedCategories.map(([cat, count]) => /*#__PURE__*/React.createElement("option", {
+    key: cat,
+    value: cat
+  }, (catIcons[cat] ? catIcons[cat] + ' ' : '') + cat + ' (' + count + ')')))))), /*#__PURE__*/React.createElement("div", {
     style: {
       background: C.white,
       borderRadius: 14,
