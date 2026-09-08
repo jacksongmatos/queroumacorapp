@@ -323,6 +323,44 @@ describe('aviso de marketing para número dos EUA', () => {
 // em branco. A trava é a mesma no componente (botão desabilitado) e aqui
 // se descreve o predicado que ele usa.
 
+// ── Modelo inicial do seletor ─────────────────────────────────────────────
+// Decisão do usuário (2026-09-08): "abordagem v2 como padrão inicial". O de
+// 3 variáveis abre marcado quando a lista (a viva, da Meta) o traz; a
+// embutida não o tem, então nela o inicial segue sendo o de nome.
+describe('modelo inicial do seletor de template', () => {
+  let templateInicial: (lista: Array<{ nome: string }>) => string;
+  let fonte = '';
+  beforeAll(() => {
+    fonte = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = fonte.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = fonte.indexOf('// [teste:template-fim]');
+    ({ templateInicial } = new Function(
+      `${fonte.slice(inicio, fim)}; return { templateInicial };`
+    )());
+  });
+
+  it('com o v2 na lista, ele é o inicial', () => {
+    expect(templateInicial([
+      { nome: 'calicolors' }, { nome: 'calicolors_nome' }, { nome: 'calicolors_abordagem_v2' },
+    ])).toBe('calicolors_abordagem_v2');
+  });
+
+  it('sem o v2, o de nome', () => {
+    expect(templateInicial([{ nome: 'calicolors' }, { nome: 'calicolors_nome' }])).toBe('calicolors_nome');
+  });
+
+  it('sem nenhum dos dois, o primeiro que houver; lista vazia cai no de nome', () => {
+    expect(templateInicial([{ nome: 'outro' }])).toBe('outro');
+    expect(templateInicial([])).toBe('calicolors_nome');
+  });
+
+  it('o seletor abre com templateInicial e a lista viva só troca enquanto o operador não mexeu', () => {
+    expect(fonte).toContain('useState(() => templateInicial(templatesDisponiveis()))');
+    expect(fonte).toContain('if(!tocado.current) setEscolhido(templateInicial(t));');
+    expect(fonte).toContain('tocado.current = true; setEscolhido(e.target.value);');
+  });
+});
+
 describe('bloqueio de envio com variável vazia', () => {
   // Espelha `faltando` do <EnvioDeTemplate>.
   const faltando = (vars: number[], valores: Record<number, string>) =>

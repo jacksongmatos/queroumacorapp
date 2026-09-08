@@ -1,5 +1,27 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **ABORDAGEM: v2 É O MODELO INICIAL + a cidade sai de onde estiver
+  (2026-09-08, pedido do usuário: "abordagem V2 como padrão inicial e corrija
+  os campos para mapear certo"). Portal v=20260908b, SEM SQL.**
+  - **`templateInicial(lista)`**: o seletor abre em `calicolors_abordagem_v2`
+    quando a lista VIVA (da Meta) o traz; a embutida não o tem de propósito
+    (132001 se não aprovado), então nela segue `calicolors_nome`. A lista viva
+    chega depois do primeiro render e TROCA o inicial — mas só enquanto o
+    operador não mexeu no seletor (`tocado` ref); depois disso a chegada da
+    lista não desfaz a escolha dele.
+  - **`cidadeDoLead(l)` ({{2}}): `city` → endereço que é só lugar → cidade
+    conhecida no nome.** O print mostrava "Studio Arquitetura Guarulhos" com
+    CIDADE "—", "Guarulhos" embaixo do nome (era o `address`) e o campo 2
+    vazio travando o botão: os leads antigos de captação gravaram a cidade em
+    `address`, e o prefill só lia `city`. "R. Manaus, 158", "Av. Paulista" e
+    "Jardim dos Pimentas" NÃO viram cidade (dígito ou prefixo de logradouro);
+    o nome só conta contra `CIDADES_CONHECIDAS` (31 da região), nunca uma
+    palavra qualquer. Os dois chamadores (`AbordagemModal` e aba WhatsApp) e
+    a coluna CIDADE da tabela usam a MESMA função — a tabela mostra a cidade
+    que a abordagem vai mandar. Testes em `__tests__/portalRamoDoLead.test.ts`
+    e `__tests__/portalJanela24h.test.ts`; o teste proíbe voltar a ler
+    `lead.city` cru no prefill.
+
 - **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
   (2026-09-08, pedido do usuário). SQL
   `/migrations/2026-09-08-leads-instagram.sql` (duas linhas: `leads.instagram
