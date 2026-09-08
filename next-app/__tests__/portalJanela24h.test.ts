@@ -361,6 +361,42 @@ describe('modelo inicial do seletor de template', () => {
   });
 });
 
+// ── {{1}} da abordagem é o nome COMPLETO ─────────────────────────────────
+// Decisão do usuário (2026-09-08): o lead é quase sempre um negócio ("Neri
+// Pintor Atelier") e "Oi Neri" cortava o nome no meio. A validade é a mesma
+// do primeiro nome (telefone e inicial solta não passam).
+describe('nome completo no {{1}} do prefill', () => {
+  let nomeCompleto: (b: string | null | undefined) => string | null;
+  let fonte = '';
+  beforeAll(() => {
+    fonte = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = fonte.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = fonte.indexOf('// [teste:template-fim]');
+    ({ nomeCompleto } = new Function(
+      `${fonte.slice(inicio, fim)}; return { nomeCompleto };`
+    )());
+  });
+
+  it('devolve o nome inteiro, não a primeira palavra', () => {
+    expect(nomeCompleto('Neri Pintor Atelier')).toBe('Neri Pintor Atelier');
+    expect(nomeCompleto('  Studio   Arquitetura Guarulhos ')).toBe('Studio Arquitetura Guarulhos');
+    expect(nomeCompleto('Ângela')).toBe('Ângela');
+  });
+
+  it('recusa o que o primeiro nome também recusa', () => {
+    expect(nomeCompleto('')).toBeNull();
+    expect(nomeCompleto(null)).toBeNull();
+    expect(nomeCompleto('11987654321')).toBeNull();
+    expect(nomeCompleto('(11) 98765-4321')).toBeNull();
+    expect(nomeCompleto('J')).toBeNull();
+  });
+
+  it('o prefill do campo 1 usa o nome completo', () => {
+    expect(fonte).toContain("va.indice === 1 ? (nomeCompleto(nomeContato) || '')");
+    expect(fonte).not.toContain("va.indice === 1 ? (primeiroNome(nomeContato) || '')");
+  });
+});
+
 describe('bloqueio de envio com variável vazia', () => {
   // Espelha `faltando` do <EnvioDeTemplate>.
   const faltando = (vars: number[], valores: Record<number, string>) =>

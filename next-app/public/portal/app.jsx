@@ -2949,6 +2949,22 @@ const primeiroNome = (bruto) => {
   return p.slice(0, 60);
 };
 
+// Nome COMPLETO utilizavel pro {{1}} da abordagem, ou null. Decisao do
+// usuario (2026-09-08): "falta aparecer o nome completo do lead e nao
+// somente a primeira palavra" — o lead e quase sempre um NEGOCIO ("Neri
+// Pintor Atelier", "Studio Arquitetura Guarulhos"), e "Oi Neri" / "Oi
+// Studio" corta o nome no meio. Mesma regua de validade do `primeiroNome`
+// (recusa vazio, telefone no lugar do nome e inicial solta); o que muda e
+// que devolve o nome inteiro. O `primeiroNome` continua existindo pro
+// follow-up automatico (paridade com o servidor).
+const nomeCompleto = (bruto) => {
+  const limpo = String(bruto || '').trim().replace(/\s+/g, ' ');
+  if(!limpo) return null;
+  if(!/\p{L}/u.test(limpo)) return null;
+  if(limpo.split(' ')[0].length < 2 && limpo.length < 3) return null;
+  return limpo.slice(0, 60);
+};
+
 // Valor utilizavel pra uma variavel de template, ou null. Mesma regua do
 // primeiroNome e pelo mesmo motivo: {{2}} vazio faz a Meta entregar
 // "aqui no  " ou recusar o envio. Recusa tambem os marcadores que a base
@@ -3300,7 +3316,7 @@ const PreviaDeTemplate = ({ tpl, valores }) => {
         {botoes.length ? (
           <div style={{ borderTop:'1px solid #e9edef' }}>
             {botoes.map((b, i) => (
-              <div key={i} style={{ padding:'9px 8px', textAlign:'center', fontSize:13, fontWeight:600,
+              <div key={i} style={{ padding:'6px 8px', textAlign:'center', fontSize:12.5, fontWeight:600,
                 color:'#0a7cbd', borderTop: i ? '1px solid #e9edef' : 'none' }}>
                 <span style={{ marginRight:6, opacity:.8 }}>{ICONE_BOTAO[b.tipo] || '•'}</span>
                 {b.texto}
@@ -3371,7 +3387,7 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
   // o que esta na linha do lead e trabalho a toa, e era o que acontecia
   // com {{2}} e {{3}}: o operador via "Pimentas"/"pintura residencial" de
   // placeholder e tinha que copiar a cidade da tabela a mao.
-  //   {{1}} primeiro nome · {{2}} cidade · {{3}} segmento
+  //   {{1}} nome completo · {{2}} cidade · {{3}} segmento
   // Passa pelo `valorDeVariavel`: "n/a" da base importada nao entra no
   // campo como se fosse cidade. Sem dado, o campo fica vazio e o botao trava.
   const cidade = valorDeVariavel(dadosContato && dadosContato.cidade) || '';
@@ -3382,7 +3398,7 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
       const novo = { ...v };
       for(const va of vars){
         if(novo[va.indice] == null){
-          novo[va.indice] = va.indice === 1 ? (primeiroNome(nomeContato) || '')
+          novo[va.indice] = va.indice === 1 ? (nomeCompleto(nomeContato) || '')
             : va.indice === 2 ? cidade
             : va.indice === 3 ? segmento
             : '';
@@ -6430,7 +6446,15 @@ const WhatsAppTab = () => {
                 /* Janela fechada: esconder o campo de texto e oferecer o
                    template. Mostrar um campo que so devolve erro 131047
                    ensina o operador a desconfiar da tela. */
-                <div style={{ padding:14, background:'#fff', borderTop:'1px solid '+C.border }}>
+                /* TETO + ROLAGEM PROPRIA (2026-09-08): este bloco e filho
+                   de uma coluna flex de altura fixa. Sem `overflow`, item de
+                   flex nao encolhe abaixo do conteudo — e o v2 (texto longo
+                   + 4 botoes na previa) ficou mais alto que a coluna, entao
+                   empurrava o cabecalho e as mensagens pra fora da tela em
+                   vez de rolar. Agora ocupa no maximo 62% da coluna e rola
+                   por dentro; o historico continua a vista em cima. */
+                <div style={{ padding:14, background:'#fff', borderTop:'1px solid '+C.border,
+                  flex:'0 1 auto', minHeight:0, maxHeight:'62%', overflowY:'auto' }}>
                   <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:4 }}>
                     ⏳ Fora da janela de 24h — comece por um template
                   </div>
