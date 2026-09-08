@@ -562,7 +562,12 @@ export async function shareOrDownloadPdfBlob(
     share?: (data: { files?: File[]; title?: string; text?: string }) => Promise<void>;
   };
   const nav = typeof navigator !== 'undefined' ? (navigator as Nav) : null;
-  if (nav?.canShare && nav?.share && nav.canShare({ files: [file] })) {
+  // Só no CELULAR o share sheet é o destino certo (WhatsApp, Arquivos…).
+  // Windows/macOS também expõem `navigator.share` com arquivo no Chrome/Edge,
+  // e aí um botão "Baixar PDF" abria a janela de Share do Windows em vez de
+  // baixar (visto em 2026-09-08). No desktop, "baixar" baixa.
+  const ehCelular = /Android|iPhone|iPad|iPod/i.test(nav?.userAgent || '');
+  if (ehCelular && nav?.canShare && nav?.share && nav.canShare({ files: [file] })) {
     try {
       await nav.share({
         files: [file],
