@@ -68,3 +68,7 @@ ORDER BY 1;
 -- leads.opted_out_at (2026-09-06): sem ela o botao "Abordar" segue
 -- oferecendo quem tocou em "Nao tenho interesse".
 SELECT 'leads.opted_out_at existe' AS item, EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='opted_out_at') AS ok;
+
+-- whatsapp_ai_config.prompt (2026-09-08): sem ela o botao "Prompt da IA"
+-- do portal nao salva (a tela mostra o SQL) e a IA segue no padrao do codigo.
+SELECT 'whatsapp_ai_config.prompt existe' AS item, EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='whatsapp_ai_config' AND column_name='prompt') AS ok;

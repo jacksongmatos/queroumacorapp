@@ -237,33 +237,40 @@ export function textoRecusaAgradecida(): string {
     'Se um dia precisar de tinta ou de uma cor específica, é só chamar aqui. 🎨';
 }
 
+// ─── Registro de template no histórico ──────────────────────────────────────
+// Template não viaja com corpo: o banco guarda `[template <nome>] {{1}}=…`
+// (ver persistWhatsAppMessage). Lido cru pela IA isso não diz NADA — ela
+// não sabia que a loja tinha iniciado a conversa e respondia "não tenho
+// essa informação" quando a pessoa dizia "vocês que me chamaram". Aqui o
+// registro vira o que a pessoa de fato recebeu, em resumo: os três templates
+// de abordagem (calicolors, calicolors_nome, calicolors_abordagem_v2) têm o
+// mesmo assunto.
+const TEXTO_DA_APRESENTACAO =
+  '(Mensagem de apresentação enviada pela loja: nos apresentamos como ' +
+  'Calicolors Tintas, de Guarulhos, dissemos que estamos conversando com ' +
+  'profissionais da região e perguntamos o que mais faz diferença no dia a ' +
+  'dia — preço, entrega rápida, ajuda técnica ou condição de pagamento.)';
+
+export function descreverRegistroDeTemplate(body: string | null | undefined): string {
+  const b = String(body || '').trim();
+  if (!/^\[template [a-z0-9_]+\]/i.test(b)) return b;
+  return TEXTO_DA_APRESENTACAO;
+}
+
 // ─── Prompt ─────────────────────────────────────────────────────────────────
 
-export function buildSystemPrompt(opts: {
-  lead?: LeadContext | null;
-  produtos?: string[];
-  /** Ninguém da loja falou ainda nesta conversa → hora de se apresentar. */
-  primeiroContato?: boolean;
-  /** Já existe promessa de retorno em aberto (preço/orçamento na fila). */
-  pendenciaAberta?: boolean;
-}): string {
-  const l = opts.lead;
-  const quem = l?.name ? `O contato se chama ${l.name}.` : '';
-  const ramo = l?.category ? `Ramo dele: ${l.category}.` : '';
-  const onde = l?.neighborhood || l?.city ? `Fica em ${l.neighborhood || l.city}.` : '';
-  const cat =
-    opts.produtos && opts.produtos.length
-      ? `Produtos que temos pra esse perfil (cite pelo nome, NUNCA com preço): ${opts.produtos.join('; ')}.`
-      : '';
-
-  return [
+// ─── Base do prompt (editável no portal) ────────────────────────────────────
+// Identidade + regras de conversa. É o que o portal deixa a loja editar
+// (2026-09-08, pedido do usuário: "onde fica o prompt da IA para que possa
+// ser alterado manualmente e salvo"): fica em `whatsapp_ai_config.prompt`
+// (NULL = este padrão). O que NÃO é editável, de propósito: o contexto do
+// lead, os blocos de primeiro contato/pendência, o estilo e o formato JSON
+// da resposta — sem o JSON o parser quebra —, e as TRAVAS de preço, que são
+// código (`clientAsksForPrice`/`replyLeaksPrice`) e valem mesmo que alguém
+// apague a regra 1 do texto.
+export const PROMPT_BASE_PADRAO = [
     'Você é o atendente virtual da Cali Colors, loja de tintas em Guarulhos/SP,',
-    'atendendo pelo WhatsApp. A Cali Colors também mantém o QueroUmaCor, um app',
-    'que conecta pintores e clientes (entrar é gratuito).',
-    quem,
-    ramo,
-    onde,
-    cat,
+    'atendendo pelo WhatsApp.',
     '',
     'REGRAS ABSOLUTAS:',
     '1. NUNCA informe preço, valor, desconto, condição de pagamento ou frete.',
@@ -275,6 +282,50 @@ export function buildSystemPrompt(opts: {
     '   pintura, marque precisa_humano=true.',
     '5. Você é um assistente; se perguntarem, diga que é o atendimento virtual',
     '   da Cali Colors e que uma pessoa pode continuar o atendimento.',
+    // Decisão do usuário (2026-09-08): a IA falava do app por conta própria
+    // ("Posso te ajudar com algo relacionado a tintas ou o app QueroUmaCor?")
+    // — o assunto aqui é tinta e a loja; o app só entra se a pessoa puxar.
+    '6. NÃO mencione o app QueroUmaCor nem outros produtos da empresa por',
+    '   iniciativa própria. Só fale dele se a PESSOA perguntar.',
+    // A abordagem de lead sai como template e entra no histórico como a
+    // mensagem de apresentação (ver descreverRegistroDeTemplate). Sem esta
+    // regra a IA respondia "não tenho essa informação" pra "vocês que me
+    // chamaram" — de quem foi procurado pela loja.
+    '7. Se a loja começou a conversa com a mensagem de apresentação e a',
+    '   pessoa perguntar quem somos ou por que chamamos: explique que a',
+    '   Cali Colors entrou em contato pra conhecer profissionais da região',
+    '   e entender o que faz diferença pra eles na hora de comprar tinta',
+    '   (preço, entrega, ajuda técnica, condição de pagamento).',
+].join('\n');
+
+export function buildSystemPrompt(opts: {
+  lead?: LeadContext | null;
+  produtos?: string[];
+  /** Ninguém da loja falou ainda nesta conversa → hora de se apresentar. */
+  primeiroContato?: boolean;
+  /** Já existe promessa de retorno em aberto (preço/orçamento na fila). */
+  pendenciaAberta?: boolean;
+  /** Texto editado no portal (whatsapp_ai_config.prompt); vazio = padrão. */
+  promptBase?: string | null;
+}): string {
+  const l = opts.lead;
+  const quem = l?.name ? `O contato se chama ${l.name}.` : '';
+  const ramo = l?.category ? `Ramo dele: ${l.category}.` : '';
+  const onde = l?.neighborhood || l?.city ? `Fica em ${l.neighborhood || l.city}.` : '';
+  const cat =
+    opts.produtos && opts.produtos.length
+      ? `Produtos que temos pra esse perfil (cite pelo nome, NUNCA com preço): ${opts.produtos.join('; ')}.`
+      : '';
+  const base = String(opts.promptBase || '').trim() || PROMPT_BASE_PADRAO;
+
+  return [
+    base,
+    '',
+    quem || ramo || onde || cat ? 'SOBRE QUEM ESTÁ FALANDO COM VOCÊ:' : '',
+    quem,
+    ramo,
+    onde,
+    cat,
     '',
     // Primeira mensagem: recepção calorosa. Sem isso a IA respondia um
     // "oi" seco de robô — quem chega no WhatsApp da loja tem que sentir
@@ -347,6 +398,8 @@ export async function generateAiReply(opts: {
   turns: ConversationTurn[];
   /** Já existe promessa de retorno em aberto nesta conversa. */
   pendenciaAberta?: boolean;
+  /** Prompt editado no portal (whatsapp_ai_config.prompt); vazio = padrão. */
+  promptBase?: string | null;
 }): Promise<AiReplyResult> {
   const ultima = [...opts.turns].reverse().find((t) => t.direction === 'in');
   const textoCliente = ultima?.body || '';
@@ -396,6 +449,7 @@ export async function generateAiReply(opts: {
           {
             role: 'system',
             content: buildSystemPrompt({
+              promptBase: opts.promptBase,
               lead: opts.lead,
               produtos: opts.produtos,
               primeiroContato,
