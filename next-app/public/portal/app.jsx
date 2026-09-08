@@ -2797,6 +2797,61 @@ const ramoDoLead = (l) => {
   const cat = String(l.category || '').trim();
   return cat ? cat.toLowerCase() : null;
 };
+// O que vai no {{2}} ("atende em {{2}}") pra este lead, ou null.
+//
+// A base guarda a cidade de TRES jeitos, e so um deles e a coluna `city`:
+//   1. `city` preenchida — importacao da planilha e leads novos;
+//   2. `address` que e SO o nome da cidade ("Guarulhos", "Guarulhos - SP",
+//      "Pimentas, Guarulhos - SP") — os leads antigos de captacao gravaram
+//      a cidade ali. Na tela isso aparecia como "Guarulhos" embaixo do nome
+//      com a coluna CIDADE em "—", e o modal de abordagem abria com o
+//      campo 2 vazio e o botao travado (2026-09-08);
+//   3. a cidade escrita no proprio NOME ("Studio Arquitetura Guarulhos"),
+//      conferida contra a lista de cidades que a base conhece — nunca
+//      uma palavra qualquer do nome.
+// Rua com numero NAO vira cidade ("R. Manaus, 158" tem digito e prefixo de
+// logradouro), e "n/a"/"nao informado" da base importada tambem nao
+// (mesma regua do `valorDeVariavel`). Sem pista, null: o campo fica vazio
+// e o botao trava, em vez de mandar "atende em R. Manaus" pro cliente.
+const CIDADES_CONHECIDAS = [
+  'Guarulhos','Arujá','Itaquaquecetuba','Mairiporã','Santa Isabel','São Paulo',
+  'Osasco','Barueri','Carapicuíba','Taboão da Serra','Cotia','Santo André',
+  'São Bernardo do Campo','São Caetano do Sul','Mauá','Diadema','Suzano',
+  'Mogi das Cruzes','Poá','Ferraz de Vasconcelos','Guararema','Franco da Rocha',
+  'Caieiras','Jundiaí','Campinas','Sorocaba','Piracicaba','São José dos Campos',
+  'Ribeirão Preto','Bauru','Santos',
+];
+const _semAcentoLead = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const _valorDeCidade = (bruto) => {
+  const limpo = String(bruto || '').trim().replace(/\s+/g, ' ');
+  if(limpo.length < 2 || !/\p{L}/u.test(limpo)) return null;
+  if(/^(n\/?a|nao informado|não informado|sem cidade|indefinido)$/i.test(limpo)) return null;
+  return limpo.slice(0, 60);
+};
+// Endereco que e so lugar (sem numero, sem logradouro) -> a cidade, ou null.
+const cidadeDoEndereco = (bruto) => {
+  let t = String(bruto || '').trim().replace(/\s+/g, ' ');
+  if(!t || /\d/.test(t)) return null;
+  t = t.replace(/\s*[-\/,]\s*[A-Z]{2}$/, '').trim(); // "Guarulhos - SP" -> "Guarulhos"
+  const partes = t.split(/\s*[,\-\/]\s*/).filter(Boolean);
+  const ult = partes[partes.length - 1] || '';
+  if(!ult || ult.split(' ').length > 4) return null;
+  if(/^(r\.|rua|av\.?|avenida|estr\.?|estrada|al\.|alameda|rod\.?|rodovia|trav\.?|travessa|pç\.?|pça|praça|praca|jd\.?|jardim|vl\.?|vila|pq\.?|parque|cj\.?|conjunto|km)\b/i.test(ult)) return null;
+  return _valorDeCidade(ult);
+};
+// Cidade conhecida citada no nome do lead, ou null.
+const cidadeNoNome = (nome) => {
+  const n = ' ' + _semAcentoLead(nome).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ') + ' ';
+  if(n.trim().length < 3) return null;
+  for(const c of CIDADES_CONHECIDAS){
+    if(n.includes(' ' + _semAcentoLead(c) + ' ')) return c;
+  }
+  return null;
+};
+const cidadeDoLead = (l) => {
+  if(!l) return null;
+  return _valorDeCidade(l.city) || cidadeDoEndereco(l.address) || cidadeNoNome(l.name);
+};
 // [teste:ramo-fim]
 
 
@@ -2995,6 +3050,19 @@ const registroDeTemplate = (escolha) =>
   escolha.nome
     ? '[template ' + escolha.template + '] {{1}}=' + escolha.nome
     : '[template ' + escolha.template + ']';
+
+// Modelo que o seletor abre marcado. Decisao do usuario (2026-09-08):
+// "abordagem v2 como padrao inicial" — o de 3 variaveis (nome, cidade,
+// ramo) e o que menos parece disparo em massa. Mas so quando a lista diz
+// que ele existe (a viva, vinda da Meta): a embutida nao o tem de
+// proposito, porque template nao aprovado volta 132001. Sem ele, o de
+// nome; sem esse, o primeiro que houver.
+const templateInicial = (lista) => {
+  const nomes = (lista || []).map(t => t && t.nome);
+  if(nomes.includes(TEMPLATE_COM_CIDADE)) return TEMPLATE_COM_CIDADE;
+  if(nomes.includes(TEMPLATE_COM_NOME)) return TEMPLATE_COM_NOME;
+  return nomes[0] || TEMPLATE_COM_NOME;
+};
 
 // [teste:template-fim]
 
@@ -3266,7 +3334,11 @@ const PreviaDeTemplate = ({ tpl, valores }) => {
 // editaveis: o operador corrige o que a base trouxe errado antes de enviar.
 const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, onEnviar }) => {
   const [lista, setLista] = useState(templatesDisponiveis());
-  const [escolhido, setEscolhido] = useState(TEMPLATE_COM_NOME);
+  const [escolhido, setEscolhido] = useState(() => templateInicial(templatesDisponiveis()));
+  // O operador mexeu no seletor? Enquanto nao, a lista viva que chega da
+  // Meta pode trocar o modelo inicial (a embutida nao tem o v2; a viva tem).
+  // Depois que ele escolheu, a chegada da lista nao desfaz a escolha.
+  const tocado = React.useRef(false);
   const [valores, setValores] = useState({});
   // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
   const [confirmado, setConfirmado] = useState(false);
@@ -3276,7 +3348,7 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
   const [recarregando, setRecarregando] = useState(false);
 
   const aplicar = (t) => {
-    if(t){ setLista(t); setErroLista(null); }
+    if(t){ setLista(t); setErroLista(null); if(!tocado.current) setEscolhido(templateInicial(t)); }
     else setErroLista(_templatesErro || 'não consegui falar com a Meta');
   };
 
@@ -3362,7 +3434,7 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
       {/* Seletor: rotulo legivel na frente, nome cru embaixo do botao. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap' }}>
         <label style={{ fontSize:12, fontWeight:700, color:C.ink }}>Modelo:</label>
-        <select value={tpl ? tpl.nome : ''} onChange={e=>{ setEscolhido(e.target.value); setValores({}); setConfirmado(false); }}
+        <select value={tpl ? tpl.nome : ''} onChange={e=>{ tocado.current = true; setEscolhido(e.target.value); setValores({}); setConfirmado(false); }}
           style={{ flex:'1 1 240px', padding:'8px 10px', borderRadius:10, fontSize:13,
             border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
           {grupos.map(g => (
@@ -3825,7 +3897,7 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
           <EnvioDeTemplate
             waId={alvo}
             nomeContato={lead.name}
-            dadosContato={{ cidade: lead.city, segmento: ramoDoLead(lead) }}
+            dadosContato={{ cidade: cidadeDoLead(lead), segmento: ramoDoLead(lead) }}
             enviando={enviando}
             estagio={estagio}
             onEnviar={enviarPara}
@@ -4197,7 +4269,7 @@ const Leads = () => {
                     <div style={{ fontSize:11, color:C.muted }}>{l.address || '—'}</div>
                   </td>
                   <td style={{ padding:'12px 10px' }}>
-                    <div style={{ color:C.ink, fontSize:12 }}>{l.city || '—'}</div>
+                    <div style={{ color:C.ink, fontSize:12 }}>{cidadeDoLead(l) || '—'}</div>
                     {l.neighborhood ? <div style={{ fontSize:11, color:C.muted }}>{l.neighborhood}</div> : null}
                   </td>
                   <td style={{ padding:'12px 10px' }}>
@@ -6054,7 +6126,7 @@ const WhatsAppTab = () => {
   // {{2}}/{{3}} so quando o numero casa com um lead — perfil do app e
   // pushName nao trazem cidade nem ramo, e chutar seria mandar dado errado.
   const dadosDoContatoAberto = leadDoContatoAberto
-    ? { cidade: leadDoContatoAberto.city, segmento: ramoDoLead(leadDoContatoAberto) }
+    ? { cidade: cidadeDoLead(leadDoContatoAberto), segmento: ramoDoLead(leadDoContatoAberto) }
     : null;
 
 

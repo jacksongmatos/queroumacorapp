@@ -11,10 +11,17 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-type Lead = { category?: string | null; segment?: string | null };
+type Lead = {
+  category?: string | null;
+  segment?: string | null;
+  city?: string | null;
+  address?: string | null;
+  name?: string | null;
+};
 
 let LEAD_PITCH: Record<string, { ramo?: string; funil: string }>;
 let ramoDoLead: (l: Lead | null | undefined) => string | null;
+let cidadeDoLead: (l: Lead | null | undefined) => string | null;
 let fonte = '';
 
 beforeAll(() => {
@@ -27,12 +34,14 @@ beforeAll(() => {
   // Bloco tem que ser JS puro — JSX aqui quebraria o `new Function` e o
   // vitest reportaria o arquivo como skipped (verde falso, 2026-09-05).
   expect(bloco, 'JSX dentro do bloco de ramo').not.toMatch(/<[A-Za-z/]/);
-  const mod = new Function(bloco + '\nreturn { LEAD_PITCH, ramoDoLead };')() as {
+  const mod = new Function(bloco + '\nreturn { LEAD_PITCH, ramoDoLead, cidadeDoLead };')() as {
     LEAD_PITCH: typeof LEAD_PITCH;
     ramoDoLead: typeof ramoDoLead;
+    cidadeDoLead: typeof cidadeDoLead;
   };
   LEAD_PITCH = mod.LEAD_PITCH;
   ramoDoLead = mod.ramoDoLead;
+  cidadeDoLead = mod.cidadeDoLead;
 });
 
 describe('ramoDoLead ({{3}} do template de abordagem)', () => {
@@ -82,9 +91,12 @@ describe('EnvioDeTemplate preenche {{2}} cidade e {{3}} segmento', () => {
   });
 
   it('abordagem de lead e aba WhatsApp passam cidade + ramoDoLead', () => {
-    expect(fonte).toContain('dadosContato={{ cidade: lead.city, segmento: ramoDoLead(lead) }}');
+    expect(fonte).toContain('dadosContato={{ cidade: cidadeDoLead(lead), segmento: ramoDoLead(lead) }}');
     expect(fonte).toContain('dadosContato={dadosDoContatoAberto}');
-    expect(fonte).toContain('segmento: ramoDoLead(leadDoContatoAberto)');
+    expect(fonte).toContain('{ cidade: cidadeDoLead(leadDoContatoAberto), segmento: ramoDoLead(leadDoContatoAberto) }');
+    // Ninguém volta a ler `.city` cru no prefill: era o que deixava o campo 2
+    // vazio pro lead antigo que guardou a cidade no endereço (2026-09-08).
+    expect(fonte).not.toMatch(/cidade: (lead|leadDoContatoAberto)\.city/);
   });
 
   // A aba WhatsApp só consegue preencher se a consulta de leads trouxer os
@@ -92,5 +104,54 @@ describe('EnvioDeTemplate preenche {{2}} cidade e {{3}} segmento', () => {
   // silêncio.
   it('a consulta de leads da aba WhatsApp traz city e segment', () => {
     expect(fonte).toMatch(/from\('leads'\)\.select\('id, name, phone, category, segment, city, status'\)/);
+  });
+});
+
+// ── {{2}} cidade: a coluna, o endereço ou o nome ─────────────────────────
+// O print de 2026-09-08: lead "Studio Arquitetura Guarulhos", coluna CIDADE
+// em "—", "Guarulhos" embaixo do nome (era o `address`), e o modal de
+// abordagem com o campo 2 vazio e o botão travado. A cidade estava na base
+// — só não estava na coluna que o prefill lia.
+describe('cidadeDoLead ({{2}} do template de abordagem)', () => {
+  it('coluna city preenchida vence', () => {
+    expect(cidadeDoLead({ city: 'Osasco', address: 'Guarulhos' })).toBe('Osasco');
+  });
+
+  it('endereço que é só a cidade (lead antigo de captação)', () => {
+    expect(cidadeDoLead({ address: 'Guarulhos' })).toBe('Guarulhos');
+    expect(cidadeDoLead({ address: 'Guarulhos - SP' })).toBe('Guarulhos');
+    expect(cidadeDoLead({ address: 'Guarulhos/SP' })).toBe('Guarulhos');
+    expect(cidadeDoLead({ address: 'Pimentas, Guarulhos - SP' })).toBe('Guarulhos');
+  });
+
+  it('rua com número ou logradouro NÃO vira cidade', () => {
+    expect(cidadeDoLead({ address: 'R. Manaus, 158' })).toBeNull();
+    expect(cidadeDoLead({ address: 'Av. Paulista' })).toBeNull();
+    expect(cidadeDoLead({ address: 'Jardim dos Pimentas' })).toBeNull();
+    expect(cidadeDoLead({ address: 'Estrada Aruja/Itaqua SP 56, 2320, Sala 09' })).toBeNull();
+  });
+
+  it('cidade conhecida no nome do lead, com ou sem acento', () => {
+    expect(cidadeDoLead({ name: 'Studio Arquitetura Guarulhos', address: 'R. X, 10' })).toBe('Guarulhos');
+    expect(cidadeDoLead({ name: 'Studio Aruja Design' })).toBe('Arujá');
+    expect(cidadeDoLead({ name: 'Pintor de Sao Paulo' })).toBe('São Paulo');
+  });
+
+  it('palavra parecida no nome não conta', () => {
+    expect(cidadeDoLead({ name: 'Guarulhense Tintas' })).toBeNull();
+  });
+
+  it('marcador da base importada não é cidade', () => {
+    expect(cidadeDoLead({ city: 'n/a', address: 'Guarulhos' })).toBe('Guarulhos');
+    expect(cidadeDoLead({ city: 'não informado' })).toBeNull();
+  });
+
+  it('sem pista nenhuma, devolve null (o campo fica vazio e o botão trava)', () => {
+    expect(cidadeDoLead({})).toBeNull();
+    expect(cidadeDoLead(null)).toBeNull();
+  });
+
+  it('a coluna CIDADE da tabela mostra a mesma cidade que a abordagem usa', () => {
+    expect(fonte).toContain("{cidadeDoLead(l) || '—'}");
   });
 });
