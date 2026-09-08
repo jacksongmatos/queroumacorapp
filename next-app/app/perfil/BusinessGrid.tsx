@@ -64,9 +64,6 @@ const FeChat = lazy(() =>
 const SennaChat = lazy(() =>
   import('@/app/senna/SennaChat').then((m) => ({ default: m.SennaChat })),
 );
-const AiArtStudio = lazy(() =>
-  import('@/app/arte-ig/AiArtStudio').then((m) => ({ default: m.AiArtStudio })),
-);
 const ShirtCustomizer = lazy(() =>
   import('@/app/camisetas/ShirtCustomizer').then((m) => ({ default: m.ShirtCustomizer })),
 );
@@ -97,7 +94,6 @@ type SheetKey =
   | 'alice'
   | 'fe'
   | 'senna'
-  | 'arte-ig'
   | 'camisetas'
   | 'formacao'
   | 'arte-venda'
@@ -134,7 +130,6 @@ const SHEETS: Partial<Record<SheetKey, SheetConfig>> = {
   alice: { label: 'Alice Codessi', Component: AliceChat as ComponentType },
   fe: { label: 'Fê', Component: FeChat as ComponentType },
   senna: { label: 'Senna', Component: SennaChat as ComponentType },
-  'arte-ig': { label: 'Arte pra IG', Component: AiArtStudio as ComponentType },
   camisetas: { label: 'Camisetas', Component: ShirtCustomizer as ComponentType },
   formacao: { label: 'Formação', Component: QualsSection as ComponentType },
   'arte-venda': { label: 'Arte pra venda', Component: ArteVendaView as ComponentType },
@@ -163,7 +158,6 @@ const TILES: readonly Tile[] = [
   { sheet: 'crm', emoji: '🔁', title: 'Reativar clientes', subtitle: 'Follow-up · PRO' },
   { sheet: 'financeiro', emoji: '💰', title: 'Financeiro', subtitle: 'Lucro e comissão' },
   { sheet: 'notes', emoji: '📝', title: 'Anotações', subtitle: 'Notas e lembretes' },
-  { sheet: 'arte-ig', emoji: '🎨', title: 'Arte pra IG', subtitle: 'Foto vira post · PRO', gradient: 'art' },
   { sheet: 'camisetas', emoji: '👕', title: 'Camisetas', subtitle: 'Com seu logo' },
   { sheet: 'formacao', emoji: '🎓', title: 'Formação', subtitle: 'Qualificações' },
   // Personas IA por último — filtradas por role no render (visibleTiles).

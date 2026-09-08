@@ -17,6 +17,17 @@
     sem abas Publicação/24h (portfólio é permanente; rascunho de story
     restaura como publicação), sem "Marcar como venda" (isso é o tile Arte
     pra venda), título "📸 Meu Portfólio" e botão "Publicar no portfólio".
+  - **Anotações: "Gravar áudio" abria o seletor de ARQUIVO no app Android.**
+    O `NotesView` pulava o `getUserMedia` em Android por um gate
+    `isAndroidWebView` da época do WebIntoApp (que nunca dava a permissão) e
+    ia direto pro `<input capture>`. Na casca Capacitor o microfone funciona
+    (o Seu Zé usa desde o par RECORD_AUDIO+MODIFY_AUDIO_SETTINGS). Agora
+    tenta o microfone PRIMEIRO em todo lugar; o gravador do sistema é só o
+    fallback do `onError`. `useAudioRecording` ganhou teto de 12s no
+    `getUserMedia` (promessa pendurada na WebView não rejeita).
+  - **Tile "Arte pra IG" REMOVIDO do BusinessGrid** (decisão do usuário). A
+    rota `/arte-ig` e o `AiArtStudio` continuam no repo; só o tile e o passo
+    do tour saíram (o `tour.test.ts` obriga os dois a andarem juntos).
 
 - **PDF DO ORÇAMENTO NO LAYOUT DE REFERÊNCIA (2026-09-08, pedido do usuário:
   "100% fiel" ao orçamento da LP Decor Pinturas, 4 páginas). SEM SQL.**
