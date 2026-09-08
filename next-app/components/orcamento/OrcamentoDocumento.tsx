@@ -34,7 +34,26 @@ export function OrcamentoDocumento({ doc }: { doc: DocumentoOrcamento }) {
   ].filter(Boolean);
 
   return (
-    <div style={{ color: TEXTO, fontFamily: 'DM Sans, system-ui, sans-serif', fontSize: 12.5, lineHeight: 1.45 }}>
+    <div className="od" style={{ color: TEXTO, fontFamily: 'DM Sans, system-ui, sans-serif', fontSize: 12.5, lineHeight: 1.45 }}>
+      {/* A tabela de serviços tem 4 colunas na folha; num celular de 360px
+          isso vira uma palavra por linha. Abaixo de 560px o item ocupa a
+          largura toda e os três valores descem pra uma linha só. No print
+          (A4) e no desktop fica como na referência. */}
+      <style>{`
+        .od-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 96px; gap: 8px; align-items: center; }
+        .od-cols { display: contents; }
+        @media (max-width: 560px) {
+          .od-row { grid-template-columns: minmax(0, 1fr); }
+          .od-cols { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; }
+          .od-head .od-cols { display: none; }
+          .od-head { padding-top: 8px !important; padding-bottom: 8px !important; }
+        }
+        @media print {
+          .od-row { grid-template-columns: minmax(0, 1fr) 84px 84px 96px; }
+          .od-cols { display: contents; }
+          .od-head .od-cols { display: contents; }
+        }
+      `}</style>
       {/* ── Cabeçalho do profissional ── */}
       <header style={{ display: 'flex', gap: 14, alignItems: 'flex-start', paddingBottom: 14, borderBottom: `4px solid ${CINZA_CLARO}` }}>
         {pr.logo ? (
@@ -78,22 +97,22 @@ export function OrcamentoDocumento({ doc }: { doc: DocumentoOrcamento }) {
       <section style={{ marginTop: 16 }}>
         <div style={{ background: CINZA, borderRadius: '10px 10px 0 0', padding: '14px 16px', fontSize: 20, fontWeight: 800 }}>Serviços</div>
         <div
+          className="od-row od-head"
           style={{
             background: PRETO,
             color: '#fff',
             borderRadius: '0 0 10px 10px',
             padding: '10px 16px',
-            display: 'grid',
-            gridTemplateColumns: '1fr 80px 80px 90px',
-            gap: 8,
             fontWeight: 700,
             fontSize: 12.5,
           }}
         >
           <div>Item</div>
-          <div style={{ textAlign: 'center' }}>Valor<br />Unitario</div>
-          <div style={{ textAlign: 'center' }}>Quantidade</div>
-          <div style={{ textAlign: 'center' }}>Subtotal</div>
+          <div className="od-cols">
+            <div style={{ textAlign: 'center' }}>Valor<br />Unitario</div>
+            <div style={{ textAlign: 'center' }}>Quantidade</div>
+            <div style={{ textAlign: 'center' }}>Subtotal</div>
+          </div>
         </div>
 
         {doc.grupos.map((g, gi) => (
@@ -106,24 +125,23 @@ export function OrcamentoDocumento({ doc }: { doc: DocumentoOrcamento }) {
             {g.itens.map((it, ii) => (
               <div
                 key={ii}
+                className="od-row"
                 style={{
                   border: '1px solid #ddd',
                   borderRadius: 10,
                   padding: '12px 14px',
                   marginTop: 10,
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 80px 80px 90px',
-                  gap: 8,
-                  alignItems: 'center',
                 }}
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{it.titulo}</div>
                   {it.descricao ? <div style={{ fontSize: 12, marginTop: 2, whiteSpace: 'pre-wrap' }}>{it.descricao}</div> : null}
                 </div>
-                <Coluna rotulo={it.rotuloUnidade} valor={fmtValor(it.valorUnitario)} />
-                <Coluna rotulo="Quantidade" valor={fmtQuantidade(it.quantidade)} />
-                <Coluna rotulo="Valor" valor={fmtValor(it.subtotal)} />
+                <div className="od-cols">
+                  <Coluna rotulo={it.rotuloUnidade} valor={fmtValor(it.valorUnitario)} />
+                  <Coluna rotulo="Quantidade" valor={fmtQuantidade(it.quantidade)} />
+                  <Coluna rotulo="Valor" valor={fmtValor(it.subtotal)} />
+                </div>
               </div>
             ))}
           </div>

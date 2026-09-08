@@ -62,20 +62,47 @@ export interface PainterForPdf {
 
 
 // Carrega imagem como data URL pra jsPDF.addImage. Falha → null (segue sem logo).
+// jsPDF só embute PNG e JPEG: logo em WebP (ou qualquer outro formato) é
+// redesenhado num canvas e sai como PNG — antes era pulado em silêncio.
 async function loadImageAsDataUrl(url: string): Promise<string | null> {
   try {
     const r = await fetch(url, { mode: 'cors' });
     if (!r.ok) return null;
     const blob = await r.blob();
-    return await new Promise<string | null>((resolve) => {
+    const dataUrl = await new Promise<string | null>((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
       reader.onerror = () => resolve(null);
       reader.readAsDataURL(blob);
     });
+    if (!dataUrl) return null;
+    if (/^data:image\/(png|jpe?g);/i.test(dataUrl)) return dataUrl;
+    return await converterParaPng(dataUrl);
   } catch {
     return null;
   }
+}
+
+async function converterParaPng(dataUrl: string): Promise<string | null> {
+  if (typeof document === 'undefined') return null;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || 256;
+        canvas.height = img.naturalHeight || 256;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(null);
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
 }
 
 /**
