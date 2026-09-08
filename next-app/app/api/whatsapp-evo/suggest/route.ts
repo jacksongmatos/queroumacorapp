@@ -77,7 +77,16 @@ export async function POST(request: NextRequest) {
     );
     const leads = leadRes.ok ? ((await leadRes.json()) as Array<Record<string, string | null>>) : [];
 
-    const result = await generateAiReply({ lead: leads[0] || null, turns });
+    // Prompt editado no portal (coluna nova; ausente → padrão do código).
+    let promptBase: string | null = null;
+    try {
+      const cfgRes = await fetch(`${url}/rest/v1/whatsapp_ai_config?id=eq.1&select=prompt`, {
+        headers: h, signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (cfgRes.ok) promptBase = ((await cfgRes.json()) as Array<{ prompt?: string | null }>)[0]?.prompt || null;
+    } catch { /* fica no padrão */ }
+
+    const result = await generateAiReply({ lead: leads[0] || null, turns, promptBase });
     return jsonResponse({
       ok: true,
       reply: result.reply,

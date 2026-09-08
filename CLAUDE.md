@@ -1,5 +1,35 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **IA DO WHATSAPP: prompt EDITÁVEL no portal + não fala do QueroUmaCor +
+  entende a abordagem (2026-09-08, três pedidos do usuário). SQL
+  `/migrations/2026-09-08-whatsapp-ai-prompt.sql` (uma linha:
+  `whatsapp_ai_config.prompt text`) — PENDENTE até o usuário rodar; linha de
+  conferência adicionada em `2026-09-05-conferencia-pendencias.sql`. O código
+  TOLERA a coluna ausente.**
+  - **"Não falar da QueroUmaCor automaticamente":** a IA respondeu "Posso te
+    ajudar com algo relacionado a tintas ou o app QueroUmaCor?". A frase de
+    apresentação do app saiu do prompt e entrou a regra 6: só fala do app
+    se a PESSOA perguntar.
+  - **"Vocês que me chamaram" → "não tenho essa informação":** a abordagem
+    entra no histórico como registro cru (`[template calicolors_abordagem_v2]
+    {{1}}=…`), e a IA não sabia que a loja tinha começado a conversa.
+    `descreverRegistroDeTemplate` (em `loadTurns`) troca o registro por um
+    resumo da mensagem de apresentação, e a regra 7 ensina a explicar por que
+    a loja chamou.
+  - **Prompt editável:** `PROMPT_BASE_PADRAO` (identidade + regras) é a parte
+    que a loja edita; `buildSystemPrompt({promptBase})` usa o texto do banco
+    no lugar dela e mantém FIXOS o contexto do lead, os blocos de primeiro
+    contato/pendência, o estilo e o formato JSON (sem ele o parser quebra).
+    As travas de preço são código e valem seja qual for o texto. Runner e
+    rota `suggest` leem `whatsapp_ai_config.prompt`; o runner refaz o select
+    sem a coluna se o 42703 zerar a config (senão horário/padrão/ausência
+    voltariam ao default em silêncio). Portal (v=20260908g): botão "🧠
+    Prompt da IA" na barra → modal com textarea; o PADRÃO vem de
+    `GET /api/whatsapp/ai-prompt` (admin), não de cópia no portal; salvar
+    igual ao padrão grava NULL de propósito (melhoria futura do padrão chega
+    sozinha); coluna ausente → a tela mostra o SQL. Testes:
+    `__tests__/portalPromptIa.test.ts` + `whatsapp-ai.test.ts`.
+
 - **ABORDAGEM: v2 É O MODELO INICIAL + a cidade sai de onde estiver
   (2026-09-08, pedido do usuário: "abordagem V2 como padrão inicial e corrija
   os campos para mapear certo"). Portal v=20260908b, SEM SQL.**

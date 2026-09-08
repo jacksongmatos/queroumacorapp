@@ -4,6 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSystemPrompt,
+  descreverRegistroDeTemplate,
+  PROMPT_BASE_PADRAO,
   clientAsksForPrice,
   diaBrt,
   isBusinessHour,
@@ -145,6 +147,21 @@ describe('mensagem de ausência — quando a IA não vai responder', () => {
   });
 });
 
+describe('descreverRegistroDeTemplate', () => {
+  it('registro de template vira a mensagem de apresentação', () => {
+    const t = descreverRegistroDeTemplate('[template calicolors_abordagem_v2] {{1}}=OHMTECH {{2}}=Guarulhos {{3}}=engenharia civil');
+    expect(t).toContain('Mensagem de apresentação enviada pela loja');
+    expect(t).toContain('Calicolors Tintas');
+    expect(t).not.toContain('{{1}}');
+    expect(descreverRegistroDeTemplate('[template calicolors]')).toContain('apresentação');
+  });
+
+  it('mensagem normal passa intacta', () => {
+    expect(descreverRegistroDeTemplate('Bom dia, com quem eu falo?')).toBe('Bom dia, com quem eu falo?');
+    expect(descreverRegistroDeTemplate(null)).toBe('');
+  });
+});
+
 describe('buildSystemPrompt', () => {
   it('inclui as regras duras e o contexto do lead', () => {
     const p = buildSystemPrompt({
@@ -163,6 +180,20 @@ describe('buildSystemPrompt', () => {
     const p = buildSystemPrompt({});
     expect(p).toContain('Cali Colors');
     expect(p).not.toContain('undefined');
+  });
+
+  // Decisão do usuário (2026-09-08): a IA não fala do app por conta própria.
+  it('não apresenta o QueroUmaCor por iniciativa própria', () => {
+    const p = buildSystemPrompt({});
+    expect(p).not.toContain('também mantém o QueroUmaCor');
+    expect(p).toContain('NÃO mencione o app QueroUmaCor');
+    expect(p).toContain('Só fale dele se a PESSOA perguntar');
+  });
+
+  it('sabe explicar por que a loja chamou quem foi abordado', () => {
+    const p = buildSystemPrompt({});
+    expect(p).toContain('por que chamamos');
+    expect(p).toContain('conhecer profissionais da região');
   });
 
   it('PRIMEIRO CONTATO manda recepcionar antes de responder', () => {
@@ -184,6 +215,29 @@ describe('buildSystemPrompt', () => {
   it('sem pendência, não fala em promessa nenhuma', () => {
     const p = buildSystemPrompt({});
     expect(p).not.toContain('NÃO repita essa promessa');
+  });
+
+  // Prompt editável no portal (2026-09-08): o texto da loja substitui a
+  // base (identidade + regras), e o resto continua fixo.
+  it('promptBase do portal substitui a base e mantém o rabo fixo', () => {
+    const p = buildSystemPrompt({
+      promptBase: 'Você é a Dona Cali, atendente da Cali Colors. Seja breve.',
+      lead: { name: 'DNA Bodyshop' },
+      primeiroContato: true,
+    });
+    expect(p).toContain('Você é a Dona Cali');
+    expect(p).not.toContain('REGRAS ABSOLUTAS');
+    expect(p).toContain('DNA Bodyshop');
+    expect(p).toContain('PRIMEIRA MENSAGEM DA CONVERSA');
+    expect(p).toContain('Responda SEMPRE em JSON puro');
+    expect(p).toContain('precisa_humano');
+  });
+
+  it('promptBase vazio ou só espaço cai no padrão', () => {
+    expect(buildSystemPrompt({ promptBase: '   ' })).toContain('REGRAS ABSOLUTAS');
+    expect(buildSystemPrompt({ promptBase: null })).toContain('REGRAS ABSOLUTAS');
+    expect(PROMPT_BASE_PADRAO).toContain('NUNCA informe preço');
+    expect(PROMPT_BASE_PADRAO).not.toContain('Responda SEMPRE em JSON');
   });
 
   it('conversa já em andamento NÃO repete a apresentação', () => {

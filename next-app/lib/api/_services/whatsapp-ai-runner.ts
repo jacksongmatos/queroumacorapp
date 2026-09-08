@@ -16,6 +16,7 @@
 import { getServiceKey, getSupabaseUrl } from '../security';
 import {
   generateAiReply,
+  descreverRegistroDeTemplate,
   isAiConfigured,
   isBusinessHour,
   isOptOut,
@@ -108,18 +109,30 @@ async function loadConfig(): Promise<{
   default_on: boolean;
   away_on: boolean;
   away_text: string | null;
+  prompt: string | null;
 }> {
-  const rows = await dbGet<{
+  type Cfg = {
     hours: string;
     default_on: boolean;
     away_on: boolean | null;
     away_text: string | null;
-  }>(`whatsapp_ai_config?id=eq.1&select=hours,default_on,away_on,away_text`);
+    prompt?: string | null;
+  };
+  // `prompt` é coluna nova (2026-09-08). Se o SQL ainda não rodou, o
+  // PostgREST responde 42703 pro select inteiro e o dbGet devolve [] — e aí
+  // horário, padrão e ausência voltariam ao default sem ninguém ver. Por
+  // isso a segunda tentativa sem a coluna: recurso novo não derruba o que
+  // já funciona por SQL pendente.
+  let rows = await dbGet<Cfg>(`whatsapp_ai_config?id=eq.1&select=hours,default_on,away_on,away_text,prompt`);
+  if (!rows.length) {
+    rows = await dbGet<Cfg>(`whatsapp_ai_config?id=eq.1&select=hours,default_on,away_on,away_text`);
+  }
   return {
     hours: rows[0]?.hours || '8-19',
     default_on: rows[0]?.default_on === true,
     away_on: rows[0]?.away_on !== false,
     away_text: rows[0]?.away_text || null,
+    prompt: rows[0]?.prompt || null,
   };
 }
 
@@ -301,7 +314,9 @@ async function loadTurns(waId: string): Promise<ConversationTurn[]> {
     // respondia no vácuo. Marcador de mídia sem transcrição fica de fora.
     .map((r) => ({
       direction: (r.direction === 'out' ? 'out' : 'in') as 'in' | 'out',
-      body: (r.transcript || r.body || '').trim(),
+      // Registro de template vira a mensagem de apresentação, senão a IA
+      // lê "[template x] {{1}}=…" e não sabe que a loja começou a conversa.
+      body: descreverRegistroDeTemplate((r.transcript || r.body || '').trim()),
     }))
     .filter((t) => t.body && !/^\[(áudio|imagem|vídeo|figurinha|documento)\]$/i.test(t.body));
 }
@@ -474,6 +489,7 @@ async function decidirEAgir(opts: {
       lead: lead?.ctx || null,
       turns,
       pendenciaAberta: pendente,
+      promptBase: cfg.prompt,
     });
     if (!result.reply) return { acted: false, why: 'IA não produziu resposta' };
 

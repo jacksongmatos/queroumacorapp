@@ -11687,7 +11687,242 @@ const AJUDA_WHATSAPP = [{
 }, {
   t: 'Última varredura (linha de baixo)',
   d: 'Quando rodou pela última vez, quantas conversas foram analisadas e o que saiu de cada tipo.'
+}, {
+  t: '🧠 Prompt da IA',
+  d: 'O texto de instruções que a IA lê antes de cada resposta: quem ela é e como conversa. Dá pra editar e salvar; "Restaurar padrão" volta ao texto do sistema. A trava de preço, o horário, o teto diário e o PARE são de código e continuam valendo seja qual for o texto.'
 }];
+
+// ── Prompt da IA: editável no portal (2026-09-08, pedido do usuário) ────
+// O texto vive em whatsapp_ai_config.prompt (NULL = padrão do código). O
+// PADRÃO vem da rota /api/whatsapp/ai-prompt, não de cópia aqui: copiar
+// seria uma segunda versão pra envelhecer. Salvar igual ao padrão grava
+// NULL de propósito — assim melhoria futura do padrão chega sozinha.
+const SQL_PROMPT_IA = 'ALTER TABLE public.whatsapp_ai_config ADD COLUMN IF NOT EXISTS prompt text;';
+const PromptDaIaModal = ({
+  atual,
+  onClose,
+  onSalvo
+}) => {
+  const [padrao, setPadrao] = useState(null);
+  const [texto, setTexto] = useState(typeof atual === 'string' ? atual : '');
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const {
+          data: {
+            session
+          }
+        } = await supa.auth.getSession();
+        const r = await fetch('/api/whatsapp/ai-prompt', {
+          headers: {
+            Authorization: 'Bearer ' + (session ? session.access_token : '')
+          }
+        });
+        const res = await r.json().catch(() => ({}));
+        if (!vivo) return;
+        if (r.ok && res.ok && typeof res.padrao === 'string') {
+          setPadrao(res.padrao);
+          if (typeof atual !== 'string') setTexto(res.padrao);
+        } else {
+          setErro('Não consegui carregar o texto padrão (' + (res.error || 'HTTP ' + r.status) + ').');
+        }
+      } catch (e) {
+        if (vivo) setErro('Não consegui carregar o texto padrão: ' + (e && e.message || 'falha de rede'));
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const igualAoPadrao = padrao != null && texto.trim() === padrao.trim();
+  const salvar = async () => {
+    setSalvando(true);
+    setErro('');
+    const valor = igualAoPadrao || !texto.trim() ? null : texto;
+    const {
+      error
+    } = await supa.from('whatsapp_ai_config').upsert({
+      id: 1,
+      prompt: valor,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'id'
+    });
+    setSalvando(false);
+    if (error) {
+      const msg = (error.message || '') + ' ' + (error.code || '');
+      setErro(/42703|column .*prompt|prompt.* column/i.test(msg) ? 'A coluna ainda não existe no banco. Rode no SQL Editor do Supabase: ' + SQL_PROMPT_IA : 'Não consegui salvar: ' + (error.message || 'erro desconhecido'));
+      return;
+    }
+    onSalvo(valor);
+    onClose();
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: onClose,
+    style: {
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(26,26,46,.5)',
+      zIndex: 1000,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      background: '#fff',
+      borderRadius: 16,
+      width: 'min(860px, 96vw)',
+      maxHeight: '92vh',
+      display: 'flex',
+      flexDirection: 'column',
+      boxShadow: '0 16px 48px rgba(0,0,0,.24)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '16px 20px',
+      borderBottom: '1px solid ' + C.border,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 16,
+      color: C.ink
+    }
+  }, "\uD83E\uDDE0 Prompt da IA"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      marginTop: 2
+    }
+  }, "O que a IA l\xEA antes de cada resposta no WhatsApp.", typeof atual === 'string' ? ' Texto atual: personalizado.' : ' Texto atual: padrão do sistema.')), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      background: 'none',
+      border: 'none',
+      fontSize: 22,
+      cursor: 'pointer',
+      color: C.muted,
+      lineHeight: 1
+    }
+  }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 20,
+      overflowY: 'auto',
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '9px 12px',
+      background: '#fff7ed',
+      border: '1px solid #f0c98a',
+      borderRadius: 10,
+      fontSize: 11.5,
+      color: '#8a5300',
+      lineHeight: 1.5
+    }
+  }, "Aqui voc\xEA edita ", /*#__PURE__*/React.createElement("strong", null, "quem a IA \xE9 e como conversa"), ". Continuam fixos por c\xF3digo, seja qual for o texto: a trava de pre\xE7o (pedido de pre\xE7o ou or\xE7amento nem chega na IA, e resposta com valor \xE9 barrada), o hor\xE1rio, o teto di\xE1rio, o PARE, os dados do lead e o formato interno da resposta."), /*#__PURE__*/React.createElement("textarea", {
+    value: texto,
+    onChange: e => setTexto(e.target.value),
+    spellCheck: false,
+    placeholder: padrao == null ? 'Carregando o texto padrão…' : '',
+    style: {
+      width: '100%',
+      minHeight: 340,
+      resize: 'vertical',
+      padding: '12px 14px',
+      borderRadius: 10,
+      border: '1.5px solid ' + C.border,
+      fontSize: 12.5,
+      lineHeight: 1.5,
+      fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
+      color: C.ink,
+      outline: 'none',
+      boxSizing: 'border-box'
+    }
+  }), erro ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '8px 12px',
+      background: '#fdecea',
+      color: '#b3261e',
+      borderRadius: 8,
+      fontSize: 12,
+      wordBreak: 'break-word'
+    }
+  }, erro) : null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '14px 20px',
+      borderTop: '1px solid ' + C.border,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 12,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, padrao == null ? 'Buscando o padrão…' : igualAoPadrao ? 'Igual ao padrão do sistema.' : 'Diferente do padrão — será salvo como personalizado.'), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (padrao != null) setTexto(padrao);
+    },
+    disabled: padrao == null || igualAoPadrao,
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      padding: '9px 14px',
+      fontSize: 13,
+      cursor: padrao == null || igualAoPadrao ? 'not-allowed' : 'pointer',
+      color: C.muted,
+      opacity: padrao == null || igualAoPadrao ? .5 : 1
+    }
+  }, "\u21BA Restaurar padr\xE3o"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      padding: '9px 16px',
+      fontSize: 13,
+      cursor: 'pointer',
+      color: C.muted
+    }
+  }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+    onClick: salvar,
+    disabled: salvando || padrao == null,
+    style: {
+      background: C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 10,
+      padding: '9px 18px',
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: salvando || padrao == null ? 'wait' : 'pointer',
+      opacity: salvando || padrao == null ? .6 : 1
+    }
+  }, salvando ? 'Salvando…' : '💾 Salvar')))));
+};
 
 // Conteudo de uma bolha: foto, audio com player, video, documento ou
 // texto. `url` chega assinada (bucket privado) — enquanto nao chega, ou
@@ -12079,9 +12314,17 @@ const WhatsAppTab = () => {
   const [readAt, setReadAt] = useState({}); // wa_id → ISO
   const [iaPadrao, setIaPadrao] = useState(false);
   const [alertas, setAlertas] = useState([]);
+
+  // Prompt da IA: string = personalizado, null = padrão, undefined = não
+  // carregado ou coluna ausente (o select é separado do da config de
+  // propósito: se a coluna nova não existir, o 42703 derrubaria horário,
+  // padrão e ausência junto).
+  const [promptIa, setPromptIa] = useState(undefined);
+  const [promptOpen, setPromptOpen] = useState(false);
   const loadIa = async () => {
     // Config em tabela PROPRIA (Wave 47) — app_settings guarda segredo de
     // sistema e recusa escrita do portal, corretamente.
+    supa.from('whatsapp_ai_config').select('prompt').eq('id', 1).maybeSingle().then(pr => setPromptIa(pr.error ? undefined : pr.data && pr.data.prompt || null)).catch(() => setPromptIa(undefined));
     const [st, cfg, al] = await Promise.all([supa.from('whatsapp_ai_state').select('wa_id, enabled, last_why, last_at, last_read_at').limit(2000), supa.from('whatsapp_ai_config').select('hours, default_on, followup_on, away_on, last_sweep_at, last_sweep_note').eq('id', 1).maybeSingle(), supa.from('portal_alerts').select('id, kind, wa_id, title, body, created_at').eq('resolved', false).order('created_at', {
       ascending: false
     }).limit(50)]);
@@ -12801,7 +13044,20 @@ const WhatsAppTab = () => {
       cursor: sweeping ? 'wait' : 'pointer',
       color: C.muted
     }
-  }, sweeping ? '…' : '▶ Rodar follow-up agora'), /*#__PURE__*/React.createElement("span", {
+  }, sweeping ? '…' : '▶ Rodar follow-up agora'), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPromptOpen(true),
+    title: "Ver e editar o texto de instru\xE7\xF5es que a IA l\xEA antes de responder.",
+    style: {
+      background: '#fff',
+      border: '1px solid ' + (typeof promptIa === 'string' ? C.p1 : C.border),
+      borderRadius: 20,
+      padding: '5px 12px',
+      fontSize: 11,
+      fontWeight: 600,
+      cursor: 'pointer',
+      color: typeof promptIa === 'string' ? C.p1 : C.muted
+    }
+  }, "\uD83E\uDDE0 Prompt da IA", typeof promptIa === 'string' ? ' · personalizado' : ''), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: C.muted
@@ -13320,7 +13576,11 @@ const WhatsAppTab = () => {
       color: C.muted,
       fontSize: 11
     }
-  }, "Janela de texto livre aberta \u2014 fecha em ", restanteDaJanela(thread), " se a pessoa n\xE3o escrever de novo.") : null)))));
+  }, "Janela de texto livre aberta \u2014 fecha em ", restanteDaJanela(thread), " se a pessoa n\xE3o escrever de novo.") : null)))), promptOpen ? /*#__PURE__*/React.createElement(PromptDaIaModal, {
+    atual: promptIa,
+    onClose: () => setPromptOpen(false),
+    onSalvo: v => setPromptIa(v)
+  }) : null);
 };
 
 // ─────────────────────────────────────────────────────────────────────────
