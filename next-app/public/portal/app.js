@@ -6148,6 +6148,28 @@ const templateInicial = lista => {
   return nomes[0] || TEMPLATE_COM_NOME;
 };
 
+// Monta o corpo do POST a partir do template e dos valores das variaveis.
+// Compartilhado pelo envio unitario e pelo LOTE (2026-09-08): a mesma
+// conta, senao um dos dois gravaria registro diferente no historico.
+const pacoteDeTemplate = (tpl, vars, valores) => {
+  const params = (vars || []).slice().sort((a, b) => a.indice - b.indice).map(v => String(valores[v.indice] == null ? '' : valores[v.indice]).trim());
+  // Registro com TODOS os parametros, na ordem — com 2 variaveis, guardar
+  // so a primeira esconderia metade do que foi enviado.
+  const detalhe = params.map((v, i) => '{{' + (i + 1) + '}}=' + v).join(' ');
+  return {
+    template: tpl.nome,
+    idioma: tpl.idioma || TEMPLATE_IDIOMA,
+    components: params.length ? [{
+      type: 'body',
+      parameters: params.map(text => ({
+        type: 'text',
+        text
+      }))
+    }] : undefined,
+    registro: '[template ' + tpl.nome + ']' + (detalhe ? ' ' + detalhe : '')
+  };
+};
+
 // [teste:template-fim]
 
 // Texto pra MOSTRAR na tela (previa antes de enviar, e bolha depois).
@@ -6504,23 +6526,16 @@ const PreviaDeTemplate = ({
 // {{2}} e {{3}} — a convencao dos templates de abordagem e {{1}} nome,
 // {{2}} cidade, {{3}} segmento (decisao de 2026-09-07). Os campos seguem
 // editaveis: o operador corrige o que a base trouxe errado antes de enviar.
-const EnvioDeTemplate = ({
-  waId,
-  nomeContato,
-  dadosContato,
-  enviando,
-  estagio,
-  onEnviar
-}) => {
+// Estado da LISTA de templates, compartilhado pelo envio unitario e pelo
+// lote (2026-09-08). Um so lugar decide o modelo inicial e a troca pela
+// lista viva — dois componentes com copias disso divergiriam.
+const useListaDeTemplates = () => {
   const [lista, setLista] = useState(templatesDisponiveis());
-  const [escolhido, setEscolhido] = useState(() => templateInicial(templatesDisponiveis()));
+  const [escolhido, setEscolhidoBruto] = useState(() => templateInicial(templatesDisponiveis()));
   // O operador mexeu no seletor? Enquanto nao, a lista viva que chega da
   // Meta pode trocar o modelo inicial (a embutida nao tem o v2; a viva tem).
   // Depois que ele escolheu, a chegada da lista nao desfaz a escolha.
   const tocado = React.useRef(false);
-  const [valores, setValores] = useState({});
-  // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
-  const [confirmado, setConfirmado] = useState(false);
   // Falha ao listar na Meta. Deixou de ser silenciosa porque, de fora, ela
   // se parecia com "o portal nao mostra o modelo desse template".
   const [erroLista, setErroLista] = useState(null);
@@ -6529,7 +6544,7 @@ const EnvioDeTemplate = ({
     if (t) {
       setLista(t);
       setErroLista(null);
-      if (!tocado.current) setEscolhido(templateInicial(t));
+      if (!tocado.current) setEscolhidoBruto(templateInicial(t));
     } else setErroLista(_templatesErro || 'não consegui falar com a Meta');
   };
   useEffect(() => {
@@ -6549,7 +6564,140 @@ const EnvioDeTemplate = ({
       setRecarregando(false);
     }
   };
+  const escolher = nome => {
+    tocado.current = true;
+    setEscolhidoBruto(nome);
+  };
   const tpl = lista.find(t => t.nome === escolhido) || lista[0] || null;
+  return {
+    lista,
+    tpl,
+    escolher,
+    erroLista,
+    recarregando,
+    tentarDeNovo
+  };
+};
+
+// Seletor: rotulo legivel na frente, agrupado por categoria. Marketing e
+// Utility nao sao a mesma coisa pra quem opera — Utility passa pra numero
+// dos EUA e e mais barato; Marketing e o que some sem avisar.
+const SeletorDeTemplate = ({
+  lista,
+  tpl,
+  onEscolher
+}) => {
+  const grupos = [];
+  for (const t of lista) {
+    const cat = String(t.categoria || 'OUTROS').toUpperCase();
+    let g = grupos.find(x => x.cat === cat);
+    if (!g) {
+      g = {
+        cat,
+        itens: []
+      };
+      grupos.push(g);
+    }
+    g.itens.push(t);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 8,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink
+    }
+  }, "Modelo:"), /*#__PURE__*/React.createElement("select", {
+    value: tpl ? tpl.nome : '',
+    onChange: e => onEscolher(e.target.value),
+    style: {
+      flex: '1 1 240px',
+      padding: '8px 10px',
+      borderRadius: 10,
+      fontSize: 13,
+      border: '1.5px solid ' + C.border,
+      background: '#fff',
+      color: C.ink,
+      outline: 'none',
+      cursor: 'pointer'
+    }
+  }, grupos.map(g => /*#__PURE__*/React.createElement("optgroup", {
+    key: g.cat,
+    label: CATEGORIA_ROTULO[g.cat] || g.cat
+  }, g.itens.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.nome,
+    value: t.nome
+  }, rotuloDeTemplate(t), t.variaveis && t.variaveis.length ? ' · ' + t.variaveis.length + (t.variaveis.length > 1 ? ' campos' : ' campo') : ' · texto fixo'))))));
+};
+
+// Este aviso E a resposta pra "esse template nao mostra o modelo": quando a
+// Meta nao responde, sobra a lista embutida, que tem dois itens e um deles
+// sem texto. Sem esta linha, o sintoma parecia bug da tela.
+const AvisoListaEmbutida = ({
+  erroLista,
+  recarregando,
+  tentarDeNovo
+}) => erroLista ? /*#__PURE__*/React.createElement("div", {
+  style: {
+    marginBottom: 10,
+    padding: '8px 11px',
+    background: '#fff7ed',
+    border: '1px solid #f0c98a',
+    borderRadius: 10,
+    fontSize: 11.5,
+    color: '#8a5300',
+    lineHeight: 1.5,
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+    flexWrap: 'wrap'
+  }
+}, /*#__PURE__*/React.createElement("span", {
+  style: {
+    flex: 1,
+    minWidth: 200
+  }
+}, "N\xE3o consegui buscar os modelos na Meta (", erroLista, "); mostrando a lista embutida, que pode estar incompleta."), /*#__PURE__*/React.createElement("button", {
+  onClick: tentarDeNovo,
+  disabled: recarregando,
+  style: {
+    background: '#fff',
+    border: '1px solid #f0c98a',
+    borderRadius: 8,
+    padding: '5px 12px',
+    fontSize: 11.5,
+    fontWeight: 700,
+    color: '#8a5300',
+    cursor: recarregando ? 'wait' : 'pointer'
+  }
+}, recarregando ? 'Buscando…' : '↻ Tentar de novo')) : null;
+const EnvioDeTemplate = ({
+  waId,
+  nomeContato,
+  dadosContato,
+  enviando,
+  estagio,
+  onEnviar
+}) => {
+  const {
+    lista,
+    tpl,
+    escolher,
+    erroLista,
+    recarregando,
+    tentarDeNovo
+  } = useListaDeTemplates();
+  const [valores, setValores] = useState({});
+  // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
+  const [confirmado, setConfirmado] = useState(false);
+  const escolhido = tpl ? tpl.nome : '';
   const vars = tpl && tpl.variaveis || (tpl && tpl.precisaNome ? [{
     indice: 1,
     exemplo: null
@@ -6580,24 +6728,11 @@ const EnvioDeTemplate = ({
   }, [escolhido, nomeContato, cidade, segmento]);
   const faltando = vars.filter(v => !String(valores[v.indice] || '').trim());
   const aviso = tpl ? avisoMarketingEUA(waId, tpl.categoria) : null;
-
-  // Agrupa o seletor por categoria. Marketing e Utility nao sao a mesma
-  // coisa pra quem opera — Utility passa pra numero dos EUA e e mais barato;
-  // Marketing e o que some sem avisar. Ver os dois grupos separados evita
-  // escolher o errado por distracao.
-  const grupos = [];
-  for (const t of lista) {
-    const cat = String(t.categoria || 'OUTROS').toUpperCase();
-    let g = grupos.find(x => x.cat === cat);
-    if (!g) {
-      g = {
-        cat,
-        itens: []
-      };
-      grupos.push(g);
-    }
-    g.itens.push(t);
-  }
+  const trocar = nome => {
+    escolher(nome);
+    setValores({});
+    setConfirmado(false);
+  };
   const enviar = () => {
     if (!tpl || faltando.length) return;
     // O aviso de marketing pra EUA NAO bloqueia: a Meta pode mudar a regra,
@@ -6607,102 +6742,34 @@ const EnvioDeTemplate = ({
       setConfirmado(true);
       return;
     }
-    const params = vars.sort((a, b) => a.indice - b.indice).map(v => String(valores[v.indice]).trim());
-    // Registro com TODOS os parametros, na ordem — com 2 variaveis, guardar
-    // so a primeira esconderia metade do que foi enviado.
-    const detalhe = params.map((v, i) => '{{' + (i + 1) + '}}=' + v).join(' ');
-    onEnviar({
-      template: tpl.nome,
-      idioma: tpl.idioma || TEMPLATE_IDIOMA,
-      components: params.length ? [{
-        type: 'body',
-        parameters: params.map(text => ({
-          type: 'text',
-          text
-        }))
-      }] : undefined,
-      registro: '[template ' + tpl.nome + ']' + (detalhe ? ' ' + detalhe : '')
-    });
+    onEnviar(pacoteDeTemplate(tpl, vars, valores));
   };
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+
+  // DUAS COLUNAS (2026-09-08): campos a esquerda, previa a direita. Em
+  // coluna unica a previa do v2 (texto + 4 botoes) empurrava o botao de
+  // enviar pra baixo da dobra e o modal precisava rolar; lado a lado, tudo
+  // cabe. Em tela estreita o flex-wrap empilha de novo.
+  return /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginBottom: 8,
-      flexWrap: 'wrap'
+      gap: 16,
+      flexWrap: 'wrap',
+      alignItems: 'flex-start'
     }
-  }, /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12,
-      fontWeight: 700,
-      color: C.ink
+      flex: '1 1 300px',
+      minWidth: 0
     }
-  }, "Modelo:"), /*#__PURE__*/React.createElement("select", {
-    value: tpl ? tpl.nome : '',
-    onChange: e => {
-      tocado.current = true;
-      setEscolhido(e.target.value);
-      setValores({});
-      setConfirmado(false);
-    },
-    style: {
-      flex: '1 1 240px',
-      padding: '8px 10px',
-      borderRadius: 10,
-      fontSize: 13,
-      border: '1.5px solid ' + C.border,
-      background: '#fff',
-      color: C.ink,
-      outline: 'none',
-      cursor: 'pointer'
-    }
-  }, grupos.map(g => /*#__PURE__*/React.createElement("optgroup", {
-    key: g.cat,
-    label: CATEGORIA_ROTULO[g.cat] || g.cat
-  }, g.itens.map(t => /*#__PURE__*/React.createElement("option", {
-    key: t.nome,
-    value: t.nome
-  }, rotuloDeTemplate(t), t.variaveis && t.variaveis.length ? ' · ' + t.variaveis.length + (t.variaveis.length > 1 ? ' campos' : ' campo') : ' · texto fixo')))))), erroLista ?
-  /*#__PURE__*/
-  /* Este aviso E a resposta pra "esse template nao mostra o modelo":
-     quando a Meta nao responde, sobra a lista embutida, que tem dois
-     itens e um deles sem texto. Sem esta linha, o sintoma parecia bug
-     da tela. */
-  React.createElement("div", {
-    style: {
-      marginBottom: 10,
-      padding: '8px 11px',
-      background: '#fff7ed',
-      border: '1px solid #f0c98a',
-      borderRadius: 10,
-      fontSize: 11.5,
-      color: '#8a5300',
-      lineHeight: 1.5,
-      display: 'flex',
-      gap: 8,
-      alignItems: 'center',
-      flexWrap: 'wrap'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      flex: 1,
-      minWidth: 200
-    }
-  }, "N\xE3o consegui buscar os modelos na Meta (", erroLista, "); mostrando a lista embutida, que pode estar incompleta."), /*#__PURE__*/React.createElement("button", {
-    onClick: tentarDeNovo,
-    disabled: recarregando,
-    style: {
-      background: '#fff',
-      border: '1px solid #f0c98a',
-      borderRadius: 8,
-      padding: '5px 12px',
-      fontSize: 11.5,
-      fontWeight: 700,
-      color: '#8a5300',
-      cursor: recarregando ? 'wait' : 'pointer'
-    }
-  }, recarregando ? 'Buscando…' : '↻ Tentar de novo')) : null, aviso ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(SeletorDeTemplate, {
+    lista: lista,
+    tpl: tpl,
+    onEscolher: trocar
+  }), /*#__PURE__*/React.createElement(AvisoListaEmbutida, {
+    erroLista: erroLista,
+    recarregando: recarregando,
+    tentarDeNovo: tentarDeNovo
+  }), aviso ? /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 10,
       padding: '9px 12px',
@@ -6768,13 +6835,6 @@ const EnvioDeTemplate = ({
     }));
   })) : null, /*#__PURE__*/React.createElement("div", {
     style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement(PreviaDeTemplate, {
-    tpl: tpl,
-    valores: valores
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
       display: 'flex',
       alignItems: 'center',
       gap: 10,
@@ -6806,7 +6866,89 @@ const EnvioDeTemplate = ({
       padding: '1px 5px',
       borderRadius: 4
     }
-  }, tpl.nome) : null, tpl && tpl.idioma ? ' · ' + tpl.idioma : '', faltando.length ? ' · falta preencher ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') + faltando.map(v => v.indice).join(', ') : '')));
+  }, tpl.nome) : null, tpl && tpl.idioma ? ' · ' + tpl.idioma : '', faltando.length ? ' · falta preencher ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') + faltando.map(v => v.indice).join(', ') : ''))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '1 1 300px',
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(PreviaDeTemplate, {
+    tpl: tpl,
+    valores: valores
+  })));
+};
+
+// Envio de UM template pelo numero da loja. Compartilhado pelo modal
+// unitario e pelo lote — devolve { ok:true } ou { ok:false, erro }, nunca
+// lanca. Enviou -> marca o lead como contactado (best-effort: a mensagem
+// ja saiu, e falhar o UPDATE nao pode virar "falhou o envio" na tela).
+const enviarTemplateDaLoja = async ({
+  alvo,
+  pacote,
+  leadId
+}) => {
+  let session = null;
+  try {
+    ({
+      data: {
+        session
+      }
+    } = await supa.auth.getSession());
+  } catch (_) {}
+  if (!session) return {
+    ok: false,
+    erro: 'Sessao expirada — entre de novo.'
+  };
+  let r;
+  try {
+    // No template o `body` NAO e o que a Meta envia (o texto dela vive
+    // la): e o registro pro historico do portal, pra conversa nao virar um
+    // "[template]" seco. Ver persistWhatsAppMessage na rota.
+    r = await fetch('/api/whatsapp/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        accessToken: session.access_token,
+        to: alvo,
+        type: 'template',
+        template: pacote.template,
+        languageCode: pacote.idioma,
+        components: pacote.components,
+        body: pacote.registro
+      })
+    });
+  } catch (_) {
+    return {
+      ok: false,
+      erro: 'Falha de rede ao enviar.'
+    };
+  }
+  let raw = '';
+  try {
+    raw = await r.text();
+  } catch (_) {}
+  let res = {};
+  try {
+    res = JSON.parse(raw);
+  } catch (_) {}
+  if (!r.ok || !res.ok) {
+    const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+    return {
+      ok: false,
+      erro: res.error || 'Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')'
+    };
+  }
+  if (leadId) {
+    try {
+      await supa.from('leads').update({
+        status: 'contactado'
+      }).eq('id', leadId);
+    } catch (_) {}
+  }
+  return {
+    ok: true
+  };
 };
 
 // ── Nova conversa: modal do portal, no lugar do prompt() do navegador ───
@@ -7279,66 +7421,20 @@ const AbordagemModal = ({
     if (!pacote) return;
     setEnviando(true);
     setErro('');
-    try {
-      const {
-        data: {
-          session
-        }
-      } = await supa.auth.getSession();
-      if (!session) {
-        setErro('Sessao expirada — entre de novo.');
-        setEnviando(false);
-        return;
-      }
-      setEstagio('Enviando…');
-      // No template o `body` NAO e o que a Meta envia (o texto dela vive
-      // la): e o registro pro historico do portal, pra conversa nao virar um
-      // "[template]" seco. Ver persistWhatsAppMessage na rota.
-      const r = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          accessToken: session.access_token,
-          to: alvo,
-          type: 'template',
-          template: pacote.template,
-          languageCode: pacote.idioma,
-          components: pacote.components,
-          // O `body` NAO e o que a Meta envia (o texto dela vive la): e o
-          // registro pro historico, pra conversa nao virar "[template]".
-          body: pacote.registro
-        })
-      });
-      let raw = '';
-      try {
-        raw = await r.text();
-      } catch (_) {}
-      let res = {};
-      try {
-        res = JSON.parse(raw);
-      } catch (_) {}
-      if (!r.ok || !res.ok) {
-        const snippet = res.error ? '' : (raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
-        setErro(res.error || 'Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')');
-        setEnviando(false);
-        setEstagio('');
-        return;
-      }
-      // Enviou: marca o lead como contactado (best-effort — a mensagem ja saiu).
-      try {
-        await supa.from('leads').update({
-          status: 'contactado'
-        }).eq('id', lead.id);
-      } catch (_) {}
-      if (onSent) onSent(alvo);
-      onClose();
-    } catch (_) {
-      setErro('Falha de rede ao enviar.');
-    }
+    setEstagio('Enviando…');
+    const res = await enviarTemplateDaLoja({
+      alvo,
+      pacote,
+      leadId: lead.id
+    });
     setEnviando(false);
     setEstagio('');
+    if (!res.ok) {
+      setErro(res.erro);
+      return;
+    }
+    if (onSent) onSent(alvo);
+    onClose();
   };
   return /*#__PURE__*/React.createElement("div", {
     onClick: onClose,
@@ -7357,7 +7453,7 @@ const AbordagemModal = ({
     style: {
       background: '#fff',
       borderRadius: 16,
-      width: 'min(720px, 96vw)',
+      width: 'min(1000px, 96vw)',
       maxHeight: '92vh',
       display: 'flex',
       flexDirection: 'column',
@@ -7416,21 +7512,21 @@ const AbordagemModal = ({
       fontSize: 12,
       color: C.muted,
       lineHeight: 1.5,
-      marginBottom: 14
+      marginBottom: 12
     }
-  }, "Quem nunca escreveu pra loja n\xE3o tem janela aberta \u2014 o WhatsApp s\xF3 aceita ", /*#__PURE__*/React.createElement("strong", {
+  }, "Primeira mensagem \xE9 sempre um ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.ink
     }
-  }, "template aprovado"), " como primeira mensagem, e o texto dele \xE9 fixo (quem guarda \xE9 a Meta). Assim que a pessoa ", /*#__PURE__*/React.createElement("strong", {
+  }, "template aprovado"), " (a Meta guarda o texto). Quando a pessoa ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.ink
     }
-  }, "responder"), ", abrem 24h pra falar livremente \u2014 e a\xED a conversa segue na aba", /*#__PURE__*/React.createElement("strong", {
+  }, "responder"), ", a conversa segue na aba", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: C.ink
     }
-  }, " WhatsApp"), ", que tem o hist\xF3rico e a sugest\xE3o da IA."), /*#__PURE__*/React.createElement(EnvioDeTemplate, {
+  }, " WhatsApp"), ", com texto livre por 24h."), /*#__PURE__*/React.createElement(EnvioDeTemplate, {
     waId: alvo,
     nomeContato: lead.name,
     dadosContato: {
@@ -7481,6 +7577,390 @@ const AbordagemModal = ({
     }
   }, "Cancelar")))));
 };
+// ── Abordagem em LOTE (2026-09-08, pedido do usuario: "marcar multiplos
+// e mandar o modal para varios ao mesmo tempo") ─────────────────────────
+// O operador marca os leads na tabela e manda o MESMO template pra todos.
+// As variaveis nao sao digitadas: saem do cadastro de cada lead, pela
+// mesma regra do modal unitario ({{1}} nomeCompleto, {{2}} cidadeDoLead,
+// {{3}} ramoDoLead). Lead com campo vazio, sem numero valido, que pediu
+// pra nao receber, ou dos EUA em template de Marketing fica DE FORA com o
+// motivo escrito na linha — nunca vai "Oi ," pra ninguem. O envio e um por
+// vez, com o resultado de cada um na propria linha; "Parar" interrompe
+// entre um envio e o outro.
+const linhaDoLote = l => {
+  const alvo = normalizeLeadPhone(l.phone);
+  const valores = {
+    1: nomeCompleto(l.name) || '',
+    2: cidadeDoLead(l) || '',
+    3: ramoDoLead(l) || ''
+  };
+  const motivo = l.opted_out_at ? 'pediu pra não receber' : !alvo ? 'sem número válido' : null;
+  return {
+    lead: l,
+    alvo,
+    valores,
+    motivo
+  };
+};
+const AbordagemLoteModal = ({
+  leads,
+  onClose,
+  onSent
+}) => {
+  const {
+    lista,
+    tpl,
+    escolher,
+    erroLista,
+    recarregando,
+    tentarDeNovo
+  } = useListaDeTemplates();
+  const [estado, setEstado] = useState({}); // lead.id -> { fase:'enviando'|'ok'|'erro', erro }
+  const [rodando, setRodando] = useState(false);
+  const [terminou, setTerminou] = useState(false);
+  const pararRef = React.useRef(false);
+  const vars = tpl && tpl.variaveis || (tpl && tpl.precisaNome ? [{
+    indice: 1,
+    exemplo: null
+  }] : []);
+  const marketing = !!tpl && String(tpl.categoria || '').toUpperCase() === 'MARKETING';
+  const linhas = leads.map(l => {
+    const b = linhaDoLote(l);
+    let motivo = b.motivo;
+    if (!motivo && marketing && ehNumeroEUA(b.alvo)) motivo = 'número dos EUA: marketing não entrega';
+    if (!motivo) {
+      const faltando = vars.filter(v => !String(b.valores[v.indice] || '').trim()).map(v => v.indice);
+      if (faltando.length) motivo = 'falta ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') + faltando.join(', ');
+    }
+    return {
+      ...b,
+      motivo,
+      pronto: !motivo
+    };
+  });
+  const prontos = linhas.filter(x => x.pronto);
+  // Pendentes = prontos ainda nao enviados + os que falharam (pode tentar de
+  // novo: o erro veio da API, a mensagem nao saiu).
+  const pendentes = prontos.filter(x => !estado[x.lead.id] || estado[x.lead.id].fase === 'erro');
+  const enviados = Object.values(estado).filter(e => e.fase === 'ok').length;
+  const falhas = Object.values(estado).filter(e => e.fase === 'erro').length;
+  const exemplo = prontos[0] || linhas[0] || null;
+  const enviar = async () => {
+    if (!tpl || !pendentes.length || rodando) return;
+    setRodando(true);
+    pararRef.current = false;
+    for (const x of pendentes) {
+      if (pararRef.current) break;
+      setEstado(e => ({
+        ...e,
+        [x.lead.id]: {
+          fase: 'enviando'
+        }
+      }));
+      const res = await enviarTemplateDaLoja({
+        alvo: x.alvo,
+        pacote: pacoteDeTemplate(tpl, vars, x.valores),
+        leadId: x.lead.id
+      });
+      setEstado(e => ({
+        ...e,
+        [x.lead.id]: res.ok ? {
+          fase: 'ok'
+        } : {
+          fase: 'erro',
+          erro: res.erro
+        }
+      }));
+      // Um por vez, com folga: e uma pessoa mandando varias mensagens, nao
+      // uma rajada — e da tempo de a linha mostrar o resultado.
+      await new Promise(r => setTimeout(r, 400));
+    }
+    setRodando(false);
+    setTerminou(true);
+  };
+  const fechar = () => {
+    if (rodando) return; // no meio do envio o X nao fecha — "Parar" primeiro
+    if (terminou && onSent) onSent();
+    onClose();
+  };
+  const icone = x => {
+    const e = estado[x.lead.id];
+    if (e && e.fase === 'enviando') return /*#__PURE__*/React.createElement("span", {
+      title: "enviando"
+    }, "\u23F3");
+    if (e && e.fase === 'ok') return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.p6,
+        fontWeight: 800
+      },
+      title: "enviado"
+    }, "\u2713");
+    if (e && e.fase === 'erro') return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: '#b3261e',
+        fontWeight: 800
+      },
+      title: "falhou"
+    }, "\u2717");
+    if (!x.pronto) return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: '#b8860b'
+      },
+      title: "fica de fora"
+    }, "\u2014");
+    return /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.muted
+      },
+      title: "pronto pra enviar"
+    }, "\u2022");
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: fechar,
+    style: {
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(26,26,46,.5)',
+      zIndex: 1000,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      background: '#fff',
+      borderRadius: 16,
+      width: 'min(1000px, 96vw)',
+      maxHeight: '92vh',
+      display: 'flex',
+      flexDirection: 'column',
+      boxShadow: '0 16px 48px rgba(0,0,0,.24)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '16px 20px',
+      borderBottom: '1px solid ' + C.border,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 16,
+      color: C.ink
+    }
+  }, "\uD83D\uDCAC Abordagem em lote"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.muted,
+      marginTop: 2
+    }
+  }, leads.length, " ", leads.length === 1 ? 'lead selecionado' : 'leads selecionados', " \xB7", ' ', /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, prontos.length), " ", prontos.length === 1 ? 'pronto' : 'prontos', " pra enviar", linhas.length - prontos.length > 0 ? ' · ' + (linhas.length - prontos.length) + ' de fora (motivo na linha)' : '')), /*#__PURE__*/React.createElement("button", {
+    onClick: fechar,
+    disabled: rodando,
+    style: {
+      background: 'none',
+      border: 'none',
+      fontSize: 22,
+      cursor: rodando ? 'not-allowed' : 'pointer',
+      color: C.muted,
+      lineHeight: 1
+    }
+  }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 20,
+      overflowY: 'auto',
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 16,
+      flexWrap: 'wrap',
+      alignItems: 'flex-start'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '1 1 360px',
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(SeletorDeTemplate, {
+    lista: lista,
+    tpl: tpl,
+    onEscolher: n => {
+      if (!rodando) escolher(n);
+    }
+  }), /*#__PURE__*/React.createElement(AvisoListaEmbutida, {
+    erroLista: erroLista,
+    recarregando: recarregando,
+    tentarDeNovo: tentarDeNovo
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.muted,
+      lineHeight: 1.5,
+      marginBottom: 8
+    }
+  }, "Os campos saem do cadastro de cada lead: ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "1"), " nome \xB7", ' ', /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "2"), " cidade \xB7 ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, "3"), " ramo. Quem estiver com campo vazio fica de fora \u2014 abra o lead sozinho pra completar."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      maxHeight: 380,
+      overflowY: 'auto'
+    }
+  }, linhas.map(x => {
+    const e = estado[x.lead.id];
+    return /*#__PURE__*/React.createElement("div", {
+      key: x.lead.id,
+      style: {
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        padding: '8px 10px',
+        borderBottom: '1px solid ' + C.cream,
+        opacity: x.pronto ? 1 : .7
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 18,
+        textAlign: 'center',
+        fontSize: 13,
+        flex: '0 0 18px'
+      }
+    }, icone(x)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12.5,
+        fontWeight: 600,
+        color: C.ink,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }
+    }, x.lead.name || '—'), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.muted,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }
+    }, x.lead.phone || 'sem telefone', vars.length ? ' · ' + vars.map(v => x.valores[v.indice] || '?').join(' · ') : ''), x.motivo ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: '#b8860b'
+      }
+    }, x.motivo) : null, e && e.fase === 'erro' ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: '#b3261e'
+      }
+    }, e.erro) : null));
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '1 1 300px',
+      minWidth: 0
+    }
+  }, exemplo ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.muted,
+      marginBottom: 6
+    }
+  }, "Pr\xE9via com ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.ink
+    }
+  }, exemplo.lead.name || 'o primeiro da lista'), " \u2014 cada lead recebe com os pr\xF3prios dados.") : null, /*#__PURE__*/React.createElement(PreviaDeTemplate, {
+    tpl: tpl,
+    valores: exemplo ? exemplo.valores : {}
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '14px 20px',
+      borderTop: '1px solid ' + C.border,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 12,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: C.muted
+    }
+  }, rodando ? 'Enviando… ' : '', enviados + falhas > 0 ? enviados + ' enviado' + (enviados === 1 ? '' : 's') + (falhas ? ' · ' + falhas + ' com falha' : '') : 'Envia pelo número oficial da loja · um por vez'), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8
+    }
+  }, rodando ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      pararRef.current = true;
+    },
+    style: {
+      background: 'none',
+      border: '1px solid #b3261e',
+      borderRadius: 10,
+      padding: '9px 16px',
+      fontSize: 13,
+      cursor: 'pointer',
+      color: '#b3261e',
+      fontWeight: 700
+    }
+  }, "\u25A0 Parar") : /*#__PURE__*/React.createElement("button", {
+    onClick: enviar,
+    disabled: !tpl || !pendentes.length,
+    style: {
+      background: C.p1,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 10,
+      padding: '9px 18px',
+      fontSize: 13,
+      fontWeight: 700,
+      cursor: !tpl || !pendentes.length ? 'not-allowed' : 'pointer',
+      opacity: !tpl || !pendentes.length ? .5 : 1
+    }
+  }, terminou && falhas ? '📤 Reenviar ' + pendentes.length + ' com falha' : '📤 Enviar para ' + pendentes.length), /*#__PURE__*/React.createElement("button", {
+    onClick: fechar,
+    disabled: rodando,
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 10,
+      padding: '9px 16px',
+      fontSize: 13,
+      cursor: rodando ? 'not-allowed' : 'pointer',
+      color: C.muted
+    }
+  }, terminou ? 'Fechar' : 'Cancelar')))));
+};
+
 // ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
 // Antes o header era uma lista de textos com "↕" decorativo. Cada coluna
 // agora ordena (clique no titulo, clique de novo inverte) e tem filtro
@@ -7645,6 +8125,10 @@ const Leads = () => {
   const [fCidade, setFCidade] = useState('Todas');
   const [importOpen, setImportOpen] = useState(false);
   const [abordar, setAbordar] = useState(null); // lead da janela de abordagem
+  // SELECAO MULTIPLA (2026-09-08): ids marcados na tabela pra abordar em
+  // lote. So lead abordavel (telefone valido e sem opt-out) entra.
+  const [sel, setSel] = useState(() => new Set());
+  const [abordarLote, setAbordarLote] = useState(null); // leads da janela em lote
 
   const removeDuplicates = async allLeads => {
     const seen = {};
@@ -7824,6 +8308,20 @@ const Leads = () => {
       color: C.muted
     }
   }, "Carregando leads...");
+  const abordavel = l => !!l.phone && !l.opted_out_at && !!normalizeLeadPhone(l.phone);
+  const abordaveisNaTela = filtered.filter(abordavel);
+  const todosMarcados = abordaveisNaTela.length > 0 && abordaveisNaTela.every(l => sel.has(l.id));
+  const alternarTodos = () => setSel(prev => {
+    const n = new Set(prev);
+    if (todosMarcados) filtered.forEach(l => n.delete(l.id));else abordaveisNaTela.forEach(l => n.add(l.id));
+    return n;
+  });
+  const alternar = id => setSel(prev => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id);else n.add(id);
+    return n;
+  });
+  const selecionados = leads.filter(l => sel.has(l.id));
   const segIcons = LEAD_SEG_ICONS;
   const catIcons = LEAD_CAT_ICONS;
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -8075,7 +8573,49 @@ const Leads = () => {
   }, "Todas as categorias (", leads.length, ")"), sortedCategories.map(([cat, count]) => /*#__PURE__*/React.createElement("option", {
     key: cat,
     value: cat
-  }, (catIcons[cat] ? catIcons[cat] + ' ' : '') + cat + ' (' + count + ')')))))), /*#__PURE__*/React.createElement("div", {
+  }, (catIcons[cat] ? catIcons[cat] + ' ' : '') + cat + ' (' + count + ')'))))), sel.size > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      display: 'flex',
+      gap: 10,
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      padding: '10px 12px',
+      background: C.p1 + '14',
+      border: '1px solid ' + C.p1,
+      borderRadius: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.ink
+    }
+  }, sel.size, " ", sel.size === 1 ? 'lead selecionado' : 'leads selecionados'), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAbordarLote(selecionados),
+    style: {
+      background: '#25D366',
+      color: '#fff',
+      border: 'none',
+      borderRadius: 8,
+      padding: '7px 14px',
+      cursor: 'pointer',
+      fontSize: 12,
+      fontWeight: 700,
+      whiteSpace: 'nowrap'
+    }
+  }, "\uD83D\uDCAC Abordar ", sel.size, " ", sel.size === 1 ? 'selecionado' : 'selecionados'), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSel(new Set()),
+    style: {
+      background: 'none',
+      border: '1px solid ' + C.border,
+      borderRadius: 8,
+      padding: '6px 12px',
+      cursor: 'pointer',
+      fontSize: 12,
+      color: C.muted
+    }
+  }, "\u2715 Limpar sele\xE7\xE3o")) : null), /*#__PURE__*/React.createElement("div", {
     style: {
       background: C.white,
       borderRadius: 14,
@@ -8094,7 +8634,23 @@ const Leads = () => {
     style: {
       borderBottom: '2px solid ' + C.border
     }
-  }, /*#__PURE__*/React.createElement(ThLead, {
+  }, /*#__PURE__*/React.createElement("th", {
+    style: {
+      padding: '12px 4px 12px 10px',
+      width: 26
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: todosMarcados,
+    onChange: alternarTodos,
+    disabled: abordaveisNaTela.length === 0,
+    title: todosMarcados ? 'Desmarcar os leads desta lista' : 'Marcar todos os leads abordáveis desta lista (' + abordaveisNaTela.length + ')',
+    style: {
+      cursor: 'pointer',
+      width: 15,
+      height: 15
+    }
+  })), /*#__PURE__*/React.createElement(ThLead, {
     rot: "NOME",
     campo: "name",
     ativo: !!fNome,
@@ -8184,7 +8740,7 @@ const Leads = () => {
     rot: "A\xC7\xC3O",
     ctx: thCtx
   }))), /*#__PURE__*/React.createElement("tbody", null, filtered.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 10,
+    colSpan: 11,
     style: {
       padding: '30px 10px',
       color: C.muted,
@@ -8199,11 +8755,27 @@ const Leads = () => {
       key: l.id || i,
       style: {
         borderBottom: '1px solid ' + C.border,
-        transition: 'background 0.15s'
+        transition: 'background 0.15s',
+        background: sel.has(l.id) ? C.p1 + '0d' : 'transparent'
       },
       onMouseEnter: e => e.currentTarget.style.background = 'rgba(0,0,0,0.02)',
-      onMouseLeave: e => e.currentTarget.style.background = 'transparent'
+      onMouseLeave: e => e.currentTarget.style.background = sel.has(l.id) ? C.p1 + '0d' : 'transparent'
     }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: '12px 4px 12px 10px'
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: sel.has(l.id),
+      onChange: () => alternar(l.id),
+      disabled: !abordavel(l),
+      title: abordavel(l) ? 'Marcar pra abordar em lote' : l.opted_out_at ? 'Pediu pra não receber' : 'Sem telefone válido',
+      style: {
+        cursor: abordavel(l) ? 'pointer' : 'not-allowed',
+        width: 15,
+        height: 15
+      }
+    })), /*#__PURE__*/React.createElement("td", {
       style: {
         padding: '12px 10px'
       }
@@ -8407,6 +8979,13 @@ const Leads = () => {
     lead: abordar,
     onClose: () => setAbordar(null),
     onSent: () => fetchLeads()
+  }) : null, abordarLote ? /*#__PURE__*/React.createElement(AbordagemLoteModal, {
+    leads: abordarLote,
+    onClose: () => setAbordarLote(null),
+    onSent: () => {
+      fetchLeads();
+      setSel(new Set());
+    }
   }) : null);
 };
 
