@@ -305,9 +305,10 @@ describe('AppTour — ferramentas do perfil', () => {
 
   it('mostra "N de M" em vez de bolinhas quando o tour é comprido', async () => {
     // 12 tiles + boas-vindas + fim = 14 passos → passa do limite das bolinhas.
+    // ('arte-ig' saiu do grid em 2026-09-08; 'formacao' entrou no lugar.)
     mountTiles([
       'pedidos', 'orcamento', 'orcamentos', 'pontos', 'portfolio', 'calculadora',
-      'agenda', 'crm', 'financeiro', 'notes', 'arte-ig', 'camisetas',
+      'agenda', 'crm', 'financeiro', 'notes', 'formacao', 'camisetas',
     ]);
     renderProfileTour();
     await openTour();

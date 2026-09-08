@@ -1,5 +1,56 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
+  (2026-09-08, pedido do usuário). SQL PENDENTE:
+  `/migrations/2026-09-08-leads-instagram.sql`** (duas linhas: `leads.instagram
+  text` e `leads.state text`). A planilha "Revista Click Rua — Diretório de
+  Artistas" (Edição, Nome, Perfil do IG, Cidade, Estado) vem quase toda SEM
+  telefone: o canal desses leads é o Instagram.
+  - **Importador do portal (v=20260908a): Nome + (Telefone OU Perfil do IG).**
+    Duplicata = mesmo telefone (8 últimos dígitos) OU mesmo @ (`normalizarIg`
+    tira "@", "instagram.com/" e barra final). Quem não tem nenhum dos dois
+    fica de fora, com contagem no relatório. Planilha sem coluna Segmento
+    ganha um select "usar pra todas as linhas" — escolha explícita, nunca
+    chute; GRAFFITI põe a categoria `Graffiti/Arte` (a única desse funil).
+  - **Tolera as colunas ausentes**: INSERT com 42703 em `instagram|state` é
+    refeito sem as duas e o relatório avisa em laranja pra rodar o SQL e
+    importar de novo (as linhas entram, mas sem @ e UF). Recurso novo não
+    derruba o que já funciona por SQL pendente.
+  - **Tabela: coluna "PERFIL DO IG"** (link pro perfil) e, pra lead sem
+    telefone, o botão da ação vira **"📸 Abrir IG"** — "Abordar" é template de
+    WhatsApp e não faz sentido ali. Busca do topo também acha pelo @.
+  - Build do portal conferido byte a byte antes de mexer (recipe do
+    CLAUDE.md, `@babel/preset-react` instalado com `--no-save`).
+
+- **AJUSTES DE DESKTOP E PORTFÓLIO (2026-09-08, três pedidos do usuário).**
+  - **"Baixar PDF" abria a janela de Share do Windows.** `shareOrDownloadPdfBlob`
+    tentava `navigator.share` com arquivo antes de tudo, e Chrome/Edge no
+    Windows/macOS expõem essa API. Agora o share sheet só entra em
+    Android/iOS; no desktop, "baixar" baixa. Vale pro PDF de pedido e de
+    orçamento.
+  - **Kanban de orçamentos espremido no PC.** O grid usava `xl:grid-cols-3`,
+    que olha a JANELA, dentro de um `BottomSheet` de 430px — num monitor
+    largo eram 3 colunas em 430px. Grid virou `repeat(auto-fill,
+    minmax(300px, 1fr))` (largura do CONTAINER) e o `BottomSheet` ganhou
+    `maxWidth?` (default 430); o tile `orcamentos` abre com 1100. **REGRA:
+    dentro do sheet, breakpoint do Tailwind mente — usar auto-fill/minmax.**
+  - **"Meu Portfólio" abria o composer igual ao /publicar.** O `Composer`
+    ganhou `modo='portfolio'` (via `SheetConfig.props` no `BusinessGrid`):
+    sem abas Publicação/24h (portfólio é permanente; rascunho de story
+    restaura como publicação), sem "Marcar como venda" (isso é o tile Arte
+    pra venda), título "📸 Meu Portfólio" e botão "Publicar no portfólio".
+  - **Anotações: "Gravar áudio" abria o seletor de ARQUIVO no app Android.**
+    O `NotesView` pulava o `getUserMedia` em Android por um gate
+    `isAndroidWebView` da época do WebIntoApp (que nunca dava a permissão) e
+    ia direto pro `<input capture>`. Na casca Capacitor o microfone funciona
+    (o Seu Zé usa desde o par RECORD_AUDIO+MODIFY_AUDIO_SETTINGS). Agora
+    tenta o microfone PRIMEIRO em todo lugar; o gravador do sistema é só o
+    fallback do `onError`. `useAudioRecording` ganhou teto de 12s no
+    `getUserMedia` (promessa pendurada na WebView não rejeita).
+  - **Tile "Arte pra IG" REMOVIDO do BusinessGrid** (decisão do usuário). A
+    rota `/arte-ig` e o `AiArtStudio` continuam no repo; só o tile e o passo
+    do tour saíram (o `tour.test.ts` obriga os dois a andarem juntos).
+
 - **PDF DO ORÇAMENTO NO LAYOUT DE REFERÊNCIA (2026-09-08, pedido do usuário:
   "100% fiel" ao orçamento da LP Decor Pinturas, 4 páginas). SEM SQL.**
   Cabeçalho do profissional (logo, nome, "Pintor", CNPJ, CPF, endereço,

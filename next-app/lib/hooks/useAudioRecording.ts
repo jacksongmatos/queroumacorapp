@@ -169,7 +169,19 @@ export function useAudioRecording(
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Teto de tempo: na WebView uma promessa de getUserMedia pendurada não
+      // rejeita nunca (mesma lição do getSession/câmera) — sem isto o botão
+      // ficaria "pensando" pra sempre em vez de cair pro gravador nativo.
+      stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: true }),
+        new Promise<MediaStream>((_, reject) =>
+          setTimeout(() => {
+            const e = new Error('Microfone não respondeu');
+            e.name = 'TimeoutError';
+            reject(e);
+          }, 12000),
+        ),
+      ]);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       avisar(err, 'mic denied');

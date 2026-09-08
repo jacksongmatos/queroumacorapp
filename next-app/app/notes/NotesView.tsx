@@ -6,7 +6,6 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotes } from '@/lib/hooks/useNotes';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
-import { isAndroidWebView } from '@/lib/hooks/useAndroidWebViewScrollPin';
 import { transcribeAudio } from '@/lib/services/audioStt';
 import { canSeeProFeature } from '@/lib/policies';
 import { ListSkeleton } from '@/components/Skeletons';
@@ -79,10 +78,9 @@ export function NotesView() {
     }
   }
 
-  // Fallback do wrapper Android: a WebView do app da loja não recebe a
-  // permissão de microfone (getUserMedia falha ou nem existe), então lá o
-  // botão abre o GRAVADOR NATIVO do celular via seletor de arquivo com
-  // `capture` — mesmo canal que o app já usa pra subir fotos.
+  // Fallback: se o microfone da página falhar (permissão negada, sem
+  // MediaRecorder), o botão abre o GRAVADOR NATIVO do celular via seletor
+  // de arquivo com `capture` — mesmo canal que o app já usa pra subir fotos.
   const audioFileRef = useRef<HTMLInputElement | null>(null);
   const [micFellBack, setMicFellBack] = useState(false);
 
@@ -127,13 +125,13 @@ export function NotesView() {
       router.push('/pro');
       return;
     }
-    // Wrapper Android (WebView) ou browser sem MediaRecorder: nem tenta o
-    // getUserMedia — vai direto pro gravador nativo do celular.
-    if (
-      rec.unsupported ||
-      micFellBack ||
-      (typeof navigator !== 'undefined' && isAndroidWebView(navigator.userAgent || ''))
-    ) {
+    // Tenta o microfone da página PRIMEIRO, em todo lugar. O atalho "Android
+    // = gravador nativo" era da casca WebIntoApp, que nunca entregava a
+    // permissão; na casca Capacitor o getUserMedia funciona (o Seu Zé usa),
+    // e o atalho fazia o botão abrir o seletor de ARQUIVO em vez de gravar
+    // (visto no aparelho em 2026-09-08). Se falhar, o onError abaixo cai pro
+    // gravador do sistema — e `micFellBack` lembra disso pra próxima.
+    if (rec.unsupported || micFellBack) {
       openNativeRecorder();
       return;
     }

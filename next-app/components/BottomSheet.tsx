@@ -27,6 +27,12 @@ export interface BottomSheetProps {
   onClose: () => void;
   children: ReactNode;
   ariaLabel?: string;
+  /**
+   * Largura máxima no desktop (px). Default 430 — o sheet é uma tela de
+   * celular. Telas que precisam de área (o Kanban de orçamentos, com 6
+   * colunas) pedem mais; no celular não muda nada, é `w-full` de todo jeito.
+   */
+  maxWidth?: number;
 }
 
 /** Quanto o dedo precisa descer pra fechar (px). */
@@ -34,7 +40,7 @@ const CLOSE_DISTANCE = 110;
 /** Velocidade que fecha mesmo sem chegar na distância (px/ms). */
 const CLOSE_VELOCITY = 0.5;
 
-export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetProps) {
+export function BottomSheet({ open, onClose, children, ariaLabel, maxWidth = 430 }: BottomSheetProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragStart = useRef<{ y: number; t: number } | null>(null);
@@ -149,7 +155,7 @@ export function BottomSheet({ open, onClose, children, ariaLabel }: BottomSheetP
         onClick={(e) => e.stopPropagation()}
         className="relative w-full mx-auto bg-white flex flex-col"
         style={{
-          maxWidth: 430,
+          maxWidth,
           // `dvh` e não `vh`: no Safari do iPhone o `vh` inclui a área atrás
           // das barras do navegador, então o rodapé do sheet (o botão de
           // ação) nascia fora da vista.

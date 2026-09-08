@@ -64,9 +64,6 @@ const FeChat = lazy(() =>
 const SennaChat = lazy(() =>
   import('@/app/senna/SennaChat').then((m) => ({ default: m.SennaChat })),
 );
-const AiArtStudio = lazy(() =>
-  import('@/app/arte-ig/AiArtStudio').then((m) => ({ default: m.AiArtStudio })),
-);
 const ShirtCustomizer = lazy(() =>
   import('@/app/camisetas/ShirtCustomizer').then((m) => ({ default: m.ShirtCustomizer })),
 );
@@ -97,7 +94,6 @@ type SheetKey =
   | 'alice'
   | 'fe'
   | 'senna'
-  | 'arte-ig'
   | 'camisetas'
   | 'formacao'
   | 'arte-venda'
@@ -108,6 +104,8 @@ type SheetKey =
 interface SheetConfig {
   label: string;
   Component: ComponentType<Record<string, unknown>>;
+  /** Props fixas do tile (ex.: o Composer em modo portfólio). */
+  props?: Record<string, unknown>;
 }
 
 // SHEETS é `Partial` porque alguns tiles (ex.: grafites) abrem ROTA
@@ -118,7 +116,9 @@ const SHEETS: Partial<Record<SheetKey, SheetConfig>> = {
   orcamento: { label: 'Orçamento', Component: QuoteWizard as ComponentType },
   orcamentos: { label: 'Pipeline de Orçamentos', Component: PipelineKanban as ComponentType },
   pontos: { label: 'Meus Pontos', Component: PontosView as ComponentType },
-  portfolio: { label: 'Publicar', Component: Composer as ComponentType },
+  // O MESMO Composer do /publicar, em modo portfólio: sem "24h", sem
+  // "Marcar como venda" e com o nome do tile (pedido do usuário, 2026-09-08).
+  portfolio: { label: 'Meu Portfólio', Component: Composer as ComponentType, props: { modo: 'portfolio' } },
   calculadora: { label: 'Calculadora', Component: CalcView as ComponentType },
   'tabela-precos': { label: 'Tabela de Preços', Component: TabelaPrecosView as ComponentType },
   agenda: { label: 'Agenda', Component: AgendaCalendar as ComponentType },
@@ -130,7 +130,6 @@ const SHEETS: Partial<Record<SheetKey, SheetConfig>> = {
   alice: { label: 'Alice Codessi', Component: AliceChat as ComponentType },
   fe: { label: 'Fê', Component: FeChat as ComponentType },
   senna: { label: 'Senna', Component: SennaChat as ComponentType },
-  'arte-ig': { label: 'Arte pra IG', Component: AiArtStudio as ComponentType },
   camisetas: { label: 'Camisetas', Component: ShirtCustomizer as ComponentType },
   formacao: { label: 'Formação', Component: QualsSection as ComponentType },
   'arte-venda': { label: 'Arte pra venda', Component: ArteVendaView as ComponentType },
@@ -159,7 +158,6 @@ const TILES: readonly Tile[] = [
   { sheet: 'crm', emoji: '🔁', title: 'Reativar clientes', subtitle: 'Follow-up · PRO' },
   { sheet: 'financeiro', emoji: '💰', title: 'Financeiro', subtitle: 'Lucro e comissão' },
   { sheet: 'notes', emoji: '📝', title: 'Anotações', subtitle: 'Notas e lembretes' },
-  { sheet: 'arte-ig', emoji: '🎨', title: 'Arte pra IG', subtitle: 'Foto vira post · PRO', gradient: 'art' },
   { sheet: 'camisetas', emoji: '👕', title: 'Camisetas', subtitle: 'Com seu logo' },
   { sheet: 'formacao', emoji: '🎓', title: 'Formação', subtitle: 'Qualificações' },
   // Personas IA por último — filtradas por role no render (visibleTiles).
@@ -303,6 +301,8 @@ export function BusinessGrid() {
         open={!!openSheet}
         onClose={() => setOpenSheet(null)}
         ariaLabel={activeConfig?.label}
+        // O Kanban tem 6 colunas: em 430px no desktop virava cartão espremido.
+        maxWidth={openSheet === 'orcamentos' ? 1100 : undefined}
       >
         {Active ? (
           <Suspense
@@ -312,7 +312,7 @@ export function BusinessGrid() {
               </div>
             }
           >
-            <Active />
+            <Active {...(activeConfig?.props ?? {})} />
           </Suspense>
         ) : null}
       </BottomSheet>

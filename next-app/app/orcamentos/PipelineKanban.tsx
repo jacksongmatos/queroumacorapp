@@ -312,7 +312,11 @@ export function PipelineKanban() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {/* Colunas pelo espaço DO CONTAINER, não do viewport: o Kanban abre
+          dentro de um BottomSheet (430px no celular, ~1100px no desktop) e o
+          `xl:grid-cols-3` do Tailwind olhava a janela — num monitor largo
+          espremia 3 colunas em 430px (visto em 2026-09-08). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
         {groups.map((lane) => (
           <section
             key={lane.title}

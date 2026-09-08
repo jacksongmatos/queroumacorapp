@@ -2341,10 +2341,14 @@ const Chats = () => {
 
 const CSV_CAMPOS = [
   { k:'name',         rot:'Nome *',        req:true,  dicas:['nome','name','empresa','razao','razão','estabelecimento','titulo','título'] },
+  // Telefone OU Perfil do IG: a planilha de grafiteiros (Diretório de Artistas
+  // da Click Rua) vem com @ e sem telefone — o canal deles é o Instagram.
   { k:'phone',        rot:'Telefone *',    req:true,  dicas:['telefone','fone','celular','phone','whatsapp','contato','tel'] },
+  { k:'instagram',    rot:'Perfil do IG *', req:true, dicas:['perfil do ig','instagram','insta','ig','perfil','@'] },
   { k:'category',     rot:'Categoria',     req:false, dicas:['categoria','category','tipo','ramo','atividade'] },
   { k:'segment',      rot:'Segmento',      req:false, dicas:['segmento','segment'] },
   { k:'city',         rot:'Cidade',        req:false, dicas:['cidade','city','municipio','município'] },
+  { k:'state',        rot:'Estado (UF)',   req:false, dicas:['estado','uf','state'] },
   { k:'neighborhood', rot:'Bairro',        req:false, dicas:['bairro','neighborhood','regiao','região'] },
   { k:'address',      rot:'Endereço',      req:false, dicas:['endereco','endereço','address','rua','logradouro'] },
   { k:'rating',       rot:'Nota',          req:false, dicas:['nota','rating','avaliacao','avaliação','estrelas'] },
@@ -2394,6 +2398,11 @@ const decodificar = (buffer) => {
 
 const soDigitos = (t) => String(t||'').replace(/\D/g,'');
 const chaveTelefone = (t) => { const d = soDigitos(t); return d.length >= 8 ? d.slice(-8) : ''; };
+// "@fulano", "instagram.com/fulano/" ou "fulano" → "fulano" (minusculo).
+const normalizarIg = (t) => String(t||'').trim()
+  .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@+/, '')
+  .replace(/[\/?#\s].*$/, '').toLowerCase().slice(0, 80);
+const urlDoIg = (h) => 'https://instagram.com/' + encodeURIComponent(normalizarIg(h));
 
 const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
   const [linhas, setLinhas] = useState(null);   // matriz do CSV
@@ -2402,8 +2411,11 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
   const [progresso, setProgresso] = useState('');
   const [relatorio, setRelatorio] = useState(null);
   const [importando, setImportando] = useState(false);
+  // Segmento/categoria pra linhas em que a planilha nao diz (a de grafiteiros
+  // nao tem essa coluna). Escolha explicita da pessoa, nunca chute.
+  const [segPadrao, setSegPadrao] = useState('');
 
-  const reset = () => { setLinhas(null); setMapa({}); setErro(''); setProgresso(''); setRelatorio(null); };
+  const reset = () => { setLinhas(null); setMapa({}); setErro(''); setProgresso(''); setRelatorio(null); setSegPadrao(''); };
   const fechar = () => { reset(); onClose(); };
 
   const lerArquivo = async (file) => {
@@ -2434,33 +2446,47 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
   };
 
   const importar = async () => {
-    if (mapa.name === undefined || mapa.phone === undefined) {
-      setErro('Escolha ao menos as colunas de Nome e Telefone.'); return;
+    if (mapa.name === undefined || (mapa.phone === undefined && mapa.instagram === undefined)) {
+      setErro('Escolha a coluna de Nome e a de Telefone OU a de Perfil do IG.'); return;
     }
     setImportando(true); setErro(''); setProgresso('Preparando…');
 
+    // Duplicata = mesmo telefone (8 ultimos digitos) OU mesmo @ do Instagram.
     const jaExiste = {};
-    (existingLeads || []).forEach(l => { const k = chaveTelefone(l.phone); if (k) jaExiste[k] = true; });
+    (existingLeads || []).forEach(l => {
+      const k = chaveTelefone(l.phone); if (k) jaExiste[k] = true;
+      const ig = normalizarIg(l.instagram); if (ig) jaExiste['ig:' + ig] = true;
+    });
 
     const rows = []; const semTelefone = []; const repetidos = [];
     const vistos = {};
     dados.forEach(r => {
       const nome = val(r, 'name');
       const tel = val(r, 'phone');
-      const k = chaveTelefone(tel);
+      const ig = normalizarIg(val(r, 'instagram'));
+      const kTel = chaveTelefone(tel);
+      const kIg = ig ? 'ig:' + ig : '';
       if (!nome) return;
-      if (!k) { semTelefone.push(nome); return; }
-      if (jaExiste[k] || vistos[k]) { repetidos.push(nome); return; }
-      vistos[k] = true;
+      if (!kTel && !kIg) { semTelefone.push(nome); return; }
+      if ((kTel && (jaExiste[kTel] || vistos[kTel])) || (kIg && (jaExiste[kIg] || vistos[kIg]))) { repetidos.push(nome); return; }
+      if (kTel) vistos[kTel] = true;
+      if (kIg) vistos[kIg] = true;
       const nota = parseFloat(String(val(r,'rating')).replace(',', '.'));
       const qtd = parseInt(soDigitos(val(r,'review_count')), 10);
       const prio = semAcento(val(r,'priority'));
+      const segmento = (val(r,'segment') || segPadrao || '').toUpperCase().slice(0, 40) || null;
+      // Sem categoria na planilha e segmento GRAFFITI escolhido: a categoria
+      // e a unica do funil ('Graffiti/Arte'); nos outros segmentos fica vazia.
+      const categoria = val(r,'category').slice(0, 80) || (segmento === 'GRAFFITI' ? 'Graffiti/Arte' : null);
+      const uf = val(r,'state').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) || null;
       rows.push({
         name: nome.slice(0, 200),
-        phone: tel.slice(0, 40),
-        segment: (val(r,'segment') || '').toUpperCase().slice(0, 40) || null,
-        category: val(r,'category').slice(0, 80) || null,
-        city: val(r,'city').slice(0, 80) || 'Guarulhos',
+        phone: kTel ? tel.slice(0, 40) : null,
+        instagram: ig || null,
+        state: uf,
+        segment: segmento,
+        category: categoria,
+        city: val(r,'city').slice(0, 80) || (uf ? null : 'Guarulhos'),
         neighborhood: val(r,'neighborhood').slice(0, 80) || null,
         address: val(r,'address').slice(0, 250) || null,
         rating: isFinite(nota) ? Math.min(5, Math.max(0, nota)) : null,
@@ -2479,17 +2505,32 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
 
     // Em lotes: 1000 linhas num INSERT so estoura tempo/limite do PostgREST.
     let salvos = 0, falhas = 0, motivo = '';
+    // `instagram`/`state` sao colunas novas (migration 2026-09-08). Se o SQL
+    // ainda nao rodou (42703), grava sem elas e AVISA — importar nao pode
+    // quebrar por SQL pendente (licao de quotes.post_id / leads.city).
+    let colunaFaltando = false;
+    const semColunasNovas = (lista) => lista.map(({ instagram, state, ...resto }) => resto);
+    const gravar = async (lista) => {
+      try { await leadsService.insertBatch(lista); }
+      catch(e) {
+        const msg = String((e && (e.message || e.details)) || '');
+        if (String(e && e.code) === '42703' && /instagram|state/.test(msg)) {
+          colunaFaltando = true;
+          await leadsService.insertBatch(semColunasNovas(lista));
+        } else throw e;
+      }
+    };
     const LOTE = 200;
     for (let i = 0; i < rows.length; i += LOTE) {
       const fatia = rows.slice(i, i + LOTE);
       setProgresso('Salvando ' + Math.min(i + LOTE, rows.length) + ' de ' + rows.length + '…');
-      try { await leadsService.insertBatch(fatia); salvos += fatia.length; }
+      try { await gravar(fatia); salvos += fatia.length; }
       catch(e) {
         // Lote falhou: tenta linha a linha pra nao perder as boas. GUARDA A
         // MENSAGEM do banco — sem ela "o banco recusou 984" nao diz nada e
         // vira adivinhacao (RLS? coluna que nao existe? CHECK?).
         for (const row of fatia) {
-          try { await leadsService.insertBatch([row]); salvos++; }
+          try { await gravar([row]); salvos++; }
           catch(err) {
             falhas++;
             if(!motivo) motivo = (err && (err.message || err.hint || err.details)) || String(err);
@@ -2503,7 +2544,7 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
       }
     }
     setImportando(false); setProgresso('');
-    setRelatorio({ salvos, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas, motivo });
+    setRelatorio({ salvos, semTelefone:semTelefone.length, repetidos:repetidos.length, falhas, motivo, colunaFaltando });
     onPronto();
   };
 
@@ -2537,7 +2578,8 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
               </div>
               <div style={{ fontSize:13, color:C.muted, lineHeight:1.8 }}>
                 {relatorio.repetidos > 0 ? <div>· {relatorio.repetidos} já existiam (mesmo telefone) e foram pulados</div> : null}
-                {relatorio.semTelefone > 0 ? <div>· {relatorio.semTelefone} sem telefone válido — ficaram de fora</div> : null}
+                {relatorio.semTelefone > 0 ? <div>· {relatorio.semTelefone} sem telefone nem Perfil do IG — ficaram de fora</div> : null}
+                {relatorio.colunaFaltando ? <div style={{ color:'#b45309' }}>· O banco ainda não tem as colunas Perfil do IG / Estado: os leads entraram SEM esses dois campos. Rode a migration <code>2026-09-08-leads-instagram.sql</code> e importe de novo.</div> : null}
                 {relatorio.falhas > 0 ? <div style={{ color:'#b91c1c' }}>· {relatorio.falhas} o banco recusou</div> : null}
                 {relatorio.motivo ? (
                   <div style={{ marginTop:10, background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, padding:'8px 10px', color:'#b91c1c', fontSize:12, lineHeight:1.5, wordBreak:'break-word' }}>
@@ -2552,7 +2594,7 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
               <div style={{ fontSize:13, color:C.ink, marginBottom:4 }}>
                 <strong>{dados.length}</strong> linhas lidas. Confira em que coluna está cada informação:
               </div>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:14 }}>Só Nome e Telefone são obrigatórios. O resto pode ficar em branco.</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:14 }}>Obrigatórios: Nome e Telefone <em>ou</em> Perfil do IG. O resto pode ficar em branco.</div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:10 }}>
                 {CSV_CAMPOS.map(c => (
                   <div key={c.k}>
@@ -2565,6 +2607,16 @@ const ImportarPlanilhaModal = ({ open, onClose, onPronto, existingLeads }) => {
                   </div>
                 ))}
               </div>
+              {mapa.segment === undefined ? (
+                <div style={{ marginTop:14, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                  <label style={{ fontSize:11, fontWeight:700, color:C.muted }}>A planilha não tem Segmento. Usar pra todas as linhas:</label>
+                  <select value={segPadrao} onChange={e=>setSegPadrao(e.target.value)} style={{ ...sel, width:'auto' }}>
+                    <option value="">— deixar em branco —</option>
+                    {Object.keys(LEAD_SEG_COLORS).map(k => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                  {segPadrao === 'GRAFFITI' ? <span style={{ fontSize:11, color:C.muted }}>categoria vai como Graffiti/Arte</span> : null}
+                </div>
+              ) : null}
               <div style={{ marginTop:16, fontSize:11, fontWeight:700, color:C.muted }}>PRÉVIA DAS 3 PRIMEIRAS</div>
               <div style={{ overflowX:'auto', border:'1px solid '+C.border, borderRadius:10, marginTop:6 }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
@@ -3923,7 +3975,7 @@ const Leads = () => {
     let out = leads;
     if (busca) {
       const q = busca.toLowerCase();
-      out = out.filter(l => (l.name||'').toLowerCase().includes(q) || (l.segment||'').toLowerCase().includes(q) || (l.category||'').toLowerCase().includes(q) || (l.neighborhood||'').toLowerCase().includes(q));
+      out = out.filter(l => (l.name||'').toLowerCase().includes(q) || (l.segment||'').toLowerCase().includes(q) || (l.category||'').toLowerCase().includes(q) || (l.neighborhood||'').toLowerCase().includes(q) || (l.instagram||'').toLowerCase().includes(q));
     }
     if (filtroStatus !== 'Todos') out = out.filter(l => l.status === filtroStatus.toLowerCase());
     if (filtroSegmento !== 'TODOS') out = out.filter(l => (l.segment||'').toUpperCase() === filtroSegmento);
@@ -4115,6 +4167,7 @@ const Leads = () => {
                 <input autoFocus value={fTel} onChange={e=>setFTel(e.target.value)} placeholder="Digitos do telefone…"
                   style={filtroInput} />
               </ThLead>
+              <ThLead rot="PERFIL DO IG" campo="instagram" ctx={thCtx} />
               <ThLead rot="PRIO." campo="priority" ativo={fPrio!=='Todas'} ctx={thCtx}>
                 <OpcoesFiltro valor={fPrio} onPick={setFPrio} fechar={()=>setMenuCol(null)}
                   opcoes={[['Todas','Todas',null],['alta','Alta',null],['media','Média',null],['baixa','Baixa',null]]} />
@@ -4130,7 +4183,7 @@ const Leads = () => {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={9} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
+              <tr><td colSpan={10} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
             )}
             {filtered.map((l, i) => {
               const sc = statusColor(l.status);
@@ -4160,6 +4213,11 @@ const Leads = () => {
                   </td>
                   <td style={{ padding:'12px 10px', color:l.phone ? C.p3 : C.muted }}>{l.phone || '—'}</td>
                   <td style={{ padding:'12px 10px' }}>
+                    {l.instagram
+                      ? <a href={urlDoIg(l.instagram)} target="_blank" rel="noopener noreferrer" style={{ color:'#8338ec', fontWeight:600, textDecoration:'none' }}>@{normalizarIg(l.instagram)}</a>
+                      : <span style={{ color:C.muted }}>—</span>}
+                  </td>
+                  <td style={{ padding:'12px 10px' }}>
                     <span style={{ color:pc }}>● </span>
                     <span style={{ color:C.ink, textTransform:'capitalize' }}>{l.priority || '—'}</span>
                   </td>
@@ -4188,6 +4246,13 @@ const Leads = () => {
                         <button onClick={()=>openWhatsApp(l.phone, l.name)} title="Abrir no MEU WhatsApp (nao usa o numero da loja)"
                           style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:12 }}>📱</button>
                       </div>
+                    ) : l.instagram ? (
+                      /* Lead so com Instagram (grafiteiros da Click Rua): a
+                         abordagem e pelo perfil, nao pelo WhatsApp da loja. */
+                      <a href={urlDoIg(l.instagram)} target="_blank" rel="noopener noreferrer"
+                        style={{ background:'#8338ec', color:'#fff', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:600, textDecoration:'none', whiteSpace:'nowrap', display:'inline-flex', alignItems:'center', gap:4 }}>
+                        <span>📸</span> Abrir IG
+                      </a>
                     ) : <span style={{ color:C.muted }}>—</span>}
                   </td>
                 </tr>

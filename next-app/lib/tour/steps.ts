@@ -226,13 +226,6 @@ export const PROFILE_TOUR_STEPS: ReadonlyArray<TourStep> = [
     text: 'Seu caderninho: medidas, recado do cliente, lista de material. Fica salvo mesmo se trocar de celular.',
   },
   {
-    id: 'p-arte-ig',
-    selector: '[data-tour="tile-arte-ig"]',
-    emoji: '✨',
-    title: 'Arte pra Instagram',
-    text: 'A foto do seu serviço vira uma arte bonita, pronta pra postar e atrair cliente novo.',
-  },
-  {
     id: 'p-camisetas',
     selector: '[data-tour="tile-camisetas"]',
     emoji: '👕',
