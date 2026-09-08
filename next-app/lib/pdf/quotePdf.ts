@@ -1,11 +1,14 @@
 // quotePdf.ts — gera Blob de PDF do orçamento usando jsPDF puro (sem html2canvas
-// que adicionaria ~200kb). Layout A4 portrait com:
-//   - Cabeçalho: logo + nome do pintor + contato + "ORÇAMENTO #id + data"
-//   - Bloco cliente (border-left roxa)
-//   - Tabela de detalhes do serviço
-//   - Bloco escopo (parágrafo)
-//   - Card valor total
-//   - Rodapé com data de emissão
+// que adicionaria ~200kb). Layout de referência (LP Decor, 2026-09-08):
+//   - Cabeçalho: logo + nome do pintor + "Pintor" + CNPJ/CPF/endereço/contato,
+//     caixa "Orçamento nº"
+//   - Cliente (nome, telefone, endereço, CEP) + "Visita técnica em:"
+//   - Serviços em cards: item + descrição | valor unitário | quantidade | subtotal
+//   - Faixas "Valor total dos Serviços" / Subtotal / Descontos / "Valor total"
+//   - Laudo técnico, informações adicionais, pagamento (formas + chave PIX),
+//     "parte interna/externa", botões Recusar/Aprovar (links wa.me)
+//   - Página "Área do profissional" (logo + bio) e rodapé "Documento gerado em"
+// O conteúdo vem TODO de `lib/orcamentoDocumento.ts` (mesmo modelo da prévia).
 //
 // Retorna um Blob 'application/pdf' que pode ser:
 //  - Compartilhado via navigator.share({ files: [file] }) — alvo principal
@@ -16,15 +19,6 @@
 import type { Quote } from '@/lib/types';
 import { reportFailure } from '@/lib/utils/reportFailure';
 import { abrirLinkExterno } from '@/lib/native';
-import {
-  detalhesDoServico,
-  quantidadeDe,
-  resumoDoServico,
-  servicosDoQuoteData,
-  subtotalDoItem,
-  valorUnitarioDe,
-} from '@/lib/orcamentoServicos';
-import { unidadeCurta } from '@/lib/services/priceTable';
 import { fmtBRL } from '@/lib/utils';
 
 /**
@@ -66,15 +60,6 @@ export interface PainterForPdf {
   avatar_url?: string | null;
 }
 
-const BRL = new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-});
-
-const PRIMARY = '#FF6B35';
-const ACCENT = '#8338ec';
-const INK = '#1a1a2e';
-const MUTED = '#888888';
 
 // Carrega imagem como data URL pra jsPDF.addImage. Falha → null (segue sem logo).
 async function loadImageAsDataUrl(url: string): Promise<string | null> {
@@ -93,343 +78,366 @@ async function loadImageAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
-// Extrai dados de quote_data jsonb com fallback seguro.
-function readField(qd: unknown, key: string): string {
-  if (!qd || typeof qd !== 'object') return '';
-  const v = (qd as Record<string, unknown>)[key];
-  if (typeof v === 'string' || typeof v === 'number') return String(v);
-  if (Array.isArray(v)) return v.filter((x) => typeof x === 'string').join(', ');
-  return '';
-}
-function readBool(qd: unknown, key: string): boolean | null {
-  if (!qd || typeof qd !== 'object') return null;
-  const v = (qd as Record<string, unknown>)[key];
-  return typeof v === 'boolean' ? v : null;
-}
-
+/**
+ * Gera o PDF do orçamento no layout de referência (LP Decor, 2026-09-08):
+ * cabeçalho do profissional + "Orçamento nº", cliente + visita técnica,
+ * tabela de serviços em cards, faixas de total, laudo/informações/pagamento,
+ * "parte interna/externa", botões Recusar/Aprovar (links wa.me) e a página
+ * "Área do profissional". O CONTEÚDO vem todo de `montarDocumento` — a
+ * prévia HTML usa o mesmo modelo, então o que a pessoa vê na tela é o que
+ * sai no arquivo.
+ */
 export async function generateQuotePdfBlob(
   quote: Quote,
   painter: PainterForPdf | null,
 ): Promise<Blob> {
   // Dynamic import pra não pesar bundle inicial.
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const { montarDocumento, fmtValor, fmtQuantidade } = await import('@/lib/orcamentoDocumento');
+  const d = montarDocumento(quote, painter);
 
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const margin = 14;
   const contentW = pageW - margin * 2;
+  const limite = pageH - 20; // acima do rodapé
 
-  const today = new Date().toLocaleDateString('pt-BR');
-  const price = Number(quote.price) || 0;
-  const warranty = ((quote.quote_data as { warranty?: string } | null)?.warranty) || '';
-  const qd = quote.quote_data;
+  // Paleta da referência: preto, cinzas e branco (o laranja da marca fica
+  // fora de propósito — o documento é do pintor, não do app).
+  const PRETO = '#111111';
+  const CINZA_FAIXA = '#cfcfcf';
+  const CINZA_CLARO = '#e6e6e6';
+  const BORDA = '#dddddd';
+  const TEXTO = '#1a1a1a';
+  const MUDO = '#555555';
+  const VERDE = '#1aa64b';
+  const VERMELHO = '#c62828';
 
-  // Prioridade: name primeiro, business_name como fallback. Antes priorizávamos
-  // business_name (legado vanilla salvava label do logo da camisa lá), o que
-  // poluía os PDFs com nomes de teste antigos.
-  const painterName = textoPdfSeguro(
-    painter?.name ||
-    painter?.business_name ||
-    (painter?.tag ? '@' + painter.tag : 'Pintor'),
-  ) || 'Pintor';
-  const painterTag = painter?.tag ? '@' + painter.tag : '';
-  const painterPhone = painter?.phone || '';
-  const painterEmail = painter?.email || '';
-  const painterCity =
-    painter?.city && painter?.state
-      ? `${painter.city}/${painter.state}`
-      : painter?.city || '';
+  const t = (v: string) => textoPdfSeguro(v);
+  const lh = (pt: number) => pt * 0.3528 * 1.3; // altura de linha em mm
+  let y = margin;
 
-  // ── CABEÇALHO ─────────────────────────────────────────────────────────
-  const logoUrl = painter?.business_logo_url || painter?.avatar_url || '';
-  let cursorY = margin;
-  let textX = margin;
-
-  if (logoUrl) {
-    const dataUrl = await loadImageAsDataUrl(logoUrl);
-    if (dataUrl) {
-      try {
-        const ext = dataUrl.match(/^data:image\/(\w+);/)?.[1]?.toUpperCase() || 'JPEG';
-        const fmt = ext === 'PNG' ? 'PNG' : 'JPEG';
-        doc.addImage(dataUrl, fmt, margin, cursorY, 18, 18);
-        textX = margin + 22;
-      } catch {
-        // Imagem inválida — segue sem logo.
-      }
-    }
-  }
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(INK);
-  doc.text(painterName, textX, cursorY + 6);
-
-  if (painterTag) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(MUTED);
-    doc.text(painterTag, textX, cursorY + 11);
-  }
-
-  // Badge "ORÇAMENTO" à direita
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(PRIMARY);
-  doc.text('ORÇAMENTO', pageW - margin, cursorY + 6, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(MUTED);
-  doc.text(today, pageW - margin, cursorY + 11, { align: 'right' });
-  doc.text(`#${(quote.id || '').slice(0, 8)}`, pageW - margin, cursorY + 15, {
-    align: 'right',
-  });
-
-  cursorY += 21;
-
-  // Linha de contato (debaixo do nome)
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(85, 85, 85);
-  const contactParts = [
-    painterPhone ? `Tel: ${painterPhone}` : '',
-    painterEmail ? `E-mail: ${painterEmail}` : '',
-    painterCity ? `${painterCity}` : '',
-  ].filter(Boolean);
-  if (contactParts.length > 0) {
-    doc.text(contactParts.join('   ·   '), margin, cursorY);
-    cursorY += 4;
-  }
-
-  // Linha separadora laranja
-  doc.setDrawColor(PRIMARY);
-  doc.setLineWidth(0.8);
-  doc.line(margin, cursorY + 2, pageW - margin, cursorY + 2);
-  cursorY += 8;
-
-  // ── BLOCO CLIENTE ────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(MUTED);
-  doc.text('CLIENTE', margin, cursorY);
-  cursorY += 4;
-
-  // Card cinza com border-left roxa
-  const cardY = cursorY;
-  doc.setFillColor(248, 248, 248);
-  doc.roundedRect(margin, cardY, contentW, 14, 2, 2, 'F');
-  doc.setFillColor(ACCENT);
-  doc.rect(margin, cardY, 1.2, 14, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(INK);
-  doc.text(textoPdfSeguro(quote.client_name) || 'Cliente não informado', margin + 4, cardY + 5.5);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(85, 85, 85);
-  const clientLine = [
-    quote.client_phone ? `Tel: ${textoPdfSeguro(quote.client_phone)}` : '',
-    quote.address ? `End: ${textoPdfSeguro(quote.address)}` : '',
-  ]
-    .filter(Boolean)
-    .join('   ·   ');
-  if (clientLine) {
-    doc.text(clientLine, margin + 4, cardY + 10);
-  }
-  cursorY = cardY + 18;
-
-  // ── TABELA DE DETALHES ────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(MUTED);
-  doc.text('DETALHES DO SERVIÇO', margin, cursorY);
-  cursorY += 4;
-
-  const rows: Array<[string, string]> = [];
-  const push = (k: string, v: string | null | undefined) => {
-    // textoPdfSeguro em todo valor dinâmico: campo livre pode trazer emoji.
-    const limpo = textoPdfSeguro(v == null ? '' : String(v));
-    if (limpo && limpo !== '—') rows.push([k, limpo]);
-  };
-
-  push('Serviço', quote.service_type || quote.title || '');
-  push('Área', quote.area_m2 ? `${quote.area_m2} m²` : '');
-  push('Tipo de tinta', readField(qd, 'paintType'));
-  push('Cor', readField(qd, 'colorWant'));
-  push('Demãos', readField(qd, 'coats'));
-  push('Preparação', readField(qd, 'prep'));
-  push('Superfície', readField(qd, 'surfaceState'));
-  push('Acesso', readField(qd, 'access'));
-  push('Prazo de conclusão', quote.proposed_date);
-  const im = readBool(qd, 'includeMaterial');
-  if (im !== null) push('Inclui material', im ? 'Sim' : 'Não');
-  const il = readBool(qd, 'includeLabor');
-  if (il !== null) push('Inclui mão de obra', il ? 'Sim' : 'Não');
-  push('Garantia', warranty);
-
-  doc.setFontSize(9);
-  doc.setTextColor(INK);
-  const labelW = 38;
-  const valueX = margin + labelW + 2;
-  for (const [k, v] of rows) {
-    if (cursorY > 270) {
-      doc.addPage();
-      cursorY = margin;
-    }
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(MUTED);
-    doc.text(k, margin, cursorY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(INK);
-    const wrapped = doc.splitTextToSize(v, contentW - labelW - 2) as string[];
-    doc.text(wrapped, valueX, cursorY);
-    const lines = wrapped.length;
-    // Linha tracejada divisora
-    doc.setDrawColor(238, 238, 238);
-    doc.setLineWidth(0.15);
-    doc.line(margin, cursorY + lines * 3.5 + 1, pageW - margin, cursorY + lines * 3.5 + 1);
-    cursorY += lines * 3.5 + 3;
-  }
-
-  // ── SERVIÇOS (do tile Orçamento: espaço/material + itens da ABRAPP) ──
-  const servicos = servicosDoQuoteData(qd);
-  const quebraSePrecisar = (limite: number) => {
-    if (cursorY > limite) {
-      doc.addPage();
-      cursorY = margin;
-    }
-  };
-  servicos.forEach((s, i) => {
-    cursorY += 4;
-    quebraSePrecisar(250);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(MUTED);
-    doc.text(servicos.length > 1 ? `SERVIÇO ${i + 1}` : 'SERVIÇO', margin, cursorY);
-    cursorY += 5;
-    doc.setFontSize(10);
-    doc.setTextColor(INK);
-    const resumo = doc.splitTextToSize(textoPdfSeguro(resumoDoServico(s)), contentW) as string[];
-    doc.text(resumo, margin, cursorY);
-    cursorY += resumo.length * 4 + 1;
-
-    // Espaço + material — só o que está preenchido, sem repetir área/cômodos.
-    doc.setFontSize(9);
-    for (const [k, v] of detalhesDoServico(s).filter(([key]) => key !== 'Área' && key !== 'Cômodos')) {
-      quebraSePrecisar(270);
+  function rodape() {
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(MUTED);
-      doc.text(k, margin, cursorY);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(INK);
-      const wrapped = doc.splitTextToSize(textoPdfSeguro(v), contentW - labelW - 2) as string[];
-      doc.text(wrapped, valueX, cursorY);
-      cursorY += wrapped.length * 3.5 + 1.5;
-    }
-
-    // Itens da tabela (nome + qtd × valor, subtotal à direita).
-    const valorW = 32;
-    for (const it of s.itens) {
-      quebraSePrecisar(270);
-      const v = valorUnitarioDe(it);
-      const sub = subtotalDoItem(it);
-      const nome = doc.splitTextToSize(
-        textoPdfSeguro(it.servico) || 'Item',
-        contentW - valorW - 2,
-      ) as string[];
-      const detalhe = textoPdfSeguro(
-        `${quantidadeDe(it)} ${unidadeCurta(it.unidade)}${v !== null ? ` × R$ ${fmtBRL(v)}` : ''}`,
-      );
-      cursorY += 1.5;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(INK);
-      doc.text(nome, margin, cursorY);
-      doc.text(sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir', pageW - margin, cursorY, {
-        align: 'right',
-      });
-      const yDetalhe = cursorY + nome.length * 3.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(MUTED);
-      doc.text(detalhe, margin, yDetalhe);
-      doc.setDrawColor(238, 238, 238);
-      doc.setLineWidth(0.15);
-      doc.line(margin, yDetalhe + 1.5, pageW - margin, yDetalhe + 1.5);
-      cursorY = yDetalhe + 4;
-    }
-  });
-
-  // ── ESCOPO TÉCNICO ────────────────────────────────────────────────────
-  if (quote.description) {
-    cursorY += 4;
-    if (cursorY > 250) {
-      doc.addPage();
-      cursorY = margin;
-    }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(MUTED);
-    doc.text('ESCOPO TÉCNICO', margin, cursorY);
-    cursorY += 5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(INK);
-    const scopeLines = doc.splitTextToSize(textoPdfSeguro(quote.description), contentW) as string[];
-    for (const line of scopeLines) {
-      if (cursorY > 280) {
-        doc.addPage();
-        cursorY = margin;
-      }
-      doc.text(line, margin, cursorY);
-      cursorY += 4;
+      doc.setFontSize(8.5);
+      doc.setTextColor(TEXTO);
+      doc.text(t(`Documento gerado em ${d.geradoEm}`), pageW / 2, pageH - 8, { align: 'center' });
     }
   }
-
-  // ── VALOR TOTAL ──────────────────────────────────────────────────────
-  cursorY += 6;
-  if (cursorY > 250) {
+  function novaPagina() {
     doc.addPage();
-    cursorY = margin;
+    y = margin;
   }
-  const valY = cursorY;
-  // Card com border laranja
-  doc.setFillColor(255, 244, 237);
-  doc.setDrawColor(PRIMARY);
-  doc.setLineWidth(0.7);
-  doc.roundedRect(margin, valY, contentW, 20, 3, 3, 'FD');
+  function garantir(h: number) {
+    if (y + h > limite) novaPagina();
+  }
+  function texto(
+    s: string,
+    x: number,
+    yy: number,
+    opts: { size?: number; bold?: boolean; color?: string; align?: 'left' | 'center' | 'right'; maxW?: number },
+  ): number {
+    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
+    doc.setFontSize(opts.size ?? 10);
+    doc.setTextColor(opts.color ?? TEXTO);
+    const linhas = opts.maxW ? (doc.splitTextToSize(t(s), opts.maxW) as string[]) : [t(s)];
+    doc.text(linhas, x, yy, { align: opts.align ?? 'left' });
+    return linhas.length * lh(opts.size ?? 10);
+  }
+  function alturaTexto(s: string, size: number, maxW: number, bold = false): number {
+    // A largura do texto depende do PESO da fonte: medir em negrito o que
+    // sai em normal superestima as linhas e deixa o card com sobra embaixo.
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(size);
+    const linhas = doc.splitTextToSize(t(s), maxW) as string[];
+    return linhas.length * lh(size);
+  }
+  function faixa(fill: string, h: number, radius = 2) {
+    doc.setFillColor(fill);
+    doc.roundedRect(margin, y, contentW, h, radius, radius, 'F');
+  }
+  function divisor(grosso = false) {
+    doc.setDrawColor(CINZA_CLARO);
+    doc.setLineWidth(grosso ? 1.4 : 0.5);
+    doc.line(margin, y, pageW - margin, y);
+  }
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(MUTED);
-  doc.text('VALOR TOTAL', margin + 5, valY + 7);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(120, 120, 120);
-  doc.text('À combinar forma e parcelamento', margin + 5, valY + 12);
+  // ── CABEÇALHO DO PROFISSIONAL ─────────────────────────────────────────
+  const logo = d.profissional.logo ? await loadImageAsDataUrl(d.profissional.logo) : null;
+  let textoX = margin;
+  if (logo) {
+    try {
+      const fmt = logo.match(/^data:image\/(\w+);/)?.[1]?.toUpperCase() === 'PNG' ? 'PNG' : 'JPEG';
+      doc.addImage(logo, fmt, margin, y, 26, 26);
+      textoX = margin + 32;
+    } catch {
+      // logo inválido — segue sem
+    }
+  }
+  const caixaW = 74;
+  doc.setFillColor(CINZA_FAIXA);
+  doc.roundedRect(pageW - margin - caixaW, y + 1, caixaW, 10, 2, 2, 'F');
+  texto(`Orçamento nº ${d.numero}`, pageW - margin - caixaW / 2, y + 7.5, { size: 11, bold: true, align: 'center' });
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(PRIMARY);
-  const priceTxt = price > 0 ? BRL.format(price) : '—';
-  doc.text(priceTxt, pageW - margin - 5, valY + 12, { align: 'right' });
-  cursorY = valY + 24;
+  let hy = y + 6;
+  texto(d.profissional.nome, textoX, hy, { size: 17, bold: true, maxW: pageW - margin - caixaW - textoX - 4 });
+  hy += lh(17) + 1;
+  hy += texto(d.profissional.rotulo, textoX, hy, { size: 11.5, bold: true });
+  const linhasProf = [
+    d.profissional.cnpj ? `CNPJ: ${d.profissional.cnpj}` : '',
+    d.profissional.cpf ? `CPF: ${d.profissional.cpf}` : '',
+    d.profissional.endereco,
+    d.profissional.telefone,
+    d.profissional.email,
+  ].filter(Boolean);
+  for (const l of linhasProf) {
+    hy += 1;
+    hy += texto(l, textoX, hy, { size: 9.5, maxW: contentW - (textoX - margin) });
+  }
+  y = Math.max(hy, y + (logo ? 30 : 0)) + 4;
+  divisor(true);
+  y += 8;
 
-  // ── RODAPÉ ───────────────────────────────────────────────────────────
-  cursorY += 4;
-  doc.setDrawColor(229, 229, 229);
-  doc.setLineWidth(0.3);
-  doc.line(margin, cursorY, pageW - margin, cursorY);
-  cursorY += 4;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(150, 150, 150);
-  doc.text(`Gerado em ${today} via QueroUmaCor`, margin, cursorY);
-  doc.text('Validade: 15 dias da emissão', pageW - margin, cursorY, {
+  // ── CLIENTE ───────────────────────────────────────────────────────────
+  y += texto('Cliente', margin, y, { size: 12.5, bold: true });
+  y += 1;
+  if (d.cliente.nome) y += texto(d.cliente.nome, margin, y, { size: 10.5, bold: true });
+  if (d.cliente.telefone) y += texto(d.cliente.telefone, margin, y, { size: 10 });
+  if (d.cliente.enderecoLinha || d.cliente.cep) {
+    const endW = contentW * 0.52;
+    const hEnd = d.cliente.enderecoLinha ? texto(d.cliente.enderecoLinha, margin, y, { size: 10, maxW: endW }) : lh(10);
+    if (d.cliente.cep) texto(`CEP: ${d.cliente.cep}`, margin + endW + 6, y + (hEnd > lh(10) ? lh(10) : 0), { size: 10 });
+    y += hEnd;
+  }
+  y += 3;
+  if (d.visitaTecnica) {
+    faixa(CINZA_FAIXA, 16, 3);
+    texto('Visita técnica em:', pageW / 2, y + 6.5, { size: 10, bold: true, align: 'center' });
+    texto(d.visitaTecnica, pageW / 2, y + 12.5, { size: 10.5, align: 'center' });
+    y += 16 + 4;
+  } else {
+    y += 2;
+  }
+
+  // ── SERVIÇOS ──────────────────────────────────────────────────────────
+  garantir(30);
+  doc.setFillColor(CINZA_FAIXA);
+  doc.roundedRect(margin, y, contentW, 15, 3, 3, 'F');
+  doc.rect(margin, y + 8, contentW, 7, 'F'); // cantos de baixo retos (emenda com a faixa preta)
+  texto('Serviços', margin + 4, y + 10.5, { size: 16, bold: true });
+  y += 15;
+  doc.setFillColor(PRETO);
+  doc.rect(margin, y, contentW, 14, 'F');
+  const itemW = contentW * 0.5;
+  const colW = (contentW - itemW) / 3;
+  const colX = (i: number) => margin + itemW + colW * i + colW / 2;
+  texto('Item', margin + 4, y + 8.5, { size: 10, bold: true, color: '#ffffff' });
+  texto('Valor', colX(0), y + 5.5, { size: 10, bold: true, color: '#ffffff', align: 'center' });
+  texto('Unitario', colX(0), y + 10.5, { size: 10, bold: true, color: '#ffffff', align: 'center' });
+  texto('Quantidade', colX(1), y + 8.5, { size: 10, bold: true, color: '#ffffff', align: 'center' });
+  texto('Subtotal', colX(2), y + 8.5, { size: 10, bold: true, color: '#ffffff', align: 'center' });
+  y += 14 + 4;
+
+  for (const grupo of d.grupos) {
+    if (grupo.titulo) {
+      garantir(12);
+      faixa(CINZA_CLARO, 8, 2);
+      texto(grupo.titulo, margin + 4, y + 5.5, { size: 10, bold: true });
+      y += 8 + 3;
+    }
+    for (const it of grupo.itens) {
+      const pad = 4;
+      const descW = itemW - pad * 2;
+      const hTitulo = alturaTexto(it.titulo, 10.5, descW, true);
+      const hDesc = it.descricao ? alturaTexto(it.descricao, 9, descW) : 0;
+      const hCard = Math.max(hTitulo + hDesc + pad * 2 - 1, 18);
+      garantir(hCard + 3);
+      doc.setFillColor('#ffffff');
+      doc.setDrawColor(BORDA);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(margin, y, contentW, hCard, 3, 3, 'FD');
+      let ty = y + pad + lh(10.5) * 0.75;
+      ty += texto(it.titulo, margin + pad, ty, { size: 10.5, bold: true, maxW: descW });
+      if (it.descricao) texto(it.descricao, margin + pad, ty, { size: 9, maxW: descW });
+      const meio = y + hCard / 2;
+      const colunas: Array<[string, string]> = [
+        [it.rotuloUnidade, fmtValor(it.valorUnitario)],
+        ['Quantidade', fmtQuantidade(it.quantidade)],
+        ['Valor', fmtValor(it.subtotal)],
+      ];
+      colunas.forEach(([rotulo, valor], i) => {
+        texto(rotulo, colX(i), meio - 1, { size: 8.5, color: MUDO, align: 'center' });
+        texto(valor, colX(i), meio + 3.5, { size: 9.5, bold: true, align: 'center' });
+      });
+      y += hCard + 3;
+    }
+  }
+
+  // ── TOTAIS ────────────────────────────────────────────────────────────
+  garantir(40);
+  y += 1;
+  doc.setFillColor(PRETO);
+  doc.roundedRect(margin, y, contentW, 12, 2, 2, 'F');
+  texto(`Valor total dos Serviços:   R$ ${fmtBRL(d.totais.totalServicos)}`, pageW - margin - 4, y + 8, {
+    size: 12,
+    bold: true,
+    color: '#ffffff',
     align: 'right',
   });
+  y += 12 + 5;
+  const linhasTotais: Array<[string, string]> = [['Subtotal:', `R$ ${fmtBRL(d.totais.subtotal)}`]];
+  if (d.totais.desconto > 0) linhasTotais.push(['Descontos:', `- R$ ${fmtBRL(d.totais.desconto)}`]);
+  const hCinza = linhasTotais.length * 9 + 2;
+  doc.setFillColor(CINZA_FAIXA);
+  doc.rect(margin, y, contentW, hCinza, 'F');
+  linhasTotais.forEach(([k, v], i) => {
+    const ly = y + 6.5 + i * 9;
+    texto(k, pageW - margin - 40, ly, { size: 10.5, bold: true, align: 'right' });
+    texto(v, pageW - margin - 3, ly, { size: 10.5, bold: i === 0, align: 'right' });
+  });
+  y += hCinza;
+  doc.setFillColor(PRETO);
+  doc.roundedRect(margin, y, contentW, 12, 2, 2, 'F');
+  doc.rect(margin, y, contentW, 4, 'F'); // emenda reta com a faixa cinza
+  texto('Valor total:', pageW - margin - 40, y + 8.5, { size: 13, bold: true, color: '#ffffff', align: 'right' });
+  texto(`R$ ${fmtBRL(d.totais.valorTotal)}`, pageW - margin - 3, y + 8.5, { size: 13, bold: true, color: '#ffffff', align: 'right' });
+  y += 12 + 6;
+  divisor();
+  y += 8;
 
+  // ── LAUDO / INFORMAÇÕES / PAGAMENTO / LOCAIS / APROVAÇÃO ──────────────
+  // Laudo, informações, pagamento e locais seguem no fluxo (quebram só
+  // quando não cabem) — forçar página nova aqui deixava a anterior vazia.
+  function blocoTexto(titulo: string, corpo: string) {
+    if (!corpo) return;
+    garantir(20 + alturaTexto(corpo, 10.5, contentW));
+    y += texto(titulo, margin, y, { size: 11.5, bold: true });
+    y += 1;
+    y += texto(corpo, margin, y, { size: 10.5, maxW: contentW });
+    y += 3;
+    divisor();
+    y += 8;
+  }
+  blocoTexto('Laudo Técnico', d.laudoTecnico);
+  blocoTexto('Informações adicionais', d.informacoesAdicionais);
+
+  if (d.pagamento.formas.length > 0 || d.pagamento.chavePix) {
+    garantir(40 + d.pagamento.formas.length * 7);
+    doc.setFillColor(CINZA_FAIXA);
+    doc.roundedRect(margin, y, contentW, 15, 3, 3, 'F');
+    doc.rect(margin, y + 8, contentW, 7, 'F');
+    texto('Pagamento', margin + 4, y + 10.5, { size: 15, bold: true });
+    y += 15;
+    doc.setFillColor(PRETO);
+    doc.rect(margin, y, contentW, 10, 'F');
+    doc.roundedRect(margin, y + 5, contentW, 5, 2, 2, 'F');
+    texto('Formas de pagamento', margin + 5, y + 6.5, { size: 9.5, bold: true, color: '#ffffff' });
+    y += 10 + 6;
+    for (const f of d.pagamento.formas) {
+      y += texto(`•  ${f}`, margin + 5, y, { size: 10 }) + 2;
+    }
+    if (d.pagamento.chavePix) {
+      y += 3;
+      faixa(CINZA_FAIXA, 12, 3);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.setTextColor(TEXTO);
+      const rot = 'Chave PIX: ';
+      doc.text(rot, margin + 5, y + 7.5);
+      const wRot = doc.getTextWidth(rot);
+      texto(d.pagamento.chavePix, margin + 5 + wRot, y + 7.5, { size: 10.5 });
+      y += 12;
+    }
+    y += 5;
+    divisor();
+    y += 8;
+  }
+
+  if (d.locais.length > 0) {
+    garantir(12 * d.locais.length + 10);
+    for (const l of d.locais) {
+      y += texto(l.titulo, margin, y, { size: 11, bold: true, maxW: contentW });
+      y += 1;
+      y += texto(l.texto, margin, y, { size: 10.5, maxW: contentW });
+      y += 3;
+    }
+    divisor();
+    y += 8;
+  }
+
+  // Botões Recusar / Aprovar: sem página de aprovação pelo cliente, os dois
+  // abrem o WhatsApp do pintor com a mensagem pronta.
+  if (d.aprovacao.aprovarUrl && d.aprovacao.recusarUrl) {
+    garantir(22);
+    const gap = 3;
+    const bw = (contentW - gap) / 2;
+    const bh = 16;
+    doc.setFillColor('#ffffff');
+    doc.setDrawColor(VERMELHO);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(margin, y, bw, bh, 2, 2, 'FD');
+    texto('Recusar', margin + bw / 2, y + 7, { size: 12, bold: true, color: VERMELHO, align: 'center' });
+    texto('Toque aqui para recusar este orçamento.', margin + bw / 2, y + 12.5, { size: 8.5, align: 'center' });
+    doc.link(margin, y, bw, bh, { url: d.aprovacao.recusarUrl });
+
+    const ax = margin + bw + gap;
+    doc.setFillColor(VERDE);
+    doc.roundedRect(ax, y, bw, bh, 2, 2, 'F');
+    texto('Aprovar orçamento', ax + bw / 2, y + 7, { size: 12, bold: true, color: '#ffffff', align: 'center' });
+    texto('Toque aqui para aprovar este orçamento.', ax + bw / 2, y + 12.5, { size: 8.5, color: '#ffffff', align: 'center' });
+    doc.link(ax, y, bw, bh, { url: d.aprovacao.aprovarUrl });
+    y += bh + 6;
+  }
+
+  // ── ÁREA DO PROFISSIONAL ──────────────────────────────────────────────
+  if (d.profissional.sobre) {
+    novaPagina();
+    y = margin + 8;
+    y += texto('Área do profissional', margin, y, { size: 20, bold: true });
+    y += 1;
+    y += texto('Saiba mais sobre seu prestador de serviços.', margin, y, { size: 10.5 });
+    y += 6;
+    const pad = 6;
+    const txtX = margin + pad + (logo ? 22 : 0);
+    const txtW = contentW - pad * 2 - (logo ? 22 : 0);
+    const hSobre = alturaTexto(d.profissional.sobre, 9.5, txtW);
+    const hCard = pad + lh(14) + 3 + hSobre + pad;
+    doc.setFillColor(CINZA_FAIXA);
+    doc.roundedRect(margin, y, contentW, hCard, 4, 4, 'F');
+    if (logo) {
+      try {
+        const fmt = logo.match(/^data:image\/(\w+);/)?.[1]?.toUpperCase() === 'PNG' ? 'PNG' : 'JPEG';
+        doc.addImage(logo, fmt, margin + pad, y + pad, 16, 16);
+      } catch {
+        /* sem logo */
+      }
+    }
+    let sy = y + pad + lh(14) * 0.8;
+    sy += texto(d.profissional.nome, txtX, sy, { size: 14, bold: true, maxW: txtW });
+    sy += 2;
+    texto(d.profissional.sobre, txtX, sy, { size: 9.5, maxW: txtW });
+    y += hCard + 6;
+    divisor();
+
+    // Contato no pé da página
+    const fy = pageH - 30;
+    doc.setDrawColor(CINZA_CLARO);
+    doc.setLineWidth(0.5);
+    doc.line(margin, fy - 6, pageW - margin, fy - 6);
+    let ly = fy;
+    ly += texto(d.profissional.nome, margin, ly, { size: 10, bold: true });
+    if (d.profissional.cnpj) ly += texto(`CNPJ: ${d.profissional.cnpj}`, margin, ly, { size: 9.5 });
+    if (d.profissional.email) texto(d.profissional.email, margin, ly, { size: 9.5 });
+    let ry = fy + 2;
+    if (d.profissional.endereco) ry += texto(d.profissional.endereco, pageW / 2, ry, { size: 9.5, maxW: contentW / 2 });
+    if (d.profissional.telefone) texto(d.profissional.telefone, pageW / 2, ry, { size: 9.5 });
+  }
+
+  rodape();
   return doc.output('blob');
 }
 

@@ -103,6 +103,8 @@ export interface ItemDoOrcamento {
   /** texto do campo; VAZIO por padrão (decisão 1) */
   valorUnitario: string;
   sugestao: SugestaoDePreco | null;
+  /** Texto longo que sai no PDF embaixo do nome ("Empapelamento e proteção do piso…") */
+  descricao?: string;
 }
 
 /**
@@ -123,6 +125,8 @@ export interface ServicoDoOrcamento {
   cor: string;
   demaos: string;
   preparacao: string[];
+  /** "interna" | "externa" — vira "Este serviço será realizado na parte Interna da casa" no PDF */
+  local?: string;
   // Itens da Tabela ABRAPP / avulsos
   itens: ItemDoOrcamento[];
 }
@@ -155,6 +159,7 @@ export function novoServico(over: Partial<ServicoDoOrcamento> = {}, id: string =
     cor: '',
     demaos: '',
     preparacao: [],
+    local: '',
     itens: [],
     ...over,
   };
@@ -195,6 +200,7 @@ export function itemDaTabela(item: PriceItem, id: string = novoId('item')): Item
       item.preco_medio > 0
         ? { min: item.preco_min, medio: item.preco_medio, max: item.preco_max }
         : null,
+    descricao: '',
   };
 }
 
@@ -209,6 +215,7 @@ export function itemAvulso(nome = '', id: string = novoId('item')): ItemDoOrcame
     quantidade: '1',
     valorUnitario: '',
     sugestao: null,
+    descricao: '',
   };
 }
 
@@ -468,6 +475,7 @@ function servicoDeLinha(r: Record<string, unknown>, i: number): ServicoDoOrcamen
     cor: texto(r.cor),
     demaos: texto(r.demaos),
     preparacao: listaDeTexto(r.preparacao),
+    local: texto(r.local),
     itens,
   };
 }
@@ -492,6 +500,7 @@ function itemDeLinha(r: Record<string, unknown>, i: number): ItemDoOrcamento | n
     quantidade: texto(r.quantidade) || '1',
     valorUnitario: texto(r.valorUnitario),
     sugestao,
+    descricao: texto(r.descricao),
   };
 }
 

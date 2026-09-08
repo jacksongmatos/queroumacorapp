@@ -25,7 +25,7 @@
 
 import { useRouter } from 'next/navigation';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
@@ -33,7 +33,8 @@ import { useAuth } from '@/components/AuthProvider';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { canSeeProFeature } from '@/lib/policies';
 import { usePolicyUser } from '@/lib/hooks/usePolicyUser';
-import { saveQuote } from '@/lib/services/pipeline';
+import { saveQuote, fetchQuotes } from '@/lib/services/pipeline';
+import type { Quote } from '@/lib/types';
 import { showToast } from '@/lib/toast';
 import { abrirLinkExterno } from '@/lib/native';
 import {
@@ -44,37 +45,56 @@ import {
 import {
   areaTotal,
   descreverServico,
-  detalhesDoServico,
-  quantidadeDe,
-  resumoDoServico,
-  subtotalDoItem,
   temAvulsoSemNome,
   tituloDosServicos,
   totaisDoOrcamento,
-  valorUnitarioDe,
   type ServicoDoOrcamento,
 } from '@/lib/orcamentoServicos';
-import { unidadeCurta } from '@/lib/services/priceTable';
+import {
+  ENDERECO_VAZIO,
+  FORMAS_DE_PAGAMENTO,
+  montarDocumento,
+  parseDesconto,
+  rotuloDoProfissional,
+  type EnderecoDoCliente,
+  type DocumentoOrcamento,
+} from '@/lib/orcamentoDocumento';
+import { OrcamentoDocumento } from '@/components/orcamento/OrcamentoDocumento';
 import { fmtBRL, parseBRL } from '@/lib/utils';
 import { ServicosDoOrcamento } from './ServicosDoOrcamento';
 
 interface FormState {
+  // Número do orçamento ("12/2026") — calculado na abertura a partir dos
+  // orçamentos já gravados; gravado em quote_data.numero.
+  numero: string;
   // Cliente
   clientName: string;
   clientPhone: string;
+  cliente: EnderecoDoCliente;
+  visitaTecnica: string; // valor do <input type="datetime-local">
+  // Profissional — o que o perfil NÃO tem (CNPJ/CPF) e o que pode divergir
+  // do perfil neste orçamento. Prefill do último orçamento gravado.
+  profCnpj: string;
+  profCpf: string;
+  profEndereco: string;
+  profEmail: string;
   // Serviços — cada um com espaço, material e itens da Tabela ABRAPP.
   // Gravados em quote_data.servicos. Começa vazio; o Gravar exige ≥ 1.
   servicos: ServicoDoOrcamento[];
   // Logística
-  city: string;
   durationDays: string;
   includeMaterial: boolean;
   includeLabor: boolean;
   warranty: string; // ex.: 90 dias retoques
   // Preço
   price: string;
-  // IA
-  description: string;
+  desconto: string; // "10%" ou "500,00"
+  // Pagamento
+  pagamento: string[];
+  chavePix: string;
+  // Textos
+  laudoTecnico: string;
+  description: string; // "Informações adicionais" no PDF
   scope: string;
 }
 
@@ -84,18 +104,75 @@ export function QuoteWizard() {
   const { profile } = useProfile();
   const policyUser = usePolicyUser();
   const [form, setForm] = useState<FormState>({
+    numero: '',
     clientName: '',
     clientPhone: '',
+    cliente: { ...ENDERECO_VAZIO },
+    visitaTecnica: '',
+    profCnpj: '',
+    profCpf: '',
+    profEndereco: '',
+    profEmail: '',
     servicos: [], // nasce vazio: o bloco aparece ao escolher um item da tabela
-    city: '',
     durationDays: '',
     includeMaterial: true,
     includeLabor: true,
     warranty: '90 dias para retoques',
     price: '',
+    desconto: '',
+    pagamento: [],
+    chavePix: '',
+    laudoTecnico: '',
     description: '',
     scope: '',
   });
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  // Número sequencial + prefill do que o perfil não guarda (CNPJ, CPF,
+  // pagamento, chave PIX): vem do ÚLTIMO orçamento gravado deste pintor. A
+  // fonte é o banco, não localStorage — e a pessoa não redigita a cada vez.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancel = false;
+    (async () => {
+      try {
+        const quotes = await fetchQuotes(user.id);
+        if (cancel) return;
+        const ano = new Date().getFullYear();
+        const doAno = quotes.filter((q) => (q.created_at || '').startsWith(String(ano)));
+        const ultimo = quotes
+          .map((q) => (q.quote_data && typeof q.quote_data === 'object' ? (q.quote_data as Record<string, unknown>) : null))
+          .find((qd) => qd && (qd.painter || qd.pagamento || qd.chavePix));
+        const painterAnt = (ultimo?.painter && typeof ultimo.painter === 'object' ? ultimo.painter : {}) as Record<string, unknown>;
+        const str = (v: unknown) => (typeof v === 'string' ? v : '');
+        setForm((f) => ({
+          ...f,
+          numero: f.numero || `${doAno.length + 1}/${ano}`,
+          profCnpj: f.profCnpj || str(painterAnt.cnpj),
+          profCpf: f.profCpf || str(painterAnt.cpf),
+          pagamento: f.pagamento.length ? f.pagamento : Array.isArray(ultimo?.pagamento) ? (ultimo!.pagamento as unknown[]).filter((x): x is string => typeof x === 'string') : f.pagamento,
+          chavePix: f.chavePix || str(ultimo?.chavePix),
+        }));
+      } catch {
+        // sem histórico: número fica em branco e o PDF usa o id
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [user?.id]);
+
+  // Endereço e e-mail do profissional vêm do perfil; a pessoa pode ajustar
+  // neste orçamento sem mexer no perfil.
+  useEffect(() => {
+    if (!profile) return;
+    const pf = profile as { address?: string | null; email?: string | null; city?: string | null; state?: string | null };
+    setForm((f) => ({
+      ...f,
+      profEndereco: f.profEndereco || [pf.address, [pf.city, pf.state].filter(Boolean).join(' - ')].filter(Boolean).join(', '),
+      profEmail: f.profEmail || pf.email || '',
+    }));
+  }, [profile]);
   const [priceResult, setPriceResult] = useState<SuggestPriceResult | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -108,7 +185,7 @@ export function QuoteWizard() {
       `Orçamento: ${tituloDosServicos(form.servicos)}`,
       `Serviços (${form.servicos.length}):`,
       ...form.servicos.map((s, i) => `${i + 1}) ${descreverServico(s, { marcador: '-' })}`),
-      form.city && `Cidade: ${form.city}`,
+      form.cliente.cidade && `Cidade: ${form.cliente.cidade}${form.cliente.uf ? '/' + form.cliente.uf : ''}`,
       form.durationDays && `Prazo: ${form.durationDays} dias`,
       `Inclui material: ${form.includeMaterial ? 'sim' : 'não (só mão de obra)'}`,
       `Inclui mão de obra: ${form.includeLabor ? 'sim' : 'não (só material)'}`,
@@ -140,14 +217,18 @@ export function QuoteWizard() {
   // M8 fix: useMemo precisa rodar ANTES dos early returns (rules-of-hooks).
   // Valor numérico atual — manual > soma dos serviços preenchidos > IA.
   // priceResult.price serve de pré-preencho quando o user clica "Sugerir preço".
+  const descontoValor = useMemo(
+    () => parseDesconto(form.desconto, totaisServicos.preenchido),
+    [form.desconto, totaisServicos.preenchido],
+  );
   const effectivePrice = useMemo(() => {
     // parseBRL, não parseFloat: o botão "Usar" escreve "1.616,00" e o
     // teclado do Android oferece ponto — parseFloat leria 1.616 (regra P1).
     const manual = parseBRL(form.price);
     if (Number.isFinite(manual) && manual > 0) return manual;
-    if (totaisServicos.preenchido > 0) return totaisServicos.preenchido;
+    if (totaisServicos.preenchido > 0) return Math.max(0, Math.round((totaisServicos.preenchido - descontoValor) * 100) / 100);
     return priceResult?.price ?? 0;
-  }, [form.price, totaisServicos.preenchido, priceResult]);
+  }, [form.price, totaisServicos.preenchido, descontoValor, priceResult]);
 
   if (authLoading) {
     return (
@@ -196,6 +277,9 @@ export function QuoteWizard() {
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
+  function updateCliente<K extends keyof EnderecoDoCliente>(key: K, value: string) {
+    setForm((f) => ({ ...f, cliente: { ...f.cliente, [key]: value } }));
+  }
 
   function handleSuggestScope() {
     scopeMutation.mutate(richDescription);
@@ -207,14 +291,51 @@ export function QuoteWizard() {
     phone?: string | null; city?: string | null; state?: string | null;
     business_logo_url?: string | null; avatar_url?: string | null;
   };
-  const p = (profile ?? {}) as ProfileLite;
+  const p = (profile ?? {}) as ProfileLite & {
+    business_name?: string | null; bio?: string | null; profession?: string | null; role?: string | null;
+  };
+  // Snapshot do profissional gravado em quote_data.painter — o PDF lê daqui
+  // (o perfil não tem CNPJ/CPF, e o que estava no perfil na hora do
+  // orçamento é o que o cliente recebeu).
   const painter = {
-    name: p.name || (p.tag ? '@' + p.tag : 'Pintor'),
+    name: p.business_name || p.name || (p.tag ? '@' + p.tag : 'Pintor'),
+    rotulo: rotuloDoProfissional(p),
     phone: p.phone || '',
     city: p.city || '',
     state: p.state || '',
     logo: p.business_logo_url || p.avatar_url || '',
+    email: form.profEmail,
+    cnpj: form.profCnpj,
+    cpf: form.profCpf,
+    endereco: form.profEndereco,
+    sobre: p.bio || '',
   };
+
+  /** O jsonb gravado em quotes.quote_data — o MESMO que a prévia e o PDF leem. */
+  function montarQuoteData() {
+    return {
+      ...form,
+      painter,
+      scope: form.scope,
+      rich: richDescription,
+      price_suggestion: priceResult,
+    };
+  }
+
+  /** Linha de `quotes` como o PDF/prévia vão ver, antes ou depois de gravar. */
+  function quoteAtual(): Quote {
+    return {
+      id: savedQuoteId ?? '',
+      painter_id: user?.id ?? '',
+      client_name: form.clientName || 'Cliente',
+      client_phone: form.clientPhone || null,
+      service_type: tituloDosServicos(form.servicos),
+      title: tituloDosServicos(form.servicos),
+      area_m2: areaTotal(form.servicos),
+      price: effectivePrice,
+      quote_data: montarQuoteData(),
+    };
+  }
 
   async function handleSave(): Promise<string | null> {
     if (saving) return savedQuoteId;
@@ -241,13 +362,7 @@ export function QuoteWizard() {
         title: titulo,
         area_m2: areaTotal(form.servicos),
         price: effectivePrice,
-        quote_data: {
-          ...form,
-          painter,
-          scope: form.scope,
-          rich: richDescription,
-          price_suggestion: priceResult,
-        },
+        quote_data: montarQuoteData(),
       });
       setSavedQuoteId(quoteId);
       showToast('Orçamento salvo no pipeline ✅', 'success');
@@ -275,6 +390,7 @@ export function QuoteWizard() {
         (form.servicos.length > 1 ? `${i + 1}) ` : '') + descreverServico(s),
       ),
       '',
+      form.numero ? `Orçamento nº ${form.numero}` : null,
       form.durationDays ? `Prazo: ${form.durationDays} dias` : null,
       `Inclui material: ${form.includeMaterial ? 'sim' : 'não'} · Inclui mão de obra: ${form.includeLabor ? 'sim' : 'não'}`,
       form.warranty ? `Garantia: ${form.warranty}` : null,
@@ -326,15 +442,31 @@ export function QuoteWizard() {
     router.push('/chat');
   }
 
-  // PDF: usa window.print() escopado por @media print. O preview já tem
-  // .quote-pdf-content que vira a página A4 quando o user clica "Imprimir
-  // / Salvar PDF". Sem jspdf — economiza ~150kb no bundle.
-  function handlePrintPdf() {
-    setPreviewOpen(true);
-    // Espera um tick pra preview montar antes de abrir o diálogo de print.
-    setTimeout(() => {
-      window.print();
-    }, 400);
+  // PDF de verdade (jsPDF, layout de referência), entregue pelo share nativo
+  // / Filesystem da casca / link no WhatsApp / download. `window.print()` é
+  // no-op na WebView do app — era o que este botão fazia antes.
+  async function handlePdf() {
+    if (pdfBusy) return;
+    if (form.servicos.length === 0) {
+      showToast('Adicione pelo menos um serviço da Tabela de Preços', 'error');
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const { generateQuotePdfBlob, shareOrDownloadPdfBlob, nomeArquivoOrcamento } = await import('@/lib/pdf/quotePdf');
+      const quote = quoteAtual();
+      const blob = await generateQuotePdfBlob(quote, profile as Parameters<typeof generateQuotePdfBlob>[1]);
+      const r = await shareOrDownloadPdfBlob(blob, nomeArquivoOrcamento(quote), `Orçamento — ${quote.service_type}`, {
+        text: buildPlainText(),
+        phone: (form.clientPhone || '').replace(/\D/g, '') || null,
+      });
+      if (r === 'failed') showToast('Não deu para gerar o PDF agora', 'error');
+      else if (r === 'downloaded') showToast('PDF salvo', 'success');
+    } catch (e) {
+      showToast((e as Error).message || 'Não deu para gerar o PDF', 'error');
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   // Compartilhar via Web Share API nativa do device (WhatsApp, Telegram,
@@ -384,6 +516,42 @@ export function QuoteWizard() {
             className={inputCls}
           />
         </Row>
+        <Row label="Endereço (rua e número)">
+          <input
+            type="text"
+            value={form.cliente.rua}
+            onChange={(e) => updateCliente('rua', e.target.value)}
+            placeholder="ex: Rua das Flores, 70"
+            className={inputCls}
+          />
+        </Row>
+        <div className="grid grid-cols-2 gap-2">
+          <Row label="Bairro">
+            <input type="text" value={form.cliente.bairro} onChange={(e) => updateCliente('bairro', e.target.value)} placeholder="ex: Jd dos Ipês" className={inputCls} />
+          </Row>
+          <Row label="Complemento">
+            <input type="text" value={form.cliente.complemento} onChange={(e) => updateCliente('complemento', e.target.value)} placeholder="ex: Casa, apto 12" className={inputCls} />
+          </Row>
+        </div>
+        <div className="grid grid-cols-[1fr_64px_110px] gap-2">
+          <Row label="Cidade">
+            <input type="text" value={form.cliente.cidade} onChange={(e) => updateCliente('cidade', e.target.value)} placeholder="ex: Suzano" className={inputCls} />
+          </Row>
+          <Row label="UF">
+            <input type="text" value={form.cliente.uf} onChange={(e) => updateCliente('uf', e.target.value.toUpperCase().slice(0, 2))} placeholder="SP" maxLength={2} className={inputCls} />
+          </Row>
+          <Row label="CEP">
+            <input type="text" inputMode="numeric" value={form.cliente.cep} onChange={(e) => updateCliente('cep', e.target.value)} placeholder="00000-000" className={inputCls} />
+          </Row>
+        </div>
+        <Row label="Visita técnica em (opcional)">
+          <input
+            type="datetime-local"
+            value={form.visitaTecnica}
+            onChange={(e) => update('visitaTecnica', e.target.value)}
+            className={inputCls}
+          />
+        </Row>
       </Card>
 
       {/* ── 1. SERVIÇOS — um bloco por serviço (espaço + material + itens
@@ -397,16 +565,6 @@ export function QuoteWizard() {
 
       {/* ── 3. LOGÍSTICA ── */}
       <Card title="📋 Logística e comercial">
-        <Row label="Cidade do serviço">
-          <input
-            type="text"
-            value={form.city}
-            onChange={(e) => update('city', e.target.value)}
-            placeholder="ex: São Paulo, SP"
-            className={inputCls}
-          />
-        </Row>
-
         <Row label="Prazo estimado (dias úteis)">
           <input
             type="number"
@@ -450,13 +608,83 @@ export function QuoteWizard() {
         </Row>
       </Card>
 
-      {/* ── 4. DESCRIÇÃO E ESCOPO ── */}
-      <Card title="✍️ Observações livres">
-        <Row label="Descrição (opcional)">
+      {/* ── 3b. PAGAMENTO ── */}
+      <Card title="💳 Pagamento">
+        <Row label="Formas de pagamento">
+          <div className="flex flex-wrap gap-2">
+            {FORMAS_DE_PAGAMENTO.map((f) => {
+              const on = form.pagamento.includes(f);
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => update('pagamento', on ? form.pagamento.filter((x) => x !== f) : [...form.pagamento, f])}
+                  aria-pressed={on}
+                  className="font-semibold text-xs"
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 999,
+                    border: '1.5px solid ' + (on ? 'var(--color-p1)' : 'var(--color-border)'),
+                    background: on ? 'rgba(255,107,53,.12)' : 'var(--color-white)',
+                    color: on ? 'var(--color-p1)' : 'var(--color-ink)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {on ? '✓ ' : ''}{f}
+                </button>
+              );
+            })}
+          </div>
+        </Row>
+        <Row label="Chave PIX (sai no PDF)">
+          <input
+            type="text"
+            value={form.chavePix}
+            onChange={(e) => update('chavePix', e.target.value)}
+            placeholder="CNPJ, CPF, e-mail, telefone ou chave aleatória"
+            className={inputCls}
+          />
+        </Row>
+      </Card>
+
+      {/* ── 3c. DADOS DO PROFISSIONAL (o que o perfil não tem) ── */}
+      <Card title="🪪 Seus dados no orçamento">
+        <p style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.6 }}>
+          Nome, telefone, logo e o texto “sobre” vêm do seu perfil. CNPJ e CPF ficam
+          guardados no último orçamento e voltam preenchidos.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <Row label="CNPJ">
+            <input type="text" inputMode="numeric" value={form.profCnpj} onChange={(e) => update('profCnpj', e.target.value)} placeholder="00.000.000/0000-00" className={inputCls} />
+          </Row>
+          <Row label="CPF">
+            <input type="text" inputMode="numeric" value={form.profCpf} onChange={(e) => update('profCpf', e.target.value)} placeholder="000.000.000-00" className={inputCls} />
+          </Row>
+        </div>
+        <Row label="Endereço">
+          <input type="text" value={form.profEndereco} onChange={(e) => update('profEndereco', e.target.value)} placeholder="Rua, número, bairro - cidade/UF" className={inputCls} />
+        </Row>
+        <Row label="E-mail">
+          <input type="email" value={form.profEmail} onChange={(e) => update('profEmail', e.target.value)} placeholder="voce@exemplo.com" className={inputCls} />
+        </Row>
+      </Card>
+
+      {/* ── 4. LAUDO, INFORMAÇÕES E ESCOPO ── */}
+      <Card title="✍️ Laudo e informações">
+        <Row label="Laudo técnico (opcional)">
+          <textarea
+            value={form.laudoTecnico}
+            onChange={(e) => update('laudoTecnico', e.target.value)}
+            placeholder="ex: Até a data da visita nenhuma anomalia na superfície foi encontrada."
+            rows={3}
+            className={inputCls}
+          />
+        </Row>
+        <Row label="Informações adicionais (opcional)">
           <textarea
             value={form.description}
             onChange={(e) => update('description', e.target.value)}
-            placeholder="ex: parede com mofo no quarto principal, urgência pra entregar dia 15"
+            placeholder="ex: Data de início e forma de pagamento a combinar. Não inclui aluguel de andaime."
             rows={3}
             className={inputCls}
           />
@@ -480,7 +708,7 @@ export function QuoteWizard() {
             value={form.scope}
             onChange={(e) => update('scope', e.target.value)}
             placeholder="Cole o escopo aqui ou clique em 'Sugerir escopo (IA)' — o Seu Zé monta a partir dos campos acima"
-            rows={7}
+            rows={5}
             className={inputCls}
           />
           {scopeMutation.error ? (
@@ -551,6 +779,16 @@ export function QuoteWizard() {
 
       {/* ── 6. VALOR FINAL ── */}
       <Card title="💰 Valor final">
+        <Row label="Desconto (R$ ou %)">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.desconto}
+            onChange={(e) => update('desconto', e.target.value)}
+            placeholder="ex: 10% ou 500,00"
+            className={inputCls}
+          />
+        </Row>
         <Row label="Valor do orçamento (R$)">
           <input
             type="text"
@@ -559,7 +797,7 @@ export function QuoteWizard() {
             onChange={(e) => update('price', e.target.value)}
             placeholder={
               totaisServicos.preenchido > 0
-                ? `soma dos serviços: ${fmtBRL(totaisServicos.preenchido)}`
+                ? `subtotal − desconto: ${fmtBRL(Math.max(0, totaisServicos.preenchido - descontoValor))}`
                 : 'ex: 2500'
             }
             className={inputCls}
@@ -567,18 +805,22 @@ export function QuoteWizard() {
         </Row>
         {form.servicos.length > 0 ? (
           <div style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.7 }}>
-            {totaisServicos.preenchido > 0 ? (
-              <div className="flex items-center justify-between gap-2">
-                <span>
-                  Soma dos itens preenchidos:{' '}
-                  <b style={{ color: 'var(--color-ink)' }}>R$ {fmtBRL(totaisServicos.preenchido)}</b>
-                  {!form.price ? ' (vale se você não digitar outro)' : ''}
-                </span>
-                {form.price ? (
-                  <BotaoUsar onClick={() => update('price', fmtBRL(totaisServicos.preenchido))} />
-                ) : null}
+            <div className="flex justify-between gap-2">
+              <span>Subtotal dos itens preenchidos</span>
+              <b style={{ color: 'var(--color-ink)' }}>
+                {totaisServicos.preenchido > 0 ? `R$ ${fmtBRL(totaisServicos.preenchido)}` : '—'}
+              </b>
+            </div>
+            {descontoValor > 0 ? (
+              <div className="flex justify-between gap-2">
+                <span>Desconto</span>
+                <span>- R$ {fmtBRL(descontoValor)}</span>
               </div>
             ) : null}
+            <div className="flex justify-between gap-2">
+              <span>Valor total {form.price ? '(digitado)' : ''}</span>
+              <b style={{ color: 'var(--color-ink)' }}>{effectivePrice > 0 ? `R$ ${fmtBRL(effectivePrice)}` : '—'}</b>
+            </div>
             {totaisServicos.semValor > 0 && totaisServicos.sugerido > 0 ? (
               <div className="flex items-center justify-between gap-2">
                 <span>
@@ -615,7 +857,8 @@ export function QuoteWizard() {
         </button>
         <button
           type="button"
-          onClick={handlePrintPdf}
+          onClick={() => void handlePdf()}
+          disabled={pdfBusy}
           className="font-bold"
           style={{
             padding: 12,
@@ -627,7 +870,7 @@ export function QuoteWizard() {
             cursor: 'pointer',
           }}
         >
-          🖨️ PDF
+          {pdfBusy ? 'Gerando…' : '🖨️ PDF'}
         </button>
         <button
           type="button"
@@ -748,9 +991,7 @@ export function QuoteWizard() {
       {previewOpen ? (
         <QuotePreviewModal
           onClose={() => setPreviewOpen(false)}
-          painter={painter}
-          form={form}
-          price={effectivePrice}
+          doc={montarDocumento(quoteAtual(), profile as Parameters<typeof montarDocumento>[1])}
         />
       ) : null}
     </section>
@@ -758,24 +999,19 @@ export function QuoteWizard() {
 }
 
 // ─── Preview modal (full screen — também usado pelo print → PDF) ────────────
+// Renderiza o MESMO documento do PDF (`OrcamentoDocumento` a partir de
+// `montarDocumento`): a prévia é o arquivo, não uma versão resumida dele.
 
 interface PreviewProps {
   onClose: () => void;
-  painter: { name: string; phone: string; city: string; state: string; logo: string };
-  form: FormState;
-  price: number;
+  doc: DocumentoOrcamento;
 }
 
-function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
-  const today = new Date().toLocaleDateString('pt-BR');
+function QuotePreviewModal({ onClose, doc }: PreviewProps) {
   const content = (
     <>
       {/* Print styles: mostra só .quote-pdf-content e neutraliza os ancestrais
-          que clipavam/posicionavam (overlay fixo + card com max-height/overflow).
-          BUG corrigido: antes o overlay tinha .quote-pdf-noprint (display:none),
-          o que apagava a subárvore inteira — incluindo o conteúdo — e o PDF saía
-          em branco. visibility:visible num filho NÃO volta de um display:none
-          no ancestral. */}
+          que clipavam/posicionavam (overlay fixo + card com max-height/overflow). */}
       <style>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -816,15 +1052,16 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
           className="bg-white quote-pdf-card"
           style={{
             width: '100%',
-            maxWidth: 480,
+            maxWidth: 560,
             maxHeight: '90vh',
             overflowY: 'auto',
             borderRadius: 16,
+            background: '#fff',
           }}
         >
           <header
             className="flex items-center justify-between quote-pdf-noprint"
-            style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}
+            style={{ padding: '12px 16px', borderBottom: '1px solid #e5e5e5', color: '#1a1a1a' }}
           >
             <h2 className="font-bold text-sm">Preview do orçamento</h2>
             <button
@@ -837,154 +1074,13 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
             </button>
           </header>
 
-          <article className="quote-pdf-content" style={{ padding: 20 }}>
-            {/* Cabeçalho com logo do pintor */}
-            <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, paddingBottom: 14, borderBottom: '2px solid #222' }}>
-              {painter.logo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={painter.logo}
-                  alt="Logo"
-                  style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8 }}
-                />
-              ) : null}
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#222' }}>{painter.name}</div>
-                <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                  {painter.phone ? `📞 ${painter.phone}` : ''}
-                  {painter.city ? `  📍 ${painter.city}${painter.state ? '/' + painter.state : ''}` : ''}
-                </div>
-              </div>
-              <div style={{ textAlign: 'right', fontSize: 10, color: '#666' }}>
-                <div>ORÇAMENTO</div>
-                <div style={{ marginTop: 2 }}>{today}</div>
-              </div>
-            </header>
-
-            {/* Cliente */}
-            {(form.clientName || form.clientPhone) && (
-              <section style={{ marginBottom: 16 }}>
-                <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>
-                  Cliente
-                </h3>
-                <p style={{ fontSize: 13, color: '#222' }}>
-                  {form.clientName ? <strong>{form.clientName}</strong> : null}
-                  {form.clientPhone ? <span> · {form.clientPhone}</span> : null}
-                </p>
-              </section>
-            )}
-
-            {/* Serviços — um bloco por serviço */}
-            {form.servicos.map((s, i) => {
-              const detalhes = detalhesDoServico(s).filter(([k]) => k !== 'Área' && k !== 'Cômodos');
-              return (
-                <section key={s.id} style={{ marginBottom: 16 }}>
-                  <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>
-                    {form.servicos.length > 1 ? `Serviço ${i + 1}` : 'Serviço'}
-                  </h3>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: '#222', margin: '0 0 6px' }}>
-                    {resumoDoServico(s)}
-                  </p>
-                  <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse' }}>
-                    <tbody>
-                      {detalhes.map(([k, v]) => <Cell key={k} k={k} v={v} />)}
-                    </tbody>
-                  </table>
-                  {s.itens.length > 0 ? (
-                    <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse', marginTop: 6 }}>
-                      <tbody>
-                        {s.itens.map((it) => {
-                          const v = valorUnitarioDe(it);
-                          const sub = subtotalDoItem(it);
-                          return (
-                            <tr key={it.id} style={{ borderTop: '1px solid #eee' }}>
-                              <td style={{ padding: '5px 8px 5px 0', verticalAlign: 'top' }}>
-                                <div style={{ fontWeight: 600 }}>{it.servico || 'Item'}</div>
-                                <div style={{ fontSize: 11, color: '#666' }}>
-                                  {quantidadeDe(it)} {unidadeCurta(it.unidade)}
-                                  {v !== null ? ` × R$ ${fmtBRL(v)}` : ''}
-                                </div>
-                              </td>
-                              <td style={{ padding: '5px 0', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, verticalAlign: 'top' }}>
-                                {sub !== null ? `R$ ${fmtBRL(sub)}` : 'a definir'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  ) : null}
-                </section>
-              );
-            })}
-
-            {/* Logística */}
-            <section style={{ marginBottom: 16 }}>
-              <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>
-                Condições
-              </h3>
-              <table style={{ width: '100%', fontSize: 12, color: '#222', borderCollapse: 'collapse' }}>
-                <tbody>
-                  {form.city ? <Cell k="Cidade" v={form.city} /> : null}
-                  {form.durationDays ? <Cell k="Prazo" v={`${form.durationDays} dias úteis`} /> : null}
-                  <Cell k="Inclui material" v={form.includeMaterial ? 'sim' : 'não'} />
-                  <Cell k="Inclui mão de obra" v={form.includeLabor ? 'sim' : 'não'} />
-                  {form.warranty ? <Cell k="Garantia" v={form.warranty} /> : null}
-                </tbody>
-              </table>
-            </section>
-
-            {/* Escopo */}
-            {form.scope ? (
-              <section style={{ marginBottom: 16 }}>
-                <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>
-                  Escopo técnico
-                </h3>
-                <p style={{ fontSize: 12, color: '#222', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-                  {form.scope}
-                </p>
-              </section>
-            ) : null}
-
-            {/* Observações */}
-            {form.description ? (
-              <section style={{ marginBottom: 16 }}>
-                <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>
-                  Observações
-                </h3>
-                <p style={{ fontSize: 12, color: '#222', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-                  {form.description}
-                </p>
-              </section>
-            ) : null}
-
-            {/* Valor total */}
-            <section
-              style={{
-                marginTop: 18,
-                padding: 16,
-                background: '#FFF4ED',
-                borderRadius: 10,
-                border: '2px solid #FF6B35',
-                textAlign: 'right',
-              }}
-            >
-              <div style={{ fontSize: 10, color: '#999', fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>
-                Valor total
-              </div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#FF6B35' }}>
-                R$ {price > 0 ? price.toLocaleString('pt-BR') : '—'}
-              </div>
-            </section>
-
-            <p style={{ marginTop: 18, fontSize: 9, color: '#999', textAlign: 'center' }}>
-              Orçamento gerado por QueroUmaCor · {today}
-            </p>
+          <article className="quote-pdf-content" style={{ padding: 20, background: '#fff' }}>
+            <OrcamentoDocumento doc={doc} />
           </article>
 
           <footer
             className="quote-pdf-noprint flex gap-2"
-            style={{ padding: 12, borderTop: '1px solid var(--color-border)' }}
+            style={{ padding: 12, borderTop: '1px solid #e5e5e5' }}
           >
             <button
               type="button"
@@ -993,9 +1089,9 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
               style={{
                 padding: 10,
                 background: '#fff',
-                color: 'var(--color-ink)',
+                color: '#1a1a1a',
                 borderRadius: 10,
-                border: '1.5px solid var(--color-border)',
+                border: '1.5px solid #e5e5e5',
                 cursor: 'pointer',
               }}
             >
@@ -1007,13 +1103,13 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
               className="flex-1 font-bold text-white text-sm"
               style={{
                 padding: 10,
-                background: 'var(--color-ink)',
+                background: '#111',
                 borderRadius: 10,
                 border: 'none',
                 cursor: 'pointer',
               }}
             >
-              🖨️ Imprimir / Salvar PDF
+              🖨️ Imprimir (navegador)
             </button>
           </footer>
         </div>
@@ -1022,17 +1118,7 @@ function QuotePreviewModal({ onClose, painter, form, price }: PreviewProps) {
   );
   // Portaliza pro body: o QuoteWizard abre dentro de um BottomSheet (transform
   // + overflow + max-height) que cortava o conteúdo no print → PDF em branco.
-  // No body, os ancestrais que clipam somem e o print enxerga o conteúdo.
   return typeof document !== 'undefined' ? createPortal(content, document.body) : null;
-}
-
-function Cell({ k, v }: { k: string; v: string }) {
-  return (
-    <tr>
-      <td style={{ padding: '4px 8px 4px 0', color: '#666', verticalAlign: 'top', width: '40%' }}>{k}</td>
-      <td style={{ padding: '4px 0', color: '#222', fontWeight: 600 }}>{v}</td>
-    </tr>
-  );
 }
 
 // ─── Atoms locais — Card / Row pra deixar o JSX legível ────────────────────

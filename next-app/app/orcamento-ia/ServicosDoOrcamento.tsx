@@ -317,6 +317,14 @@ function BlocoDeServico({
               </Campo>
             </div>
 
+            <Campo label="Onde (sai no PDF como “parte Interna/Externa da casa”)">
+              <select value={s.local ?? ''} onChange={(e) => onChange({ local: e.target.value })} className={inputCls}>
+                <option value="">Não informar</option>
+                <option value="interna">Parte interna da casa</option>
+                <option value="externa">Parte externa da casa</option>
+              </select>
+            </Campo>
+
             <Campo label="Estado da superfície">
               <select value={s.superficie} onChange={(e) => onChange({ superficie: e.target.value })} className={inputCls}>
                 <option value="">Selecione…</option>
@@ -630,6 +638,17 @@ function LinhaDeItem({
           ) : null}
         </div>
       ) : null}
+
+      <label style={{ display: 'block', marginTop: 8 }}>
+        <span className={rotuloCls}>Descrição no PDF (opcional)</span>
+        <textarea
+          value={s.descricao ?? ''}
+          onChange={(e) => onChange({ descricao: e.target.value })}
+          placeholder="ex: Empapelamento e proteção do piso, portas e janelas…"
+          rows={2}
+          className={inputCls}
+        />
+      </label>
 
       <div
         className="flex justify-between gap-2"
