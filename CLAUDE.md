@@ -1,9 +1,10 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
 - **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
-  (2026-09-08, pedido do usuário). SQL PENDENTE:
-  `/migrations/2026-09-08-leads-instagram.sql`** (duas linhas: `leads.instagram
-  text` e `leads.state text`). A planilha "Revista Click Rua — Diretório de
+  (2026-09-08, pedido do usuário). SQL
+  `/migrations/2026-09-08-leads-instagram.sql` (duas linhas: `leads.instagram
+  text` e `leads.state text`) — JÁ EXECUTADO no Supabase (2026-09-08,
+  informado pelo usuário). Não pedir pra rodar de novo.** A planilha "Revista Click Rua — Diretório de
   Artistas" (Edição, Nome, Perfil do IG, Cidade, Estado) vem quase toda SEM
   telefone: o canal desses leads é o Instagram.
   - **Importador do portal (v=20260908a): Nome + (Telefone OU Perfil do IG).**
