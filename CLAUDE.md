@@ -36,6 +36,15 @@
     validade do `primeiroNome` (telefone e inicial solta não passam). O
     `primeiroNome` FICA pro follow-up automático (`escolherTemplate`,
     paridade com o servidor) — só o prefill do modal mudou.
+  - **LEADS: chips de segmento/categoria viraram DOIS SELECTS (v=20260908e,
+    pedido do usuário: "não precisa mostrar todos esses ícones, apenas um
+    campo com dropdown").** Com 1464 leads e segmentos vindos de planilha
+    ("POST 11 - 69A EDICAO"…) os chips eram sete linhas de botão empurrando a
+    tabela pra baixo da dobra. Os selects escrevem nos MESMOS states dos
+    filtros do cabeçalho da tabela. Os segmentos "POST nn - nnA EDICAO" e as
+    categorias numéricas ("68", "67") são DADO da importação da Click Rua
+    (coluna Edição mapeada errado), não bug de tela — corrigir é UPDATE no
+    banco, proposto no chat e não rodado.
 
 - **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
   (2026-09-08, pedido do usuário). SQL

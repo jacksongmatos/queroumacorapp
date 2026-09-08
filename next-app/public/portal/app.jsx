@@ -4202,24 +4202,35 @@ const Leads = () => {
           <button onClick={()=>setImportOpen(true)} title="Importar leads de uma planilha (Excel salvo como CSV)" style={{ padding:'10px 16px', borderRadius:10, border:'none', background:C.p1, color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:6 }}>📥 Importar planilha</button>
         </div>
 
-        {/* SEGMENT CHIPS */}
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:10 }}>
-          <button onClick={()=>setFiltroSegmento('TODOS')} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+(filtroSegmento==='TODOS'?C.p1:C.border), background:filtroSegmento==='TODOS'?C.p1:'transparent', color:filtroSegmento==='TODOS'?'#fff':C.ink, cursor:'pointer', fontSize:12, fontWeight:600 }}>TODOS {leads.length}</button>
-          {sortedSegments.map(([seg, count]) => (
-            <button key={seg} onClick={()=>setFiltroSegmento(seg===filtroSegmento?'TODOS':seg)} style={{ padding:'6px 14px', borderRadius:20, border:'1px solid '+(filtroSegmento===seg?C.p1:C.border), background:filtroSegmento===seg?'rgba(255,107,53,0.1)':'transparent', color:filtroSegmento===seg?C.p1:C.ink, cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', gap:6 }}>
-              <span>{segIcons[seg]||'📌'}</span><span>{seg}</span><span style={{ background:'rgba(0,0,0,0.08)', borderRadius:10, padding:'1px 6px', fontSize:10, fontWeight:700 }}>{count}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* CATEGORY CHIPS */}
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-          <button onClick={()=>setFiltroCategoria('Todas')} style={{ padding:'4px 12px', borderRadius:16, border:'1px solid '+(filtroCategoria==='Todas'?C.p1:C.border), background:filtroCategoria==='Todas'?C.p1:'transparent', color:filtroCategoria==='Todas'?'#fff':C.muted, cursor:'pointer', fontSize:11 }}>Todas {leads.length}</button>
-          {sortedCategories.map(([cat, count]) => (
-            <button key={cat} onClick={()=>setFiltroCategoria(cat===filtroCategoria?'Todas':cat)} style={{ padding:'4px 12px', borderRadius:16, border:'1px solid '+(filtroCategoria===cat?C.p1:C.border), background:filtroCategoria===cat?'rgba(255,107,53,0.08)':'transparent', color:filtroCategoria===cat?C.p1:C.muted, cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', gap:4 }}>
-              <span>{catIcons[cat]||'🔹'}</span><span>{cat}</span><span style={{ fontWeight:700 }}>{count}</span>
-            </button>
-          ))}
+        {/* SEGMENTO + CATEGORIA: dois selects, nao duas fileiras de chips
+            (2026-09-08, pedido do usuario: "nao precisa mostrar todos esses
+            icones, apenas um campo com dropdown"). Com a base em 1464 leads
+            e segmentos vindos de planilha, os chips viraram sete linhas de
+            botao que empurravam a tabela pra baixo da dobra. Os mesmos
+            states dos filtros do cabecalho da tabela — uma fonte so. */}
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
+          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:700, color:C.ink }}>
+            Segmento
+            <select value={filtroSegmento} onChange={e=>setFiltroSegmento(e.target.value)}
+              style={{ padding:'8px 10px', borderRadius:10, border:'1.5px solid '+(filtroSegmento!=='TODOS'?C.p1:C.border),
+                background:'#fff', color:C.ink, fontSize:13, fontWeight:500, outline:'none', cursor:'pointer', minWidth:220 }}>
+              <option value="TODOS">Todos os segmentos ({leads.length})</option>
+              {sortedSegments.map(([seg, count]) => (
+                <option key={seg} value={seg}>{(segIcons[seg] ? segIcons[seg] + ' ' : '') + seg + ' (' + count + ')'}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:700, color:C.ink }}>
+            Categoria
+            <select value={filtroCategoria} onChange={e=>setFiltroCategoria(e.target.value)}
+              style={{ padding:'8px 10px', borderRadius:10, border:'1.5px solid '+(filtroCategoria!=='Todas'?C.p1:C.border),
+                background:'#fff', color:C.ink, fontSize:13, fontWeight:500, outline:'none', cursor:'pointer', minWidth:220 }}>
+              <option value="Todas">Todas as categorias ({leads.length})</option>
+              {sortedCategories.map(([cat, count]) => (
+                <option key={cat} value={cat}>{(catIcons[cat] ? catIcons[cat] + ' ' : '') + cat + ' (' + count + ')'}</option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
