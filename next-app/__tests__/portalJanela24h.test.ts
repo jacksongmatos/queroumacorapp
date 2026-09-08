@@ -355,9 +355,13 @@ describe('modelo inicial do seletor de template', () => {
   });
 
   it('o seletor abre com templateInicial e a lista viva só troca enquanto o operador não mexeu', () => {
+    // A regra vive no hook `useListaDeTemplates`, usado pelo envio unitário
+    // e pelo lote — um só lugar decide.
     expect(fonte).toContain('useState(() => templateInicial(templatesDisponiveis()))');
-    expect(fonte).toContain('if(!tocado.current) setEscolhido(templateInicial(t));');
-    expect(fonte).toContain('tocado.current = true; setEscolhido(e.target.value);');
+    expect(fonte).toContain('if(!tocado.current) setEscolhidoBruto(templateInicial(t));');
+    expect(fonte).toContain('const escolher = (nome) => { tocado.current = true; setEscolhidoBruto(nome); };');
+    expect(fonte).toMatch(/const EnvioDeTemplate = [^\n]*\n\s*const \{[^}]*\} = useListaDeTemplates\(\);/);
+    expect(fonte).toMatch(/const AbordagemLoteModal = [^\n]*\n\s*const \{[^}]*\} = useListaDeTemplates\(\);/);
   });
 });
 
@@ -394,6 +398,58 @@ describe('nome completo no {{1}} do prefill', () => {
   it('o prefill do campo 1 usa o nome completo', () => {
     expect(fonte).toContain("va.indice === 1 ? (nomeCompleto(nomeContato) || '')");
     expect(fonte).not.toContain("va.indice === 1 ? (primeiroNome(nomeContato) || '')");
+  });
+});
+
+// ── Pacote do POST: unitário e lote montam o MESMO ───────────────────────
+describe('pacoteDeTemplate (unitário e lote usam a mesma conta)', () => {
+  let pacoteDeTemplate: (
+    tpl: { nome: string; idioma?: string },
+    vars: Array<{ indice: number }>,
+    valores: Record<number, string>
+  ) => { template: string; idioma: string; components?: unknown; registro: string };
+  let fonte = '';
+  beforeAll(() => {
+    fonte = readFileSync(join(process.cwd(), 'public/portal/app.jsx'), 'utf8');
+    const inicio = fonte.indexOf('const TEMPLATE_IDIOMA =');
+    const fim = fonte.indexOf('// [teste:template-fim]');
+    ({ pacoteDeTemplate } = new Function(
+      `${fonte.slice(inicio, fim)}; return { pacoteDeTemplate };`
+    )());
+  });
+
+  it('ordena as variáveis pelo índice e grava todas no registro', () => {
+    const p = pacoteDeTemplate(
+      { nome: 'calicolors_abordagem_v2', idioma: 'pt_BR' },
+      [{ indice: 3 }, { indice: 1 }, { indice: 2 }],
+      { 1: 'Neri Pintor Atelier', 2: ' Mairiporã ', 3: 'pintura residencial' }
+    );
+    expect(p.template).toBe('calicolors_abordagem_v2');
+    expect(p.idioma).toBe('pt_BR');
+    expect(p.components).toEqual([{ type: 'body', parameters: [
+      { type: 'text', text: 'Neri Pintor Atelier' },
+      { type: 'text', text: 'Mairiporã' },
+      { type: 'text', text: 'pintura residencial' },
+    ] }]);
+    expect(p.registro).toBe('[template calicolors_abordagem_v2] {{1}}=Neri Pintor Atelier {{2}}=Mairiporã {{3}}=pintura residencial');
+  });
+
+  it('template sem variável vai sem components e com registro seco', () => {
+    const p = pacoteDeTemplate({ nome: 'calicolors' }, [], {});
+    expect(p.components).toBeUndefined();
+    expect(p.idioma).toBe('pt_BR');
+    expect(p.registro).toBe('[template calicolors]');
+  });
+
+  it('o envio unitário e o lote passam pelo pacoteDeTemplate', () => {
+    expect(fonte).toContain('onEnviar(pacoteDeTemplate(tpl, vars, valores));');
+    expect(fonte).toContain('pacote: pacoteDeTemplate(tpl, vars, x.valores)');
+  });
+
+  // O lote preenche as variáveis pelo cadastro do lead com as MESMAS
+  // funções do modal unitário — nomeCompleto, cidadeDoLead, ramoDoLead.
+  it('o lote resolve {{1}}/{{2}}/{{3}} pelas mesmas funções do unitário', () => {
+    expect(fonte).toContain("const valores = { 1: nomeCompleto(l.name) || '', 2: cidadeDoLead(l) || '', 3: ramoDoLead(l) || '' };");
   });
 });
 

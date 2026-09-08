@@ -45,6 +45,27 @@
     categorias numéricas ("68", "67") são DADO da importação da Click Rua
     (coluna Edição mapeada errado), não bug de tela — corrigir é UPDATE no
     banco, proposto no chat e não rodado.
+  - **ABORDAGEM EM LOTE + modal em duas colunas (v=20260908f, pedido do
+    usuário: "marcar múltiplos e mandar o modal para vários ao mesmo tempo"
+    e "ver o modal inteiro com o botão de enviar sem rolar").**
+    - Checkbox por linha (só lead abordável: telefone válido e sem opt-out)
+      + checkbox do cabeçalho (marca os abordáveis da lista filtrada) +
+      barra "💬 Abordar N selecionados". `AbordagemLoteModal`: mesmo
+      template pra todos; as variáveis NÃO são digitadas, saem do cadastro
+      de cada lead pelas MESMAS funções do unitário (`nomeCompleto`,
+      `cidadeDoLead`, `ramoDoLead`). Lead com campo vazio, sem número, com
+      opt-out ou dos EUA em Marketing fica DE FORA com o motivo na linha.
+      Envio um por vez (400ms de folga), resultado por linha, "Parar" entre
+      um e outro, "Reenviar N com falha" no fim.
+    - **`useListaDeTemplates`** (hook) + `SeletorDeTemplate` +
+      `AvisoListaEmbutida` + `pacoteDeTemplate` + `enviarTemplateDaLoja`:
+      unitário e lote compartilham lista, modelo inicial, corpo do POST e o
+      envio (que marca `contactado`). Testes travam que os dois passam por
+      `pacoteDeTemplate` e pelo hook.
+    - **`EnvioDeTemplate` virou DUAS COLUNAS** (campos | prévia, `flex-wrap`
+      empilha em tela estreita) e o modal foi a 1000px com intro de uma
+      linha — em coluna única a prévia do v2 empurrava o Enviar pra baixo da
+      dobra. A aba WhatsApp usa o mesmo componente e ganhou a mesma largura.
 
 - **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
   (2026-09-08, pedido do usuário). SQL

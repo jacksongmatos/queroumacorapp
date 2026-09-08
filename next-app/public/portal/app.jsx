@@ -3080,6 +3080,25 @@ const templateInicial = (lista) => {
   return nomes[0] || TEMPLATE_COM_NOME;
 };
 
+// Monta o corpo do POST a partir do template e dos valores das variaveis.
+// Compartilhado pelo envio unitario e pelo LOTE (2026-09-08): a mesma
+// conta, senao um dos dois gravaria registro diferente no historico.
+const pacoteDeTemplate = (tpl, vars, valores) => {
+  const params = (vars || []).slice().sort((a,b) => a.indice - b.indice)
+    .map(v => String(valores[v.indice] == null ? '' : valores[v.indice]).trim());
+  // Registro com TODOS os parametros, na ordem — com 2 variaveis, guardar
+  // so a primeira esconderia metade do que foi enviado.
+  const detalhe = params.map((v, i) => '{{' + (i+1) + '}}=' + v).join(' ');
+  return {
+    template: tpl.nome,
+    idioma: tpl.idioma || TEMPLATE_IDIOMA,
+    components: params.length
+      ? [{ type:'body', parameters: params.map(text => ({ type:'text', text })) }]
+      : undefined,
+    registro: '[template ' + tpl.nome + ']' + (detalhe ? ' ' + detalhe : ''),
+  };
+};
+
 // [teste:template-fim]
 
 // Texto pra MOSTRAR na tela (previa antes de enviar, e bolha depois).
@@ -3348,23 +3367,23 @@ const PreviaDeTemplate = ({ tpl, valores }) => {
 // {{2}} e {{3}} — a convencao dos templates de abordagem e {{1}} nome,
 // {{2}} cidade, {{3}} segmento (decisao de 2026-09-07). Os campos seguem
 // editaveis: o operador corrige o que a base trouxe errado antes de enviar.
-const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, onEnviar }) => {
+// Estado da LISTA de templates, compartilhado pelo envio unitario e pelo
+// lote (2026-09-08). Um so lugar decide o modelo inicial e a troca pela
+// lista viva — dois componentes com copias disso divergiriam.
+const useListaDeTemplates = () => {
   const [lista, setLista] = useState(templatesDisponiveis());
-  const [escolhido, setEscolhido] = useState(() => templateInicial(templatesDisponiveis()));
+  const [escolhido, setEscolhidoBruto] = useState(() => templateInicial(templatesDisponiveis()));
   // O operador mexeu no seletor? Enquanto nao, a lista viva que chega da
   // Meta pode trocar o modelo inicial (a embutida nao tem o v2; a viva tem).
   // Depois que ele escolheu, a chegada da lista nao desfaz a escolha.
   const tocado = React.useRef(false);
-  const [valores, setValores] = useState({});
-  // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
-  const [confirmado, setConfirmado] = useState(false);
   // Falha ao listar na Meta. Deixou de ser silenciosa porque, de fora, ela
   // se parecia com "o portal nao mostra o modelo desse template".
   const [erroLista, setErroLista] = useState(null);
   const [recarregando, setRecarregando] = useState(false);
 
   const aplicar = (t) => {
-    if(t){ setLista(t); setErroLista(null); if(!tocado.current) setEscolhido(templateInicial(t)); }
+    if(t){ setLista(t); setErroLista(null); if(!tocado.current) setEscolhidoBruto(templateInicial(t)); }
     else setErroLista(_templatesErro || 'não consegui falar com a Meta');
   };
 
@@ -3380,7 +3399,71 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
     finally { setRecarregando(false); }
   };
 
+  const escolher = (nome) => { tocado.current = true; setEscolhidoBruto(nome); };
   const tpl = lista.find(t => t.nome === escolhido) || lista[0] || null;
+  return { lista, tpl, escolher, erroLista, recarregando, tentarDeNovo };
+};
+
+// Seletor: rotulo legivel na frente, agrupado por categoria. Marketing e
+// Utility nao sao a mesma coisa pra quem opera — Utility passa pra numero
+// dos EUA e e mais barato; Marketing e o que some sem avisar.
+const SeletorDeTemplate = ({ lista, tpl, onEscolher }) => {
+  const grupos = [];
+  for(const t of lista){
+    const cat = String(t.categoria || 'OUTROS').toUpperCase();
+    let g = grupos.find(x => x.cat === cat);
+    if(!g){ g = { cat, itens: [] }; grupos.push(g); }
+    g.itens.push(t);
+  }
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap' }}>
+      <label style={{ fontSize:12, fontWeight:700, color:C.ink }}>Modelo:</label>
+      <select value={tpl ? tpl.nome : ''} onChange={e=>onEscolher(e.target.value)}
+        style={{ flex:'1 1 240px', padding:'8px 10px', borderRadius:10, fontSize:13,
+          border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
+        {grupos.map(g => (
+          <optgroup key={g.cat} label={CATEGORIA_ROTULO[g.cat] || g.cat}>
+            {g.itens.map(t => (
+              <option key={t.nome} value={t.nome}>
+                {rotuloDeTemplate(t)}
+                {t.variaveis && t.variaveis.length
+                  ? ' · ' + t.variaveis.length + (t.variaveis.length > 1 ? ' campos' : ' campo')
+                  : ' · texto fixo'}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+  );
+};
+
+// Este aviso E a resposta pra "esse template nao mostra o modelo": quando a
+// Meta nao responde, sobra a lista embutida, que tem dois itens e um deles
+// sem texto. Sem esta linha, o sintoma parecia bug da tela.
+const AvisoListaEmbutida = ({ erroLista, recarregando, tentarDeNovo }) => erroLista ? (
+  <div style={{ marginBottom:10, padding:'8px 11px', background:'#fff7ed', border:'1px solid #f0c98a',
+    borderRadius:10, fontSize:11.5, color:'#8a5300', lineHeight:1.5,
+    display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+    <span style={{ flex:1, minWidth:200 }}>
+      Não consegui buscar os modelos na Meta ({erroLista}); mostrando a lista embutida,
+      que pode estar incompleta.
+    </span>
+    <button onClick={tentarDeNovo} disabled={recarregando}
+      style={{ background:'#fff', border:'1px solid #f0c98a', borderRadius:8, padding:'5px 12px',
+        fontSize:11.5, fontWeight:700, color:'#8a5300', cursor: recarregando ? 'wait' : 'pointer' }}>
+      {recarregando ? 'Buscando…' : '↻ Tentar de novo'}
+    </button>
+  </div>
+) : null;
+
+const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, onEnviar }) => {
+  const { lista, tpl, escolher, erroLista, recarregando, tentarDeNovo } = useListaDeTemplates();
+  const [valores, setValores] = useState({});
+  // Confirmacao do aviso de marketing pra EUA (ver `enviar`).
+  const [confirmado, setConfirmado] = useState(false);
+
+  const escolhido = tpl ? tpl.nome : '';
   const vars = (tpl && tpl.variaveis) || (tpl && tpl.precisaNome ? [{ indice:1, exemplo:null }] : []);
 
   // As variaveis ja vem preenchidas com o que a tela sabe — digitar de novo
@@ -3411,17 +3494,7 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
   const faltando = vars.filter(v => !String(valores[v.indice] || '').trim());
   const aviso = tpl ? avisoMarketingEUA(waId, tpl.categoria) : null;
 
-  // Agrupa o seletor por categoria. Marketing e Utility nao sao a mesma
-  // coisa pra quem opera — Utility passa pra numero dos EUA e e mais barato;
-  // Marketing e o que some sem avisar. Ver os dois grupos separados evita
-  // escolher o errado por distracao.
-  const grupos = [];
-  for(const t of lista){
-    const cat = String(t.categoria || 'OUTROS').toUpperCase();
-    let g = grupos.find(x => x.cat === cat);
-    if(!g){ g = { cat, itens: [] }; grupos.push(g); }
-    g.itens.push(t);
-  }
+  const trocar = (nome) => { escolher(nome); setValores({}); setConfirmado(false); };
 
   const enviar = () => {
     if(!tpl || faltando.length) return;
@@ -3429,132 +3502,121 @@ const EnvioDeTemplate = ({ waId, nomeContato, dadosContato, enviando, estagio, o
     // e o operador pode ter motivo. Mas exige confirmacao — mandar sem ver
     // o aviso e o que fez 5 disparos sumirem sem ninguem entender.
     if(aviso && !confirmado){ setConfirmado(true); return; }
-    const params = vars
-      .sort((a,b) => a.indice - b.indice)
-      .map(v => String(valores[v.indice]).trim());
-    // Registro com TODOS os parametros, na ordem — com 2 variaveis, guardar
-    // so a primeira esconderia metade do que foi enviado.
-    const detalhe = params.map((v, i) => '{{' + (i+1) + '}}=' + v).join(' ');
-    onEnviar({
-      template: tpl.nome,
-      idioma: tpl.idioma || TEMPLATE_IDIOMA,
-      components: params.length
-        ? [{ type:'body', parameters: params.map(text => ({ type:'text', text })) }]
-        : undefined,
-      registro: '[template ' + tpl.nome + ']' + (detalhe ? ' ' + detalhe : ''),
-    });
+    onEnviar(pacoteDeTemplate(tpl, vars, valores));
   };
 
+  // DUAS COLUNAS (2026-09-08): campos a esquerda, previa a direita. Em
+  // coluna unica a previa do v2 (texto + 4 botoes) empurrava o botao de
+  // enviar pra baixo da dobra e o modal precisava rolar; lado a lado, tudo
+  // cabe. Em tela estreita o flex-wrap empilha de novo.
   return (
-    <div>
-      {/* Seletor: rotulo legivel na frente, nome cru embaixo do botao. */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap' }}>
-        <label style={{ fontSize:12, fontWeight:700, color:C.ink }}>Modelo:</label>
-        <select value={tpl ? tpl.nome : ''} onChange={e=>{ tocado.current = true; setEscolhido(e.target.value); setValores({}); setConfirmado(false); }}
-          style={{ flex:'1 1 240px', padding:'8px 10px', borderRadius:10, fontSize:13,
-            border:'1.5px solid '+C.border, background:'#fff', color:C.ink, outline:'none', cursor:'pointer' }}>
-          {grupos.map(g => (
-            <optgroup key={g.cat} label={CATEGORIA_ROTULO[g.cat] || g.cat}>
-              {g.itens.map(t => (
-                <option key={t.nome} value={t.nome}>
-                  {rotuloDeTemplate(t)}
-                  {t.variaveis && t.variaveis.length
-                    ? ' · ' + t.variaveis.length + (t.variaveis.length > 1 ? ' campos' : ' campo')
-                    : ' · texto fixo'}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
+    <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'flex-start' }}>
+      <div style={{ flex:'1 1 300px', minWidth:0 }}>
+        <SeletorDeTemplate lista={lista} tpl={tpl} onEscolher={trocar} />
+        <AvisoListaEmbutida erroLista={erroLista} recarregando={recarregando} tentarDeNovo={tentarDeNovo} />
 
-      {erroLista ? (
-        /* Este aviso E a resposta pra "esse template nao mostra o modelo":
-           quando a Meta nao responde, sobra a lista embutida, que tem dois
-           itens e um deles sem texto. Sem esta linha, o sintoma parecia bug
-           da tela. */
-        <div style={{ marginBottom:10, padding:'8px 11px', background:'#fff7ed', border:'1px solid #f0c98a',
-          borderRadius:10, fontSize:11.5, color:'#8a5300', lineHeight:1.5,
-          display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-          <span style={{ flex:1, minWidth:200 }}>
-            Não consegui buscar os modelos na Meta ({erroLista}); mostrando a lista embutida,
-            que pode estar incompleta.
-          </span>
-          <button onClick={tentarDeNovo} disabled={recarregando}
-            style={{ background:'#fff', border:'1px solid #f0c98a', borderRadius:8, padding:'5px 12px',
-              fontSize:11.5, fontWeight:700, color:'#8a5300', cursor: recarregando ? 'wait' : 'pointer' }}>
-            {recarregando ? 'Buscando…' : '↻ Tentar de novo'}
-          </button>
-        </div>
-      ) : null}
-
-      {aviso ? (
-        <div style={{ marginBottom:10, padding:'9px 12px', background:'#fff4e5', border:'1px solid #f0c98a',
-          borderRadius:10, fontSize:12, color:'#8a5300', lineHeight:1.5 }}>
-          ⚠️ {aviso}
-          {confirmado ? (
-            <div style={{ marginTop:6, fontWeight:700 }}>
-              Toque em “Enviar mesmo assim” pra mandar apesar do aviso.
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {vars.length ? (
-        <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:10 }}>
-          {vars.map(v => {
-            const preenchido = !!String(valores[v.indice]||'').trim();
-            return (
-              <div key={v.indice} style={{ display:'flex', alignItems:'center', gap:8 }}>
-                {/* Numero num circulo, nao `{{1}}`: a chave dupla e notacao
-                    da Meta e nao ajuda quem esta preenchendo. O circulo usa
-                    a MESMA cor do destaque na previa, entao da pra ligar o
-                    campo ao lugar da frase sem contar posicao. */}
-                <span title={'variável ' + v.indice}
-                  style={{ width:22, height:22, flex:'0 0 22px', borderRadius:'50%',
-                    background: preenchido ? 'rgba(255,107,53,.16)' : '#f1ece5',
-                    color: preenchido ? '#b8431a' : C.muted,
-                    fontSize:11.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  {v.indice}
-                </span>
-                <input value={valores[v.indice] || ''}
-                  onChange={e=>setValores(x => ({ ...x, [v.indice]: e.target.value }))}
-                  placeholder={v.exemplo ? 'ex.: ' + v.exemplo : 'valor do campo ' + v.indice}
-                  style={{ flex:1, minWidth:0, padding:'8px 10px', borderRadius:10, fontSize:13, outline:'none',
-                    border:'1.5px solid '+(preenchido ? C.border : '#e0a0a0') }} />
+        {aviso ? (
+          <div style={{ marginBottom:10, padding:'9px 12px', background:'#fff4e5', border:'1px solid #f0c98a',
+            borderRadius:10, fontSize:12, color:'#8a5300', lineHeight:1.5 }}>
+            ⚠️ {aviso}
+            {confirmado ? (
+              <div style={{ marginTop:6, fontWeight:700 }}>
+                Toque em “Enviar mesmo assim” pra mandar apesar do aviso.
               </div>
-            );
-          })}
+            ) : null}
+          </div>
+        ) : null}
+
+        {vars.length ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:10 }}>
+            {vars.map(v => {
+              const preenchido = !!String(valores[v.indice]||'').trim();
+              return (
+                <div key={v.indice} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  {/* Numero num circulo, nao `{{1}}`: a chave dupla e notacao
+                      da Meta e nao ajuda quem esta preenchendo. O circulo usa
+                      a MESMA cor do destaque na previa, entao da pra ligar o
+                      campo ao lugar da frase sem contar posicao. */}
+                  <span title={'variável ' + v.indice}
+                    style={{ width:22, height:22, flex:'0 0 22px', borderRadius:'50%',
+                      background: preenchido ? 'rgba(255,107,53,.16)' : '#f1ece5',
+                      color: preenchido ? '#b8431a' : C.muted,
+                      fontSize:11.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    {v.indice}
+                  </span>
+                  <input value={valores[v.indice] || ''}
+                    onChange={e=>setValores(x => ({ ...x, [v.indice]: e.target.value }))}
+                    placeholder={v.exemplo ? 'ex.: ' + v.exemplo : 'valor do campo ' + v.indice}
+                    style={{ flex:1, minWidth:0, padding:'8px 10px', borderRadius:10, fontSize:13, outline:'none',
+                      border:'1.5px solid '+(preenchido ? C.border : '#e0a0a0') }} />
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          <button onClick={enviar} disabled={enviando || !tpl || faltando.length > 0}
+            title={faltando.length ? 'Preencha todos os campos do modelo.' : ''}
+            style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 18px',
+              fontSize:13, fontWeight:700,
+              cursor: (enviando || faltando.length) ? 'not-allowed' : 'pointer',
+              opacity: (enviando || faltando.length) ? .5 : 1 }}>
+            {enviando ? (estagio || 'Enviando…')
+              : (aviso && confirmado ? '📤 Enviar mesmo assim' : '📤 Enviar')}
+          </button>
+          <span style={{ fontSize:11, color:C.muted }}>
+            {/* O nome CRU fica aqui, e nao no seletor: e ele que tem que bater
+                com o painel da Meta quando o envio falhar com 132001. */}
+            {tpl ? <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{tpl.nome}</code> : null}
+            {tpl && tpl.idioma ? ' · ' + tpl.idioma : ''}
+            {faltando.length
+              ? ' · falta preencher ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') +
+                faltando.map(v => v.indice).join(', ')
+              : ''}
+          </span>
         </div>
-      ) : null}
-
-      <div style={{ marginBottom:10 }}>
-        <PreviaDeTemplate tpl={tpl} valores={valores} />
       </div>
-
-      <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-        <button onClick={enviar} disabled={enviando || !tpl || faltando.length > 0}
-          title={faltando.length ? 'Preencha todos os campos do modelo.' : ''}
-          style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 18px',
-            fontSize:13, fontWeight:700,
-            cursor: (enviando || faltando.length) ? 'not-allowed' : 'pointer',
-            opacity: (enviando || faltando.length) ? .5 : 1 }}>
-          {enviando ? (estagio || 'Enviando…')
-            : (aviso && confirmado ? '📤 Enviar mesmo assim' : '📤 Enviar')}
-        </button>
-        <span style={{ fontSize:11, color:C.muted }}>
-          {/* O nome CRU fica aqui, e nao no seletor: e ele que tem que bater
-              com o painel da Meta quando o envio falhar com 132001. */}
-          {tpl ? <code style={{ background:'#efeae1', padding:'1px 5px', borderRadius:4 }}>{tpl.nome}</code> : null}
-          {tpl && tpl.idioma ? ' · ' + tpl.idioma : ''}
-          {faltando.length
-            ? ' · falta preencher ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') +
-              faltando.map(v => v.indice).join(', ')
-            : ''}
-        </span>
+      <div style={{ flex:'1 1 300px', minWidth:0 }}>
+        <PreviaDeTemplate tpl={tpl} valores={valores} />
       </div>
     </div>
   );
+};
+
+// Envio de UM template pelo numero da loja. Compartilhado pelo modal
+// unitario e pelo lote — devolve { ok:true } ou { ok:false, erro }, nunca
+// lanca. Enviou -> marca o lead como contactado (best-effort: a mensagem
+// ja saiu, e falhar o UPDATE nao pode virar "falhou o envio" na tela).
+const enviarTemplateDaLoja = async ({ alvo, pacote, leadId }) => {
+  let session = null;
+  try { ({ data: { session } } = await supa.auth.getSession()); } catch(_){}
+  if(!session) return { ok:false, erro:'Sessao expirada — entre de novo.' };
+  let r;
+  try {
+    // No template o `body` NAO e o que a Meta envia (o texto dela vive
+    // la): e o registro pro historico do portal, pra conversa nao virar um
+    // "[template]" seco. Ver persistWhatsAppMessage na rota.
+    r = await fetch('/api/whatsapp/send', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        accessToken: session.access_token,
+        to: alvo, type:'template', template: pacote.template,
+        languageCode: pacote.idioma, components: pacote.components,
+        body: pacote.registro,
+      })
+    });
+  } catch(_){ return { ok:false, erro:'Falha de rede ao enviar.' }; }
+  let raw = ''; try { raw = await r.text(); } catch(_){}
+  let res = {}; try { res = JSON.parse(raw); } catch(_){}
+  if(!r.ok || !res.ok){
+    const snippet = res.error ? '' : (raw||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
+    return { ok:false, erro: res.error || ('Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')') };
+  }
+  if(leadId){
+    try { await supa.from('leads').update({ status:'contactado' }).eq('id', leadId); } catch(_){}
+  }
+  return { ok:true };
 };
 
 
@@ -3840,46 +3902,17 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
   const enviarPara = async (pacote) => {
     if(!alvo){ setErro('Numero invalido neste lead.'); return; }
     if(!pacote) return;
-    setEnviando(true); setErro('');
-    try {
-      const { data: { session } } = await supa.auth.getSession();
-      if(!session){ setErro('Sessao expirada — entre de novo.'); setEnviando(false); return; }
-      setEstagio('Enviando…');
-      // No template o `body` NAO e o que a Meta envia (o texto dela vive
-      // la): e o registro pro historico do portal, pra conversa nao virar um
-      // "[template]" seco. Ver persistWhatsAppMessage na rota.
-      const r = await fetch('/api/whatsapp/send', {
-        method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({
-          accessToken: session.access_token,
-          to: alvo, type:'template', template: pacote.template,
-          languageCode: pacote.idioma, components: pacote.components,
-          // O `body` NAO e o que a Meta envia (o texto dela vive la): e o
-          // registro pro historico, pra conversa nao virar "[template]".
-          body: pacote.registro,
-        })
-      });
-      let raw = ''; try { raw = await r.text(); } catch(_){}
-      let res = {}; try { res = JSON.parse(raw); } catch(_){}
-      if(!r.ok || !res.ok){
-        const snippet = res.error ? '' : (raw||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
-        setErro(res.error || ('Falha no envio (HTTP ' + r.status + (snippet ? ' — ' + snippet : '') + ')'));
-        setEnviando(false); setEstagio('');
-        return;
-      }
-      // Enviou: marca o lead como contactado (best-effort — a mensagem ja saiu).
-      try {
-        await supa.from('leads').update({ status:'contactado' }).eq('id', lead.id);
-      } catch(_){}
-      if(onSent) onSent(alvo);
-      onClose();
-    } catch(_){ setErro('Falha de rede ao enviar.'); }
+    setEnviando(true); setErro(''); setEstagio('Enviando…');
+    const res = await enviarTemplateDaLoja({ alvo, pacote, leadId: lead.id });
     setEnviando(false); setEstagio('');
+    if(!res.ok){ setErro(res.erro); return; }
+    if(onSent) onSent(alvo);
+    onClose();
   };
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(26,26,46,.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'min(720px, 96vw)', maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.24)' }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'min(1000px, 96vw)', maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.24)' }}>
         {/* Cabecalho */}
         <div style={{ padding:'16px 20px', borderBottom:'1px solid '+C.border, display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
           <div>
@@ -3900,14 +3933,12 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
 
         {/* Corpo rolavel */}
         <div style={{ padding:20, overflowY:'auto', flex:1 }}>
-          <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:14 }}>
-            Quem nunca escreveu pra loja não tem janela aberta — o WhatsApp só
-            aceita <strong style={{ color:C.ink }}>template aprovado</strong> como
-            primeira mensagem, e o texto dele é fixo (quem guarda é a Meta).
-            Assim que a pessoa <strong style={{ color:C.ink }}>responder</strong>,
-            abrem 24h pra falar livremente — e aí a conversa segue na aba
-            <strong style={{ color:C.ink }}> WhatsApp</strong>, que tem o histórico
-            e a sugestão da IA.
+          {/* Uma linha, nao um paragrafo (2026-09-08): o modal tem que caber
+              na tela com o botao de enviar a vista, sem rolar. */}
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:12 }}>
+            Primeira mensagem é sempre um <strong style={{ color:C.ink }}>template aprovado</strong> (a Meta guarda o texto).
+            Quando a pessoa <strong style={{ color:C.ink }}>responder</strong>, a conversa segue na aba
+            <strong style={{ color:C.ink }}> WhatsApp</strong>, com texto livre por 24h.
           </div>
 
           <EnvioDeTemplate
@@ -3935,6 +3966,165 @@ const AbordagemModal = ({ lead, onClose, onSent }) => {
     </div>
   );
 };
+// ── Abordagem em LOTE (2026-09-08, pedido do usuario: "marcar multiplos
+// e mandar o modal para varios ao mesmo tempo") ─────────────────────────
+// O operador marca os leads na tabela e manda o MESMO template pra todos.
+// As variaveis nao sao digitadas: saem do cadastro de cada lead, pela
+// mesma regra do modal unitario ({{1}} nomeCompleto, {{2}} cidadeDoLead,
+// {{3}} ramoDoLead). Lead com campo vazio, sem numero valido, que pediu
+// pra nao receber, ou dos EUA em template de Marketing fica DE FORA com o
+// motivo escrito na linha — nunca vai "Oi ," pra ninguem. O envio e um por
+// vez, com o resultado de cada um na propria linha; "Parar" interrompe
+// entre um envio e o outro.
+const linhaDoLote = (l) => {
+  const alvo = normalizeLeadPhone(l.phone);
+  const valores = { 1: nomeCompleto(l.name) || '', 2: cidadeDoLead(l) || '', 3: ramoDoLead(l) || '' };
+  const motivo = l.opted_out_at ? 'pediu pra não receber' : !alvo ? 'sem número válido' : null;
+  return { lead: l, alvo, valores, motivo };
+};
+
+const AbordagemLoteModal = ({ leads, onClose, onSent }) => {
+  const { lista, tpl, escolher, erroLista, recarregando, tentarDeNovo } = useListaDeTemplates();
+  const [estado, setEstado] = useState({});   // lead.id -> { fase:'enviando'|'ok'|'erro', erro }
+  const [rodando, setRodando] = useState(false);
+  const [terminou, setTerminou] = useState(false);
+  const pararRef = React.useRef(false);
+
+  const vars = (tpl && tpl.variaveis) || (tpl && tpl.precisaNome ? [{ indice:1, exemplo:null }] : []);
+  const marketing = !!tpl && String(tpl.categoria || '').toUpperCase() === 'MARKETING';
+  const linhas = leads.map(l => {
+    const b = linhaDoLote(l);
+    let motivo = b.motivo;
+    if(!motivo && marketing && ehNumeroEUA(b.alvo)) motivo = 'número dos EUA: marketing não entrega';
+    if(!motivo){
+      const faltando = vars.filter(v => !String(b.valores[v.indice] || '').trim()).map(v => v.indice);
+      if(faltando.length) motivo = 'falta ' + (faltando.length > 1 ? 'os campos ' : 'o campo ') + faltando.join(', ');
+    }
+    return { ...b, motivo, pronto: !motivo };
+  });
+  const prontos = linhas.filter(x => x.pronto);
+  // Pendentes = prontos ainda nao enviados + os que falharam (pode tentar de
+  // novo: o erro veio da API, a mensagem nao saiu).
+  const pendentes = prontos.filter(x => !estado[x.lead.id] || estado[x.lead.id].fase === 'erro');
+  const enviados = Object.values(estado).filter(e => e.fase === 'ok').length;
+  const falhas = Object.values(estado).filter(e => e.fase === 'erro').length;
+  const exemplo = prontos[0] || linhas[0] || null;
+
+  const enviar = async () => {
+    if(!tpl || !pendentes.length || rodando) return;
+    setRodando(true); pararRef.current = false;
+    for(const x of pendentes){
+      if(pararRef.current) break;
+      setEstado(e => ({ ...e, [x.lead.id]: { fase:'enviando' } }));
+      const res = await enviarTemplateDaLoja({ alvo: x.alvo, pacote: pacoteDeTemplate(tpl, vars, x.valores), leadId: x.lead.id });
+      setEstado(e => ({ ...e, [x.lead.id]: res.ok ? { fase:'ok' } : { fase:'erro', erro: res.erro } }));
+      // Um por vez, com folga: e uma pessoa mandando varias mensagens, nao
+      // uma rajada — e da tempo de a linha mostrar o resultado.
+      await new Promise(r => setTimeout(r, 400));
+    }
+    setRodando(false); setTerminou(true);
+  };
+  const fechar = () => {
+    if(rodando) return; // no meio do envio o X nao fecha — "Parar" primeiro
+    if(terminou && onSent) onSent();
+    onClose();
+  };
+
+  const icone = (x) => {
+    const e = estado[x.lead.id];
+    if(e && e.fase === 'enviando') return <span title="enviando">⏳</span>;
+    if(e && e.fase === 'ok') return <span style={{ color:C.p6, fontWeight:800 }} title="enviado">✓</span>;
+    if(e && e.fase === 'erro') return <span style={{ color:'#b3261e', fontWeight:800 }} title="falhou">✗</span>;
+    if(!x.pronto) return <span style={{ color:'#b8860b' }} title="fica de fora">—</span>;
+    return <span style={{ color:C.muted }} title="pronto pra enviar">•</span>;
+  };
+
+  return (
+    <div onClick={fechar} style={{ position:'fixed', inset:0, background:'rgba(26,26,46,.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'min(1000px, 96vw)', maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.24)' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid '+C.border, display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+          <div>
+            <div style={{ fontWeight:800, fontSize:16, color:C.ink }}>💬 Abordagem em lote</div>
+            <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>
+              {leads.length} {leads.length === 1 ? 'lead selecionado' : 'leads selecionados'} ·{' '}
+              <strong style={{ color:C.ink }}>{prontos.length}</strong> {prontos.length === 1 ? 'pronto' : 'prontos'} pra enviar
+              {linhas.length - prontos.length > 0 ? ' · ' + (linhas.length - prontos.length) + ' de fora (motivo na linha)' : ''}
+            </div>
+          </div>
+          <button onClick={fechar} disabled={rodando} style={{ background:'none', border:'none', fontSize:22, cursor: rodando ? 'not-allowed' : 'pointer', color:C.muted, lineHeight:1 }}>×</button>
+        </div>
+
+        <div style={{ padding:20, overflowY:'auto', flex:1 }}>
+          <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'flex-start' }}>
+            <div style={{ flex:'1 1 360px', minWidth:0 }}>
+              <SeletorDeTemplate lista={lista} tpl={tpl} onEscolher={(n)=>{ if(!rodando) escolher(n); }} />
+              <AvisoListaEmbutida erroLista={erroLista} recarregando={recarregando} tentarDeNovo={tentarDeNovo} />
+              <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.5, marginBottom:8 }}>
+                Os campos saem do cadastro de cada lead: <strong style={{ color:C.ink }}>1</strong> nome ·{' '}
+                <strong style={{ color:C.ink }}>2</strong> cidade · <strong style={{ color:C.ink }}>3</strong> ramo.
+                Quem estiver com campo vazio fica de fora — abra o lead sozinho pra completar.
+              </div>
+              <div style={{ border:'1px solid '+C.border, borderRadius:10, maxHeight:380, overflowY:'auto' }}>
+                {linhas.map(x => {
+                  const e = estado[x.lead.id];
+                  return (
+                    <div key={x.lead.id} style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'8px 10px',
+                      borderBottom:'1px solid '+C.cream, opacity: x.pronto ? 1 : .7 }}>
+                      <span style={{ width:18, textAlign:'center', fontSize:13, flex:'0 0 18px' }}>{icone(x)}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12.5, fontWeight:600, color:C.ink, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{x.lead.name || '—'}</div>
+                        <div style={{ fontSize:11, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {x.lead.phone || 'sem telefone'}
+                          {vars.length ? ' · ' + vars.map(v => x.valores[v.indice] || '?').join(' · ') : ''}
+                        </div>
+                        {x.motivo ? <div style={{ fontSize:11, color:'#b8860b' }}>{x.motivo}</div> : null}
+                        {e && e.fase === 'erro' ? <div style={{ fontSize:11, color:'#b3261e' }}>{e.erro}</div> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ flex:'1 1 300px', minWidth:0 }}>
+              {exemplo ? (
+                <div style={{ fontSize:11.5, color:C.muted, marginBottom:6 }}>
+                  Prévia com <strong style={{ color:C.ink }}>{exemplo.lead.name || 'o primeiro da lista'}</strong> — cada lead recebe com os próprios dados.
+                </div>
+              ) : null}
+              <PreviaDeTemplate tpl={tpl} valores={exemplo ? exemplo.valores : {}} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding:'14px 20px', borderTop:'1px solid '+C.border, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <span style={{ fontSize:11, color:C.muted }}>
+            {rodando ? 'Enviando… ' : ''}
+            {enviados + falhas > 0 ? enviados + ' enviado' + (enviados === 1 ? '' : 's') + (falhas ? ' · ' + falhas + ' com falha' : '') : 'Envia pelo número oficial da loja · um por vez'}
+          </span>
+          <div style={{ display:'flex', gap:8 }}>
+            {rodando ? (
+              <button onClick={()=>{ pararRef.current = true; }}
+                style={{ background:'none', border:'1px solid #b3261e', borderRadius:10, padding:'9px 16px', fontSize:13, cursor:'pointer', color:'#b3261e', fontWeight:700 }}>
+                ■ Parar
+              </button>
+            ) : (
+              <button onClick={enviar} disabled={!tpl || !pendentes.length}
+                style={{ background:C.p1, color:'#fff', border:'none', borderRadius:10, padding:'9px 18px', fontSize:13, fontWeight:700,
+                  cursor: (!tpl || !pendentes.length) ? 'not-allowed' : 'pointer', opacity: (!tpl || !pendentes.length) ? .5 : 1 }}>
+                {terminou && falhas ? '📤 Reenviar ' + pendentes.length + ' com falha' : '📤 Enviar para ' + pendentes.length}
+              </button>
+            )}
+            <button onClick={fechar} disabled={rodando}
+              style={{ background:'none', border:'1px solid '+C.border, borderRadius:10, padding:'9px 16px', fontSize:13, cursor: rodando ? 'not-allowed' : 'pointer', color:C.muted }}>
+              {terminou ? 'Fechar' : 'Cancelar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Cabecalho da tabela de leads: ordena e filtra ────────────────────────
 // Antes o header era uma lista de textos com "↕" decorativo. Cada coluna
 // agora ordena (clique no titulo, clique de novo inverte) e tem filtro
@@ -4013,6 +4203,10 @@ const Leads = () => {
   const [fCidade, setFCidade] = useState('Todas');
   const [importOpen, setImportOpen] = useState(false);
   const [abordar, setAbordar] = useState(null); // lead da janela de abordagem
+  // SELECAO MULTIPLA (2026-09-08): ids marcados na tabela pra abordar em
+  // lote. So lead abordavel (telefone valido e sem opt-out) entra.
+  const [sel, setSel] = useState(() => new Set());
+  const [abordarLote, setAbordarLote] = useState(null); // leads da janela em lote
 
   const removeDuplicates = async (allLeads) => {
     const seen = {};
@@ -4154,6 +4348,18 @@ const Leads = () => {
 
   if (loading) return <div style={{ padding: 20, color: C.muted }}>Carregando leads...</div>;
 
+  const abordavel = (l) => !!l.phone && !l.opted_out_at && !!normalizeLeadPhone(l.phone);
+  const abordaveisNaTela = filtered.filter(abordavel);
+  const todosMarcados = abordaveisNaTela.length > 0 && abordaveisNaTela.every(l => sel.has(l.id));
+  const alternarTodos = () => setSel(prev => {
+    const n = new Set(prev);
+    if(todosMarcados) filtered.forEach(l => n.delete(l.id));
+    else abordaveisNaTela.forEach(l => n.add(l.id));
+    return n;
+  });
+  const alternar = (id) => setSel(prev => { const n = new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selecionados = leads.filter(l => sel.has(l.id));
+
   const segIcons = LEAD_SEG_ICONS;
   const catIcons = LEAD_CAT_ICONS;
 
@@ -4232,6 +4438,22 @@ const Leads = () => {
             </select>
           </label>
         </div>
+        {sel.size > 0 ? (
+          <div style={{ marginTop:12, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap',
+            padding:'10px 12px', background:C.p1+'14', border:'1px solid '+C.p1, borderRadius:10 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:C.ink }}>
+              {sel.size} {sel.size === 1 ? 'lead selecionado' : 'leads selecionados'}
+            </span>
+            <button onClick={()=>setAbordarLote(selecionados)}
+              style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'7px 14px', cursor:'pointer', fontSize:12, fontWeight:700, whiteSpace:'nowrap' }}>
+              💬 Abordar {sel.size} {sel.size === 1 ? 'selecionado' : 'selecionados'}
+            </button>
+            <button onClick={()=>setSel(new Set())}
+              style={{ background:'none', border:'1px solid '+C.border, borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:12, color:C.muted }}>
+              ✕ Limpar seleção
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* TABLE */}
@@ -4239,6 +4461,12 @@ const Leads = () => {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, color:C.ink }}>
           <thead>
             <tr style={{ borderBottom:'2px solid '+C.border }}>
+              <th style={{ padding:'12px 4px 12px 10px', width:26 }}>
+                <input type="checkbox" checked={todosMarcados} onChange={alternarTodos}
+                  disabled={abordaveisNaTela.length === 0}
+                  title={todosMarcados ? 'Desmarcar os leads desta lista' : 'Marcar todos os leads abordáveis desta lista (' + abordaveisNaTela.length + ')'}
+                  style={{ cursor:'pointer', width:15, height:15 }} />
+              </th>
               <ThLead rot="NOME" campo="name" ativo={!!fNome} ctx={thCtx}>
                 <input autoFocus value={fNome} onChange={e=>setFNome(e.target.value)} placeholder="Buscar no nome…"
                   style={filtroInput} />
@@ -4282,7 +4510,7 @@ const Leads = () => {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={10} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
+              <tr><td colSpan={11} style={{ padding:'30px 10px', color:C.muted, textAlign:'center' }}>Nenhum lead encontrado.</td></tr>
             )}
             {filtered.map((l, i) => {
               const sc = statusColor(l.status);
@@ -4290,7 +4518,13 @@ const Leads = () => {
               const segColor = segColors[(l.segment||'').toUpperCase()] || C.muted;
               const stars = l.rating ? '★'.repeat(Math.min(5,Math.round(Number(l.rating)))) : '';
               return (
-                <tr key={l.id || i} style={{ borderBottom:'1px solid '+C.border, transition:'background 0.15s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(0,0,0,0.02)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <tr key={l.id || i} style={{ borderBottom:'1px solid '+C.border, transition:'background 0.15s', background: sel.has(l.id) ? C.p1+'0d' : 'transparent' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(0,0,0,0.02)'} onMouseLeave={e=>e.currentTarget.style.background = sel.has(l.id) ? C.p1+'0d' : 'transparent'}>
+                  <td style={{ padding:'12px 4px 12px 10px' }}>
+                    <input type="checkbox" checked={sel.has(l.id)} onChange={()=>alternar(l.id)}
+                      disabled={!abordavel(l)}
+                      title={abordavel(l) ? 'Marcar pra abordar em lote' : (l.opted_out_at ? 'Pediu pra não receber' : 'Sem telefone válido')}
+                      style={{ cursor: abordavel(l) ? 'pointer' : 'not-allowed', width:15, height:15 }} />
+                  </td>
                   <td style={{ padding:'12px 10px' }}>
                     <div style={{ fontWeight:600, color:C.ink }}>{l.name || '—'}</div>
                     <div style={{ fontSize:11, color:C.muted }}>{l.address || '—'}</div>
@@ -4366,6 +4600,13 @@ const Leads = () => {
           lead={abordar}
           onClose={()=>setAbordar(null)}
           onSent={()=>fetchLeads()}
+        />
+      ) : null}
+      {abordarLote ? (
+        <AbordagemLoteModal
+          leads={abordarLote}
+          onClose={()=>setAbordarLote(null)}
+          onSent={()=>{ fetchLeads(); setSel(new Set()); }}
         />
       ) : null}
     </div>
