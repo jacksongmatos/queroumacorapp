@@ -6450,9 +6450,9 @@ const PreviaDeTemplate = ({
   }, botoes.map((b, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
     style: {
-      padding: '9px 8px',
+      padding: '6px 8px',
       textAlign: 'center',
-      fontSize: 13,
+      fontSize: 12.5,
       fontWeight: 600,
       color: '#0a7cbd',
       borderTop: i ? '1px solid #e9edef' : 'none'
@@ -12634,11 +12634,22 @@ const WhatsAppTab = () => {
   /* Janela fechada: esconder o campo de texto e oferecer o
      template. Mostrar um campo que so devolve erro 131047
      ensina o operador a desconfiar da tela. */
+  /* TETO + ROLAGEM PROPRIA (2026-09-08): este bloco e filho
+     de uma coluna flex de altura fixa. Sem `overflow`, item de
+     flex nao encolhe abaixo do conteudo — e o v2 (texto longo
+     + 4 botoes na previa) ficou mais alto que a coluna, entao
+     empurrava o cabecalho e as mensagens pra fora da tela em
+     vez de rolar. Agora ocupa no maximo 62% da coluna e rola
+     por dentro; o historico continua a vista em cima. */
   React.createElement("div", {
     style: {
       padding: 14,
       background: '#fff',
-      borderTop: '1px solid ' + C.border
+      borderTop: '1px solid ' + C.border,
+      flex: '0 1 auto',
+      minHeight: 0,
+      maxHeight: '62%',
+      overflowY: 'auto'
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {

@@ -3300,7 +3300,7 @@ const PreviaDeTemplate = ({ tpl, valores }) => {
         {botoes.length ? (
           <div style={{ borderTop:'1px solid #e9edef' }}>
             {botoes.map((b, i) => (
-              <div key={i} style={{ padding:'9px 8px', textAlign:'center', fontSize:13, fontWeight:600,
+              <div key={i} style={{ padding:'6px 8px', textAlign:'center', fontSize:12.5, fontWeight:600,
                 color:'#0a7cbd', borderTop: i ? '1px solid #e9edef' : 'none' }}>
                 <span style={{ marginRight:6, opacity:.8 }}>{ICONE_BOTAO[b.tipo] || '•'}</span>
                 {b.texto}
@@ -6430,7 +6430,15 @@ const WhatsAppTab = () => {
                 /* Janela fechada: esconder o campo de texto e oferecer o
                    template. Mostrar um campo que so devolve erro 131047
                    ensina o operador a desconfiar da tela. */
-                <div style={{ padding:14, background:'#fff', borderTop:'1px solid '+C.border }}>
+                /* TETO + ROLAGEM PROPRIA (2026-09-08): este bloco e filho
+                   de uma coluna flex de altura fixa. Sem `overflow`, item de
+                   flex nao encolhe abaixo do conteudo — e o v2 (texto longo
+                   + 4 botoes na previa) ficou mais alto que a coluna, entao
+                   empurrava o cabecalho e as mensagens pra fora da tela em
+                   vez de rolar. Agora ocupa no maximo 62% da coluna e rola
+                   por dentro; o historico continua a vista em cima. */
+                <div style={{ padding:14, background:'#fff', borderTop:'1px solid '+C.border,
+                  flex:'0 1 auto', minHeight:0, maxHeight:'62%', overflowY:'auto' }}>
                   <div style={{ fontSize:12, fontWeight:700, color:C.ink, marginBottom:4 }}>
                     ⏳ Fora da janela de 24h — comece por um template
                   </div>
