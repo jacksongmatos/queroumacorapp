@@ -101,9 +101,16 @@ export interface ComposerProps {
   /** Callback após publish bem-sucedido — caller pode fechar modal,
    *  refetch feed, etc. */
   onPublishSuccess?: () => void;
+  /**
+   * 'portfolio' = o tile "Meu Portfólio": mesma tela, sem as abas
+   * Publicação/24h (portfólio é permanente), sem "Marcar como venda" (isso é
+   * o tile "Arte pra venda") e com o nome do tile no topo.
+   */
+  modo?: 'publicar' | 'portfolio';
 }
 
-export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
+export function Composer({ embedded, onPublishSuccess, modo = 'publicar' }: ComposerProps = {}) {
+  const portfolio = modo === 'portfolio';
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const publish = usePublishPost();
@@ -128,7 +135,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
   const isStory = postType === 'story';
   // "Marcar como venda": só profissional (cliente não anuncia serviço) e
   // nunca em story (story some em 24h; venda é post permanente).
-  const canSell = canMarkPostForSale(policyUser) && !isStory;
+  const canSell = !portfolio && canMarkPostForSale(policyUser) && !isStory;
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [genLoading, setGenLoading] = useState(false);
@@ -147,7 +154,8 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
     key: 'post_composer',
     values: autosaveValues,
     onRestore: (restored) => {
-      if (typeof restored.postType === 'string') setPostType(restored.postType);
+      // No portfólio não existe 24h: rascunho de story restaura como publicação.
+      if (typeof restored.postType === 'string' && !portfolio) setPostType(restored.postType);
       if (typeof restored.caption === 'string') setCaption(restored.caption);
       if (typeof restored.forSale === 'boolean') setForSale(restored.forSale);
       if (typeof restored.priceText === 'string') setPriceText(restored.priceText);
@@ -363,6 +371,19 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
           perfil e a outra SOME. "Story" só é claro pra quem já usa Instagram;
           "24h" diz a regra pra qualquer um. O valor interno segue 'story',
           intocado: isto é rótulo, não modelo de dados. */}
+      {portfolio ? (
+        <div>
+          <h2
+            className="font-extrabold"
+            style={{ fontFamily: 'var(--font-display)', fontSize: 20, color: 'var(--color-ink)' }}
+          >
+            📸 Meu Portfólio
+          </h2>
+          <p className="text-sm text-[color:var(--color-muted)]" style={{ marginTop: 2 }}>
+            Publique um trabalho seu. Ele fica no seu perfil e aparece no feed.
+          </p>
+        </div>
+      ) : (
       <div className="flex gap-2" role="tablist" aria-label="Tipo de publicação">
         <button
           type="button"
@@ -395,6 +416,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
           24h
         </button>
       </div>
+      )}
 
       {/* Uploader: some quando já tem o máximo permitido. */}
       {(files.length === 0 || canAddMore) && (
@@ -542,7 +564,7 @@ export function Composer({ embedded, onPublishSuccess }: ComposerProps = {}) {
         data-testid="publish-btn"
         className="w-full py-3 rounded-2xl bg-[color:var(--color-p1)] text-white font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
       >
-        {submitting ? 'Publicando…' : 'Publicar'}
+        {submitting ? 'Publicando…' : portfolio ? 'Publicar no portfólio' : 'Publicar'}
       </button>
 
       {draftSavedAt > 0 ? (

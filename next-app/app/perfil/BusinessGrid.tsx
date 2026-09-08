@@ -108,6 +108,8 @@ type SheetKey =
 interface SheetConfig {
   label: string;
   Component: ComponentType<Record<string, unknown>>;
+  /** Props fixas do tile (ex.: o Composer em modo portfólio). */
+  props?: Record<string, unknown>;
 }
 
 // SHEETS é `Partial` porque alguns tiles (ex.: grafites) abrem ROTA
@@ -118,7 +120,9 @@ const SHEETS: Partial<Record<SheetKey, SheetConfig>> = {
   orcamento: { label: 'Orçamento', Component: QuoteWizard as ComponentType },
   orcamentos: { label: 'Pipeline de Orçamentos', Component: PipelineKanban as ComponentType },
   pontos: { label: 'Meus Pontos', Component: PontosView as ComponentType },
-  portfolio: { label: 'Publicar', Component: Composer as ComponentType },
+  // O MESMO Composer do /publicar, em modo portfólio: sem "24h", sem
+  // "Marcar como venda" e com o nome do tile (pedido do usuário, 2026-09-08).
+  portfolio: { label: 'Meu Portfólio', Component: Composer as ComponentType, props: { modo: 'portfolio' } },
   calculadora: { label: 'Calculadora', Component: CalcView as ComponentType },
   'tabela-precos': { label: 'Tabela de Preços', Component: TabelaPrecosView as ComponentType },
   agenda: { label: 'Agenda', Component: AgendaCalendar as ComponentType },
@@ -303,6 +307,8 @@ export function BusinessGrid() {
         open={!!openSheet}
         onClose={() => setOpenSheet(null)}
         ariaLabel={activeConfig?.label}
+        // O Kanban tem 6 colunas: em 430px no desktop virava cartão espremido.
+        maxWidth={openSheet === 'orcamentos' ? 1100 : undefined}
       >
         {Active ? (
           <Suspense
@@ -312,7 +318,7 @@ export function BusinessGrid() {
               </div>
             }
           >
-            <Active />
+            <Active {...(activeConfig?.props ?? {})} />
           </Suspense>
         ) : null}
       </BottomSheet>

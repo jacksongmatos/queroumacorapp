@@ -1,5 +1,23 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **AJUSTES DE DESKTOP E PORTFÓLIO (2026-09-08, três pedidos do usuário).**
+  - **"Baixar PDF" abria a janela de Share do Windows.** `shareOrDownloadPdfBlob`
+    tentava `navigator.share` com arquivo antes de tudo, e Chrome/Edge no
+    Windows/macOS expõem essa API. Agora o share sheet só entra em
+    Android/iOS; no desktop, "baixar" baixa. Vale pro PDF de pedido e de
+    orçamento.
+  - **Kanban de orçamentos espremido no PC.** O grid usava `xl:grid-cols-3`,
+    que olha a JANELA, dentro de um `BottomSheet` de 430px — num monitor
+    largo eram 3 colunas em 430px. Grid virou `repeat(auto-fill,
+    minmax(300px, 1fr))` (largura do CONTAINER) e o `BottomSheet` ganhou
+    `maxWidth?` (default 430); o tile `orcamentos` abre com 1100. **REGRA:
+    dentro do sheet, breakpoint do Tailwind mente — usar auto-fill/minmax.**
+  - **"Meu Portfólio" abria o composer igual ao /publicar.** O `Composer`
+    ganhou `modo='portfolio'` (via `SheetConfig.props` no `BusinessGrid`):
+    sem abas Publicação/24h (portfólio é permanente; rascunho de story
+    restaura como publicação), sem "Marcar como venda" (isso é o tile Arte
+    pra venda), título "📸 Meu Portfólio" e botão "Publicar no portfólio".
+
 - **PDF DO ORÇAMENTO NO LAYOUT DE REFERÊNCIA (2026-09-08, pedido do usuário:
   "100% fiel" ao orçamento da LP Decor Pinturas, 4 páginas). SEM SQL.**
   Cabeçalho do profissional (logo, nome, "Pintor", CNPJ, CPF, endereço,
