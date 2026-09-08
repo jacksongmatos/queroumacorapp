@@ -1,5 +1,27 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
+  (2026-09-08, pedido do usuário). SQL PENDENTE:
+  `/migrations/2026-09-08-leads-instagram.sql`** (duas linhas: `leads.instagram
+  text` e `leads.state text`). A planilha "Revista Click Rua — Diretório de
+  Artistas" (Edição, Nome, Perfil do IG, Cidade, Estado) vem quase toda SEM
+  telefone: o canal desses leads é o Instagram.
+  - **Importador do portal (v=20260908a): Nome + (Telefone OU Perfil do IG).**
+    Duplicata = mesmo telefone (8 últimos dígitos) OU mesmo @ (`normalizarIg`
+    tira "@", "instagram.com/" e barra final). Quem não tem nenhum dos dois
+    fica de fora, com contagem no relatório. Planilha sem coluna Segmento
+    ganha um select "usar pra todas as linhas" — escolha explícita, nunca
+    chute; GRAFFITI põe a categoria `Graffiti/Arte` (a única desse funil).
+  - **Tolera as colunas ausentes**: INSERT com 42703 em `instagram|state` é
+    refeito sem as duas e o relatório avisa em laranja pra rodar o SQL e
+    importar de novo (as linhas entram, mas sem @ e UF). Recurso novo não
+    derruba o que já funciona por SQL pendente.
+  - **Tabela: coluna "PERFIL DO IG"** (link pro perfil) e, pra lead sem
+    telefone, o botão da ação vira **"📸 Abrir IG"** — "Abordar" é template de
+    WhatsApp e não faz sentido ali. Busca do topo também acha pelo @.
+  - Build do portal conferido byte a byte antes de mexer (recipe do
+    CLAUDE.md, `@babel/preset-react` instalado com `--no-save`).
+
 - **AJUSTES DE DESKTOP E PORTFÓLIO (2026-09-08, três pedidos do usuário).**
   - **"Baixar PDF" abria a janela de Share do Windows.** `shareOrDownloadPdfBlob`
     tentava `navigator.share` com arquivo antes de tudo, e Chrome/Edge no
