@@ -29,6 +29,13 @@
     em vez de rolar. Agora `maxHeight:62%` + `overflowY:auto` + `minHeight:0`
     no bloco; botões da prévia mais baixos. **REGRA: filho de coluna flex de
     altura fixa que pode crescer precisa de `overflow` + `minHeight:0`.**
+  - **{{1}} É O NOME COMPLETO do lead (v=20260908d, decisão do usuário:
+    "falta aparecer o nome completo do lead e não somente a primeira
+    palavra").** O lead é quase sempre um negócio ("Neri Pintor Atelier") e
+    "Oi Neri" cortava o nome. `nomeCompleto` no prefill do campo 1, mesma
+    validade do `primeiroNome` (telefone e inicial solta não passam). O
+    `primeiroNome` FICA pro follow-up automático (`escolherTemplate`,
+    paridade com o servidor) — só o prefill do modal mudou.
 
 - **LEADS: "PERFIL DO IG" + ESTADO — importação dos grafiteiros da Click Rua
   (2026-09-08, pedido do usuário). SQL
