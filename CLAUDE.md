@@ -1,5 +1,48 @@
 # Estado do projeto / convenções (não perguntar de novo)
 
+- **PDF DO ORÇAMENTO NO LAYOUT DE REFERÊNCIA (2026-09-08, pedido do usuário:
+  "100% fiel" ao orçamento da LP Decor Pinturas, 4 páginas). SEM SQL.**
+  Cabeçalho do profissional (logo, nome, "Pintor", CNPJ, CPF, endereço,
+  telefone, e-mail) + caixa "Orçamento nº"; Cliente (nome, telefone,
+  endereço, CEP) + faixa "Visita técnica em:"; tabela "Serviços" em cards
+  (item + descrição longa | Valor por m² | Quantidade | Subtotal); faixas
+  "Valor total dos Serviços" / Subtotal / Descontos / "Valor total"; Laudo
+  Técnico; Informações adicionais; Pagamento (formas + Chave PIX); "Este
+  serviço será realizado na parte Interna/Externa da casa"; botões
+  Recusar/Aprovar; página "Área do profissional" (logo + bio); rodapé
+  "Documento gerado em" em toda página.
+  - **UM MODELO, DOIS RENDERIZADORES.** `lib/orcamentoDocumento.ts`
+    (`montarDocumento(quote, perfil)`, puro, testado em
+    `__tests__/orcamentoDocumento.test.ts`) faz TODA a conta; quem desenha
+    é `lib/pdf/quotePdf.ts` (jsPDF — o arquivo que o cliente recebe, único
+    caminho que funciona no app) e `components/orcamento/OrcamentoDocumento
+    .tsx` (HTML — prévia do wizard e `QuotePdfSheet` do pipeline). A prévia
+    é o arquivo, não um resumo dele.
+  - **O que o banco NÃO tem e vive em `quote_data`:** `numero` ("12/2026",
+    contado dos orçamentos do pintor no ano, na abertura do wizard),
+    `visitaTecnica` (datetime-local — hora DIGITADA, não passa por fuso),
+    `cliente` {rua, bairro, complemento, cidade, uf, cep}, `desconto`
+    ("10%" ou "500,00"), `laudoTecnico`, `pagamento[]`, `chavePix`,
+    `descricao` por item, `local` (interna/externa) por serviço, e o snapshot
+    `painter` com `cnpj`/`cpf`/`endereco`/`email`/`rotulo`/`sobre` — **o
+    perfil não tem coluna de CNPJ, CPF nem CEP**; o wizard pede e REAPROVEITA
+    do último orçamento gravado (fonte = banco, não localStorage). Se um dia
+    quiserem no perfil: `ALTER TABLE profiles ADD COLUMN cnpj text, cpf
+    text` + campos no `/perfil/editar`.
+  - **Totais:** subtotal = soma dos itens preenchidos; desconto digitado (%
+    da soma ou R$); valor total = digitado > subtotal − desconto > IA. Preço
+    digitado ABAIXO da soma sem desconto explícito vira desconto no PDF (o
+    cliente vê a conta fechar). Orçamento antigo (sem `servicos`) vira uma
+    linha com o preço; `itens` {desc, valor} do vanilla também.
+  - **Aprovar/Recusar são links `wa.me`** pro telefone do pintor com a
+    mensagem pronta — não existe página de aprovação pelo cliente (quote
+    criada pelo wizard não tem `client_id`). `digitosDoTelefone` segue a
+    regra do `normalizeWhatsAppTarget` (11 dígitos só é BR com 3º = 9).
+  - **O botão PDF do wizard gera pelo jsPDF** (`generateQuotePdfBlob` +
+    `shareOrDownloadPdfBlob`), não mais `window.print()` — que é no-op na
+    WebView. O `Visualizar` mostra o `OrcamentoDocumento` e o print do
+    navegador fica como opção dentro dele.
+
 - **AR GRAFITE: "Capturar" NÃO FAZIA NADA NO APP ANDROID (2026-09-07).** O
   `ArtAROverlay` compositava vídeo + arte no canvas e disparava um
   `<a download>` de `blob:` — funciona no navegador do PC e a WebView do
