@@ -35,15 +35,34 @@ interface Transform {
   rotation: number; // graus
   flipX: boolean;  // espelhado na horizontal
   flipY: boolean;  // espelhado na vertical
+  yaw: number;     // giro "em pé", em torno do eixo vertical (graus, 0-360)
+  pitch: number;   // inclinação, em torno do eixo horizontal (graus, 0-360)
 }
 
-const INITIAL_TRANSFORM: Transform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false, flipY: false };
+const INITIAL_TRANSFORM: Transform = {
+  x: 0, y: 0, scale: 1, rotation: 0, flipX: false, flipY: false, yaw: 0, pitch: 0,
+};
 
-/** CSS e canvas usam a MESMA ordem: translate → rotate → scale (com espelho). */
+/**
+ * CSS e canvas usam a MESMA ordem: translate → rotate → giro 3D → scale.
+ *
+ * O giro 3D (yaw/pitch) é ORTOGRÁFICO de propósito — `rotateY` sem
+ * `perspective` no CSS é exatamente "largura × cos(ângulo)", que o canvas 2D
+ * reproduz com um scale. Com perspectiva a prévia ficaria mais bonita e a
+ * captura (canvas 2D não projeta) mentiria sobre ela. É o mesmo "girar em
+ * pé 360°" do modo WebXR, que só existe no Chrome Android com ARCore.
+ */
 function cssTransform(t: Transform): string {
   const sx = t.flipX ? -t.scale : t.scale;
   const sy = t.flipY ? -t.scale : t.scale;
-  return `translate(-50%, -50%) translate(${t.x}px, ${t.y}px) rotate(${t.rotation}deg) scale(${sx}, ${sy})`;
+  return `translate(-50%, -50%) translate(${t.x}px, ${t.y}px) rotate(${t.rotation}deg) rotateY(${t.yaw}deg) rotateX(${t.pitch}deg) scale(${sx}, ${sy})`;
+}
+/** O que o giro 3D ortográfico faz com largura/altura (o mesmo que o CSS). */
+function escala3d(t: Transform): { kx: number; ky: number } {
+  return {
+    kx: Math.cos((t.yaw * Math.PI) / 180),
+    ky: Math.cos((t.pitch * Math.PI) / 180),
+  };
 }
 
 // Type comum entre React.Touch e DOM Touch — só usamos clientX/clientY.
@@ -256,10 +275,12 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
     ctx.save();
     ctx.translate(cx * sx, cy * sy);
     ctx.rotate((transform.rotation * Math.PI) / 180);
-    // Mesma ordem do CSS (cssTransform): rotate e depois scale com espelho.
+    // Mesma ordem do CSS (cssTransform): rotate, giro 3D ortográfico e
+    // depois scale com espelho.
+    const { kx, ky } = escala3d(transform);
     ctx.scale(
-      transform.flipX ? -transform.scale : transform.scale,
-      transform.flipY ? -transform.scale : transform.scale,
+      kx * (transform.flipX ? -transform.scale : transform.scale),
+      ky * (transform.flipY ? -transform.scale : transform.scale),
     );
     ctx.globalAlpha = opacity;
     ctx.drawImage(img, -baseW * sx / 2, -baseH * sy / 2, baseW * sx, baseH * sy);
@@ -460,6 +481,18 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
           <BotaoAjuste onClick={espelharY} ativo={transform.flipY} rotulo="↕ Espelhar" aria="Espelhar na vertical" />
           <BotaoAjuste onClick={girar90} ativo={false} rotulo="↻ Girar 90°" aria="Girar 90 graus" />
         </div>
+        <Deslizador
+          rotulo="Girar em pé"
+          valor={transform.yaw}
+          onChange={(v) => setTransform((t) => ({ ...t, yaw: v }))}
+          aria="Girar em torno do eixo vertical"
+        />
+        <Deslizador
+          rotulo="Inclinar"
+          valor={transform.pitch}
+          onChange={(v) => setTransform((t) => ({ ...t, pitch: v }))}
+          aria="Inclinar em torno do eixo horizontal"
+        />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 700, minWidth: 64 }}>Opacidade</span>
           <input
@@ -499,6 +532,36 @@ export function ArtAROverlay({ open, imageUrl, title, onClose }: Props) {
           1 dedo: mover · 2 dedos: zoom + girar
         </p>
       </div>
+    </div>
+  );
+}
+
+function Deslizador({
+  rotulo,
+  valor,
+  onChange,
+  aria,
+}: {
+  rotulo: string;
+  valor: number;
+  onChange: (v: number) => void;
+  aria: string;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, minWidth: 64 }}>{rotulo}</span>
+      <input
+        type="range"
+        min={0}
+        max={360}
+        step={1}
+        value={valor}
+        onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
+        onDoubleClick={() => onChange(0)}
+        aria-label={aria}
+        style={{ flex: 1 }}
+      />
+      <span style={{ fontSize: 11, minWidth: 36, textAlign: 'right' }}>{valor}°</span>
     </div>
   );
 }

@@ -57,6 +57,14 @@
     nessa tela; o usuário lembrava deles). `Transform` ganhou `flipX/flipY`, e
     CSS e canvas usam a MESMA ordem (`cssTransform`: translate → rotate →
     scale com sinal) — senão a prévia mente sobre a captura.
+  - **"Girar em pé" e "Inclinar" (2026-09-08)** — o que o usuário lembrava era
+    o "🔄 Girar" 3D do modo **WebXR** (`ArtArWebXR`), que só existe no Chrome
+    Android com ARCore; no app (WebView) e no PC cai no overlay 2D, que não
+    tinha isso. O overlay ganhou `yaw`/`pitch` (0-360) com `rotateY`/`rotateX`
+    **ORTOGRÁFICOS** (sem `perspective`) de propósito: sem perspectiva o CSS é
+    exatamente "largura × cos(ângulo)", e o canvas 2D reproduz com um
+    `scale` — com perspectiva a prévia ficaria mais bonita e a captura
+    mentiria sobre ela. Duplo clique no slider zera.
 
 - **ORÇAMENTO (Crie e envie) = VÁRIOS SERVIÇOS, cada um com espaço, material
   e itens da TABELA ABRAPP (2026-09-07, pedido do usuário, em duas rodadas).
