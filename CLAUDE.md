@@ -29,6 +29,13 @@
     igual ao padrão grava NULL de propósito (melhoria futura do padrão chega
     sozinha); coluna ausente → a tela mostra o SQL. Testes:
     `__tests__/portalPromptIa.test.ts` + `whatsapp-ai.test.ts`.
+  - **"Cortou as opções no envio da abordagem" (v=20260908h) — NÃO cortou.**
+    Os botões de resposta rápida são do template aprovado e a Meta os anexa
+    sozinha em todo envio (prova: quem toca neles chega como `type='button'`,
+    06/09). O que faltava era a BOLHA do portal desenhar o template inteiro:
+    agora mostra cabeçalho, corpo, rodapé e botões (`BolhaConteudo`, ramo
+    `template`). Depende da lista viva de templates (`templatePorNome`), que
+    a aba já carrega.
 
 - **ABORDAGEM: v2 É O MODELO INICIAL + a cidade sai de onde estiver
   (2026-09-08, pedido do usuário: "abordagem V2 como padrão inicial e corrija
